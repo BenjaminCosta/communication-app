@@ -15,9 +15,10 @@ interface ComposeScreenProps {
   onSend: (text: string, contactIds: string[], projectId: string | null, type: MessageType) => void
   projects: Project[]
   onCreateProject: (name: string) => Project
+  mode?: "fullscreen" | "sheet"
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet" }: ComposeScreenProps) {
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
@@ -36,7 +37,8 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject }: C
   }
 
   const handleSend = () => {
-    onSend(text, selectedContacts, selectedProject, selectedType)
+    if (!text.trim()) return
+    onSend(text.trim(), selectedContacts, selectedProject, selectedType)
   }
 
   const selectedContactNames = selectedContacts
@@ -55,9 +57,14 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject }: C
   }
 
   return (
-    <div className="h-full flex flex-col bg-[#0a1628] rounded-t-3xl overflow-hidden">
-      {/* Handle */}
-      <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0" />
+    <div className={cn(
+      "h-full flex flex-col bg-background overflow-hidden",
+      mode === "sheet" ? "rounded-t-3xl" : ""
+    )}>
+      {/* Handle — only in sheet mode */}
+      {mode === "sheet" && (
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0" />
+      )}
       {/* Header */}
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/10">
         <h1 className="text-base font-bold">
@@ -224,6 +231,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject }: C
             {text.length > 0 ? `${text.length} chars` : "Context optional"}
           </span>
           <button
+            type="button"
             onClick={handleSend}
             disabled={!text.trim()}
             className={cn(

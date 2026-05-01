@@ -8,21 +8,28 @@ interface ProfileScreenProps {
   userInitials: string
   onBack: () => void
   onSignOut: () => void
+  onNotifications: () => void
+  onPrivacy: () => void
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSignOut }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSignOut, onNotifications, onPrivacy }: ProfileScreenProps) {
   return (
     <div className="flex-1 flex flex-col bg-background animate-fade-in">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 py-3 flex items-center gap-3 border-b border-white/10">
-        <button
-          onClick={onBack}
-          className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 transition-transform"
-        >
-          <ArrowLeft className="w-4 h-4 text-muted-foreground" />
-        </button>
-        <h1 className="text-base font-bold tracking-tight">Profile</h1>
+      <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+          >
+            <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <h1 className="text-base font-bold tracking-tight">Profile</h1>
+        </div>
       </div>
+
+      {/* Centered content */}
+      <div className="max-w-2xl mx-auto w-full flex flex-col flex-1">
 
       {/* Avatar + Info */}
       <div className="flex flex-col items-center gap-3 pt-10 pb-8 px-6">
@@ -52,8 +59,8 @@ export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSig
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
-        <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" />
-        <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" />
+        <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
+        <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" onClick={onPrivacy} />
       </div>
 
       <div className="flex-1" />
@@ -68,6 +75,7 @@ export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSig
           Sign Out
         </button>
       </div>
+      </div>{/* end centered content */}
     </div>
   )
 }
@@ -83,9 +91,9 @@ function StatCell({ label, value }: { label: string; value: string }) {
   )
 }
 
-function SettingsRow({ icon, label }: { icon: React.ReactNode; label: string }) {
+function SettingsRow({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <button className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
+    <button onClick={onClick} className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
       <span className="text-muted-foreground">{icon}</span>
       <span className="flex-1 text-sm font-medium">{label}</span>
       <ChevronRight className="w-4 h-4 text-muted-foreground/40" />

@@ -18,14 +18,20 @@ interface TagSheetProps {
   onApply: (type: MessageType, projectId: string | null) => void
   onClose: () => void
   projects: Project[]
+  onCreateProject: (name: string) => Project
 }
 
-export function TagSheet({ message, onApply, onClose, projects }: TagSheetProps) {
-  const [selectedType, setSelectedType] = useState<TagType | null>(null)
+export function TagSheet({ message, onApply, onClose, projects, onCreateProject }: TagSheetProps) {
+  const [selectedType, setSelectedType] = useState<TagType | null>(
+    message.type !== "none" ? (message.type as TagType) : null
+  )
   const [selectedProject, setSelectedProject] = useState<string | null>(
     message.projectId
   )
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false)
+  const [newProjectName, setNewProjectName] = useState("")
 
+  const isEditing = message.type !== "none"
   const contact = getContact(message.contactId)
 
   const handleApply = () => {
@@ -43,15 +49,15 @@ export function TagSheet({ message, onApply, onClose, projects }: TagSheetProps)
         aria-label="Close"
       />
 
-      {/* Bottom Sheet */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#0d1c35] border-t border-white/10 rounded-t-3xl pb-8 animate-slide-up safe-area-pb">
+      {/* Bottom Sheet — full width mobile, centered on desktop */}
+      <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:w-120 md:bottom-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl pb-8 animate-slide-up safe-area-pb md:shadow-2xl">
         {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-5" />
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 mb-4">
           <h3 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground">
-            Add Context
+            {isEditing ? "Edit Context" : "Add Context"}
           </h3>
           <button
             onClick={onClose}
@@ -106,47 +112,90 @@ export function TagSheet({ message, onApply, onClose, projects }: TagSheetProps)
           Assign to project
         </h4>
         <div className="flex flex-col gap-1 px-4 max-h-[180px] overflow-y-auto">
-          {projects.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-2">No projects yet. Create one from compose.</p>
-          ) : (
-            projects.map((project) => (
-              <button
-                key={project.id}
-                onClick={() =>
-                  setSelectedProject(
-                    selectedProject === project.id ? null : project.id
-                  )
-                }
+          {projects.map((project) => (
+            <button
+              key={project.id}
+              onClick={() =>
+                setSelectedProject(
+                  selectedProject === project.id ? null : project.id
+                )
+              }
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
+                selectedProject === project.id
+                  ? "bg-primary/15"
+                  : "active:bg-white/5"
+              )}
+            >
+              <div
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
+                  "w-2 h-2 rounded-full flex-shrink-0",
+                  project.color
+                )}
+              />
+              <span
+                className={cn(
+                  "text-sm font-semibold flex-1 text-left",
                   selectedProject === project.id
-                    ? "bg-primary/15"
-                    : "active:bg-white/5"
+                    ? "text-primary"
+                    : "text-foreground/90"
                 )}
               >
-                <div
-                  className={cn(
-                    "w-2 h-2 rounded-full flex-shrink-0",
-                    project.color
-                  )}
-                />
-                <span
-                  className={cn(
-                    "text-sm font-semibold flex-1 text-left",
-                    selectedProject === project.id
-                      ? "text-primary"
-                      : "text-foreground/90"
-                  )}
-                >
-                  {project.name}
-                </span>
-                {selectedProject === project.id && (
-                  <Check className="w-4 h-4 text-primary" />
-                )}
-              </button>
-            ))
+                {project.name}
+              </span>
+              {selectedProject === project.id && (
+                <Check className="w-4 h-4 text-primary" />
+              )}
+            </button>
+          ))}
+          {projects.length === 0 && !showNewProjectInput && (
+            <p className="text-xs text-muted-foreground py-2 px-1">No projects yet.</p>
           )}
         </div>
+
+        {/* Inline new project input */}
+        {showNewProjectInput ? (
+          <div className="flex gap-2 mt-3 px-4">
+            <input
+              autoFocus
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (!newProjectName.trim()) return
+                  const p = onCreateProject(newProjectName)
+                  setSelectedProject(p.id)
+                  setNewProjectName("")
+                  setShowNewProjectInput(false)
+                }
+                if (e.key === "Escape") { setShowNewProjectInput(false); setNewProjectName("") }
+              }}
+              placeholder="Project name..."
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 transition-colors"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (!newProjectName.trim()) return
+                const p = onCreateProject(newProjectName)
+                setSelectedProject(p.id)
+                setNewProjectName("")
+                setShowNewProjectInput(false)
+              }}
+              className="px-3 py-2 bg-primary/20 border border-primary/30 text-primary text-xs font-semibold rounded-lg active:scale-95 transition-all"
+            >
+              Create
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowNewProjectInput(true)}
+            className="mx-4 mt-3 w-[calc(100%-32px)] text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
+          >
+            + New project
+          </button>
+        )}
 
         {/* Apply Button */}
         <button
@@ -159,7 +208,7 @@ export function TagSheet({ message, onApply, onClose, projects }: TagSheetProps)
               : "bg-white/10 text-muted-foreground"
           )}
         >
-          {selectedType ? "Apply →" : "Select a type"}
+          {selectedType ? (isEditing ? "Save →" : "Apply →") : "Select a type"}
         </button>
       </div>
     </div>

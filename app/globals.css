@@ -223,3 +223,50 @@
 .delay-250 { animation-delay: 250ms; }
 .delay-300 { animation-delay: 300ms; }
 .delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* Spring pop — used for avatar/logo entrances */
+@keyframes spring-pop {
+  0%   { opacity: 0; transform: scale(0.72); }
+  55%  { opacity: 1; transform: scale(1.07); }
+  75%  { transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-spring-pop {
+  animation: spring-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Logo breathe — subtle glow pulse */
+@keyframes logo-breathe {
+  0%, 100% { filter: drop-shadow(0 0 14px rgba(37, 99, 235, 0.15)); }
+  50%       { filter: drop-shadow(0 0 30px rgba(59, 130, 246, 0.30)); }
+}
+.animate-logo-breathe {
+  animation: logo-breathe 4.5s ease-in-out infinite;
+}
+
+/* Shimmer — sweeping highlight over button */
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.8s linear infinite;
+}
+
+/* Slide down — header / notification entrance */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down {
+  animation: slide-down 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.delay-400 { animation-delay: 400ms; }

@@ -248,7 +248,6 @@ function MessageBubble({
   const contact = getContact(message.contactId)
   const project = projects.find((p) => p.id === message.projectId) ?? null
   const style = typeStyles[message.type]
-  const isClickable = message.type === "none"
 
   return (
     <div
@@ -277,14 +276,13 @@ function MessageBubble({
           </span>
         )}
         <button
-          onClick={isClickable ? onClick : undefined}
-          disabled={!isClickable}
+          onClick={onClick}
           className={cn(
             "border p-3 px-3.5 text-left",
             message.isMe
               ? "bg-[#112a52] border-primary/25 rounded-[16px_16px_4px_16px]"
               : "bg-card border-white/10 rounded-[16px_16px_16px_4px]",
-            isClickable && "active:border-feedback/30 active:bg-feedback/5"
+            "active:opacity-70 transition-opacity"
           )}
         >
           <p className="text-sm leading-relaxed text-foreground/90">
