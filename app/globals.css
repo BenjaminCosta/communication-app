@@ -1,0 +1,225 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* SVC Dark Theme - Base */
+  --background: #0B0F14;
+  --foreground: #F9FAFB;
+  --card: #121821;
+  --card-foreground: #F9FAFB;
+  --popover: #121821;
+  --popover-foreground: #F9FAFB;
+  
+  /* Primary action */
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #1D4ED8;
+  
+  /* Secondary / Muted */
+  --secondary: #1F2937;
+  --secondary-foreground: #9CA3AF;
+  --muted: #1F2937;
+  --muted-foreground: #9CA3AF;
+  --accent: #1F2937;
+  --accent-foreground: #F9FAFB;
+  
+  /* States */
+  --progress: #22C55E;
+  --problem: #EF4444;
+  --feedback: #F59E0B;
+  --decision: #3B82F6;
+  
+  /* Borders */
+  --border: #1F2937;
+  --input: #1F2937;
+  --ring: #2563EB;
+  
+  /* Destructive */
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --font-sans: 'Sora', 'Sora Fallback', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-progress: var(--progress);
+  --color-problem: var(--problem);
+  --color-feedback: var(--feedback);
+  --color-decision: var(--decision);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* State color utilities */
+.bg-progress { background-color: var(--progress); }
+.bg-problem { background-color: var(--problem); }
+.bg-feedback { background-color: var(--feedback); }
+.bg-decision { background-color: var(--decision); }
+
+.text-progress { color: var(--progress); }
+.text-problem { color: var(--problem); }
+.text-feedback { color: var(--feedback); }
+.text-decision { color: var(--decision); }
+
+.border-progress { border-color: var(--progress); }
+.border-problem { border-color: var(--problem); }
+.border-feedback { border-color: var(--feedback); }
+.border-decision { border-color: var(--decision); }
+
+/* Custom scrollbar hiding */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Glow animation for FAB */
+@keyframes glow {
+  0%, 100% { 
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45);
+  }
+  50% { 
+    box-shadow: 0 4px 24px rgba(59, 130, 246, 0.65);
+  }
+}
+
+.animate-glow {
+  animation: glow 2.5s ease-in-out infinite;
+}
+
+/* Float animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Slide up animation for bottom sheet */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Safe area padding for mobile */
+.safe-area-pb {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+
+/* ── Entrance animations (GPU-only: transform + opacity) ── */
+
+/* Smooth fade + lift — for text blocks and form sections */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Pure fade — for overlays and screen wrappers */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+/* Spring pop — logo entrance with natural overshoot */
+@keyframes spring-pop {
+  0%   { opacity: 0; transform: scale(0.7); }
+  55%  { opacity: 1; transform: scale(1.08); }
+  75%  { transform: scale(0.96); }
+  90%  { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+.animate-spring-pop {
+  animation: spring-pop 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Gentle scale-in — for cards, avatars */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.86); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 0.4s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+}
+
+/* Logo idle breathe — subtle glow pulse after entrance */
+@keyframes logo-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.92; transform: scale(1.018); }
+}
+.animate-logo-breathe {
+  animation: logo-breathe 3.5s ease-in-out infinite;
+  animation-delay: 700ms; /* starts after entrance settles */
+}
+
+/* Shimmer — for button active state reinforcement */
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position: 200% center; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  background-size: 200% auto;
+  animation: shimmer 2.4s linear infinite;
+}
+
+/* Stagger helpers */
+.delay-50  { animation-delay: 50ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-250 { animation-delay: 250ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }

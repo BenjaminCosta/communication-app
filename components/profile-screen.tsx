@@ -1,0 +1,94 @@
+"use client"
+
+import { ArrowLeft, LogOut, Mail, Bell, Shield, ChevronRight } from "lucide-react"
+
+interface ProfileScreenProps {
+  userName: string
+  userEmail: string
+  userInitials: string
+  onBack: () => void
+  onSignOut: () => void
+}
+
+export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSignOut }: ProfileScreenProps) {
+  return (
+    <div className="flex-1 flex flex-col bg-background animate-fade-in">
+      {/* Header */}
+      <div className="flex-shrink-0 px-4 py-3 flex items-center gap-3 border-b border-white/10">
+        <button
+          onClick={onBack}
+          className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+        </button>
+        <h1 className="text-base font-bold tracking-tight">Profile</h1>
+      </div>
+
+      {/* Avatar + Info */}
+      <div className="flex flex-col items-center gap-3 pt-10 pb-8 px-6">
+        <div className="relative animate-spring-pop">
+          <div className="w-20 h-20 rounded-full bg-primary/15 border-2 border-primary/30 flex items-center justify-center shadow-[0_0_32px_rgba(37,99,235,0.2)]">
+            <span className="text-2xl font-bold text-primary">{userInitials}</span>
+          </div>
+          {/* Online indicator */}
+          <div className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-progress border-2 border-background shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+        </div>
+        <div className="text-center animate-fade-up delay-100">
+          <h2 className="text-lg font-bold">{userName}</h2>
+        </div>
+        {/* Email chip */}
+        <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 animate-fade-up delay-150">
+          <Mail className="w-3 h-3 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground font-mono">{userEmail}</span>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="mx-6 rounded-2xl bg-card border border-white/10 flex divide-x divide-white/10 mb-6 animate-fade-up delay-200">
+        <StatCell label="Messages" value="—" />
+        <StatCell label="Projects" value="—" />
+        <StatCell label="Joined" value="—" />
+      </div>
+
+      {/* Settings rows */}
+      <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
+        <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" />
+        <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" />
+      </div>
+
+      <div className="flex-1" />
+
+      {/* Sign Out */}
+      <div className="px-6 pb-10 safe-area-pb animate-fade-up delay-300">
+        <button
+          onClick={onSignOut}
+          className="w-full py-3.5 rounded-xl border border-destructive/20 bg-destructive/8 text-destructive text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-150 hover:bg-destructive/15"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex-1 flex flex-col items-center py-4 gap-0.5">
+      <span className="text-base font-bold">{value}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground font-mono">
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function SettingsRow({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <button className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="flex-1 text-sm font-medium">{label}</span>
+      <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
+    </button>
+  )
+}
