@@ -41,16 +41,16 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
   }
 
   return (
-    <div className="flex-1 flex flex-col relative bg-background overflow-hidden">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
       {/* Dimmed Background */}
       <button
         onClick={onClose}
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
         aria-label="Close"
       />
 
       {/* Bottom Sheet — full width mobile, centered on desktop */}
-      <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:w-120 md:bottom-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl pb-8 animate-slide-up safe-area-pb md:shadow-2xl">
+      <div className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[85dvh] overflow-y-auto scrollbar-hide safe-area-pb">
         {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-5" />
 
@@ -216,6 +216,7 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
 }
 
 function TypeButton({
+
   type,
   selected,
   onClick,

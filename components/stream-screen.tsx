@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   type Message,
@@ -170,9 +171,18 @@ export function StreamScreen({
             className="fixed inset-0 z-40"
             aria-label="Close"
           />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0d1c35] border-t border-white/10 px-4 pt-5 pb-8 rounded-t-2xl animate-slide-up">
-            <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
-            <p className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground mb-3">New Project</p>
+          <div className="fixed bottom-0 left-0 right-0 md:left-auto md:right-8 md:bottom-24 md:w-80 z-50 bg-[#0d1c35] border-t md:border border-white/10 px-4 pt-5 pb-8 md:pb-5 rounded-t-2xl md:rounded-2xl animate-slide-up shadow-2xl">
+            <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4 md:hidden" />
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground">New Project</p>
+              <button
+                onClick={() => { setShowNewProject(false); setNewProjectName("") }}
+                className="w-6 h-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 transition-transform"
+                aria-label="Close"
+              >
+                <X className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
             <div className="flex gap-2">
               <input
                 autoFocus

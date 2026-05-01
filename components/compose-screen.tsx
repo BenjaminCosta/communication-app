@@ -78,11 +78,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+      {/* Scrollable area — only icon + textarea, so Send never scrolls away */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-4 scrollbar-hide">
         {/* Icon */}
-        <div className="flex flex-col items-center gap-3 py-4">
-          <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
-            <span className="text-4xl">{"🤔"}</span>
+        <div className="flex flex-col items-center gap-3 py-2">
+          <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
+            <span className="text-3xl">{"🤔"}</span>
           </div>
           <span className="text-sm text-muted-foreground font-light">
             {"What's on your mind?"}
@@ -90,42 +91,19 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         </div>
 
         {/* Textarea Card */}
-        <div className="flex-1 bg-card border border-white/10 rounded-2xl p-4 flex flex-col gap-4 min-h-[180px]">
+        <div className="bg-card border border-white/10 rounded-2xl p-4 min-h-40 flex flex-col">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
+            className="flex-1 min-h-30 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
             placeholder={"Type your message...\n\nContext is optional.\nSend first, tag later."}
           />
-
-          {/* Option Chips */}
-          <div className="flex gap-2 flex-wrap">
-            <OptionChip
-              icon={<User className="w-3.5 h-3.5" />}
-              active={selectedContacts.length > 0}
-              onClick={() => setShowContacts(!showContacts)}
-            >
-              {selectedContacts.length > 0 ? selectedContactNames : "+ Who"}
-            </OptionChip>
-            <OptionChip
-              icon={<Tag className="w-3.5 h-3.5" />}
-              active={selectedType !== "none"}
-              onClick={() => setShowTypes(!showTypes)}
-            >
-              {typeLabels[selectedType]}
-            </OptionChip>
-            <OptionChip
-              icon={<Building className="w-3.5 h-3.5" />}
-              active={!!selectedProject}
-              onClick={() => setShowProjects(!showProjects)}
-            >
-              {selectedProjectName || "Project"}
-            </OptionChip>
-          </div>
         </div>
+      </div>
 
-        {/* Contact Picker */}
-        {showContacts && (
+      {/* Pickers — sit between textarea and chips, above keyboard */}
+      {showContacts && (
+        <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Select contacts" onClose={() => setShowContacts(false)}>
             <div className="flex flex-wrap gap-2">
               {CONTACTS.map((contact) => (
@@ -138,10 +116,10 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
               ))}
             </div>
           </PickerCard>
-        )}
-
-        {/* Type Picker */}
-        {showTypes && (
+        </div>
+      )}
+      {showTypes && (
+        <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Message type" onClose={() => setShowTypes(false)}>
             <div className="flex flex-wrap gap-2">
               {(["progress", "problem", "feedback", "decision"] as MessageType[]).map((type) => (
@@ -157,12 +135,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
               ))}
             </div>
           </PickerCard>
-        )}
-
-        {/* Project Picker */}
-        {showProjects && (
+        </div>
+      )}
+      {showProjects && (
+        <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Assign to project" onClose={() => { setShowProjects(false); setShowNewProjectInput(false); setNewProjectName("") }}>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
               {projects.map((project) => (
                 <ProjectRow
                   key={project.id}
@@ -199,6 +177,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                   className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 transition-colors"
                 />
                 <button
+                  type="button"
                   onClick={() => {
                     if (!newProjectName.trim()) return
                     const p = onCreateProject(newProjectName)
@@ -214,6 +193,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => setShowNewProjectInput(true)}
                 className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
               >
@@ -221,7 +201,32 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
               </button>
             )}
           </PickerCard>
-        )}
+        </div>
+      )}
+
+      {/* Option Chips — always visible above send button */}
+      <div className="shrink-0 px-4 pt-2 pb-1 flex gap-2 flex-wrap border-t border-white/5">
+        <OptionChip
+          icon={<User className="w-3.5 h-3.5" />}
+          active={selectedContacts.length > 0}
+          onClick={() => { setShowContacts(!showContacts); setShowTypes(false); setShowProjects(false) }}
+        >
+          {selectedContacts.length > 0 ? selectedContactNames : "+ Who"}
+        </OptionChip>
+        <OptionChip
+          icon={<Tag className="w-3.5 h-3.5" />}
+          active={selectedType !== "none"}
+          onClick={() => { setShowTypes(!showTypes); setShowContacts(false); setShowProjects(false) }}
+        >
+          {typeLabels[selectedType]}
+        </OptionChip>
+        <OptionChip
+          icon={<Building className="w-3.5 h-3.5" />}
+          active={!!selectedProject}
+          onClick={() => { setShowProjects(!showProjects); setShowContacts(false); setShowTypes(false) }}
+        >
+          {selectedProjectName || "Project"}
+        </OptionChip>
       </div>
 
       {/* Bottom Action Bar */}
