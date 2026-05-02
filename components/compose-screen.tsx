@@ -9,12 +9,13 @@ import {
   type Project,
   CONTACTS,
 } from "@/lib/store"
+import { CreateProjectModal } from "@/components/create-project-modal"
 
 interface ComposeScreenProps {
   onCancel: () => void
   onSend: (text: string, contactIds: string[], projectId: string | null, type: MessageType) => void
   projects: Project[]
-  onCreateProject: (name: string) => Project
+  onCreateProject: (name: string, memberIds?: string[]) => Project
   mode?: "fullscreen" | "sheet"
 }
 
@@ -23,12 +24,11 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<MessageType>("none")
-  
+
   const [showContacts, setShowContacts] = useState(false)
   const [showProjects, setShowProjects] = useState(false)
   const [showTypes, setShowTypes] = useState(false)
-  const [newProjectName, setNewProjectName] = useState("")
-  const [showNewProjectInput, setShowNewProjectInput] = useState(false)
+  const [showCreateProject, setShowCreateProject] = useState(false)
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -139,69 +139,41 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       )}
       {showProjects && (
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
-          <PickerCard title="Assign to project" onClose={() => { setShowProjects(false); setShowNewProjectInput(false); setNewProjectName("") }}>
+          <PickerCard title="Assign to project" onClose={() => setShowProjects(false)}>
             <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
               {projects.map((project) => (
                 <ProjectRow
                   key={project.id}
                   project={project}
                   selected={selectedProject === project.id}
-                  onClick={() => {
-                    setSelectedProject(project.id)
-                    setShowProjects(false)
-                  }}
+                  onClick={() => { setSelectedProject(project.id); setShowProjects(false) }}
                 />
               ))}
-              {projects.length === 0 && !showNewProjectInput && (
+              {projects.length === 0 && (
                 <p className="text-xs text-muted-foreground px-1 py-2">No projects yet. Create one below.</p>
               )}
             </div>
-            {showNewProjectInput ? (
-              <div className="flex gap-2 mt-3">
-                <input
-                  autoFocus
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      if (!newProjectName.trim()) return
-                      const p = onCreateProject(newProjectName)
-                      setSelectedProject(p.id)
-                      setNewProjectName("")
-                      setShowNewProjectInput(false)
-                      setShowProjects(false)
-                    }
-                    if (e.key === "Escape") { setShowNewProjectInput(false); setNewProjectName("") }
-                  }}
-                  placeholder="Project name..."
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 transition-colors"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!newProjectName.trim()) return
-                    const p = onCreateProject(newProjectName)
-                    setSelectedProject(p.id)
-                    setNewProjectName("")
-                    setShowNewProjectInput(false)
-                    setShowProjects(false)
-                  }}
-                  className="px-3 py-2 bg-primary/20 border border-primary/30 text-primary text-xs font-semibold rounded-lg active:scale-95 transition-all"
-                >
-                  Create
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowNewProjectInput(true)}
-                className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
-              >
-                + New project
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => { setShowProjects(false); setShowCreateProject(true) }}
+              className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
+            >
+              + New project
+            </button>
           </PickerCard>
         </div>
+      )}
+
+      {/* Create Project modal — triggered from picker */}
+      {showCreateProject && (
+        <CreateProjectModal
+          onClose={() => setShowCreateProject(false)}
+          onSubmit={(name, memberIds) => {
+            const p = onCreateProject(name, memberIds)
+            setSelectedProject(p.id)
+            setShowCreateProject(false)
+          }}
+        />
       )}
 
       {/* Option Chips — always visible above send button */}

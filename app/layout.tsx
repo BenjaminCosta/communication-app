@@ -25,6 +25,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
+  interactiveWidget: 'resizes-visual',
 }
 
 export default function RootLayout({
@@ -33,8 +34,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
-      <body className="font-sans antialiased min-h-screen">
+    <html lang="en" className="bg-background h-full">
+      <body className="font-sans antialiased h-full overflow-hidden" style={{ position: 'fixed', width: '100%', top: 0, left: 0 }}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

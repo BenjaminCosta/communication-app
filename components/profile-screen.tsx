@@ -1,18 +1,21 @@
 "use client"
 
-import { ArrowLeft, LogOut, Mail, Bell, Shield, ChevronRight } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, ChevronRight } from "lucide-react"
 
 interface ProfileScreenProps {
   userName: string
   userEmail: string
   userInitials: string
+  projectCount: number
+  messageCount: number
   onBack: () => void
   onSignOut: () => void
   onNotifications: () => void
   onPrivacy: () => void
+  onProjects: () => void
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSignOut, onNotifications, onPrivacy }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects }: ProfileScreenProps) {
   return (
     <div className="flex-1 flex flex-col bg-background animate-fade-in">
       {/* Header */}
@@ -52,13 +55,14 @@ export function ProfileScreen({ userName, userEmail, userInitials, onBack, onSig
 
       {/* Stats row */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 flex divide-x divide-white/10 mb-6 animate-fade-up delay-200">
-        <StatCell label="Messages" value="—" />
-        <StatCell label="Projects" value="—" />
+        <StatCell label="Messages" value={messageCount > 0 ? String(messageCount) : "—"} />
+        <StatCell label="Projects" value={projectCount > 0 ? String(projectCount) : "—"} />
         <StatCell label="Joined" value="—" />
       </div>
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
+        <SettingsRow icon={<FolderOpen className="w-4 h-4" />} label="Projects" onClick={onProjects} />
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
         <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" onClick={onPrivacy} />
       </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 
@@ -16,24 +16,27 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [email, setEmail] = useState("")
   const [touched, setTouched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const valid = isValidEmail(email)
   const showError = touched && email.length > 0 && !valid
 
   const handleContinue = () => {
+    const rawEmail = inputRef.current?.value ?? email
+    const normalizedEmail = rawEmail.trim()
     setTouched(true)
-    if (!valid) return
+    if (!isValidEmail(normalizedEmail)) return
     setLoading(true)
     setTimeout(() => {
       setLoading(false)
-      onLogin(email.trim())
+      onLogin(normalizedEmail)
     }, 800)
   }
 
   return (
     <div className="flex-1 flex flex-col bg-background">
-      {/* Top spacer */}
-      <div className="flex-1" />
+      {/* Top spacer — fixed vh so it doesn't compress when keyboard opens */}
+      <div className="h-[22vh] shrink-0" />
 
       {/* Centered content — max-width on desktop */}
       <div className="w-full md:max-w-sm md:mx-auto flex flex-col">
@@ -91,12 +94,20 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           {/* Email input */}
           <input
             type="email"
+            name="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onInput={(e) => setEmail(e.currentTarget.value)}
             onBlur={() => setTouched(true)}
             onKeyDown={(e) => e.key === "Enter" && handleContinue()}
             placeholder="you@company.com"
             autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            inputMode="email"
+            spellCheck={false}
+            enterKeyHint="go"
+            ref={inputRef}
             className={cn(
               "bg-white/5 border rounded-xl px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none transition-all duration-200",
               showError
@@ -142,7 +153,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       </div>
 
       {/* Bottom spacer */}
-      <div className="flex-[1.5]" />
+      <div className="flex-1 min-h-0" />
 
       {/* Footer */}
       <div className="pb-10 px-8 text-center animate-fade-in delay-400">

@@ -10,6 +10,7 @@ import {
   getContact,
   formatTime,
 } from "@/lib/store"
+import { CreateProjectModal } from "@/components/create-project-modal"
 
 type TagType = "progress" | "problem" | "feedback" | "decision"
 
@@ -18,7 +19,7 @@ interface TagSheetProps {
   onApply: (type: MessageType, projectId: string | null) => void
   onClose: () => void
   projects: Project[]
-  onCreateProject: (name: string) => Project
+  onCreateProject: (name: string, memberIds?: string[]) => Project
 }
 
 export function TagSheet({ message, onApply, onClose, projects, onCreateProject }: TagSheetProps) {
@@ -28,8 +29,7 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
   const [selectedProject, setSelectedProject] = useState<string | null>(
     message.projectId
   )
-  const [showNewProjectInput, setShowNewProjectInput] = useState(false)
-  const [newProjectName, setNewProjectName] = useState("")
+  const [showCreateProject, setShowCreateProject] = useState(false)
 
   const isEditing = message.type !== "none"
   const contact = getContact(message.contactId)
@@ -148,53 +148,28 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
               )}
             </button>
           ))}
-          {projects.length === 0 && !showNewProjectInput && (
+          {projects.length === 0 && (
             <p className="text-xs text-muted-foreground py-2 px-1">No projects yet.</p>
           )}
         </div>
 
-        {/* Inline new project input */}
-        {showNewProjectInput ? (
-          <div className="flex gap-2 mt-3 px-4">
-            <input
-              autoFocus
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  if (!newProjectName.trim()) return
-                  const p = onCreateProject(newProjectName)
-                  setSelectedProject(p.id)
-                  setNewProjectName("")
-                  setShowNewProjectInput(false)
-                }
-                if (e.key === "Escape") { setShowNewProjectInput(false); setNewProjectName("") }
-              }}
-              placeholder="Project name..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 transition-colors"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (!newProjectName.trim()) return
-                const p = onCreateProject(newProjectName)
-                setSelectedProject(p.id)
-                setNewProjectName("")
-                setShowNewProjectInput(false)
-              }}
-              className="px-3 py-2 bg-primary/20 border border-primary/30 text-primary text-xs font-semibold rounded-lg active:scale-95 transition-all"
-            >
-              Create
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowNewProjectInput(true)}
-            className="mx-4 mt-3 w-[calc(100%-32px)] text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
-          >
-            + New project
-          </button>
+        <button
+          type="button"
+          onClick={() => setShowCreateProject(true)}
+          className="mx-4 mt-3 w-[calc(100%-32px)] text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
+        >
+          + New project
+        </button>
+
+        {showCreateProject && (
+          <CreateProjectModal
+            onClose={() => setShowCreateProject(false)}
+            onSubmit={(name, memberIds) => {
+              const p = onCreateProject(name, memberIds)
+              setSelectedProject(p.id)
+              setShowCreateProject(false)
+            }}
+          />
         )}
 
         {/* Apply Button */}

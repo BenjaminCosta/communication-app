@@ -6,6 +6,8 @@ import { ComposeScreen } from "@/components/compose-screen"
 import { TagSheet } from "@/components/tag-sheet"
 import { LoginScreen } from "@/components/login-screen"
 import { ProfileScreen } from "@/components/profile-screen"
+import { ProjectListScreen } from "@/components/project-list-screen"
+import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import {
@@ -17,7 +19,7 @@ import {
   generateProjectId,
 } from "@/lib/store"
 
-type Screen = "login" | "stream" | "compose" | "tag" | "profile" | "notifications" | "privacy"
+type Screen = "login" | "stream" | "compose" | "tag" | "profile" | "notifications" | "privacy" | "projects" | "project-detail"
 
 // Derive a display name from an email address
 // e.g. "ben.jacosta@svc.co" → "Ben Jacosta"
@@ -45,21 +47,40 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<string>("all")
-  const [activeTypeFilter, setActiveTypeFilter] = useState<string>("all")
   const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
 
   const userName = deriveNameFromEmail(userEmail)
   const userInitials = deriveInitials(userName)
 
-  // Create a new project
-  const handleCreateProject = useCallback((name: string): Project => {
+  // Create a new project (accepts optional members from the 2-step modal)
+  const handleCreateProject = useCallback((name: string, memberIds: string[] = []): Project => {
     const color = PROJECT_COLORS[nextColorIndex.current % PROJECT_COLORS.length]
     nextColorIndex.current += 1
-    const newProject: Project = { id: generateProjectId(), name: name.trim(), color }
+    const newProject: Project = { id: generateProjectId(), name: name.trim(), color, members: memberIds }
     setProjects((prev) => [...prev, newProject])
     return newProject
+  }, [])
+
+  // Delete a message
+  const handleDeleteMessage = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id))
+  }, [])
+
+  // Toggle favourite on a message
+  const handleFavoriteMessage = useCallback((id: string) => {
+    setMessages((prev) =>
+      prev.map((m) => m.id === id ? { ...m, isFavorited: !m.isFavorited } : m)
+    )
+  }, [])
+
+  // Update project members
+  const handleUpdateProjectMembers = useCallback((projectId: string, memberIds: string[]) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, members: memberIds } : p))
+    )
   }, [])
 
   // Navigation
@@ -84,6 +105,11 @@ export default function Home() {
   const goToProfile = useCallback(() => setActiveScreen("profile"), [])
   const goToNotifications = useCallback(() => setActiveScreen("notifications"), [])
   const goToPrivacy = useCallback(() => setActiveScreen("privacy"), [])
+  const goToProjects = useCallback(() => setActiveScreen("projects"), [])
+  const goToProjectDetail = useCallback((projectId: string) => {
+    setSelectedProjectId(projectId)
+    setActiveScreen("project-detail")
+  }, [])
 
   // Send a new message
   const handleSend = useCallback(
@@ -143,10 +169,7 @@ export default function Home() {
       ? messages.filter((m) => m.type === "none")
       : messages.filter((m) => m.projectId === activeFilter)
 
-  const visibleMessages =
-    activeTypeFilter === "all"
-      ? filteredMessages
-      : filteredMessages.filter((m) => m.type === activeTypeFilter)
+  const visibleMessages = filteredMessages
 
   return (
     <div className="h-dvh w-full flex flex-col bg-background overflow-hidden relative">
@@ -158,10 +181,13 @@ export default function Home() {
           userName={userName}
           userEmail={userEmail}
           userInitials={userInitials}
+          projectCount={projects.length}
+          messageCount={messages.length}
           onBack={goToStream}
           onSignOut={handleSignOut}
           onNotifications={goToNotifications}
           onPrivacy={goToPrivacy}
+          onProjects={goToProjects}
         />
       )}
       {activeScreen === "notifications" && (
@@ -170,6 +196,27 @@ export default function Home() {
       {activeScreen === "privacy" && (
         <PrivacySecurityScreen onBack={goToProfile} />
       )}
+      {activeScreen === "projects" && (
+        <ProjectListScreen
+          projects={projects}
+          messages={messages}
+          onBack={goToProfile}
+          onProjectSelect={goToProjectDetail}
+          onCreateProject={handleCreateProject}
+        />
+      )}
+      {activeScreen === "project-detail" && selectedProjectId && (() => {
+        const proj = projects.find((p) => p.id === selectedProjectId)
+        if (!proj) return null
+        return (
+          <ProjectDetailScreen
+            project={proj}
+            messages={messages}
+            onBack={goToProjects}
+            onUpdateMembers={handleUpdateProjectMembers}
+          />
+        )
+      })()}
       {activeScreen === "compose" && composeMode === "fullscreen" && (
         <ComposeScreen
           mode="fullscreen"
@@ -185,19 +232,23 @@ export default function Home() {
             messages={visibleMessages}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
-            activeTypeFilter={activeTypeFilter}
-            onTypeFilterChange={setActiveTypeFilter}
             onCompose={goToCompose}
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
             onProfile={goToProfile}
+            onNotifications={goToNotifications}
+            onDeleteMessage={handleDeleteMessage}
+            onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}
             projects={projects}
           />
           {activeScreen === "compose" && (
-            <div className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+              className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+              style={{ paddingBottom: 'env(keyboard-inset-height, 0px)' }}
+            >
               {/* Mobile: slides from bottom · Desktop: centered floating card */}
-              <div className="h-[90%] md:h-auto md:w-[560px] md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl">
+              <div className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl">
                 <ComposeScreen
                   mode="sheet"
                   onCancel={goToStream}

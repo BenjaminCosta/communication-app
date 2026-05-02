@@ -12,6 +12,7 @@ export interface Project {
   id: string
   name: string
   color: string
+  members: string[] // contact IDs
 }
 
 export interface Message {
@@ -22,6 +23,7 @@ export interface Message {
   type: MessageType
   timestamp: Date
   isMe: boolean
+  isFavorited?: boolean
 }
 
 // Mockup Contacts
