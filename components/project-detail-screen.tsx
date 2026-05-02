@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, UserPlus } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useState, useRef } from "react"
+import { ArrowLeft, UserPlus, Star, Trash2, Tag, Copy } from "lucide-react"
+import { cn, haptic } from "@/lib/utils"
 import {
   type Project,
   type Message,
@@ -26,6 +26,10 @@ interface ProjectDetailScreenProps {
   messages: Message[]
   onBack: () => void
   onUpdateMembers: (projectId: string, memberIds: string[]) => void
+  onMessageClick: (message: Message) => void
+  onDeleteMessage: (id: string) => void
+  onFavoriteMessage: (id: string) => void
+  onCopyMessage: (text: string) => void
   className?: string
   contacts: Contact[]
   currentUserId: string
@@ -37,12 +41,31 @@ export function ProjectDetailScreen({
   messages,
   onBack,
   onUpdateMembers,
+  onMessageClick,
+  onDeleteMessage,
+  onFavoriteMessage,
+  onCopyMessage,
   className,
   contacts,
   currentUserId,
   currentUser,
 }: ProjectDetailScreenProps) {
   const [showMembers, setShowMembers] = useState(false)
+  const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
+  const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
+
+  const startPress = (msgId: string) => {
+    pressTimer.current = setTimeout(() => {
+      setSelectedMsgId(msgId)
+      navigator?.vibrate?.(12)
+    }, 450)
+  }
+  const cancelPress = () => {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null }
+  }
 
   // Include current user in lookup so their avatar/name resolves correctly
   const allContacts = currentUser ? [...contacts, currentUser] : contacts
@@ -55,6 +78,8 @@ export function ProjectDetailScreen({
     .map((id) => allContacts.find((c) => c.id === id))
     .filter(Boolean) as Contact[]
 
+  const selectedMsg = selectedMsgId ? projectMessages.find((m) => m.id === selectedMsgId) : null
+
   return (
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
@@ -66,12 +91,10 @@ export function ProjectDetailScreen({
           >
             <ArrowLeft className="w-4 h-4 text-muted-foreground" />
           </button>
-          {/* Project name + color */}
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", project.color)} />
+            <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", project.color)} />
             <h1 className="text-base font-bold tracking-tight truncate">{project.name}</h1>
           </div>
-          {/* Add members button */}
           <button
             onClick={() => setShowMembers(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-muted-foreground text-xs font-semibold active:scale-95 hover:bg-white/8 transition-all duration-150"
@@ -103,7 +126,7 @@ export function ProjectDetailScreen({
                     key={contact.id}
                     title={contact.name}
                     className={cn(
-                      "w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0",
+                      "w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white shrink-0",
                       contact.color
                     )}
                   >
@@ -139,9 +162,11 @@ export function ProjectDetailScreen({
       </div>
 
       {/* Message feed */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div
+        className="flex-1 overflow-y-auto scrollbar-hide"
+        onClick={() => selectedMsgId && clearSelection()}
+      >
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex flex-col gap-3">
-          {/* Date separator */}
           <div className="flex items-center gap-3 my-1">
             <div className="flex-1 h-px bg-white/10" />
             <span className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono">
@@ -160,12 +185,89 @@ export function ProjectDetailScreen({
             </div>
           ) : (
             projectMessages.map((msg, i) => (
-              <ProjectMessageBubble key={msg.id} message={msg} index={i} contacts={allContacts} currentUserId={currentUserId} />
+              <ProjectMessageBubble
+                key={msg.id}
+                message={msg}
+                index={i}
+                contacts={allContacts}
+                currentUserId={currentUserId}
+                isSelected={selectedMsgId === msg.id}
+                onTap={() => {
+                  if (selectedMsgId) { clearSelection(); return }
+                  onMessageClick(msg)
+                }}
+                onPressStart={() => startPress(msg.id)}
+                onPressEnd={cancelPress}
+              />
             ))
           )}
-          <div className="h-6" />
+          <div className="h-24" />
         </div>
       </div>
+
+      {/* Message action bar */}
+      {selectedMsg && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={clearSelection} />
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-md">
+            <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              {/* Tag / add context */}
+              <button
+                onClick={() => { clearSelection(); onMessageClick(selectedMsg) }}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+              >
+                <Tag className="w-4 h-4" />
+                Tag
+              </button>
+              <div className="w-px h-6 bg-white/15 shrink-0" />
+              {/* Copy */}
+              <button
+                onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearSelection() }}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+              <div className="w-px h-6 bg-white/15 shrink-0" />
+              {/* Favorite */}
+              <button
+                onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); clearSelection() }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
+                  selectedMsg.isFavorited
+                    ? "bg-feedback/15 text-feedback"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                )}
+              >
+                <Star className={cn("w-4 h-4", selectedMsg.isFavorited && "fill-current")} />
+                {selectedMsg.isFavorited ? "Unstar" : "Star"}
+              </button>
+              {selectedMsg.senderId === currentUserId && (
+                <>
+                  <div className="w-px h-6 bg-white/15 shrink-0" />
+                  {confirmDeleteMsgId === selectedMsg.id ? (
+                    <button
+                      onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); clearSelection() }}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Sure?
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteMsgId(selectedMsg.id)}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Add Members modal */}
       {showMembers && (
@@ -183,18 +285,29 @@ export function ProjectDetailScreen({
   )
 }
 
-function ProjectMessageBubble({ message, index, contacts, currentUserId }: { message: Message; index: number; contacts: Contact[]; currentUserId: string }) {
+function ProjectMessageBubble({
+  message, index, contacts, currentUserId, isSelected, onTap, onPressStart, onPressEnd,
+}: {
+  message: Message
+  index: number
+  contacts: Contact[]
+  currentUserId: string
+  isSelected: boolean
+  onTap: () => void
+  onPressStart: () => void
+  onPressEnd: () => void
+}) {
   const isMe = message.senderId === currentUserId
   const contact = getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" }
   const style = typeStyles[message.type]
 
   return (
     <div
-      className={cn("flex gap-2 items-end animate-fade-up", isMe && "flex-row-reverse")}
+      className={cn("flex gap-2 items-end animate-fade-up select-none no-callout", isMe && "flex-row-reverse")}
       style={{ animationDelay: `${index * 30}ms` }}
     >
       <div className={cn(
-        "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold flex-shrink-0",
+        "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold shrink-0",
         isMe ? "bg-[#1a3460]" : "bg-card"
       )}>
         {contact.initials}
@@ -204,23 +317,37 @@ function ProjectMessageBubble({ message, index, contacts, currentUserId }: { mes
         {!isMe && (
           <span className="text-xs font-semibold text-muted-foreground px-1">{contact.name}</span>
         )}
-        <div className={cn(
-          "border p-3 px-3.5",
-          isMe
-            ? "bg-[#112a52] border-primary/25 rounded-[16px_16px_4px_16px]"
-            : "bg-card border-white/10 rounded-[16px_16px_16px_4px]"
-        )}>
-          <p className="text-sm leading-relaxed text-foreground/90">{message.text}</p>
+        <div
+          onPointerDown={(e) => { e.stopPropagation(); onPressStart() }}
+          onPointerUp={() => { cancelAnimationFrame(0); onPressEnd() }}
+          onPointerCancel={onPressEnd}
+          onPointerLeave={onPressEnd}
+          onClick={(e) => { e.stopPropagation(); onTap() }}
+          onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
+          className={cn(
+            "border p-3 px-3.5 cursor-pointer transition-all duration-150",
+            isMe
+              ? "bg-[#112a52] border-primary/25 rounded-[16px_16px_4px_16px]"
+              : "bg-card border-white/10 rounded-[16px_16px_16px_4px]",
+            isSelected && (isMe
+              ? "bg-primary/25 border-primary/50 shadow-[0_0_0_2px_rgba(37,99,235,0.3)]"
+              : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]")
+          )}
+        >
+          <p className="text-sm leading-relaxed text-foreground/90 no-callout">{message.text}</p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {message.type === "none" && (
-              <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
+              <div className="w-1.5 h-1.5 rounded-full bg-feedback shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
             <span className={cn(
-              "text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border",
+              "text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono shrink-0 border no-callout",
               style.bg, style.text, style.border
             )}>
               {style.label}
             </span>
+            {message.isFavorited && (
+              <Star className="w-3 h-3 text-feedback fill-current ml-0.5 shrink-0" />
+            )}
             <span className="text-[10px] text-muted-foreground font-mono ml-auto">
               {formatTime(message.timestamp)}
             </span>

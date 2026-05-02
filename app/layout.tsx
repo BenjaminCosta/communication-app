@@ -35,7 +35,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-background h-full">
-      <body className="font-sans antialiased h-full overflow-hidden" style={{ position: 'fixed', width: '100%', top: 0, left: 0 }}>
+      <body className="font-sans antialiased h-full overflow-hidden no-select" style={{ position: 'fixed', width: '100%', top: 0, left: 0 }}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

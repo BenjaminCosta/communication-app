@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo } from "react"
-import { Bell, MessageCircle, Star, Trash2 } from "lucide-react"
+import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Message,
@@ -36,6 +36,12 @@ interface StreamScreenProps {
   projects: Project[]
   contacts: Contact[]
   currentUserId: string
+  onGoToProject: (projectId: string) => void
+  onRemoveProjectTag: (messageId: string) => void
+  onDeleteProject: (id: string) => void
+  onFavoriteProject: (id: string) => void
+  onProjects: () => void
+  onCopyMessage: (text: string) => void
 }
 
 export function StreamScreen({
@@ -53,11 +59,24 @@ export function StreamScreen({
   projects,
   contacts,
   currentUserId,
+  onGoToProject,
+  onRemoveProjectTag,
+  onDeleteProject,
+  onFavoriteProject,
+  onProjects,
+  onCopyMessage,
 }: StreamScreenProps) {
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
+  const [projectTagCtx, setProjectTagCtx] = useState<{ projectId: string; messageId: string } | null>(null)
+  const [selectedChipId, setSelectedChipId] = useState<string | null>(null)
+  const [confirmDeleteChipId, setConfirmDeleteChipId] = useState<string | null>(null)
+  const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearChipSelection = () => { setSelectedChipId(null); setConfirmDeleteChipId(null) }
+  const clearMsgSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight })
@@ -96,6 +115,13 @@ export function StreamScreen({
           >
             <Bell className="w-4 h-4 text-muted-foreground" />
           </button>
+          {/* Projects shortcut */}
+          <button
+            onClick={onProjects}
+            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+          >
+            <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+          </button>
           {/* Profile avatar */}
           <button
             onClick={onProfile}
@@ -109,11 +135,16 @@ export function StreamScreen({
       {/* Filter Bar */}
       <div className="flex-shrink-0 flex gap-2 overflow-x-auto px-4 py-2.5 border-b border-white/10 scrollbar-hide">
         <FilterChip active={activeFilter === "all"} onClick={() => onFilterChange("all")}>All</FilterChip>
-        {projects.map((project) => (
+        {[...projects.filter((p) => p.isFavorited), ...projects.filter((p) => !p.isFavorited)].map((project) => (
           <FilterChip
             key={project.id}
             active={activeFilter === project.id}
-            onClick={() => onFilterChange(project.id)}
+            isFavorited={!!project.isFavorited}
+            onClick={() => {
+              if (selectedChipId) { clearChipSelection(); return }
+              onFilterChange(project.id)
+            }}
+            onLongPress={() => setSelectedChipId(project.id)}
           >
             {project.name}
           </FilterChip>
@@ -127,9 +158,9 @@ export function StreamScreen({
         </FilterChip>
         <button
           onClick={() => setShowCreateProject(true)}
-          className="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all border bg-white/5 border-dashed border-white/20 text-muted-foreground hover:border-white/30 active:bg-white/10"
+          className="w-8 h-8 rounded-full shrink-0 transition-all border bg-white/5 border-dashed border-white/20 text-foreground/60 hover:border-primary/40 hover:text-primary active:bg-white/10 flex items-center justify-center text-lg font-light"
         >
-          + Project
+          +
         </button>
       </div>
 
@@ -137,7 +168,7 @@ export function StreamScreen({
       <div
         ref={feedRef}
         className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 scrollbar-hide"
-        onClick={() => selectedMsgId && setSelectedMsgId(null)}
+        onClick={() => selectedMsgId && clearMsgSelection()}
       >
         <div className="flex items-center gap-3 my-1">
           <div className="flex-1 h-px bg-white/10" />
@@ -164,11 +195,12 @@ export function StreamScreen({
               userInitials={userInitials}
               isSelected={selectedMsgId === msg.id}
               onTap={() => {
-                if (selectedMsgId) { setSelectedMsgId(null); return }
+                if (selectedMsgId) { clearMsgSelection(); return }
                 onMessageClick(msg)
               }}
               onPressStart={() => startPress(msg.id)}
               onPressEnd={cancelPress}
+              onProjectTagTap={(projectId) => setProjectTagCtx({ projectId, messageId: msg.id })}
             />
           ))
         )}
@@ -178,14 +210,23 @@ export function StreamScreen({
       {/* Message action bar — appears on long press */}
       {selectedMsg && (
         <>
-          {/* invisible backdrop to deselect */}
-          <div className="fixed inset-0 z-20" onClick={() => setSelectedMsgId(null)} />
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-xs">
+          <div className="fixed inset-0 z-20" onClick={clearMsgSelection} />
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-sm">
             <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              {/* Copy */}
               <button
-                onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); setSelectedMsgId(null) }}
+                onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearMsgSelection() }}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+              <div className="w-px h-6 bg-white/15 shrink-0" />
+              {/* Favorite */}
+              <button
+                onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); clearMsgSelection() }}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
+                  "flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
                   selectedMsg.isFavorited
                     ? "bg-feedback/15 text-feedback"
                     : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -194,18 +235,129 @@ export function StreamScreen({
                 <Star className={cn("w-4 h-4", selectedMsg.isFavorited && "fill-current")} />
                 {selectedMsg.isFavorited ? "Unfavorite" : "Favorite"}
               </button>
-              <div className="w-px h-6 bg-white/15 flex-shrink-0" />
-              <button
-                onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); setSelectedMsgId(null) }}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
+              {selectedMsg.senderId === currentUserId && (
+                <>
+                  <div className="w-px h-6 bg-white/15 shrink-0" />
+                  {confirmDeleteMsgId === selectedMsg.id ? (
+                    <button
+                      onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); clearMsgSelection() }}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Sure?
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteMsgId(selectedMsg.id)}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </>
       )}
+
+      {/* Project chip action bar — long-press on filter chip */}
+      {selectedChipId && (() => {
+        const proj = projects.find((p) => p.id === selectedChipId)
+        if (!proj) return null
+        return (
+          <>
+            <div className="fixed inset-0 z-20" onClick={clearChipSelection} />
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
+              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+                {/* Label */}
+                <div className="flex items-center gap-1.5 px-2 py-2 shrink-0 max-w-[80px]">
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", proj.color)} />
+                  <span className="text-xs font-bold text-foreground/70 truncate">{proj.name}</span>
+                </div>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {/* Favorite */}
+                <button
+                  onClick={() => { haptic.light(); onFavoriteProject(proj.id); clearChipSelection() }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
+                    proj.isFavorited ? "bg-feedback/15 text-feedback" : "text-muted-foreground hover:bg-white/5"
+                  )}
+                >
+                  <Star className={cn("w-4 h-4", proj.isFavorited && "fill-current")} />
+                  {proj.isFavorited ? "Unpin" : "Pin"}
+                </button>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {/* Info */}
+                <button
+                  onClick={() => { clearChipSelection(); onGoToProject(proj.id) }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  Info
+                </button>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {/* Delete — 2-step */}
+                {confirmDeleteChipId === proj.id ? (
+                  <button
+                    onClick={() => { haptic.destructive(); onDeleteProject(proj.id); clearChipSelection() }}
+                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Sure?
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteChipId(proj.id)}
+                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )
+      })()}
+
+      {/* Project tag action bar — tap on project badge */}
+      {projectTagCtx && (() => {
+        const proj = projects.find((p) => p.id === projectTagCtx.projectId)
+        return (
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => setProjectTagCtx(null)} />
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
+              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+                {/* Project label */}
+                <div className="flex items-center gap-1.5 px-3 py-2 shrink-0">
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", proj?.color ?? "bg-white/30")} />
+                  <span className="text-xs font-bold text-foreground/70 truncate max-w-[90px]">{proj?.name ?? "Project"}</span>
+                </div>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {/* View info */}
+                <button
+                  onClick={() => { setProjectTagCtx(null); onGoToProject(projectTagCtx.projectId) }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  Info
+                </button>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {/* Remove tag */}
+                <button
+                  onClick={() => { haptic.light(); setProjectTagCtx(null); onRemoveProjectTag(projectTagCtx.messageId) }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
+                >
+                  <X className="w-4 h-4" />
+                  Untag
+                </button>
+              </div>
+            </div>
+          </>
+        )
+      })()}
 
       {/* Create Project modal */}
       {showCreateProject && (
@@ -231,18 +383,44 @@ export function StreamScreen({
 }
 
 function FilterChip({
-  children, active, highlight, onClick,
+  children, active, highlight, isFavorited, onClick, onLongPress,
 }: {
   children: React.ReactNode
   active?: boolean
   highlight?: boolean
+  isFavorited?: boolean
   onClick?: () => void
+  onLongPress?: () => void
 }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const didLongPress = useRef(false)
+
+  const startPress = () => {
+    didLongPress.current = false
+    if (!onLongPress) return
+    timer.current = setTimeout(() => {
+      didLongPress.current = true
+      navigator?.vibrate?.(12)
+      onLongPress()
+    }, 450)
+  }
+  const cancelPress = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+  }
+  const handleClick = () => {
+    if (didLongPress.current) { didLongPress.current = false; return }
+    onClick?.()
+  }
+
   return (
     <button
-      onClick={onClick}
+      onPointerDown={startPress}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onClick={handleClick}
       className={cn(
-        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0 tracking-wide transition-all border",
+        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all border flex items-center gap-1",
         active
           ? "bg-primary/20 border-primary/35 text-primary"
           : highlight
@@ -250,13 +428,14 @@ function FilterChip({
           : "bg-white/5 border-white/10 text-muted-foreground"
       )}
     >
+      {isFavorited && <Star className="w-2.5 h-2.5 fill-current text-feedback shrink-0" />}
       {children}
     </button>
   )
 }
 
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, isSelected, onTap, onPressStart, onPressEnd,
+  message, projects, contacts, currentUserId, userInitials, isSelected, onTap, onPressStart, onPressEnd, onProjectTagTap,
 }: {
   message: Message
   projects: Project[]
@@ -267,6 +446,7 @@ function MessageBubble({
   onTap: () => void
   onPressStart: () => void
   onPressEnd: () => void
+  onProjectTagTap?: (projectId: string) => void
 }) {
   const isMe = message.senderId === currentUserId
   const contact = isMe
@@ -278,7 +458,7 @@ function MessageBubble({
   return (
     <div
       className={cn(
-        "flex gap-2 items-end animate-fade-up select-none",
+        "flex gap-2 items-end animate-fade-up select-none no-callout",
         isMe && "flex-row-reverse",
         isSelected && "opacity-90"
       )}
@@ -311,21 +491,26 @@ function MessageBubble({
               : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]")
           )}
         >
-          <p className="text-sm leading-relaxed text-foreground/90">{message.text}</p>
+          <p className="text-sm leading-relaxed text-foreground/90 no-callout">{message.text}</p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {message.type === "none" && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
             <span className={cn(
-              "text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border",
+              "text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border no-callout",
               style.bg, style.text, style.border
             )}>
               {style.label}
             </span>
             {project && (
-              <span className="text-[10px] font-semibold tracking-wide bg-primary/10 text-primary border border-primary/20 rounded px-2 py-0.5 font-mono">
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onProjectTagTap?.(project.id) }}
+                className="text-[10px] font-semibold tracking-wide bg-primary/10 text-primary border border-primary/20 rounded px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout"
+              >
+                {project.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
                 {project.name}
-              </span>
+              </button>
             )}
             {message.isFavorited && (
               <Star className="w-3 h-3 text-feedback fill-current ml-0.5 flex-shrink-0" />

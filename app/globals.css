@@ -143,6 +143,19 @@
   animation: slide-up 0.3s ease-out;
 }
 
+/* Prevent iOS Safari native callout + text selection (long-press) */
+.no-callout {
+  -webkit-touch-callout: none;
+}
+
+/* Use when you explicitly want to disable text selection */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
 /* Safe area padding for mobile */
 .safe-area-pb {
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom));

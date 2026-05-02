@@ -73,6 +73,7 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
                   alt="SVC Stream"
                   width={90}
                   height={90}
+                  style={{ width: 90, height: 90 }}
                   className="object-contain"
                   priority
                 />

@@ -21,11 +21,10 @@ export function ToastNotification({
 
   const dismiss = useCallback(() => {
     setVisible(false)
-    hideTimer.current = setTimeout(onDismiss, 280)
+    hideTimer.current = setTimeout(onDismiss, 300)
   }, [onDismiss])
 
   useEffect(() => {
-    // Defer entrance so the CSS transition fires after mount
     const showTimer = setTimeout(() => setVisible(true), 10)
     const autoHide = setTimeout(dismiss, duration)
     return () => {
@@ -44,19 +43,28 @@ export function ToastNotification({
   return (
     <div
       className={cn(
-        // Position: above the FAB (fixed bottom-6 + h-14 = ~80px, so bottom-24 clears it)
-        "fixed z-50 bottom-24 left-4 right-4",
+        "fixed z-50 bottom-24 left-3 right-3",
         "flex items-center gap-3 px-4 py-3 rounded-2xl",
-        "bg-[#1e2d4a] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.45)]",
-        "transition-all duration-[280ms] ease-out pointer-events-auto",
-        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+        "bg-gradient-to-br from-[#1a3f7f]/40 to-[#0f1f4d]/20 backdrop-blur-3xl",
+        "border border-[#2563eb]/20 shadow-inner",
+        "shadow-[0_8px_32px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(37,99,235,0.15),0_0_0_1px_rgba(37,99,235,0.1)]",
+        "transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] pointer-events-auto",
+        visible
+          ? "opacity-100 translate-y-0 scale-100"
+          : "opacity-0 translate-y-3 scale-[0.95]"
       )}
     >
-      <span className="text-sm font-medium text-foreground/90 flex-1">{message}</span>
+      {/* Accent dot */}
+      <div className="w-1.5 h-1.5 rounded-full bg-primary/70 shrink-0" />
+
+      <span className="text-sm font-medium text-foreground/85 flex-1 leading-snug">
+        {message}
+      </span>
+
       {action && (
         <button
           onClick={handleAction}
-          className="text-sm font-bold text-primary shrink-0 active:opacity-70 transition-opacity"
+          className="text-xs font-bold text-[#60a5fa] shrink-0 bg-gradient-to-br from-[#2563eb]/30 to-[#1d4ed8]/20 border border-[#2563eb]/40 rounded-lg px-3 py-1.5 active:scale-95 active:bg-gradient-to-br active:from-[#2563eb]/40 active:to-[#1d4ed8]/30 active:border-[#2563eb]/50 transition-all backdrop-blur-sm"
         >
           {action.label}
         </button>

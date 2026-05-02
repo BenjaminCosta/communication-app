@@ -18,7 +18,7 @@ type TagType = "progress" | "problem" | "feedback" | "decision"
 
 interface TagSheetProps {
   message: Message
-  onApply: (type: MessageType, projectId: string | null) => void
+  onApply: (type: MessageType, projectId: string | null, participantIds: string[]) => void
   onClose: () => void
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
@@ -32,27 +32,38 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
   const [selectedProject, setSelectedProject] = useState<string | null>(
     message.projectId
   )
+  // Pre-populate with existing participants minus the sender
+  const [selectedParticipants, setSelectedParticipants] = useState<string[]>(
+    message.participants.filter((id) => id !== message.senderId)
+  )
   const [showCreateProject, setShowCreateProject] = useState(false)
 
   const isEditing = message.type !== "none"
   const contact = getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" }
 
+  const toggleParticipant = (id: string) =>
+    setSelectedParticipants((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    )
+
+  const canApply = !!(selectedType || selectedProject || selectedParticipants.length > 0)
+
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
 
   const handleApply = () => {
-    if (selectedType) {
-      haptic.success()
-      onApply(selectedType, selectedProject)
-    }
+    if (!canApply) return
+    haptic.success()
+    // Build final participants: always include sender + selected
+    const participants = [...new Set([message.senderId, ...selectedParticipants])]
+    onApply(selectedType ?? "none", selectedProject, participants)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
       {/* Dimmed Background */}
-      <button
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
-        aria-label="Close"
+      <div
+        onPointerDown={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-[1px] cursor-default"
       />
 
       {/* Bottom Sheet — full width mobile, centered on desktop */}
@@ -121,7 +132,39 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         {/* Divider */}
         <div className="h-px bg-white/10 mx-4 mb-4" />
 
-        {/* Project */}
+        {/* Recipients */}
+        <h4 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground px-4 mb-3">
+          Recipients
+        </h4>
+        <div className="flex flex-wrap gap-2 px-4 pb-4">
+          {contacts.length === 0 && (
+            <p className="text-xs text-muted-foreground py-1 px-1">No other users yet.</p>
+          )}
+          {contacts.map((c) => {
+            const active = selectedParticipants.includes(c.id)
+            return (
+              <button
+                key={c.id}
+                onClick={() => toggleParticipant(c.id)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all active:scale-95",
+                  active
+                    ? "bg-primary/15 border-primary/30 text-primary"
+                    : "bg-white/5 border-white/10 text-muted-foreground"
+                )}
+              >
+                <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white", c.color)}>
+                  {c.initials}
+                </div>
+                {c.name.split(" ")[0]}
+                {active && <Check className="w-3 h-3" />}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-white/10 mx-4 mb-4" />
         <h4 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground px-4 mb-3">
           Assign to project
         </h4>
@@ -188,15 +231,15 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         {/* Apply Button */}
         <button
           onClick={handleApply}
-          disabled={!selectedType}
+          disabled={!canApply}
           className={cn(
             "mx-4 mt-5 w-[calc(100%-32px)] rounded-xl py-3.5 text-sm font-semibold tracking-wide transition-all",
-            selectedType
+            canApply
               ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-[0.98]"
               : "bg-white/10 text-muted-foreground"
           )}
         >
-          {selectedType ? (isEditing ? "Save →" : "Apply →") : "Select a type"}
+          {canApply ? (isEditing ? "Save →" : "Apply →") : "Select type, project or recipients"}
         </button>
       </div>
     </div>

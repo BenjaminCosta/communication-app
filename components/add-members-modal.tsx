@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Check, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import { type Contact } from "@/lib/store"
 
 interface AddMembersModalProps {
@@ -13,6 +14,7 @@ interface AddMembersModalProps {
 }
 
 export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: AddMembersModalProps) {
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const [selected, setSelected] = useState<string[]>(currentMembers)
 
   const toggle = (id: string) =>
@@ -27,16 +29,21 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
       {/* Backdrop */}
-      <button
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
-        aria-label="Close"
+      <div
+        onPointerDown={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-[1px] cursor-default"
       />
 
       {/* Sheet */}
-      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[80dvh] flex flex-col">
+      <div
+        style={dragStyle}
+        className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[80dvh] flex flex-col"
+      >
         {/* Handle */}
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 shrink-0" />
+        <div
+          {...swipeHandlers}
+          className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 shrink-0 cursor-grab active:cursor-grabbing touch-none"
+        />
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 shrink-0">

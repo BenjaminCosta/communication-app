@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { X, User, Tag, Building, Check } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type MessageType,
   type Contact,
@@ -20,6 +21,9 @@ interface ComposeScreenProps {
 }
 
 export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts }: ComposeScreenProps) {
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const firstFocusRef = useRef(true)
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
@@ -63,8 +67,23 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     decision: "Decision",
   }
 
+  const handleFirstFocus = () => {
+    if (!firstFocusRef.current) return
+    firstFocusRef.current = false
+    const el = textareaRef.current
+    if (el) {
+      try {
+        el.focus({ preventScroll: true })
+      } catch {
+        el.focus()
+      }
+    }
+    window.scrollTo(0, 0)
+  }
+
   return (
     <div
+      style={mode === "sheet" ? dragStyle : undefined}
       className={cn(
         "h-full flex flex-col bg-background overflow-hidden",
         mode === "sheet" ? "rounded-t-3xl" : ""
@@ -72,7 +91,10 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     >
       {/* Handle — only in sheet mode */}
       {mode === "sheet" && (
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0" />
+        <div
+          {...swipeHandlers}
+          className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0 cursor-grab active:cursor-grabbing touch-none"
+        />
       )}
       {/* Header */}
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/10">
@@ -102,8 +124,10 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         {/* Textarea Card */}
         <div className="bg-card border border-white/10 rounded-2xl p-4 min-h-40 flex flex-col">
           <textarea
+            ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={handleFirstFocus}
             className="flex-1 min-h-30 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
             placeholder={"Type your message...\n\nContext is optional.\nSend first, tag later."}
           />

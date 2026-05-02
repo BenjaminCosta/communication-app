@@ -15,6 +15,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   onSnapshot,
   query,
   where,
@@ -22,6 +23,7 @@ import {
   Timestamp,
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
+import { haptic } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { TagSheet } from "@/components/tag-sheet"
@@ -244,9 +246,10 @@ export default function Home() {
       const members = firebaseUser ? [...new Set([firebaseUser.uid, ...memberIds])] : memberIds
       const newProject: Project = { id, name: name.trim(), color, members, ownerId: firebaseUser?.uid ?? "" }
       await setDoc(doc(db, "projects", id), newProject)
+      showToast(`"${newProject.name}" created`, undefined, 2500)
       return newProject
     },
-    [firebaseUser]
+    [firebaseUser, showToast]
   )
 
   const handleUpdateProjectMembers = useCallback(
@@ -254,6 +257,39 @@ export default function Home() {
       await updateDoc(doc(db, "projects", projectId), { members: memberIds })
     },
     []
+  )
+
+  const handleDeleteProject = useCallback(
+    async (id: string) => {
+      haptic.destructive()
+      const targetProject = projects.find((p) => p.id === id)
+      if (!targetProject) return
+      const affected = messages.filter((m) => m.projectId === id)
+      const batch = writeBatch(db)
+      affected.forEach((m) => batch.update(doc(db, "messages", m.id), { projectId: null }))
+      batch.delete(doc(db, "projects", id))
+      await batch.commit()
+      showToast("Project deleted", {
+        label: "Undo",
+        onClick: async () => {
+          const restore = writeBatch(db)
+          restore.set(doc(db, "projects", id), targetProject)
+          affected.forEach((m) => restore.update(doc(db, "messages", m.id), { projectId: id }))
+          await restore.commit()
+        },
+      })
+    },
+    [messages, projects, showToast]
+  )
+
+  const handleFavoriteProject = useCallback(
+    async (id: string) => {
+      haptic.light()
+      const proj = projects.find((p) => p.id === id)
+      if (!proj) return
+      await updateDoc(doc(db, "projects", id), { isFavorited: !proj.isFavorited })
+    },
+    [projects]
   )
 
   // ── Message handlers ──────────────────────────────────────────────────
@@ -309,15 +345,29 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (type: MessageType, projectId: string | null) => {
+    async (type: MessageType, projectId: string | null, participantIds: string[]) => {
       if (!selectedMessageId) return
-      await updateDoc(doc(db, "messages", selectedMessageId), { type, projectId: projectId ?? null })
+      await updateDoc(doc(db, "messages", selectedMessageId), {
+        type,
+        projectId: projectId ?? null,
+        participants: participantIds,
+      })
       setSelectedMessageId(null)
       navigateTo("stream")
-      const label = type.charAt(0).toUpperCase() + type.slice(1)
-      showToast(`Tagged as ${label}`, undefined, 2000)
+      const parts: string[] = []
+      if (type !== "none") parts.push(type.charAt(0).toUpperCase() + type.slice(1))
+      if (projectId) parts.push("project")
+      showToast(parts.length ? `Tagged: ${parts.join(", ")} ✓` : "Context saved ✓", undefined, 2000)
     },
     [selectedMessageId, navigateTo, showToast]
+  )
+
+  const handleRemoveProjectTag = useCallback(
+    async (messageId: string) => {
+      await updateDoc(doc(db, "messages", messageId), { projectId: null })
+      showToast("Project removed ✓", undefined, 2000)
+    },
+    [showToast]
   )
 
   // ── Navigation helpers ────────────────────────────────────────────────
@@ -346,7 +396,41 @@ export default function Home() {
     navigateTo(notificationsReturnRef.current)
   }, [navigateTo])
   const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
-  const goToProjects = useCallback(() => navigateTo("projects"), [navigateTo])
+
+  const projectsReturnRef = useRef<Screen>("profile")
+  const goToProjects = useCallback(() => {
+    projectsReturnRef.current = "profile"
+    navigateTo("projects")
+  }, [navigateTo])
+  const goToProjectsFromStream = useCallback(() => {
+    projectsReturnRef.current = "stream"
+    navigateTo("projects")
+  }, [navigateTo])
+  const handleProjectsBack = useCallback(() => {
+    navigateTo(projectsReturnRef.current)
+  }, [navigateTo])
+
+  const handleCopyMessage = useCallback((text: string) => {
+    const fallback = () => {
+      try {
+        const el = document.createElement("textarea")
+        el.value = text
+        el.style.cssText = "position:fixed;opacity:0;pointer-events:none"
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand("copy")
+        document.body.removeChild(el)
+      } catch {}
+    }
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(fallback)
+    } else {
+      fallback()
+    }
+    haptic.light()
+    showToast("Copied ✓", undefined, 2000)
+  }, [showToast])
+
   const goToProjectDetail = useCallback((projectId: string) => {
     setSelectedProjectId(projectId)
     navigateTo("project-detail")
@@ -417,9 +501,11 @@ export default function Home() {
           projects={projects}
           messages={messages}
           contacts={contacts}
-          onBack={goToProfile}
+          onBack={handleProjectsBack}
           onProjectSelect={goToProjectDetail}
           onCreateProject={handleCreateProject}
+          onDeleteProject={handleDeleteProject}
+          onFavoriteProject={handleFavoriteProject}
         />
       )}
 
@@ -436,6 +522,10 @@ export default function Home() {
             currentUser={currentUser}
             onBack={goToProjects}
             onUpdateMembers={handleUpdateProjectMembers}
+            onMessageClick={handleMessageClick}
+            onDeleteMessage={handleDeleteMessage}
+            onFavoriteMessage={handleFavoriteMessage}
+            onCopyMessage={handleCopyMessage}
           />
         )
       })()}
@@ -470,13 +560,23 @@ export default function Home() {
             projects={projects}
             contacts={contacts}
             currentUserId={currentUser?.id ?? ""}
+            onGoToProject={goToProjectDetail}
+            onRemoveProjectTag={handleRemoveProjectTag}
+            onDeleteProject={handleDeleteProject}
+            onFavoriteProject={handleFavoriteProject}
+            onProjects={goToProjectsFromStream}
+            onCopyMessage={handleCopyMessage}
           />
           {activeScreen === "compose" && (
             <div
+              onPointerDown={goToStream}
               className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
               style={{ paddingBottom: "env(keyboard-inset-height, 0px)" }}
             >
-              <div className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl">
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl"
+              >
                 <ComposeScreen
                   mode="sheet"
                   onCancel={goToStream}

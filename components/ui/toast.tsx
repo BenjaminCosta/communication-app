@@ -25,13 +25,13 @@ const ToastViewport = React.forwardRef<
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName
 
 const toastVariants = cva(
-  'group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full',
+  'group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-xl border backdrop-blur-xl transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full',
   {
     variants: {
       variant: {
-        default: 'border bg-background text-foreground',
+        default: 'border-[#2563eb]/20 bg-gradient-to-br from-[#1a3f7f]/40 to-[#0f1f4d]/20 text-foreground shadow-[0_8px_32px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(37,99,235,0.15)]',
         destructive:
-          'destructive group border-destructive bg-destructive text-destructive-foreground',
+          'border-destructive/30 bg-gradient-to-br from-[#7f1a1a]/30 to-[#4d0f0f]/15 text-destructive-foreground shadow-[0_8px_32px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(239,68,68,0.1)]',
       },
     },
     defaultVariants: {
@@ -62,7 +62,7 @@ const ToastAction = React.forwardRef<
   <ToastPrimitives.Action
     ref={ref}
     className={cn(
-      'inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-muted/40 group-[.destructive]:hover:border-destructive/30 group-[.destructive]:hover:bg-destructive group-[.destructive]:hover:text-destructive-foreground group-[.destructive]:focus:ring-destructive',
+      'inline-flex h-8 shrink-0 items-center justify-center rounded-lg border backdrop-blur-sm px-3 text-sm font-medium ring-offset-background transition-all hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-destructive/30 group-[.destructive]:hover:bg-destructive/20 group-[.destructive]:hover:text-destructive-foreground group-[.destructive]:focus:ring-destructive bg-white/5 border-white/10 hover:border-white/20',
       className,
     )}
     {...props}

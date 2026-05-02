@@ -14,6 +14,7 @@ export interface Project {
   color: string
   members: string[] // Firebase UIDs
   ownerId: string
+  isFavorited?: boolean
 }
 
 export interface Message {

@@ -26,7 +26,7 @@ service cloud.firestore {
 
     // Messages: readable/writable only by participants.
     // On create, the sender must be the authenticated user and must be a participant.
-    // Any participant can update (favorite, tag) or delete a message.
+    // Any participant can update (favorite, tag). Only the sender can delete.
     match /messages/{messageId} {
       allow read:   if request.auth != null
                     && request.auth.uid in resource.data.participants;
@@ -36,7 +36,7 @@ service cloud.firestore {
       allow update: if request.auth != null
                     && request.auth.uid in resource.data.participants;
       allow delete: if request.auth != null
-                    && request.auth.uid in resource.data.participants;
+                    && request.auth.uid == resource.data.senderId;
     }
   }
 }
