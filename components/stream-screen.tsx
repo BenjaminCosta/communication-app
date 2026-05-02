@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Bell, Star, Trash2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Bell, MessageCircle, Star, Trash2 } from "lucide-react"
+import { cn, haptic } from "@/lib/utils"
 import {
   type Message,
   type MessageType,
@@ -143,7 +143,7 @@ export function StreamScreen({
         {sortedMessages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
             <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
-              <span className="text-2xl">💬</span>
+              <MessageCircle className="w-7 h-7 text-muted-foreground/50" />
             </div>
             <p className="text-sm text-muted-foreground">Nothing sent yet</p>
             <p className="text-xs text-muted-foreground/50">Tap 🤔 to send your first message</p>
@@ -175,7 +175,7 @@ export function StreamScreen({
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-xs">
             <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
               <button
-                onClick={() => { onFavoriteMessage(selectedMsg.id); setSelectedMsgId(null) }}
+                onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); setSelectedMsgId(null) }}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
                   selectedMsg.isFavorited
@@ -188,7 +188,7 @@ export function StreamScreen({
               </button>
               <div className="w-px h-6 bg-white/15 flex-shrink-0" />
               <button
-                onClick={() => { onDeleteMessage(selectedMsg.id); setSelectedMsgId(null) }}
+                onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); setSelectedMsgId(null) }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
               >
                 <Trash2 className="w-4 h-4" />

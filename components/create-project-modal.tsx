@@ -30,7 +30,7 @@ export function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProp
       />
 
       {/* Modal card */}
-      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop">
+      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop -translate-y-[5%]">
 
         {/* Top bar: back, dots, close */}
         <div className="relative flex items-center justify-between px-5 pt-5 pb-0">
@@ -68,7 +68,6 @@ export function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProp
               Give it a clear, recognizable name.
             </p>
             <input
-              autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && name.trim() && setStep(2)}

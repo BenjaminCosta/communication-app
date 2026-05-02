@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { X, User, Tag, Building, Check } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, haptic } from "@/lib/utils"
 import {
   type MessageType,
   type Contact,
@@ -38,6 +38,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
 
   const handleSend = () => {
     if (!text.trim()) return
+    haptic.success()
     onSend(text.trim(), selectedContacts, selectedProject, selectedType)
   }
 
@@ -57,10 +58,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   }
 
   return (
-    <div className={cn(
-      "h-full flex flex-col bg-background overflow-hidden",
-      mode === "sheet" ? "rounded-t-3xl" : ""
-    )}>
+    <div
+      className={cn(
+        "h-full flex flex-col bg-background overflow-hidden",
+        mode === "sheet" ? "rounded-t-3xl" : ""
+      )}
+    >
       {/* Handle — only in sheet mode */}
       {mode === "sheet" && (
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0" />
@@ -79,7 +82,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       </div>
 
       {/* Scrollable area — only icon + textarea, so Send never scrolls away */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-4 scrollbar-hide">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-4 scrollbar-hide scroll-smooth">
         {/* Icon */}
         <div className="flex flex-col items-center gap-3 py-2">
           <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">

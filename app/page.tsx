@@ -10,6 +10,7 @@ import { ProjectListScreen } from "@/components/project-list-screen"
 import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
+import { ToastNotification } from "@/components/toast-notification"
 import {
   type Message,
   type MessageType,
@@ -21,9 +22,19 @@ import {
 
 type Screen = "login" | "stream" | "compose" | "tag" | "profile" | "notifications" | "privacy" | "projects" | "project-detail"
 
-// Derive a display name from an email address
-// e.g. "ben.jacosta@svc.co" → "Ben Jacosta"
-// e.g. "benjacosta@svc.co"  → "Benjacosta"
+// Depth map — higher = further in the hierarchy
+const SCREEN_DEPTH: Record<Screen, number> = {
+  login: 0,
+  stream: 1,
+  compose: 2,
+  tag: 2,
+  profile: 3,
+  notifications: 4,
+  privacy: 4,
+  projects: 4,
+  "project-detail": 5,
+}
+
 function deriveNameFromEmail(email: string): string {
   const local = email.split("@")[0]
   return local
@@ -41,6 +52,13 @@ function deriveInitials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
+interface ToastState {
+  message: string
+  action?: { label: string; onClick: () => void }
+  duration?: number
+  key: number
+}
+
 export default function Home() {
   const [activeScreen, setActiveScreen] = useState<Screen>("login")
   const [userEmail, setUserEmail] = useState("")
@@ -51,11 +69,38 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
+  const notificationsReturnRef = useRef<Screen>("profile")
+
+  // Directional transition tracking
+  const prevScreenRef = useRef<Screen>("login")
+  const [entranceClass, setEntranceClass] = useState("animate-fade-in")
+
+  // Toast state
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const toastKeyRef = useRef(0)
+
+  const showToast = useCallback((message: string, action?: { label: string; onClick: () => void }, duration?: number) => {
+    toastKeyRef.current += 1
+    setToast({ message, action, duration, key: toastKeyRef.current })
+  }, [])
 
   const userName = deriveNameFromEmail(userEmail)
   const userInitials = deriveInitials(userName)
 
-  // Create a new project (accepts optional members from the 2-step modal)
+  // Core navigation — computes entrance direction based on screen hierarchy
+  const navigateTo = useCallback((next: Screen) => {
+    const prev = prevScreenRef.current
+    // Login transitions are always a plain fade
+    if (prev === "login" || next === "login") {
+      setEntranceClass("animate-fade-in")
+    } else {
+      const d = SCREEN_DEPTH[next] - SCREEN_DEPTH[prev]
+      setEntranceClass(d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in")
+    }
+    prevScreenRef.current = next
+    setActiveScreen(next)
+  }, [])
+
   const handleCreateProject = useCallback((name: string, memberIds: string[] = []): Project => {
     const color = PROJECT_COLORS[nextColorIndex.current % PROJECT_COLORS.length]
     nextColorIndex.current += 1
@@ -64,60 +109,78 @@ export default function Home() {
     return newProject
   }, [])
 
-  // Delete a message
   const handleDeleteMessage = useCallback((id: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== id))
-  }, [])
+    // Capture message before removing it for potential Undo
+    setMessages((prev) => {
+      const target = prev.find((m) => m.id === id)
+      if (!target) return prev
+      const next = prev.filter((m) => m.id !== id)
+      // Show toast with Undo — restore the message at its original index
+      const originalIndex = prev.indexOf(target)
+      showToast("Message deleted", {
+        label: "Undo",
+        onClick: () => setMessages((cur) => {
+          const arr = [...cur]
+          arr.splice(originalIndex, 0, target)
+          return arr
+        }),
+      })
+      return next
+    })
+  }, [showToast])
 
-  // Toggle favourite on a message
   const handleFavoriteMessage = useCallback((id: string) => {
     setMessages((prev) =>
       prev.map((m) => m.id === id ? { ...m, isFavorited: !m.isFavorited } : m)
     )
   }, [])
 
-  // Update project members
   const handleUpdateProjectMembers = useCallback((projectId: string, memberIds: string[]) => {
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, members: memberIds } : p))
     )
   }, [])
 
-  // Navigation
   const handleLogin = useCallback((email: string) => {
     setUserEmail(email)
     setComposeMode("fullscreen")
-    setActiveScreen("compose")
-  }, [])
+    navigateTo("compose")
+  }, [navigateTo])
 
   const handleSignOut = useCallback(() => {
     setUserEmail("")
     setMessages([])
     setProjects([])
-    setActiveScreen("login")
-  }, [])
+    navigateTo("login")
+  }, [navigateTo])
 
   const goToCompose = useCallback(() => {
     setComposeMode("sheet")
-    setActiveScreen("compose")
-  }, [])
-  const goToStream = useCallback(() => setActiveScreen("stream"), [])
-  const goToProfile = useCallback(() => setActiveScreen("profile"), [])
-  const goToNotifications = useCallback(() => setActiveScreen("notifications"), [])
-  const goToPrivacy = useCallback(() => setActiveScreen("privacy"), [])
-  const goToProjects = useCallback(() => setActiveScreen("projects"), [])
+    navigateTo("compose")
+  }, [navigateTo])
+  const goToStream        = useCallback(() => navigateTo("stream"), [navigateTo])
+  const goToProfile       = useCallback(() => navigateTo("profile"), [navigateTo])
+  const goToNotificationsFromProfile = useCallback(() => {
+    notificationsReturnRef.current = "profile"
+    navigateTo("notifications")
+  }, [navigateTo])
+  const goToNotificationsFromStream = useCallback(() => {
+    notificationsReturnRef.current = "stream"
+    navigateTo("notifications")
+  }, [navigateTo])
+  const handleNotificationsBack = useCallback(() => {
+    navigateTo(notificationsReturnRef.current)
+  }, [navigateTo])
+  const goToPrivacy       = useCallback(() => navigateTo("privacy"), [navigateTo])
+  const goToProjects      = useCallback(() => navigateTo("projects"), [navigateTo])
   const goToProjectDetail = useCallback((projectId: string) => {
     setSelectedProjectId(projectId)
-    setActiveScreen("project-detail")
-  }, [])
+    navigateTo("project-detail")
+  }, [navigateTo])
 
-  // Send a new message
   const handleSend = useCallback(
     (text: string, contactIds: string[], projectId: string | null, type: MessageType) => {
-      if (!text.trim()) {
-        setActiveScreen("stream")
-        return
-      }
+      if (!text.trim()) { navigateTo("stream"); return }
       const newMessage: Message = {
         id: generateId(),
         contactId: "me",
@@ -128,18 +191,17 @@ export default function Home() {
         isMe: true,
       }
       setMessages((prev) => [...prev, newMessage])
-      setActiveScreen("stream")
+      navigateTo("stream")
+      showToast("Sent ✓", undefined, 2000)
     },
-    []
+    [navigateTo, showToast]
   )
 
-  // Open tag sheet for a message
   const handleMessageClick = useCallback((message: Message) => {
     setSelectedMessageId(message.id)
-    setActiveScreen("tag")
-  }, [])
+    navigateTo("tag")
+  }, [navigateTo])
 
-  // Apply tag to message
   const handleApplyTag = useCallback(
     (type: MessageType, projectId: string | null) => {
       if (!selectedMessageId) return
@@ -149,16 +211,17 @@ export default function Home() {
         )
       )
       setSelectedMessageId(null)
-      setActiveScreen("stream")
+      navigateTo("stream")
+      const label = type.charAt(0).toUpperCase() + type.slice(1)
+      showToast(`Tagged as ${label}`, undefined, 2000)
     },
-    [selectedMessageId]
+    [selectedMessageId, navigateTo, showToast]
   )
 
-  // Close tag sheet
   const handleCloseTag = useCallback(() => {
     setSelectedMessageId(null)
-    setActiveScreen("stream")
-  }, [])
+    navigateTo("stream")
+  }, [navigateTo])
 
   const selectedMessage = messages.find((m) => m.id === selectedMessageId) || null
 
@@ -169,8 +232,6 @@ export default function Home() {
       ? messages.filter((m) => m.type === "none")
       : messages.filter((m) => m.projectId === activeFilter)
 
-  const visibleMessages = filteredMessages
-
   return (
     <div className="h-dvh w-full flex flex-col bg-background overflow-hidden relative">
       {activeScreen === "login" && (
@@ -178,6 +239,7 @@ export default function Home() {
       )}
       {activeScreen === "profile" && (
         <ProfileScreen
+          className={entranceClass}
           userName={userName}
           userEmail={userEmail}
           userInitials={userInitials}
@@ -185,19 +247,20 @@ export default function Home() {
           messageCount={messages.length}
           onBack={goToStream}
           onSignOut={handleSignOut}
-          onNotifications={goToNotifications}
+          onNotifications={goToNotificationsFromProfile}
           onPrivacy={goToPrivacy}
           onProjects={goToProjects}
         />
       )}
       {activeScreen === "notifications" && (
-        <NotificationsScreen onBack={goToProfile} />
+        <NotificationsScreen className={entranceClass} onBack={handleNotificationsBack} />
       )}
       {activeScreen === "privacy" && (
-        <PrivacySecurityScreen onBack={goToProfile} />
+        <PrivacySecurityScreen className={entranceClass} onBack={goToProfile} />
       )}
       {activeScreen === "projects" && (
         <ProjectListScreen
+          className={entranceClass}
           projects={projects}
           messages={messages}
           onBack={goToProfile}
@@ -210,6 +273,7 @@ export default function Home() {
         if (!proj) return null
         return (
           <ProjectDetailScreen
+            className={entranceClass}
             project={proj}
             messages={messages}
             onBack={goToProjects}
@@ -229,14 +293,14 @@ export default function Home() {
       {(activeScreen === "stream" || (activeScreen === "compose" && composeMode === "sheet") || activeScreen === "tag") && (
         <>
           <StreamScreen
-            messages={visibleMessages}
+            messages={filteredMessages}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
             onCompose={goToCompose}
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
             onProfile={goToProfile}
-            onNotifications={goToNotifications}
+            onNotifications={goToNotificationsFromStream}
             onDeleteMessage={handleDeleteMessage}
             onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}
@@ -247,7 +311,6 @@ export default function Home() {
               className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
               style={{ paddingBottom: 'env(keyboard-inset-height, 0px)' }}
             >
-              {/* Mobile: slides from bottom · Desktop: centered floating card */}
               <div className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl">
                 <ComposeScreen
                   mode="sheet"
@@ -269,6 +332,17 @@ export default function Home() {
             />
           )}
         </>
+      )}
+
+      {/* Global toast — rendered at root level, above everything */}
+      {toast && (
+        <ToastNotification
+          key={toast.key}
+          message={toast.message}
+          action={toast.action}
+          duration={toast.duration}
+          onDismiss={() => setToast(null)}
+        />
       )}
     </div>
   )

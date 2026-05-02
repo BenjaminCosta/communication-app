@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 
@@ -35,8 +35,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
   return (
     <div className="flex-1 flex flex-col bg-background">
-      {/* Top spacer — fixed vh so it doesn't compress when keyboard opens */}
-      <div className="h-[22vh] shrink-0" />
+      {/* Top spacer */}
+      <div className="flex-1" />
 
       {/* Centered content — max-width on desktop */}
       <div className="w-full md:max-w-sm md:mx-auto flex flex-col">
@@ -153,7 +153,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       </div>
 
       {/* Bottom spacer */}
-      <div className="flex-1 min-h-0" />
+      <div className="flex-[1.5]" />
 
       {/* Footer */}
       <div className="pb-10 px-8 text-center animate-fade-in delay-400">

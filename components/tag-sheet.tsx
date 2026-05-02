@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { Check, X } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, haptic } from "@/lib/utils"
+import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type Message,
   type MessageType,
@@ -34,8 +35,11 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
   const isEditing = message.type !== "none"
   const contact = getContact(message.contactId)
 
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
+
   const handleApply = () => {
     if (selectedType) {
+      haptic.success()
       onApply(selectedType, selectedProject)
     }
   }
@@ -50,9 +54,17 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
       />
 
       {/* Bottom Sheet — full width mobile, centered on desktop */}
-      <div className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[85dvh] overflow-y-auto scrollbar-hide safe-area-pb">
-        {/* Handle */}
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-5" />
+      <div
+        style={dragStyle}
+        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[85dvh] overflow-y-auto scrollbar-hide safe-area-pb"
+      >
+        {/* Handle — drag here to swipe-dismiss */}
+        <div
+          {...swipeHandlers}
+          className="py-3 touch-none cursor-grab active:cursor-grabbing"
+        >
+          <div className="w-10 h-1 rounded-full bg-white/20 mx-auto" />
+        </div>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 mb-4">

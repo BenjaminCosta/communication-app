@@ -12,6 +12,7 @@ interface ProjectListScreenProps {
   onBack: () => void
   onProjectSelect: (projectId: string) => void
   onCreateProject: (name: string, memberIds: string[]) => void
+  className?: string
 }
 
 export function ProjectListScreen({
@@ -20,6 +21,7 @@ export function ProjectListScreen({
   onBack,
   onProjectSelect,
   onCreateProject,
+  className,
 }: ProjectListScreenProps) {
   const [showCreate, setShowCreate] = useState(false)
 
@@ -27,7 +29,7 @@ export function ProjectListScreen({
     messages.filter((m) => m.projectId === projectId).length
 
   return (
-    <div className="flex-1 flex flex-col bg-background animate-fade-in">
+    <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
