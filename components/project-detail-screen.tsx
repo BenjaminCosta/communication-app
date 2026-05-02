@@ -30,6 +30,7 @@ interface ProjectDetailScreenProps {
   onDeleteMessage: (id: string) => void
   onFavoriteMessage: (id: string) => void
   onCopyMessage: (text: string) => void
+  onCompose: (projectId: string) => void
   className?: string
   contacts: Contact[]
   currentUserId: string
@@ -45,6 +46,7 @@ export function ProjectDetailScreen({
   onDeleteMessage,
   onFavoriteMessage,
   onCopyMessage,
+  onCompose,
   className,
   contacts,
   currentUserId,
@@ -281,6 +283,14 @@ export function ProjectDetailScreen({
           onClose={() => setShowMembers(false)}
         />
       )}
+
+      {/* FAB — compose a message pre-tagged to this project */}
+      <button
+        onClick={() => onCompose(project.id)}
+        className="fixed bottom-6 right-5 w-14 h-14 rounded-full bg-primary flex items-center justify-center shadow-[0_4px_20px_rgba(37,99,235,0.5)] hover:shadow-[0_6px_28px_rgba(37,99,235,0.65)] active:scale-95 hover:scale-105 transition-all duration-200 z-30 text-2xl animate-glow"
+      >
+        🤔
+      </button>
     </div>
   )
 }

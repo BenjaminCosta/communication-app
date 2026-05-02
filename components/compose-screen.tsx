@@ -18,15 +18,16 @@ interface ComposeScreenProps {
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   mode?: "fullscreen" | "sheet"
   contacts: Contact[]
+  initialProjectId?: string | null
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, initialProjectId }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
-  const [selectedProject, setSelectedProject] = useState<string | null>(null)
+  const [selectedProject, setSelectedProject] = useState<string | null>(initialProjectId ?? null)
   const [selectedType, setSelectedType] = useState<MessageType>("none")
 
   const [showContacts, setShowContacts] = useState(false)
