@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Bell, MessageCircle, Star, Trash2 } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Message,
   type MessageType,
   type Project,
-  getContact,
+  type Contact,
+  getContactFromList,
   formatTime,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
@@ -33,6 +34,8 @@ interface StreamScreenProps {
   onFavoriteMessage: (id: string) => void
   userInitials: string
   projects: Project[]
+  contacts: Contact[]
+  currentUserId: string
 }
 
 export function StreamScreen({
@@ -48,6 +51,8 @@ export function StreamScreen({
   onFavoriteMessage,
   userInitials,
   projects,
+  contacts,
+  currentUserId,
 }: StreamScreenProps) {
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
@@ -72,8 +77,8 @@ export function StreamScreen({
     }
   }
 
-  const unsortedCount = messages.filter((m) => m.type === "none").length
-  const sortedMessages = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+  const unsortedCount = useMemo(() => messages.filter((m) => m.type === "none").length, [messages])
+  const sortedMessages = useMemo(() => [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()), [messages])
   const selectedMsg = selectedMsgId ? messages.find((m) => m.id === selectedMsgId) : null
 
   return (
@@ -154,6 +159,9 @@ export function StreamScreen({
               key={msg.id}
               message={msg}
               projects={projects}
+              contacts={contacts}
+              currentUserId={currentUserId}
+              userInitials={userInitials}
               isSelected={selectedMsgId === msg.id}
               onTap={() => {
                 if (selectedMsgId) { setSelectedMsgId(null); return }
@@ -202,6 +210,7 @@ export function StreamScreen({
       {/* Create Project modal */}
       {showCreateProject && (
         <CreateProjectModal
+          contacts={contacts}
           onClose={() => setShowCreateProject(false)}
           onSubmit={(name, memberIds) => {
             onNewProject(name, memberIds)
@@ -247,16 +256,22 @@ function FilterChip({
 }
 
 function MessageBubble({
-  message, projects, isSelected, onTap, onPressStart, onPressEnd,
+  message, projects, contacts, currentUserId, userInitials, isSelected, onTap, onPressStart, onPressEnd,
 }: {
   message: Message
   projects: Project[]
+  contacts: Contact[]
+  currentUserId: string
+  userInitials: string
   isSelected: boolean
   onTap: () => void
   onPressStart: () => void
   onPressEnd: () => void
 }) {
-  const contact = getContact(message.contactId)
+  const isMe = message.senderId === currentUserId
+  const contact = isMe
+    ? { id: currentUserId, name: "Me", initials: userInitials, color: "bg-primary/20" }
+    : (getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" })
   const project = projects.find((p) => p.id === message.projectId) ?? null
   const style = typeStyles[message.type]
 
@@ -264,19 +279,19 @@ function MessageBubble({
     <div
       className={cn(
         "flex gap-2 items-end animate-fade-up select-none",
-        message.isMe && "flex-row-reverse",
+        isMe && "flex-row-reverse",
         isSelected && "opacity-90"
       )}
     >
       <div className={cn(
         "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold flex-shrink-0",
-        message.isMe ? "bg-[#1a3460]" : "bg-card"
+        isMe ? "bg-[#1a3460]" : "bg-card"
       )}>
         {contact.initials}
       </div>
 
-      <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", message.isMe && "items-end")}>
-        {!message.isMe && (
+      <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
+        {!isMe && (
           <span className="text-xs font-semibold text-muted-foreground px-1">{contact.name}</span>
         )}
         <div
@@ -288,10 +303,10 @@ function MessageBubble({
           onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
           className={cn(
             "border p-3 px-3.5 cursor-pointer transition-all duration-150",
-            message.isMe
+            isMe
               ? "bg-[#112a52] border-primary/25 rounded-[16px_16px_4px_16px]"
               : "bg-card border-white/10 rounded-[16px_16px_16px_4px]",
-            isSelected && (message.isMe
+            isSelected && (isMe
               ? "bg-primary/25 border-primary/50 shadow-[0_0_0_2px_rgba(37,99,235,0.3)]"
               : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]")
           )}

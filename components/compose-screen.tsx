@@ -7,19 +7,19 @@ import {
   type MessageType,
   type Contact,
   type Project,
-  CONTACTS,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
 interface ComposeScreenProps {
   onCancel: () => void
-  onSend: (text: string, contactIds: string[], projectId: string | null, type: MessageType) => void
+  onSend: (text: string, contactIds: string[], projectId: string | null, type: MessageType) => Promise<void>
   projects: Project[]
-  onCreateProject: (name: string, memberIds?: string[]) => Project
+  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   mode?: "fullscreen" | "sheet"
+  contacts: Contact[]
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet" }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts }: ComposeScreenProps) {
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
@@ -29,6 +29,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const [showProjects, setShowProjects] = useState(false)
   const [showTypes, setShowTypes] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
+  const [isSending, setIsSending] = useState(false)
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -36,14 +37,19 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     )
   }
 
-  const handleSend = () => {
-    if (!text.trim()) return
+  const handleSend = async () => {
+    if (!text.trim() || isSending) return
     haptic.success()
-    onSend(text.trim(), selectedContacts, selectedProject, selectedType)
+    setIsSending(true)
+    try {
+      await onSend(text.trim(), selectedContacts, selectedProject, selectedType)
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const selectedContactNames = selectedContacts
-    .map((id) => CONTACTS.find((c) => c.id === id)?.name)
+    .map((id) => contacts.find((c) => c.id === id)?.name)
     .filter(Boolean)
     .join(", ")
 
@@ -109,7 +115,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Select contacts" onClose={() => setShowContacts(false)}>
             <div className="flex flex-wrap gap-2">
-              {CONTACTS.map((contact) => (
+              {contacts.map((contact) => (
                 <ContactChip
                   key={contact.id}
                   contact={contact}
@@ -170,9 +176,10 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       {/* Create Project modal — triggered from picker */}
       {showCreateProject && (
         <CreateProjectModal
+          contacts={contacts}
           onClose={() => setShowCreateProject(false)}
-          onSubmit={(name, memberIds) => {
-            const p = onCreateProject(name, memberIds)
+          onSubmit={async (name, memberIds) => {
+            const p = await onCreateProject(name, memberIds)
             setSelectedProject(p.id)
             setShowCreateProject(false)
           }}
@@ -213,15 +220,20 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           <button
             type="button"
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={!text.trim() || isSending}
             className={cn(
-              "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-all",
-              text.trim()
+              "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-all min-w-[90px] flex items-center justify-center gap-2",
+              text.trim() && !isSending
                 ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
                 : "bg-white/10 text-muted-foreground"
             )}
           >
-            {"Send →"}
+            {isSending ? (
+              <>
+                <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                <span>Sending</span>
+              </>
+            ) : "Send →"}
           </button>
         </div>
       </div>

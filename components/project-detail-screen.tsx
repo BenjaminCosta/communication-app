@@ -7,9 +7,9 @@ import {
   type Project,
   type Message,
   type MessageType,
-  getContact,
+  type Contact,
+  getContactFromList,
   formatTime,
-  CONTACTS,
 } from "@/lib/store"
 import { AddMembersModal } from "@/components/add-members-modal"
 
@@ -27,6 +27,9 @@ interface ProjectDetailScreenProps {
   onBack: () => void
   onUpdateMembers: (projectId: string, memberIds: string[]) => void
   className?: string
+  contacts: Contact[]
+  currentUserId: string
+  currentUser: Contact | null
 }
 
 export function ProjectDetailScreen({
@@ -35,16 +38,22 @@ export function ProjectDetailScreen({
   onBack,
   onUpdateMembers,
   className,
+  contacts,
+  currentUserId,
+  currentUser,
 }: ProjectDetailScreenProps) {
   const [showMembers, setShowMembers] = useState(false)
+
+  // Include current user in lookup so their avatar/name resolves correctly
+  const allContacts = currentUser ? [...contacts, currentUser] : contacts
 
   const projectMessages = [...messages]
     .filter((m) => m.projectId === project.id)
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
   const memberContacts = project.members
-    .map((id) => CONTACTS.find((c) => c.id === id))
-    .filter(Boolean) as typeof CONTACTS
+    .map((id) => allContacts.find((c) => c.id === id))
+    .filter(Boolean) as Contact[]
 
   return (
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
@@ -151,7 +160,7 @@ export function ProjectDetailScreen({
             </div>
           ) : (
             projectMessages.map((msg, i) => (
-              <ProjectMessageBubble key={msg.id} message={msg} index={i} />
+              <ProjectMessageBubble key={msg.id} message={msg} index={i} contacts={allContacts} currentUserId={currentUserId} />
             ))
           )}
           <div className="h-6" />
@@ -161,6 +170,7 @@ export function ProjectDetailScreen({
       {/* Add Members modal */}
       {showMembers && (
         <AddMembersModal
+          contacts={contacts}
           currentMembers={project.members}
           onSave={(ids) => {
             onUpdateMembers(project.id, ids)
@@ -173,29 +183,30 @@ export function ProjectDetailScreen({
   )
 }
 
-function ProjectMessageBubble({ message, index }: { message: Message; index: number }) {
-  const contact = getContact(message.contactId)
+function ProjectMessageBubble({ message, index, contacts, currentUserId }: { message: Message; index: number; contacts: Contact[]; currentUserId: string }) {
+  const isMe = message.senderId === currentUserId
+  const contact = getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" }
   const style = typeStyles[message.type]
 
   return (
     <div
-      className={cn("flex gap-2 items-end animate-fade-up", message.isMe && "flex-row-reverse")}
+      className={cn("flex gap-2 items-end animate-fade-up", isMe && "flex-row-reverse")}
       style={{ animationDelay: `${index * 30}ms` }}
     >
       <div className={cn(
         "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold flex-shrink-0",
-        message.isMe ? "bg-[#1a3460]" : "bg-card"
+        isMe ? "bg-[#1a3460]" : "bg-card"
       )}>
         {contact.initials}
       </div>
 
-      <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", message.isMe && "items-end")}>
-        {!message.isMe && (
+      <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
+        {!isMe && (
           <span className="text-xs font-semibold text-muted-foreground px-1">{contact.name}</span>
         )}
         <div className={cn(
           "border p-3 px-3.5",
-          message.isMe
+          isMe
             ? "bg-[#112a52] border-primary/25 rounded-[16px_16px_4px_16px]"
             : "bg-card border-white/10 rounded-[16px_16px_16px_4px]"
         )}>

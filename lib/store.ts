@@ -2,7 +2,7 @@
 export type MessageType = "progress" | "problem" | "feedback" | "decision" | "none"
 
 export interface Contact {
-  id: string
+  id: string   // Firebase UID
   name: string
   initials: string
   color: string
@@ -12,30 +12,20 @@ export interface Project {
   id: string
   name: string
   color: string
-  members: string[] // contact IDs
+  members: string[] // Firebase UIDs
+  ownerId: string
 }
 
 export interface Message {
   id: string
-  contactId: string
+  senderId: string       // Firebase UID of sender
+  participants: string[] // [senderId, ...recipientIds] — used for Firestore array-contains query
   projectId: string | null
   text: string
   type: MessageType
   timestamp: Date
-  isMe: boolean
   isFavorited?: boolean
 }
-
-// Mockup Contacts
-export const CONTACTS: Contact[] = [
-  { id: "c1", name: "Mike K.", initials: "MK", color: "bg-emerald-600" },
-  { id: "c2", name: "Tom R.", initials: "TR", color: "bg-red-600" },
-  { id: "c3", name: "Dan L.", initials: "DL", color: "bg-amber-600" },
-  { id: "c4", name: "Ray J.", initials: "RJ", color: "bg-cyan-600" },
-  { id: "c5", name: "Lisa M.", initials: "LM", color: "bg-purple-600" },
-  { id: "c6", name: "Sarah W.", initials: "SW", color: "bg-pink-600" },
-  { id: "c7", name: "James B.", initials: "JB", color: "bg-indigo-600" },
-]
 
 // Project colors palette (cycles when creating new projects)
 export const PROJECT_COLORS = [
@@ -50,67 +40,23 @@ export const PROJECT_COLORS = [
   "bg-indigo-600",
 ]
 
-// Current user
-export const CURRENT_USER: Contact = {
-  id: "me",
-  name: "You",
-  initials: "JO",
-  color: "bg-primary",
-}
-
-// Initial messages
-export const INITIAL_MESSAGES: Message[] = [
-  {
-    id: "m1",
-    contactId: "c1",
-    projectId: "p1",
-    text: "Foundation pour done on Cool Breeze, ahead of schedule.",
-    type: "progress",
-    timestamp: new Date(Date.now() - 3600000 * 2),
-    isMe: false,
-  },
-  {
-    id: "m2",
-    contactId: "c2",
-    projectId: "p2",
-    text: "Electrical blocked — county permit not issued yet.",
-    type: "problem",
-    timestamp: new Date(Date.now() - 3600000 * 1.5),
-    isMe: false,
-  },
-  {
-    id: "m3",
-    contactId: "me",
-    projectId: "p2",
-    text: "Push to next week, notify the owner today.",
-    type: "decision",
-    timestamp: new Date(Date.now() - 3600000 * 1.4),
-    isMe: true,
-  },
-  {
-    id: "m4",
-    contactId: "c3",
-    projectId: null,
-    text: "Check with the architect before we decide on the tiles.",
-    type: "none",
-    timestamp: new Date(Date.now() - 3600000 * 0.5),
-    isMe: false,
-  },
-  {
-    id: "m5",
-    contactId: "c4",
-    projectId: null,
-    text: "Can we reschedule Friday's site walk?",
-    type: "none",
-    timestamp: new Date(Date.now() - 3600000 * 0.3),
-    isMe: false,
-  },
+// User color palette — assigned at registration
+export const USER_COLORS = [
+  "bg-emerald-600",
+  "bg-red-600",
+  "bg-amber-600",
+  "bg-cyan-600",
+  "bg-purple-600",
+  "bg-pink-600",
+  "bg-indigo-600",
+  "bg-teal-600",
+  "bg-orange-600",
+  "bg-sky-600",
 ]
 
 // Helper functions
-export function getContact(id: string): Contact {
-  if (id === "me") return CURRENT_USER
-  return CONTACTS.find((c) => c.id === id) || CURRENT_USER
+export function getContactFromList(id: string, contacts: Contact[]): Contact | undefined {
+  return contacts.find((c) => c.id === id)
 }
 
 export function getProject(id: string | null, projects: Project[]): Project | null {
@@ -132,4 +78,21 @@ export function formatTime(date: Date): string {
 
 export function generateId(): string {
   return `m${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+export function deriveNameFromEmail(email: string): string {
+  const local = email.split("@")[0]
+  return local
+    .split(/[._\-+]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+}
+
+export function deriveInitials(name: string): string {
+  const parts = name.trim().split(" ").filter(Boolean)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
 }

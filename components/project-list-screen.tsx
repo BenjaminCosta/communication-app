@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { ArrowLeft, Plus, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Project, type Message, CONTACTS } from "@/lib/store"
+import { type Project, type Message, type Contact } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
 interface ProjectListScreenProps {
@@ -13,6 +13,7 @@ interface ProjectListScreenProps {
   onProjectSelect: (projectId: string) => void
   onCreateProject: (name: string, memberIds: string[]) => void
   className?: string
+  contacts: Contact[]
 }
 
 export function ProjectListScreen({
@@ -22,6 +23,7 @@ export function ProjectListScreen({
   onProjectSelect,
   onCreateProject,
   className,
+  contacts,
 }: ProjectListScreenProps) {
   const [showCreate, setShowCreate] = useState(false)
 
@@ -86,7 +88,7 @@ export function ProjectListScreen({
                     {project.members.length === 0
                       ? "No members"
                       : project.members.length === 1
-                      ? `${CONTACTS.find(c => c.id === project.members[0])?.name ?? "1 member"}`
+                      ? `${contacts.find(c => c.id === project.members[0])?.name ?? "1 member"}`
                       : `${project.members.length} members`}
                   </p>
                 </div>
@@ -109,6 +111,7 @@ export function ProjectListScreen({
       {/* Create new project sheet */}
       {showCreate && (
         <CreateProjectModal
+          contacts={contacts}
           onClose={() => setShowCreate(false)}
           onSubmit={(name, memberIds) => {
             onCreateProject(name, memberIds)

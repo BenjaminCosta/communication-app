@@ -8,7 +8,8 @@ import {
   type Message,
   type MessageType,
   type Project,
-  getContact,
+  type Contact,
+  getContactFromList,
   formatTime,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
@@ -20,10 +21,11 @@ interface TagSheetProps {
   onApply: (type: MessageType, projectId: string | null) => void
   onClose: () => void
   projects: Project[]
-  onCreateProject: (name: string, memberIds?: string[]) => Project
+  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
+  contacts: Contact[]
 }
 
-export function TagSheet({ message, onApply, onClose, projects, onCreateProject }: TagSheetProps) {
+export function TagSheet({ message, onApply, onClose, projects, onCreateProject, contacts }: TagSheetProps) {
   const [selectedType, setSelectedType] = useState<TagType | null>(
     message.type !== "none" ? (message.type as TagType) : null
   )
@@ -33,7 +35,7 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
   const [showCreateProject, setShowCreateProject] = useState(false)
 
   const isEditing = message.type !== "none"
-  const contact = getContact(message.contactId)
+  const contact = getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" }
 
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
 
@@ -174,10 +176,9 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject 
         </button>
 
         {showCreateProject && (
-          <CreateProjectModal
-            onClose={() => setShowCreateProject(false)}
-            onSubmit={(name, memberIds) => {
-              const p = onCreateProject(name, memberIds)
+          <CreateProjectModal            contacts={contacts}            onClose={() => setShowCreateProject(false)}
+            onSubmit={async (name, memberIds) => {
+              const p = await onCreateProject(name, memberIds)
               setSelectedProject(p.id)
               setShowCreateProject(false)
             }}

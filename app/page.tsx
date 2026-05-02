@@ -1,10 +1,32 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+  type User,
+} from "firebase/auth"
+import {
+  collection,
+  doc,
+  setDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  where,
+  serverTimestamp,
+  Timestamp,
+} from "firebase/firestore"
+import { auth, db } from "@/lib/firebase"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { TagSheet } from "@/components/tag-sheet"
 import { LoginScreen } from "@/components/login-screen"
+import { RegisterScreen } from "@/components/register-screen"
 import { ProfileScreen } from "@/components/profile-screen"
 import { ProjectListScreen } from "@/components/project-list-screen"
 import { ProjectDetailScreen } from "@/components/project-detail-screen"
@@ -15,16 +37,32 @@ import {
   type Message,
   type MessageType,
   type Project,
+  type Contact,
   PROJECT_COLORS,
-  generateId,
+  USER_COLORS,
+  deriveNameFromEmail,
+  deriveInitials,
   generateProjectId,
 } from "@/lib/store"
 
-type Screen = "login" | "stream" | "compose" | "tag" | "profile" | "notifications" | "privacy" | "projects" | "project-detail"
+type Screen =
+  | "loading"
+  | "login"
+  | "register"
+  | "stream"
+  | "compose"
+  | "tag"
+  | "profile"
+  | "notifications"
+  | "privacy"
+  | "projects"
+  | "project-detail"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
+  loading: -1,
   login: 0,
+  register: 0,
   stream: 1,
   compose: 2,
   tag: 2,
@@ -35,23 +73,6 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "project-detail": 5,
 }
 
-function deriveNameFromEmail(email: string): string {
-  const local = email.split("@")[0]
-  return local
-    .split(/[._\-+]/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ")
-}
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(" ").filter(Boolean)
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-  }
-  return name.slice(0, 2).toUpperCase()
-}
-
 interface ToastState {
   message: string
   action?: { label: string; onClick: () => void }
@@ -60,106 +81,259 @@ interface ToastState {
 }
 
 export default function Home() {
-  const [activeScreen, setActiveScreen] = useState<Screen>("login")
-  const [userEmail, setUserEmail] = useState("")
+  // ── Auth ──────────────────────────────────────────────────────────────
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
+  const [currentUser, setCurrentUser] = useState<Contact | null>(null)
+
+  // ── Firestore data ────────────────────────────────────────────────────
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [messages, setMessages] = useState<Message[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+
+  // ── Navigation ────────────────────────────────────────────────────────
+  const [activeScreen, setActiveScreen] = useState<Screen>("loading")
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<string>("all")
-  const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
   const notificationsReturnRef = useRef<Screen>("profile")
 
   // Directional transition tracking
-  const prevScreenRef = useRef<Screen>("login")
+  const prevScreenRef = useRef<Screen>("loading")
   const [entranceClass, setEntranceClass] = useState("animate-fade-in")
 
   // Toast state
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastKeyRef = useRef(0)
 
-  const showToast = useCallback((message: string, action?: { label: string; onClick: () => void }, duration?: number) => {
-    toastKeyRef.current += 1
-    setToast({ message, action, duration, key: toastKeyRef.current })
-  }, [])
+  const showToast = useCallback(
+    (message: string, action?: { label: string; onClick: () => void }, duration?: number) => {
+      toastKeyRef.current += 1
+      setToast({ message, action, duration, key: toastKeyRef.current })
+    },
+    []
+  )
 
-  const userName = deriveNameFromEmail(userEmail)
-  const userInitials = deriveInitials(userName)
-
-  // Core navigation — computes entrance direction based on screen hierarchy
+  // ── Core navigation ───────────────────────────────────────────────────
   const navigateTo = useCallback((next: Screen) => {
     const prev = prevScreenRef.current
-    // Login transitions are always a plain fade
-    if (prev === "login" || next === "login") {
+    if (prev === "login" || prev === "register" || next === "login" || next === "register") {
       setEntranceClass("animate-fade-in")
     } else {
       const d = SCREEN_DEPTH[next] - SCREEN_DEPTH[prev]
-      setEntranceClass(d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in")
+      setEntranceClass(
+        d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in"
+      )
     }
     prevScreenRef.current = next
     setActiveScreen(next)
   }, [])
 
-  const handleCreateProject = useCallback((name: string, memberIds: string[] = []): Project => {
-    const color = PROJECT_COLORS[nextColorIndex.current % PROJECT_COLORS.length]
-    nextColorIndex.current += 1
-    const newProject: Project = { id: generateProjectId(), name: name.trim(), color, members: memberIds }
-    setProjects((prev) => [...prev, newProject])
-    return newProject
+  // ── Auth state listener ───────────────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setFirebaseUser(user)
+        // User doc may not exist yet if created via createUserWithEmailAndPassword
+        // We'll get it from contacts listener or create it here as fallback
+        const name = user.displayName || deriveNameFromEmail(user.email ?? "")
+        const initials = deriveInitials(name)
+        setCurrentUser({
+          id: user.uid,
+          name,
+          initials,
+          color: "bg-primary",
+        })
+        navigateTo("compose")
+      } else {
+        setFirebaseUser(null)
+        setCurrentUser(null)
+        setContacts([])
+        setMessages([])
+        setProjects([])
+        navigateTo("login")
+      }
+    })
+    return unsub
+  }, [navigateTo])
+
+  // ── Firestore listeners (only when authenticated) ──────────────────────
+  useEffect(() => {
+    if (!firebaseUser) return
+
+    // 1. All users (contacts = everyone except me)
+    const usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
+      const all = snap.docs.map((d) => d.data() as Contact)
+      setContacts(all.filter((u) => u.id !== firebaseUser.uid))
+      // Update currentUser profile from Firestore
+      const me = all.find((u) => u.id === firebaseUser.uid)
+      if (me) setCurrentUser(me)
+    })
+
+    // 2. Projects where current user is a member
+    const projectsQuery = query(
+      collection(db, "projects"),
+      where("members", "array-contains", firebaseUser.uid)
+    )
+    const projectsUnsub = onSnapshot(projectsQuery, (snap) => {
+      setProjects(snap.docs.map((d) => d.data() as Project))
+    })
+
+    // 3. Messages where current user is a participant (sorted client-side to avoid composite index)
+    const messagesQuery = query(
+      collection(db, "messages"),
+      where("participants", "array-contains", firebaseUser.uid)
+    )
+    const messagesUnsub = onSnapshot(messagesQuery, (snap) => {
+      const msgs: Message[] = snap.docs.map((d) => {
+        const data = d.data()
+        return {
+          id: d.id,
+          senderId: data.senderId,
+          participants: data.participants,
+          projectId: data.projectId ?? null,
+          text: data.text,
+          type: data.type as MessageType,
+          timestamp: data.timestamp instanceof Timestamp
+            ? data.timestamp.toDate()
+            : new Date(data.timestamp ?? 0),
+          isFavorited: data.isFavorited ?? false,
+        }
+      })
+      // Sort ascending by timestamp client-side
+      msgs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      setMessages(msgs)
+    })
+
+    return () => {
+      usersUnsub()
+      projectsUnsub()
+      messagesUnsub()
+    }
+  }, [firebaseUser])
+
+  // ── Auth handlers ─────────────────────────────────────────────────────
+  const handleLogin = useCallback(async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password)
+    // onAuthStateChanged will handle navigation
   }, [])
 
-  const handleDeleteMessage = useCallback((id: string) => {
-    // Capture message before removing it for potential Undo
-    setMessages((prev) => {
-      const target = prev.find((m) => m.id === id)
-      if (!target) return prev
-      const next = prev.filter((m) => m.id !== id)
-      // Show toast with Undo — restore the message at its original index
-      const originalIndex = prev.indexOf(target)
+  const handleRegister = useCallback(async (name: string, email: string, password: string) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, password)
+    const uid = cred.user.uid
+    const initials = deriveInitials(name)
+    // Pick a random color
+    const color = USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]
+    const userDoc: Contact = { id: uid, name, initials, color }
+    await setDoc(doc(db, "users", uid), userDoc)
+    // onAuthStateChanged will handle navigation
+  }, [])
+
+  const handleSignOut = useCallback(async () => {
+    await signOut(auth)
+    // onAuthStateChanged will navigate to login
+  }, [])
+
+  // ── Project handlers ──────────────────────────────────────────────────
+  const handleCreateProject = useCallback(
+    async (name: string, memberIds: string[] = []): Promise<Project> => {
+      const color = PROJECT_COLORS[nextColorIndex.current % PROJECT_COLORS.length]
+      nextColorIndex.current += 1
+      const id = generateProjectId()
+      const members = firebaseUser ? [...new Set([firebaseUser.uid, ...memberIds])] : memberIds
+      const newProject: Project = { id, name: name.trim(), color, members, ownerId: firebaseUser?.uid ?? "" }
+      await setDoc(doc(db, "projects", id), newProject)
+      return newProject
+    },
+    [firebaseUser]
+  )
+
+  const handleUpdateProjectMembers = useCallback(
+    async (projectId: string, memberIds: string[]) => {
+      await updateDoc(doc(db, "projects", projectId), { members: memberIds })
+    },
+    []
+  )
+
+  // ── Message handlers ──────────────────────────────────────────────────
+  const handleSend = useCallback(
+    async (text: string, contactIds: string[], projectId: string | null, type: MessageType) => {
+      if (!text.trim() || !firebaseUser) { navigateTo("stream"); return }
+      const participants = [...new Set([firebaseUser.uid, ...contactIds])]
+      const msgData = {
+        senderId: firebaseUser.uid,
+        participants,
+        projectId: projectId ?? null,
+        text: text.trim(),
+        type,
+        timestamp: serverTimestamp(),
+        isFavorited: false,
+      }
+      await addDoc(collection(db, "messages"), msgData)
+      navigateTo("stream")
+      showToast("Sent ✓", undefined, 2000)
+    },
+    [firebaseUser, navigateTo, showToast]
+  )
+
+  const handleDeleteMessage = useCallback(
+    (id: string) => {
+      // Capture message for Undo before deleting
+      const target = messages.find((m) => m.id === id)
+      if (!target) return
+      deleteDoc(doc(db, "messages", id))
       showToast("Message deleted", {
         label: "Undo",
-        onClick: () => setMessages((cur) => {
-          const arr = [...cur]
-          arr.splice(originalIndex, 0, target)
-          return arr
-        }),
+        onClick: async () => {
+          // Re-create the message (without serverTimestamp to preserve order)
+          await setDoc(doc(db, "messages", id), {
+            senderId: target.senderId,
+            participants: target.participants,
+            projectId: target.projectId ?? null,
+            text: target.text,
+            type: target.type,
+            timestamp: Timestamp.fromDate(target.timestamp),
+            isFavorited: target.isFavorited ?? false,
+          })
+        },
       })
-      return next
-    })
-  }, [showToast])
+    },
+    [messages, showToast]
+  )
 
-  const handleFavoriteMessage = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => m.id === id ? { ...m, isFavorited: !m.isFavorited } : m)
-    )
-  }, [])
+  const handleFavoriteMessage = useCallback(async (id: string) => {
+    const msg = messages.find((m) => m.id === id)
+    if (!msg) return
+    await updateDoc(doc(db, "messages", id), { isFavorited: !msg.isFavorited })
+  }, [messages])
 
-  const handleUpdateProjectMembers = useCallback((projectId: string, memberIds: string[]) => {
-    setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, members: memberIds } : p))
-    )
-  }, [])
+  const handleApplyTag = useCallback(
+    async (type: MessageType, projectId: string | null) => {
+      if (!selectedMessageId) return
+      await updateDoc(doc(db, "messages", selectedMessageId), { type, projectId: projectId ?? null })
+      setSelectedMessageId(null)
+      navigateTo("stream")
+      const label = type.charAt(0).toUpperCase() + type.slice(1)
+      showToast(`Tagged as ${label}`, undefined, 2000)
+    },
+    [selectedMessageId, navigateTo, showToast]
+  )
 
-  const handleLogin = useCallback((email: string) => {
-    setUserEmail(email)
-    setComposeMode("fullscreen")
-    navigateTo("compose")
+  // ── Navigation helpers ────────────────────────────────────────────────
+  const handleMessageClick = useCallback((message: Message) => {
+    setSelectedMessageId(message.id)
+    navigateTo("tag")
   }, [navigateTo])
 
-  const handleSignOut = useCallback(() => {
-    setUserEmail("")
-    setMessages([])
-    setProjects([])
-    navigateTo("login")
+  const handleCloseTag = useCallback(() => {
+    setSelectedMessageId(null)
+    navigateTo("stream")
   }, [navigateTo])
 
-  const goToCompose = useCallback(() => {
-    setComposeMode("sheet")
-    navigateTo("compose")
-  }, [navigateTo])
-  const goToStream        = useCallback(() => navigateTo("stream"), [navigateTo])
-  const goToProfile       = useCallback(() => navigateTo("profile"), [navigateTo])
+  const goToCompose = useCallback(() => { setComposeMode("sheet"); navigateTo("compose") }, [navigateTo])
+  const goToStream = useCallback(() => navigateTo("stream"), [navigateTo])
+  const goToProfile = useCallback(() => navigateTo("profile"), [navigateTo])
   const goToNotificationsFromProfile = useCallback(() => {
     notificationsReturnRef.current = "profile"
     navigateTo("notifications")
@@ -171,72 +345,48 @@ export default function Home() {
   const handleNotificationsBack = useCallback(() => {
     navigateTo(notificationsReturnRef.current)
   }, [navigateTo])
-  const goToPrivacy       = useCallback(() => navigateTo("privacy"), [navigateTo])
-  const goToProjects      = useCallback(() => navigateTo("projects"), [navigateTo])
+  const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
+  const goToProjects = useCallback(() => navigateTo("projects"), [navigateTo])
   const goToProjectDetail = useCallback((projectId: string) => {
     setSelectedProjectId(projectId)
     navigateTo("project-detail")
   }, [navigateTo])
 
-  const handleSend = useCallback(
-    (text: string, contactIds: string[], projectId: string | null, type: MessageType) => {
-      if (!text.trim()) { navigateTo("stream"); return }
-      const newMessage: Message = {
-        id: generateId(),
-        contactId: "me",
-        projectId,
-        text: text.trim(),
-        type,
-        timestamp: new Date(),
-        isMe: true,
-      }
-      setMessages((prev) => [...prev, newMessage])
-      navigateTo("stream")
-      showToast("Sent ✓", undefined, 2000)
-    },
-    [navigateTo, showToast]
-  )
-
-  const handleMessageClick = useCallback((message: Message) => {
-    setSelectedMessageId(message.id)
-    navigateTo("tag")
-  }, [navigateTo])
-
-  const handleApplyTag = useCallback(
-    (type: MessageType, projectId: string | null) => {
-      if (!selectedMessageId) return
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === selectedMessageId ? { ...msg, type, projectId } : msg
-        )
-      )
-      setSelectedMessageId(null)
-      navigateTo("stream")
-      const label = type.charAt(0).toUpperCase() + type.slice(1)
-      showToast(`Tagged as ${label}`, undefined, 2000)
-    },
-    [selectedMessageId, navigateTo, showToast]
-  )
-
-  const handleCloseTag = useCallback(() => {
-    setSelectedMessageId(null)
-    navigateTo("stream")
-  }, [navigateTo])
+  // ── Derived values ────────────────────────────────────────────────────
+  const userName = currentUser?.name ?? ""
+  const userEmail = firebaseUser?.email ?? ""
+  const userInitials = currentUser?.initials ?? ""
 
   const selectedMessage = messages.find((m) => m.id === selectedMessageId) || null
 
-  const filteredMessages =
+  const filteredMessages = useMemo(() =>
     activeFilter === "all"
       ? messages
       : activeFilter === "unsorted"
       ? messages.filter((m) => m.type === "none")
-      : messages.filter((m) => m.projectId === activeFilter)
+      : messages.filter((m) => m.projectId === activeFilter),
+    [messages, activeFilter]
+  )
 
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="h-dvh w-full flex flex-col bg-background overflow-hidden relative">
-      {activeScreen === "login" && (
-        <LoginScreen onLogin={handleLogin} />
+
+      {/* Loading splash */}
+      {activeScreen === "loading" && (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="w-8 h-8 rounded-full border-2 border-white/20 border-t-primary animate-spin" />
+        </div>
       )}
+
+      {activeScreen === "login" && (
+        <LoginScreen onLogin={handleLogin} onGoRegister={() => navigateTo("register")} />
+      )}
+
+      {activeScreen === "register" && (
+        <RegisterScreen onRegister={handleRegister} onGoLogin={() => navigateTo("login")} />
+      )}
+
       {activeScreen === "profile" && (
         <ProfileScreen
           className={entranceClass}
@@ -252,22 +402,27 @@ export default function Home() {
           onProjects={goToProjects}
         />
       )}
+
       {activeScreen === "notifications" && (
         <NotificationsScreen className={entranceClass} onBack={handleNotificationsBack} />
       )}
+
       {activeScreen === "privacy" && (
         <PrivacySecurityScreen className={entranceClass} onBack={goToProfile} />
       )}
+
       {activeScreen === "projects" && (
         <ProjectListScreen
           className={entranceClass}
           projects={projects}
           messages={messages}
+          contacts={contacts}
           onBack={goToProfile}
           onProjectSelect={goToProjectDetail}
           onCreateProject={handleCreateProject}
         />
       )}
+
       {activeScreen === "project-detail" && selectedProjectId && (() => {
         const proj = projects.find((p) => p.id === selectedProjectId)
         if (!proj) return null
@@ -276,11 +431,15 @@ export default function Home() {
             className={entranceClass}
             project={proj}
             messages={messages}
+            contacts={contacts}
+            currentUserId={currentUser?.id ?? ""}
+            currentUser={currentUser}
             onBack={goToProjects}
             onUpdateMembers={handleUpdateProjectMembers}
           />
         )
       })()}
+
       {activeScreen === "compose" && composeMode === "fullscreen" && (
         <ComposeScreen
           mode="fullscreen"
@@ -288,9 +447,13 @@ export default function Home() {
           onSend={handleSend}
           projects={projects}
           onCreateProject={handleCreateProject}
+          contacts={contacts}
         />
       )}
-      {(activeScreen === "stream" || (activeScreen === "compose" && composeMode === "sheet") || activeScreen === "tag") && (
+
+      {(activeScreen === "stream" ||
+        (activeScreen === "compose" && composeMode === "sheet") ||
+        activeScreen === "tag") && (
         <>
           <StreamScreen
             messages={filteredMessages}
@@ -305,11 +468,13 @@ export default function Home() {
             onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}
             projects={projects}
+            contacts={contacts}
+            currentUserId={currentUser?.id ?? ""}
           />
           {activeScreen === "compose" && (
             <div
               className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-              style={{ paddingBottom: 'env(keyboard-inset-height, 0px)' }}
+              style={{ paddingBottom: "env(keyboard-inset-height, 0px)" }}
             >
               <div className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl">
                 <ComposeScreen
@@ -318,6 +483,7 @@ export default function Home() {
                   onSend={handleSend}
                   projects={projects}
                   onCreateProject={handleCreateProject}
+                  contacts={contacts}
                 />
               </div>
             </div>
@@ -329,12 +495,13 @@ export default function Home() {
               onClose={handleCloseTag}
               projects={projects}
               onCreateProject={handleCreateProject}
+              contacts={contacts}
             />
           )}
         </>
       )}
 
-      {/* Global toast — rendered at root level, above everything */}
+      {/* Global toast */}
       {toast && (
         <ToastNotification
           key={toast.key}

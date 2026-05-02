@@ -1,36 +1,45 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import Image from "next/image"
+import { Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface LoginScreenProps {
-  onLogin: (email: string) => void
+  onLogin: (email: string, password: string) => Promise<void>
+  onGoRegister: () => void
 }
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
-export function LoginScreen({ onLogin }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [touched, setTouched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const valid = isValidEmail(email)
-  const showError = touched && email.length > 0 && !valid
+  const validEmail = isValidEmail(email)
+  const showEmailError = touched && email.length > 0 && !validEmail
+  const canSubmit = validEmail && password.length >= 6
 
-  const handleContinue = () => {
-    const rawEmail = inputRef.current?.value ?? email
-    const normalizedEmail = rawEmail.trim()
+  const handleContinue = async () => {
     setTouched(true)
-    if (!isValidEmail(normalizedEmail)) return
+    if (!canSubmit) return
     setLoading(true)
-    setTimeout(() => {
+    setError(null)
+    try {
+      await onLogin(email.trim(), password)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Sign in failed"
+      setError(friendlyAuthError(msg))
+    } finally {
       setLoading(false)
-      onLogin(normalizedEmail)
-    }, 800)
+    }
   }
 
   return (
@@ -44,9 +53,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         {/* Logo + Brand */}
         <div className="flex flex-col items-center gap-5 px-8 mb-12">
 
-          {/* App icon — navy gradient rect + gradient border ring */}
+          {/* App icon */}
           <div className="animate-spring-pop animate-logo-breathe">
-            {/* Gradient border layer */}
             <div
               className="rounded-4xl p-[1.5px]"
               style={{
@@ -54,7 +62,6 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 boxShadow: "0 24px 64px rgba(5, 15, 50, 0.75), 0 4px 16px rgba(5,15,50,0.5)",
               }}
             >
-              {/* Inner dark navy gradient */}
               <div
                 className="w-28 h-28 rounded-[30.5px] flex items-center justify-center overflow-hidden"
                 style={{
@@ -66,7 +73,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                   alt="SVC Stream"
                   width={90}
                   height={90}
-                  className="w-22.5 h-22.5 object-contain"
+                  className="object-contain"
                   priority
                 />
               </div>
@@ -79,19 +86,18 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
               SVC <span className="text-primary">Stream</span>
             </h1>
             <p className="text-sm text-muted-foreground mt-1 leading-snug">
-              Your team's communication layer
+              Your team&apos;s communication layer
             </p>
           </div>
         </div>
 
         {/* Form */}
         <div className="px-6 flex flex-col gap-3 animate-fade-up delay-300">
-          {/* Email label */}
+
+          {/* Email */}
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider font-mono px-1">
             Email
           </label>
-
-          {/* Email input */}
           <input
             type="email"
             name="email"
@@ -106,37 +112,65 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             autoCorrect="off"
             inputMode="email"
             spellCheck={false}
-            enterKeyHint="go"
             ref={inputRef}
             className={cn(
               "bg-white/5 border rounded-xl px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none transition-all duration-200",
-              showError
+              showEmailError
                 ? "border-destructive/50 focus:border-destructive/60 bg-destructive/5"
                 : "border-white/10 focus:border-primary/50 focus:bg-white/[0.07]"
             )}
           />
-
-          {/* Inline error */}
-          {showError && (
+          {showEmailError && (
             <p className="text-[11px] text-destructive/80 px-1 font-mono -mt-1 animate-fade-in">
               Enter a valid email — needs an @
             </p>
           )}
 
-          {/* Continue button */}
+          {/* Password */}
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider font-mono px-1 mt-1">
+            Password
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              name="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleContinue()}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 pr-11 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none transition-all duration-200 focus:border-primary/50 focus:bg-white/[0.07]"
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {/* Auth error */}
+          {error && (
+            <p className="text-[11px] text-destructive/80 px-1 font-mono -mt-1 animate-fade-in">
+              {error}
+            </p>
+          )}
+
+          {/* Sign in button */}
           <button
             onClick={handleContinue}
             disabled={loading}
             className={cn(
               "relative mt-1 w-full py-3.5 rounded-xl text-sm font-semibold text-white overflow-hidden",
               "transition-all duration-200 active:scale-[0.97] hover:scale-[1.01]",
-              valid && !loading
+              canSubmit && !loading
                 ? "bg-primary shadow-[0_6px_24px_rgba(37,99,235,0.45)] hover:shadow-[0_8px_32px_rgba(37,99,235,0.55)]"
                 : "bg-white/8 text-muted-foreground/40 border border-white/8"
             )}
           >
-            {/* Shimmer overlay when active */}
-            {valid && !loading && (
+            {canSubmit && !loading && (
               <span className="absolute inset-0 animate-shimmer pointer-events-none" />
             )}
             {loading ? (
@@ -145,11 +179,21 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 Signing in…
               </span>
             ) : (
-              "Continue"
+              "Sign In"
             )}
           </button>
-        </div>
 
+          {/* Register link */}
+          <p className="text-center text-xs text-muted-foreground mt-1">
+            No account yet?{" "}
+            <button
+              onClick={onGoRegister}
+              className="text-primary font-semibold hover:underline"
+            >
+              Create one
+            </button>
+          </p>
+        </div>
       </div>
 
       {/* Bottom spacer */}
@@ -158,9 +202,19 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       {/* Footer */}
       <div className="pb-10 px-8 text-center animate-fade-in delay-400">
         <p className="text-[11px] text-muted-foreground/30 font-mono tracking-wide">
-          MVP · Not connected to Firebase yet
+          SVC Stream · Powered by Firebase
         </p>
       </div>
     </div>
   )
+}
+
+function friendlyAuthError(msg: string): string {
+  if (msg.includes("user-not-found") || msg.includes("wrong-password") || msg.includes("invalid-credential"))
+    return "Invalid email or password."
+  if (msg.includes("too-many-requests"))
+    return "Too many attempts. Try again later."
+  if (msg.includes("network"))
+    return "Network error. Check your connection."
+  return "Sign in failed. Please try again."
 }

@@ -3,14 +3,15 @@
 import { useState } from "react"
 import { X, ArrowRight, ChevronLeft, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { CONTACTS } from "@/lib/store"
+import { type Contact } from "@/lib/store"
 
 interface CreateProjectModalProps {
   onClose: () => void
   onSubmit: (name: string, memberIds: string[]) => void
+  contacts: Contact[]
 }
 
-export function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
+export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjectModalProps) {
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState("")
   const [members, setMembers] = useState<string[]>([])
@@ -102,7 +103,7 @@ export function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProp
 
             {/* Contact list */}
             <div className="max-h-60 overflow-y-auto scrollbar-hide px-3 py-1">
-              {CONTACTS.map((contact) => {
+              {contacts.map((contact) => {
                 const sel = members.includes(contact.id)
                 return (
                   <button

@@ -3,15 +3,16 @@
 import { useState } from "react"
 import { Check, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { CONTACTS } from "@/lib/store"
+import { type Contact } from "@/lib/store"
 
 interface AddMembersModalProps {
   currentMembers: string[]
   onSave: (memberIds: string[]) => void
   onClose: () => void
+  contacts: Contact[]
 }
 
-export function AddMembersModal({ currentMembers, onSave, onClose }: AddMembersModalProps) {
+export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: AddMembersModalProps) {
   const [selected, setSelected] = useState<string[]>(currentMembers)
 
   const toggle = (id: string) =>
@@ -55,7 +56,7 @@ export function AddMembersModal({ currentMembers, onSave, onClose }: AddMembersM
 
         {/* Contact list */}
         <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-2">
-          {CONTACTS.map((contact) => {
+          {contacts.map((contact) => {
             const isSelected = selected.includes(contact.id)
             return (
               <button
