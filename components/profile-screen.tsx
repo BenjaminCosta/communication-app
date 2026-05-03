@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, ChevronRight } from "lucide-react"
 
 interface ProfileScreenProps {
@@ -17,6 +18,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ userName, userEmail, userInitials, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, className }: ProfileScreenProps) {
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
@@ -72,13 +74,31 @@ export function ProfileScreen({ userName, userEmail, userInitials, projectCount,
 
       {/* Sign Out */}
       <div className="px-6 pb-10 safe-area-pb animate-fade-up delay-300">
-        <button
-          onClick={onSignOut}
-          className="w-full py-3.5 rounded-xl border border-destructive/20 bg-destructive/8 text-destructive text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-150 hover:bg-destructive/15"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </button>
+        {confirmSignOut ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmSignOut(false)}
+              className="flex-1 py-3.5 rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-muted-foreground active:scale-[0.98] transition-all duration-150 hover:bg-white/8"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSignOut}
+              className="flex-1 py-3.5 rounded-xl border border-destructive/30 bg-destructive/15 text-destructive text-sm font-bold active:scale-[0.98] transition-all duration-150 hover:bg-destructive/25 flex items-center justify-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              Confirm
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmSignOut(true)}
+            className="w-full py-3.5 rounded-xl border border-destructive/20 bg-destructive/8 text-destructive text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-150 hover:bg-destructive/15"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        )}
       </div>
       </div>{/* end centered content */}
     </div>

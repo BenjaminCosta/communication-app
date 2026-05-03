@@ -162,7 +162,8 @@ export default function Home() {
         setFirebaseUser(null)
         setCurrentUser(null)
         setContacts([])
-        setMessages([])
+        setParticipantMessages([])
+        setProjectMessages([])
         setProjects([])
         navigateTo("login")
       }
