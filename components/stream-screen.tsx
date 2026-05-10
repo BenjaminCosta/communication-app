@@ -74,12 +74,23 @@ export function StreamScreen({
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isPinnedToBottom = useRef(true)
 
   const clearChipSelection = () => { setSelectedChipId(null); setConfirmDeleteChipId(null) }
   const clearMsgSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
 
+  // Track whether user is near the bottom
+  const handleScroll = () => {
+    const el = feedRef.current
+    if (!el) return
+    isPinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
+  // Only auto-scroll to bottom when pinned (i.e. user hasn't scrolled up)
   useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight })
+    if (isPinnedToBottom.current) {
+      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" })
+    }
   }, [messages.length])
 
   const startPress = (msgId: string) => {
@@ -101,7 +112,7 @@ export function StreamScreen({
   const selectedMsg = selectedMsgId ? messages.find((m) => m.id === selectedMsgId) : null
 
   return (
-    <div className="flex-1 flex flex-col bg-background animate-fade-in">
+    <div className="flex-1 flex flex-col min-h-0 bg-background animate-fade-in">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/10 animate-slide-down">
         <h1 className="text-lg font-bold tracking-tight">
@@ -167,7 +178,8 @@ export function StreamScreen({
       {/* Feed */}
       <div
         ref={feedRef}
-        className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 scrollbar-hide"
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3 scrollbar-hide"
         onClick={() => selectedMsgId && clearMsgSelection()}
       >
         <div className="flex items-center gap-3 my-1">
