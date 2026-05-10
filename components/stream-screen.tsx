@@ -33,6 +33,7 @@ interface StreamScreenProps {
   onDeleteMessage: (id: string) => void
   onFavoriteMessage: (id: string) => void
   userInitials: string
+  userColor: string
   projects: Project[]
   contacts: Contact[]
   currentUserId: string
@@ -56,6 +57,7 @@ export function StreamScreen({
   onDeleteMessage,
   onFavoriteMessage,
   userInitials,
+  userColor,
   projects,
   contacts,
   currentUserId,
@@ -136,9 +138,12 @@ export function StreamScreen({
           {/* Profile avatar */}
           <button
             onClick={onProfile}
-            className="w-9 h-9 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center active:scale-95 hover:bg-primary/20 transition-all duration-150"
+            className={cn(
+              "w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all duration-150",
+              userColor
+            )}
           >
-            <span className="text-[11px] font-bold text-primary">{userInitials}</span>
+            <span className="text-[11px] font-bold text-white">{userInitials}</span>
           </button>
         </div>
       </div>
@@ -205,6 +210,7 @@ export function StreamScreen({
               contacts={contacts}
               currentUserId={currentUserId}
               userInitials={userInitials}
+              userColor={userColor}
               isSelected={selectedMsgId === msg.id}
               onTap={() => {
                 if (selectedMsgId) { clearMsgSelection(); return }
@@ -447,13 +453,14 @@ function FilterChip({
 }
 
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, isSelected, onTap, onPressStart, onPressEnd, onProjectTagTap,
+  message, projects, contacts, currentUserId, userInitials, userColor, isSelected, onTap, onPressStart, onPressEnd, onProjectTagTap,
 }: {
   message: Message
   projects: Project[]
   contacts: Contact[]
   currentUserId: string
   userInitials: string
+  userColor: string
   isSelected: boolean
   onTap: () => void
   onPressStart: () => void
@@ -462,7 +469,7 @@ function MessageBubble({
 }) {
   const isMe = message.senderId === currentUserId
   const contact = isMe
-    ? { id: currentUserId, name: "Me", initials: userInitials, color: "bg-primary/20" }
+    ? { id: currentUserId, name: "Me", initials: userInitials, color: userColor }
     : (getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" })
   const project = projects.find((p) => p.id === message.projectId) ?? null
   const style = typeStyles[message.type]
@@ -476,8 +483,8 @@ function MessageBubble({
       )}
     >
       <div className={cn(
-        "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold flex-shrink-0",
-        isMe ? "bg-[#1a3460]" : "bg-card"
+        "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white",
+        contact.color
       )}>
         {contact.initials}
       </div>

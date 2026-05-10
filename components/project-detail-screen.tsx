@@ -317,8 +317,8 @@ function ProjectMessageBubble({
       style={{ animationDelay: `${index * 30}ms` }}
     >
       <div className={cn(
-        "w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-xs font-bold shrink-0",
-        isMe ? "bg-[#1a3460]" : "bg-card"
+        "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white",
+        contact.color
       )}>
         {contact.initials}
       </div>

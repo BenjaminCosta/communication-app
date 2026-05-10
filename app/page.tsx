@@ -23,7 +23,7 @@ import {
   Timestamp,
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
-import { haptic } from "@/lib/utils"
+import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { TagSheet } from "@/components/tag-sheet"
@@ -155,7 +155,7 @@ export default function Home() {
           id: user.uid,
           name,
           initials,
-          color: "bg-primary",
+          color: getUserAvatarColor(user.uid),
         })
         navigateTo("compose")
       } else {
@@ -268,8 +268,7 @@ export default function Home() {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     const uid = cred.user.uid
     const initials = deriveInitials(name)
-    // Pick a random color
-    const color = USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)]
+    const color = getUserAvatarColor(uid)
     const userDoc: Contact = { id: uid, name, initials, color }
     await setDoc(doc(db, "users", uid), userDoc)
     // onAuthStateChanged will handle navigation
@@ -493,6 +492,7 @@ export default function Home() {
   const userName = currentUser?.name ?? ""
   const userEmail = firebaseUser?.email ?? ""
   const userInitials = currentUser?.initials ?? ""
+  const userColor = currentUser?.color ?? getUserAvatarColor(firebaseUser?.uid ?? "")
 
   const selectedMessage = messages.find((m) => m.id === selectedMessageId) || null
 
@@ -530,6 +530,7 @@ export default function Home() {
           userName={userName}
           userEmail={userEmail}
           userInitials={userInitials}
+          userColor={userColor}
           projectCount={projects.length}
           messageCount={messages.length}
           onBack={goToStream}
@@ -612,6 +613,7 @@ export default function Home() {
             onDeleteMessage={handleDeleteMessage}
             onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}
+            userColor={userColor}
             projects={projects}
             contacts={contacts}
             currentUserId={currentUser?.id ?? ""}

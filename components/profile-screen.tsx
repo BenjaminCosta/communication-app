@@ -2,11 +2,13 @@
 
 import { useState } from "react"
 import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface ProfileScreenProps {
   userName: string
   userEmail: string
   userInitials: string
+  userColor: string
   projectCount: number
   messageCount: number
   onBack: () => void
@@ -17,7 +19,7 @@ interface ProfileScreenProps {
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
@@ -40,8 +42,8 @@ export function ProfileScreen({ userName, userEmail, userInitials, projectCount,
       {/* Avatar + Info */}
       <div className="flex flex-col items-center gap-3 pt-10 pb-8 px-6">
         <div className="relative animate-spring-pop">
-          <div className="w-20 h-20 rounded-full bg-primary/15 border-2 border-primary/30 flex items-center justify-center shadow-[0_0_32px_rgba(37,99,235,0.2)]">
-            <span className="text-2xl font-bold text-primary">{userInitials}</span>
+          <div className={cn("w-20 h-20 rounded-full flex items-center justify-center shadow-lg", userColor)}>
+            <span className="text-2xl font-bold text-white">{userInitials}</span>
           </div>
           {/* Online indicator */}
           <div className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-progress border-2 border-background shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
