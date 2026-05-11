@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo } from "react"
-import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy } from "lucide-react"
+import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, Filter } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Message,
@@ -74,6 +74,8 @@ export function StreamScreen({
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null)
   const [confirmDeleteChipId, setConfirmDeleteChipId] = useState<string | null>(null)
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
+  const [selectedType, setSelectedType] = useState<MessageType | "all">("all")
+  const [showTypeSheet, setShowTypeSheet] = useState(false)
   const feedRef = useRef<HTMLDivElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isPinnedToBottom = useRef(true)
@@ -110,7 +112,12 @@ export function StreamScreen({
   }
 
   const unsortedCount = useMemo(() => messages.filter((m) => m.type === "none").length, [messages])
-  const sortedMessages = useMemo(() => [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()), [messages])
+  const sortedMessages = useMemo(() => {
+    const typeFiltered = selectedType === "all"
+      ? messages
+      : messages.filter((m) => m.type === selectedType)
+    return [...typeFiltered].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+  }, [messages, selectedType])
   const selectedMsg = selectedMsgId ? messages.find((m) => m.id === selectedMsgId) : null
 
   return (
@@ -165,13 +172,25 @@ export function StreamScreen({
             {project.name}
           </FilterChip>
         ))}
-        <FilterChip
-          active={activeFilter === "unsorted"}
-          onClick={() => onFilterChange("unsorted")}
-          highlight={unsortedCount > 0}
+        {/* Type filter button — replaces Unsorted chip, amber like it was */}
+        <button
+          onClick={() => setShowTypeSheet(true)}
+          className={cn(
+            "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all border flex items-center gap-1.5 active:scale-95",
+            selectedType !== "all"
+              ? cn(typeStyles[selectedType].bg, typeStyles[selectedType].text, typeStyles[selectedType].border)
+              : unsortedCount > 0
+              ? "bg-feedback/10 border-feedback/25 text-feedback"
+              : "bg-feedback/8 border-feedback/20 text-feedback/70"
+          )}
         >
-          Unsorted {unsortedCount > 0 && `(${unsortedCount})`}
-        </FilterChip>
+          <Filter className="w-3 h-3" />
+          {selectedType !== "all"
+            ? typeStyles[selectedType].label
+            : unsortedCount > 0
+            ? `Type (${unsortedCount})`
+            : "Type"}
+        </button>
         <button
           onClick={() => setShowCreateProject(true)}
           className="w-8 h-8 rounded-full shrink-0 transition-all border bg-white/5 border-dashed border-white/20 text-foreground/60 hover:border-primary/40 hover:text-primary active:bg-white/10 flex items-center justify-center text-lg font-light"
@@ -387,6 +406,52 @@ export function StreamScreen({
             setShowCreateProject(false)
           }}
         />
+      )}
+
+      {/* Type Filter Bottom Sheet */}
+      {showTypeSheet && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+            onClick={() => setShowTypeSheet(false)}
+          />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200">
+            {/* Handle */}
+            <div className="w-10 h-1 bg-white/15 rounded-full mx-auto mb-5" />
+            <p className="text-[11px] font-bold uppercase tracking-[2px] text-muted-foreground mb-3 font-mono">
+              Filter by Type
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {/* All Types chip */}
+              <button
+                onClick={() => { haptic.light(); setSelectedType("all"); setShowTypeSheet(false) }}
+                className={cn(
+                  "text-sm font-semibold px-4 py-2 rounded-full border transition-all active:scale-95",
+                  selectedType === "all"
+                    ? "bg-primary/20 border-primary/35 text-primary"
+                    : "bg-white/5 border-white/10 text-muted-foreground"
+                )}
+              >
+                All Types
+              </button>
+              {/* One chip per type */}
+              {(Object.entries(typeStyles) as [MessageType, { bg: string; text: string; border: string; label: string }][]).map(([type, style]) => (
+                <button
+                  key={type}
+                  onClick={() => { haptic.light(); setSelectedType(type); setShowTypeSheet(false) }}
+                  className={cn(
+                    "text-sm font-semibold px-4 py-2 rounded-full border transition-all active:scale-95",
+                    selectedType === type
+                      ? cn(style.bg, style.text, style.border, "ring-1 ring-current ring-offset-1 ring-offset-[#0a1628]")
+                      : "bg-white/5 border-white/10 text-muted-foreground"
+                  )}
+                >
+                  {style.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {/* FAB */}

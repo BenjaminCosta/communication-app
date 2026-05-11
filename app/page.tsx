@@ -35,6 +35,7 @@ import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { ToastNotification } from "@/components/toast-notification"
+import { AppLoadingScreen } from "@/components/app-loading-screen"
 import {
   type Message,
   type MessageType,
@@ -510,11 +511,7 @@ export default function Home() {
     <div className="h-dvh w-full flex flex-col bg-background overflow-hidden relative">
 
       {/* Loading splash */}
-      {activeScreen === "loading" && (
-        <div className="flex-1 flex items-center justify-center">
-          <span className="w-8 h-8 rounded-full border-2 border-white/20 border-t-primary animate-spin" />
-        </div>
-      )}
+      {activeScreen === "loading" && <AppLoadingScreen />}
 
       {activeScreen === "login" && (
         <LoginScreen onLogin={handleLogin} onGoRegister={() => navigateTo("register")} />

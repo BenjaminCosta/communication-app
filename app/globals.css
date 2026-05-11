@@ -300,3 +300,12 @@
 .animate-slide-in-left {
   animation: slide-in-from-left 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* Indeterminate loading bar — sweeps left to right, loops */
+@keyframes load-bar-sweep {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+.animate-load-bar {
+  animation: load-bar-sweep 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
