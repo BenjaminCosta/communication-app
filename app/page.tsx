@@ -22,7 +22,8 @@ import {
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
+import { auth, db, storage } from "@/lib/firebase"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
@@ -35,9 +36,10 @@ import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { ToastNotification } from "@/components/toast-notification"
-import { AppLoadingScreen } from "@/components/app-loading-screen"
+import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
   type Message,
+  type MessageDraft,
   type MessageType,
   type Project,
   type Contact,
@@ -46,6 +48,8 @@ import {
   deriveNameFromEmail,
   deriveInitials,
   generateProjectId,
+  getMessageProjectIds,
+  messageHasProject,
 } from "@/lib/store"
 
 type Screen =
@@ -83,6 +87,48 @@ interface ToastState {
   key: number
 }
 
+function toDate(value: unknown): Date {
+  if (value instanceof Timestamp) return value.toDate()
+  if (value instanceof Date) return value
+  if (typeof value === "number" || typeof value === "string") return new Date(value)
+  return new Date()
+}
+
+function mapMessageDoc(id: string, data: Record<string, any>): Message {
+  const senderId = data.senderId ?? data.authorId ?? ""
+  const projectIds = Array.isArray(data.projectIds)
+    ? data.projectIds.filter(Boolean)
+    : [data.projectId ?? data.project_id].filter(Boolean)
+  const timestamp = toDate(data.timestamp ?? data.createdAt)
+
+  return {
+    id,
+    senderId,
+    authorId: data.authorId ?? senderId,
+    participants: Array.isArray(data.participants) ? data.participants : [senderId].filter(Boolean),
+    recipientIds: Array.isArray(data.recipientIds)
+      ? data.recipientIds
+      : (Array.isArray(data.participants) ? data.participants.filter((uid: string) => uid !== senderId) : []),
+    projectId: data.projectId ?? data.project_id ?? projectIds[0] ?? null,
+    projectIds,
+    text: data.text ?? data.content ?? "",
+    content: data.content ?? data.text ?? "",
+    type: (data.type ?? "none") as MessageType,
+    timestamp,
+    createdAt: toDate(data.createdAt ?? data.timestamp),
+    updatedAt: toDate(data.updatedAt ?? data.timestamp),
+    isFavorited: data.isFavorited ?? false,
+    imageUrl: data.imageUrl,
+    imagePath: data.imagePath,
+    imageName: data.imageName,
+    imageContentType: data.imageContentType,
+  }
+}
+
+function sanitizeStorageName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 90) || "image"
+}
+
 export default function Home() {
   // ── Auth ──────────────────────────────────────────────────────────────
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
@@ -115,6 +161,8 @@ export default function Home() {
   // Directional transition tracking
   const prevScreenRef = useRef<Screen>("loading")
   const [entranceClass, setEntranceClass] = useState("animate-fade-in")
+  const [showScreenSkeleton, setShowScreenSkeleton] = useState(false)
+  const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Toast state
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -139,8 +187,26 @@ export default function Home() {
         d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in"
       )
     }
+    if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
+    const shouldSkeleton = prev !== "loading" && (
+      next === "projects" ||
+      next === "project-detail" ||
+      next === "profile" ||
+      next === "notifications" ||
+      next === "privacy"
+    )
+    setShowScreenSkeleton(shouldSkeleton)
+    if (shouldSkeleton) {
+      skeletonTimerRef.current = setTimeout(() => setShowScreenSkeleton(false), 180)
+    }
     prevScreenRef.current = next
     setActiveScreen(next)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
+    }
   }, [])
 
   // ── Auth state listener ───────────────────────────────────────────────
@@ -178,7 +244,16 @@ export default function Home() {
 
     // 1. All users (contacts = everyone except me)
     const usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
-      const all = snap.docs.map((d) => d.data() as Contact)
+      const all = snap.docs.map((d) => {
+        const data = d.data()
+        return {
+          id: data.id ?? d.id,
+          name: data.name,
+          initials: data.initials,
+          color: data.color ?? getUserAvatarColor(d.id),
+          lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
+        } as Contact
+      })
       setContacts(all.filter((u) => u.id !== firebaseUser.uid))
       // Update currentUser profile from Firestore
       const me = all.find((u) => u.id === firebaseUser.uid)
@@ -200,29 +275,31 @@ export default function Home() {
       where("participants", "array-contains", firebaseUser.uid)
     )
     const messagesUnsub = onSnapshot(messagesQuery, (snap) => {
-      setParticipantMessages(
-        snap.docs.map((d) => {
-          const data = d.data()
-          return {
-            id: d.id,
-            senderId: data.senderId,
-            participants: data.participants,
-            projectId: data.projectId ?? null,
-            text: data.text,
-            type: data.type as MessageType,
-            timestamp: data.timestamp instanceof Timestamp
-              ? data.timestamp.toDate()
-              : new Date(data.timestamp ?? 0),
-            isFavorited: data.isFavorited ?? false,
-          }
-        })
-      )
+      setParticipantMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
     })
 
     return () => {
       usersUnsub()
       projectsUnsub()
       messagesUnsub()
+    }
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!firebaseUser) return
+    const userRef = doc(db, "users", firebaseUser.uid)
+    const updateLastSeen = () => {
+      setDoc(userRef, { lastSeen: serverTimestamp() }, { merge: true }).catch(() => {})
+    }
+    updateLastSeen()
+    const interval = window.setInterval(updateLastSeen, 30000)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") updateLastSeen()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisibility)
     }
   }, [firebaseUser])
 
@@ -238,23 +315,7 @@ export default function Home() {
       where("projectId", "in", projectIds)
     )
     const unsub = onSnapshot(projectMsgsQuery, (snap) => {
-      setProjectMessages(
-        snap.docs.map((d) => {
-          const data = d.data()
-          return {
-            id: d.id,
-            senderId: data.senderId,
-            participants: data.participants,
-            projectId: data.projectId ?? null,
-            text: data.text,
-            type: data.type as MessageType,
-            timestamp: data.timestamp instanceof Timestamp
-              ? data.timestamp.toDate()
-              : new Date(data.timestamp ?? 0),
-            isFavorited: data.isFavorited ?? false,
-          }
-        })
-      )
+      setProjectMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
     })
     return () => { unsub(); setProjectMessages([]) }
   }, [firebaseUser, projects])
@@ -307,9 +368,16 @@ export default function Home() {
       haptic.destructive()
       const targetProject = projects.find((p) => p.id === id)
       if (!targetProject) return
-      const affected = messages.filter((m) => m.projectId === id)
+      const affected = messages.filter((m) => messageHasProject(m, id))
       const batch = writeBatch(db)
-      affected.forEach((m) => batch.update(doc(db, "messages", m.id), { projectId: null }))
+      affected.forEach((m) => {
+        const remaining = getMessageProjectIds(m).filter((projectId) => projectId !== id)
+        batch.update(doc(db, "messages", m.id), {
+          projectIds: remaining,
+          projectId: remaining[0] ?? null,
+          updatedAt: serverTimestamp(),
+        })
+      })
       batch.delete(doc(db, "projects", id))
       await batch.commit()
       showToast("Project deleted", {
@@ -317,7 +385,14 @@ export default function Home() {
         onClick: async () => {
           const restore = writeBatch(db)
           restore.set(doc(db, "projects", id), targetProject)
-          affected.forEach((m) => restore.update(doc(db, "messages", m.id), { projectId: id }))
+          affected.forEach((m) => {
+            const restored = [...new Set([...getMessageProjectIds(m), id])]
+            restore.update(doc(db, "messages", m.id), {
+              projectIds: restored,
+              projectId: restored[0] ?? id,
+              updatedAt: serverTimestamp(),
+            })
+          })
           await restore.commit()
         },
       })
@@ -335,20 +410,57 @@ export default function Home() {
     [projects]
   )
 
+  const handleRenameProject = useCallback(
+    async (id: string, name: string) => {
+      const nextName = name.trim()
+      if (!nextName) return
+      await updateDoc(doc(db, "projects", id), { name: nextName })
+      showToast("Project renamed ✓", undefined, 2000)
+    },
+    [showToast]
+  )
+
   // ── Message handlers ──────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (text: string, contactIds: string[], projectId: string | null, type: MessageType) => {
-      if (!text.trim() || !firebaseUser) { navigateTo("stream"); return }
-      const projectMembers = projectId ? (projects.find((p) => p.id === projectId)?.members ?? []) : []
-      const participants = [...new Set([firebaseUser.uid, ...contactIds, ...projectMembers])]
+    async (draft: MessageDraft) => {
+      const text = draft.text.trim()
+      if ((!text && !draft.imageFile) || !firebaseUser) { navigateTo("stream"); return }
+      const projectIds = [...new Set(draft.projectIds.filter(Boolean))]
+      const projectMembers = projectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
+      const participants = [...new Set([firebaseUser.uid, ...draft.contactIds, ...projectMembers])]
+      const imageMeta: Partial<Message> = {}
+
+      if (draft.imageFile) {
+        try {
+          const safeName = sanitizeStorageName(draft.imageFile.name)
+          const imagePath = `message-images/${firebaseUser.uid}/${Date.now()}-${safeName}`
+          const imageRef = ref(storage, imagePath)
+          await uploadBytes(imageRef, draft.imageFile, { contentType: draft.imageFile.type || "image/jpeg" })
+          imageMeta.imageUrl = await getDownloadURL(imageRef)
+          imageMeta.imagePath = imagePath
+          imageMeta.imageName = draft.imageFile.name
+          imageMeta.imageContentType = draft.imageFile.type || "image/jpeg"
+        } catch (error) {
+          showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)
+          throw error
+        }
+      }
+
       const msgData = {
+        authorId: firebaseUser.uid,
         senderId: firebaseUser.uid,
+        recipientIds: draft.contactIds,
         participants,
-        projectId: projectId ?? null,
-        text: text.trim(),
-        type,
+        projectIds,
+        projectId: projectIds[0] ?? null,
+        content: text,
+        text,
+        type: draft.type,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
         isFavorited: false,
+        ...imageMeta,
       }
       await addDoc(collection(db, "messages"), msgData)
       navigateTo("stream")
@@ -368,13 +480,25 @@ export default function Home() {
         onClick: async () => {
           // Re-create the message (without serverTimestamp to preserve order)
           await setDoc(doc(db, "messages", id), {
+            authorId: target.authorId ?? target.senderId,
             senderId: target.senderId,
+            recipientIds: target.recipientIds ?? target.participants.filter((uid) => uid !== target.senderId),
             participants: target.participants,
+            projectIds: getMessageProjectIds(target),
             projectId: target.projectId ?? null,
+            content: target.content ?? target.text,
             text: target.text,
             type: target.type,
+            createdAt: Timestamp.fromDate(target.createdAt ?? target.timestamp),
+            updatedAt: Timestamp.fromDate(target.updatedAt ?? target.timestamp),
             timestamp: Timestamp.fromDate(target.timestamp),
             isFavorited: target.isFavorited ?? false,
+            ...(target.imageUrl ? {
+              imageUrl: target.imageUrl,
+              imagePath: target.imagePath,
+              imageName: target.imageName,
+              imageContentType: target.imageContentType,
+            } : {}),
           })
         },
       })
@@ -389,32 +513,44 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (type: MessageType, projectId: string | null, participantIds: string[]) => {
+    async (type: MessageType, projectIds: string[], participantIds: string[]) => {
       if (!selectedMessageId) return
       // Always include all project members so they receive the message
-      const projectMembers = projectId ? (projects.find((p) => p.id === projectId)?.members ?? []) : []
+      const selectedProjectIds = [...new Set(projectIds.filter(Boolean))]
+      const projectMembers = selectedProjectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
       const mergedParticipants = [...new Set([...participantIds, ...projectMembers])]
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
-        projectId: projectId ?? null,
+        recipientIds: participantIds.filter((id) => id !== messages.find((m) => m.id === selectedMessageId)?.senderId),
+        projectIds: selectedProjectIds,
+        projectId: selectedProjectIds[0] ?? null,
         participants: mergedParticipants,
+        updatedAt: serverTimestamp(),
       })
       setSelectedMessageId(null)
       navigateTo("stream")
       const parts: string[] = []
       if (type !== "none") parts.push(type.charAt(0).toUpperCase() + type.slice(1))
-      if (projectId) parts.push("project")
+      if (selectedProjectIds.length) parts.push("project")
       showToast(parts.length ? `Tagged: ${parts.join(", ")} ✓` : "Context saved ✓", undefined, 2000)
     },
-    [selectedMessageId, projects, navigateTo, showToast]
+    [selectedMessageId, projects, messages, navigateTo, showToast]
   )
 
   const handleRemoveProjectTag = useCallback(
-    async (messageId: string) => {
-      await updateDoc(doc(db, "messages", messageId), { projectId: null })
+    async (messageId: string, projectId?: string) => {
+      const message = messages.find((m) => m.id === messageId)
+      const remaining = projectId && message
+        ? getMessageProjectIds(message).filter((id) => id !== projectId)
+        : []
+      await updateDoc(doc(db, "messages", messageId), {
+        projectIds: remaining,
+        projectId: remaining[0] ?? null,
+        updatedAt: serverTimestamp(),
+      })
       showToast("Project removed ✓", undefined, 2000)
     },
-    [showToast]
+    [messages, showToast]
   )
 
   // ── Navigation helpers ────────────────────────────────────────────────
@@ -496,13 +632,19 @@ export default function Home() {
   const userColor = currentUser?.color ?? getUserAvatarColor(firebaseUser?.uid ?? "")
 
   const selectedMessage = messages.find((m) => m.id === selectedMessageId) || null
+  const activeUsers = useMemo(() => {
+    const cutoff = Date.now() - 90000
+    return [currentUser, ...contacts].filter((contact): contact is Contact =>
+      !!contact?.lastSeen && contact.lastSeen.getTime() > cutoff
+    )
+  }, [contacts, currentUser])
 
   const filteredMessages = useMemo(() =>
     activeFilter === "all"
       ? messages
       : activeFilter === "unsorted"
       ? messages.filter((m) => m.type === "none")
-      : messages.filter((m) => m.projectId === activeFilter),
+      : messages.filter((m) => messageHasProject(m, activeFilter)),
     [messages, activeFilter]
   )
 
@@ -513,15 +655,17 @@ export default function Home() {
       {/* Loading splash */}
       {activeScreen === "loading" && <AppLoadingScreen />}
 
-      {activeScreen === "login" && (
+      {showScreenSkeleton && activeScreen !== "loading" && <AppScreenSkeleton />}
+
+      {!showScreenSkeleton && activeScreen === "login" && (
         <LoginScreen onLogin={handleLogin} onGoRegister={() => navigateTo("register")} />
       )}
 
-      {activeScreen === "register" && (
+      {!showScreenSkeleton && activeScreen === "register" && (
         <RegisterScreen onRegister={handleRegister} onGoLogin={() => navigateTo("login")} />
       )}
 
-      {activeScreen === "profile" && (
+      {!showScreenSkeleton && activeScreen === "profile" && (
         <ProfileScreen
           className={entranceClass}
           userName={userName}
@@ -538,15 +682,15 @@ export default function Home() {
         />
       )}
 
-      {activeScreen === "notifications" && (
+      {!showScreenSkeleton && activeScreen === "notifications" && (
         <NotificationsScreen className={entranceClass} onBack={handleNotificationsBack} />
       )}
 
-      {activeScreen === "privacy" && (
+      {!showScreenSkeleton && activeScreen === "privacy" && (
         <PrivacySecurityScreen className={entranceClass} onBack={goToProfile} />
       )}
 
-      {activeScreen === "projects" && (
+      {!showScreenSkeleton && activeScreen === "projects" && (
         <ProjectListScreen
           className={entranceClass}
           projects={projects}
@@ -557,10 +701,11 @@ export default function Home() {
           onCreateProject={handleCreateProject}
           onDeleteProject={handleDeleteProject}
           onFavoriteProject={handleFavoriteProject}
+          onRenameProject={handleRenameProject}
         />
       )}
 
-      {activeScreen === "project-detail" && selectedProjectId && (() => {
+      {!showScreenSkeleton && activeScreen === "project-detail" && selectedProjectId && (() => {
         const proj = projects.find((p) => p.id === selectedProjectId)
         if (!proj) return null
         return (
@@ -578,11 +723,12 @@ export default function Home() {
             onFavoriteMessage={handleFavoriteMessage}
             onCopyMessage={handleCopyMessage}
             onCompose={goToComposeFromProject}
+            onSendMessage={handleSend}
           />
         )
       })()}
 
-      {activeScreen === "compose" && composeMode === "fullscreen" && (
+      {!showScreenSkeleton && activeScreen === "compose" && composeMode === "fullscreen" && (
         <ComposeScreen
           mode="fullscreen"
           onCancel={goToStream}
@@ -594,7 +740,7 @@ export default function Home() {
         />
       )}
 
-      {(activeScreen === "stream" ||
+      {!showScreenSkeleton && (activeScreen === "stream" ||
         (activeScreen === "compose" && composeMode === "sheet") ||
         activeScreen === "tag") && (
         <>
@@ -620,6 +766,9 @@ export default function Home() {
             onFavoriteProject={handleFavoriteProject}
             onProjects={goToProjectsFromStream}
             onCopyMessage={handleCopyMessage}
+            onSendMessage={handleSend}
+            onCreateProject={handleCreateProject}
+            activeUsers={activeUsers}
           />
           {activeScreen === "compose" && (
             <div

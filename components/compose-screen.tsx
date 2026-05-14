@@ -1,19 +1,21 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { X, User, Tag, Building, Check } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { X, User, Tag, Building, Check, Image as ImageIcon, Trash2, Search } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type MessageType,
+  type MessageDraft,
   type Contact,
   type Project,
+  MESSAGE_TYPE_CONFIG,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
 interface ComposeScreenProps {
   onCancel: () => void
-  onSend: (text: string, contactIds: string[], projectId: string | null, type: MessageType) => Promise<void>
+  onSend: (draft: MessageDraft) => Promise<void>
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   mode?: "fullscreen" | "sheet"
@@ -27,14 +29,25 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const firstFocusRef = useRef(true)
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
-  const [selectedProject, setSelectedProject] = useState<string | null>(initialProjectId ?? null)
+  const [selectedProjects, setSelectedProjects] = useState<string[]>(initialProjectId ? [initialProjectId] : [])
   const [selectedType, setSelectedType] = useState<MessageType>("none")
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [showContacts, setShowContacts] = useState(false)
   const [showProjects, setShowProjects] = useState(false)
   const [showTypes, setShowTypes] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [contactSearch, setContactSearch] = useState("")
+  const [projectSearch, setProjectSearch] = useState("")
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview)
+    }
+  }, [imagePreview])
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -42,12 +55,41 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     )
   }
 
+  const toggleProject = (id: string) => {
+    setSelectedProjects((prev) =>
+      prev.includes(id) ? prev.filter((projectId) => projectId !== id) : [...prev, id]
+    )
+  }
+
+  const handlePickImage = (file: File | null) => {
+    if (!file) return
+    setImageFile(file)
+    setImagePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
+  }
+
+  const clearImage = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview)
+    setImageFile(null)
+    setImagePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
   const handleSend = async () => {
-    if (!text.trim() || isSending) return
+    if ((!text.trim() && !imageFile) || isSending) return
     haptic.success()
     setIsSending(true)
     try {
-      await onSend(text.trim(), selectedContacts, selectedProject, selectedType)
+      await onSend({
+        text: text.trim(),
+        contactIds: selectedContacts,
+        projectIds: selectedProjects,
+        type: selectedType,
+        imageFile,
+      })
+      clearImage()
     } finally {
       setIsSending(false)
     }
@@ -58,7 +100,18 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     .filter(Boolean)
     .join(", ")
 
-  const selectedProjectName = projects.find((p) => p.id === selectedProject)?.name
+  const selectedProjectNames = selectedProjects
+    .map((id) => projects.find((p) => p.id === id)?.name)
+    .filter(Boolean)
+    .join(", ")
+
+  const filteredContacts = contacts.filter((contact) =>
+    contact.name.toLowerCase().includes(contactSearch.trim().toLowerCase())
+  )
+
+  const filteredProjects = projects.filter((project) =>
+    project.name.toLowerCase().includes(projectSearch.trim().toLowerCase())
+  )
 
   const typeLabels: Record<MessageType, string> = {
     none: "Type",
@@ -132,6 +185,18 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             className="flex-1 min-h-30 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
             placeholder={"Type your message...\n\nContext is optional.\nSend first, tag later."}
           />
+          {imagePreview && (
+            <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+              <img src={imagePreview} alt="Attachment preview" className="max-h-56 w-full object-cover" />
+              <button
+                type="button"
+                onClick={clearImage}
+                className="absolute right-2 top-2 w-8 h-8 rounded-full bg-black/55 border border-white/15 flex items-center justify-center active:scale-95"
+              >
+                <Trash2 className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -139,8 +204,13 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       {showContacts && (
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Select contacts" onClose={() => setShowContacts(false)}>
+            <SearchInput
+              value={contactSearch}
+              onChange={setContactSearch}
+              placeholder="Search users"
+            />
             <div className="flex flex-wrap gap-2">
-              {contacts.map((contact) => (
+              {filteredContacts.map((contact) => (
                 <ContactChip
                   key={contact.id}
                   contact={contact}
@@ -148,6 +218,9 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                   onClick={() => toggleContact(contact.id)}
                 />
               ))}
+              {filteredContacts.length === 0 && (
+                <p className="text-xs text-muted-foreground px-1 py-2">No users found.</p>
+              )}
             </div>
           </PickerCard>
         </div>
@@ -156,7 +229,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Message type" onClose={() => setShowTypes(false)}>
             <div className="flex flex-wrap gap-2">
-              {(["progress", "problem", "feedback", "decision"] as MessageType[]).map((type) => (
+              {(["progress", "problem", "feedback", "decision", "none"] as MessageType[]).map((type) => (
                 <TypeChip
                   key={type}
                   type={type}
@@ -174,17 +247,25 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       {showProjects && (
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
           <PickerCard title="Assign to project" onClose={() => setShowProjects(false)}>
-            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-              {projects.map((project) => (
+            <SearchInput
+              value={projectSearch}
+              onChange={setProjectSearch}
+              placeholder="Search projects/categories"
+            />
+            <div className="flex flex-col gap-1 max-h-[126px] overflow-y-auto scrollbar-hide">
+              {filteredProjects.map((project) => (
                 <ProjectRow
                   key={project.id}
                   project={project}
-                  selected={selectedProject === project.id}
-                  onClick={() => { setSelectedProject(project.id); setShowProjects(false) }}
+                  selected={selectedProjects.includes(project.id)}
+                  onClick={() => toggleProject(project.id)}
                 />
               ))}
               {projects.length === 0 && (
                 <p className="text-xs text-muted-foreground px-1 py-2">No projects yet. Create one below.</p>
+              )}
+              {projects.length > 0 && filteredProjects.length === 0 && (
+                <p className="text-xs text-muted-foreground px-1 py-2">No projects found.</p>
               )}
             </div>
             <button
@@ -205,7 +286,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           onClose={() => setShowCreateProject(false)}
           onSubmit={async (name, memberIds) => {
             const p = await onCreateProject(name, memberIds)
-            setSelectedProject(p.id)
+            setSelectedProjects((prev) => [...new Set([...prev, p.id])])
             setShowCreateProject(false)
           }}
         />
@@ -229,11 +310,25 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         </OptionChip>
         <OptionChip
           icon={<Building className="w-3.5 h-3.5" />}
-          active={!!selectedProject}
+          active={selectedProjects.length > 0}
           onClick={() => { setShowProjects(!showProjects); setShowContacts(false); setShowTypes(false) }}
         >
-          {selectedProjectName || "Project"}
+          {selectedProjectNames || "Project"}
         </OptionChip>
+        <OptionChip
+          icon={<ImageIcon className="w-3.5 h-3.5" />}
+          active={!!imageFile}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {imageFile ? imageFile.name : "Image"}
+        </OptionChip>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handlePickImage(e.target.files?.[0] ?? null)}
+        />
       </div>
 
       {/* Bottom Action Bar */}
@@ -245,10 +340,10 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           <button
             type="button"
             onClick={handleSend}
-            disabled={!text.trim() || isSending}
+            disabled={(!text.trim() && !imageFile) || isSending}
             className={cn(
               "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-all min-w-[90px] flex items-center justify-center gap-2",
-              text.trim() && !isSending
+              (text.trim() || imageFile) && !isSending
                 ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
                 : "bg-white/10 text-muted-foreground"
             )}
@@ -320,6 +415,28 @@ function PickerCard({
   )
 }
 
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <label className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+      <Search className="w-4 h-4 text-muted-foreground" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+      />
+    </label>
+  )
+}
+
 function ContactChip({
   contact,
   selected,
@@ -369,14 +486,7 @@ function TypeChip({
   selected: boolean
   onClick: () => void
 }) {
-  const styles: Record<string, { bg: string; text: string; border: string }> = {
-    progress: { bg: "bg-progress/10", text: "text-progress", border: "border-progress/25" },
-    problem: { bg: "bg-problem/10", text: "text-problem", border: "border-problem/25" },
-    feedback: { bg: "bg-feedback/10", text: "text-feedback", border: "border-feedback/25" },
-    decision: { bg: "bg-decision/10", text: "text-decision", border: "border-decision/25" },
-  }
-
-  const style = styles[type]
+  const style = MESSAGE_TYPE_CONFIG[type]
 
   return (
     <button
@@ -388,7 +498,7 @@ function TypeChip({
           : "bg-white/5 border-white/10 text-muted-foreground"
       )}
     >
-      {type}
+      {style.label}
     </button>
   )
 }

@@ -6,20 +6,18 @@ import { cn, haptic } from "@/lib/utils"
 import {
   type Project,
   type Message,
+  type MessageDraft,
   type MessageType,
   type Contact,
   getContactFromList,
   formatTime,
+  messageHasProject,
+  MESSAGE_TYPE_CONFIG,
 } from "@/lib/store"
 import { AddMembersModal } from "@/components/add-members-modal"
+import { MessageInputBar } from "@/components/message-input-bar"
 
-const typeStyles: Record<MessageType, { bg: string; text: string; border: string; label: string }> = {
-  progress:  { bg: "bg-progress/10",  text: "text-progress",  border: "border-progress/20",  label: "Progress" },
-  problem:   { bg: "bg-problem/10",   text: "text-problem",   border: "border-problem/20",   label: "Problem" },
-  feedback:  { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Feedback" },
-  decision:  { bg: "bg-decision/10",  text: "text-decision",  border: "border-decision/20",  label: "Decision" },
-  none:      { bg: "bg-white/5",      text: "text-muted-foreground", border: "border-border", label: "Unsorted" },
-}
+const typeStyles = MESSAGE_TYPE_CONFIG
 
 interface ProjectDetailScreenProps {
   project: Project
@@ -31,6 +29,7 @@ interface ProjectDetailScreenProps {
   onFavoriteMessage: (id: string) => void
   onCopyMessage: (text: string) => void
   onCompose: (projectId: string) => void
+  onSendMessage: (draft: MessageDraft) => Promise<void>
   className?: string
   contacts: Contact[]
   currentUserId: string
@@ -47,6 +46,7 @@ export function ProjectDetailScreen({
   onFavoriteMessage,
   onCopyMessage,
   onCompose,
+  onSendMessage,
   className,
   contacts,
   currentUserId,
@@ -55,6 +55,8 @@ export function ProjectDetailScreen({
   const [showMembers, setShowMembers] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
+  const [quickText, setQuickText] = useState("")
+  const [isQuickSending, setIsQuickSending] = useState(false)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
@@ -69,11 +71,29 @@ export function ProjectDetailScreen({
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null }
   }
 
+  const handleQuickSend = async () => {
+    if (!quickText.trim() || isQuickSending) return
+    haptic.success()
+    setIsQuickSending(true)
+    try {
+      await onSendMessage({
+        text: quickText.trim(),
+        contactIds: [],
+        projectIds: [project.id],
+        type: "none",
+        imageFile: null,
+      })
+      setQuickText("")
+    } finally {
+      setIsQuickSending(false)
+    }
+  }
+
   // Include current user in lookup so their avatar/name resolves correctly
   const allContacts = currentUser ? [...contacts, currentUser] : contacts
 
   const projectMessages = [...messages]
-    .filter((m) => m.projectId === project.id)
+    .filter((m) => messageHasProject(m, project.id))
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
   const memberContacts = project.members
@@ -83,7 +103,7 @@ export function ProjectDetailScreen({
   const selectedMsg = selectedMsgId ? projectMessages.find((m) => m.id === selectedMsgId) : null
 
   return (
-    <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
@@ -165,7 +185,7 @@ export function ProjectDetailScreen({
 
       {/* Message feed */}
       <div
-        className="flex-1 overflow-y-auto scrollbar-hide"
+        className="flex-1 min-h-0 overflow-y-auto scrollbar-hide"
         onClick={() => selectedMsgId && clearSelection()}
       >
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex flex-col gap-3">
@@ -203,15 +223,35 @@ export function ProjectDetailScreen({
               />
             ))
           )}
-          <div className="h-24" />
+          <div className="h-3" />
         </div>
       </div>
+
+      <MessageInputBar
+        text={quickText}
+        setText={setQuickText}
+        contacts={contacts}
+        projects={[project]}
+        recipients={[]}
+        projectIds={[project.id]}
+        type="none"
+        imageFile={null}
+        imagePreview={null}
+        isSending={isQuickSending}
+        onOpenSheet={() => onCompose(project.id)}
+        onRemoveRecipient={() => {}}
+        onRemoveProject={() => {}}
+        onClearType={() => {}}
+        onClearImage={() => {}}
+        onSend={handleQuickSend}
+        showProjectChips={false}
+      />
 
       {/* Message action bar */}
       {selectedMsg && (
         <>
           <div className="fixed inset-0 z-20" onClick={clearSelection} />
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-md">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-md">
             <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
               {/* Tag / add context */}
               <button
@@ -284,13 +324,6 @@ export function ProjectDetailScreen({
         />
       )}
 
-      {/* FAB — compose a message pre-tagged to this project */}
-      <button
-        onClick={() => onCompose(project.id)}
-        className="fixed bottom-6 right-5 w-14 h-14 rounded-full bg-primary flex items-center justify-center shadow-[0_4px_20px_rgba(37,99,235,0.5)] hover:shadow-[0_6px_28px_rgba(37,99,235,0.65)] active:scale-95 hover:scale-105 transition-all duration-200 z-30 text-2xl animate-glow"
-      >
-        🤔
-      </button>
     </div>
   )
 }
@@ -344,7 +377,14 @@ function ProjectMessageBubble({
               : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]")
           )}
         >
-          <p className="text-sm leading-relaxed text-foreground/90 no-callout">{message.text}</p>
+          {message.imageUrl && (
+            <img
+              src={message.imageUrl}
+              alt={message.imageName || "Attached image"}
+              className="mb-2 max-h-72 w-full rounded-xl object-cover border border-white/10 bg-black/20"
+            />
+          )}
+          {message.text && <p className="text-sm leading-relaxed text-foreground/90 no-callout">{message.text}</p>}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {message.type === "none" && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />

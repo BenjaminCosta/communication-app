@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, X } from "lucide-react"
+import { Check, Search, X } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
@@ -11,6 +11,8 @@ import {
   type Contact,
   getContactFromList,
   formatTime,
+  getMessageProjectIds,
+  MESSAGE_TYPE_CONFIG,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
@@ -18,7 +20,7 @@ type TagType = "progress" | "problem" | "feedback" | "decision"
 
 interface TagSheetProps {
   message: Message
-  onApply: (type: MessageType, projectId: string | null, participantIds: string[]) => void
+  onApply: (type: MessageType, projectIds: string[], participantIds: string[]) => void
   onClose: () => void
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
@@ -29,13 +31,13 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
   const [selectedType, setSelectedType] = useState<TagType | null>(
     message.type !== "none" ? (message.type as TagType) : null
   )
-  const [selectedProject, setSelectedProject] = useState<string | null>(
-    message.projectId
-  )
+  const [selectedProjects, setSelectedProjects] = useState<string[]>(getMessageProjectIds(message))
   // Pre-populate with existing participants minus the sender
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>(
     message.participants.filter((id) => id !== message.senderId)
   )
+  const [userSearch, setUserSearch] = useState("")
+  const [projectSearch, setProjectSearch] = useState("")
   const [showCreateProject, setShowCreateProject] = useState(false)
 
   const isEditing = message.type !== "none"
@@ -46,16 +48,25 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     )
 
-  const canApply = !!(selectedType || selectedProject || selectedParticipants.length > 0)
+  const toggleProject = (id: string) =>
+    setSelectedProjects((prev) =>
+      prev.includes(id) ? prev.filter((projectId) => projectId !== id) : [...prev, id]
+    )
+
+  const filteredContacts = contacts.filter((c) =>
+    c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
+  )
+  const filteredProjects = projects.filter((p) =>
+    p.name.toLowerCase().includes(projectSearch.trim().toLowerCase())
+  )
 
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
 
   const handleApply = () => {
-    if (!canApply) return
     haptic.success()
     // Build final participants: always include sender + selected
     const participants = [...new Set([message.senderId, ...selectedParticipants])]
-    onApply(selectedType ?? "none", selectedProject, participants)
+    onApply(selectedType ?? "none", selectedProjects, participants)
   }
 
   return (
@@ -108,6 +119,11 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         </h4>
         <div className="flex gap-2 overflow-x-auto px-4 pb-4 scrollbar-hide">
           <TypeButton
+            type="none"
+            selected={selectedType === null}
+            onClick={() => setSelectedType(null)}
+          />
+          <TypeButton
             type="progress"
             selected={selectedType === "progress"}
             onClick={() => setSelectedType("progress")}
@@ -136,11 +152,18 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         <h4 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground px-4 mb-3">
           Recipients
         </h4>
+        <div className="px-4 pb-3">
+          <SearchInput
+            value={userSearch}
+            onChange={setUserSearch}
+            placeholder="Search users"
+          />
+        </div>
         <div className="flex flex-wrap gap-2 px-4 pb-4">
-          {contacts.length === 0 && (
+          {filteredContacts.length === 0 && (
             <p className="text-xs text-muted-foreground py-1 px-1">No other users yet.</p>
           )}
-          {contacts.map((c) => {
+          {filteredContacts.map((c) => {
             const active = selectedParticipants.includes(c.id)
             return (
               <button
@@ -166,20 +189,23 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         {/* Divider */}
         <div className="h-px bg-white/10 mx-4 mb-4" />
         <h4 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground px-4 mb-3">
-          Assign to project
+          Projects / Categories
         </h4>
+        <div className="px-4 pb-3">
+          <SearchInput
+            value={projectSearch}
+            onChange={setProjectSearch}
+            placeholder="Search projects/categories"
+          />
+        </div>
         <div className="flex flex-col gap-1 px-4 max-h-[180px] overflow-y-auto">
-          {projects.map((project) => (
+          {filteredProjects.map((project) => (
             <button
               key={project.id}
-              onClick={() =>
-                setSelectedProject(
-                  selectedProject === project.id ? null : project.id
-                )
-              }
+              onClick={() => toggleProject(project.id)}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
-                selectedProject === project.id
+                selectedProjects.includes(project.id)
                   ? "bg-primary/15"
                   : "active:bg-white/5"
               )}
@@ -193,19 +219,19 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
               <span
                 className={cn(
                   "text-sm font-semibold flex-1 text-left",
-                  selectedProject === project.id
+                  selectedProjects.includes(project.id)
                     ? "text-primary"
                     : "text-foreground/90"
                 )}
               >
                 {project.name}
               </span>
-              {selectedProject === project.id && (
+              {selectedProjects.includes(project.id) && (
                 <Check className="w-4 h-4 text-primary" />
               )}
             </button>
           ))}
-          {projects.length === 0 && (
+          {filteredProjects.length === 0 && (
             <p className="text-xs text-muted-foreground py-2 px-1">No projects yet.</p>
           )}
         </div>
@@ -222,7 +248,7 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
           <CreateProjectModal            contacts={contacts}            onClose={() => setShowCreateProject(false)}
             onSubmit={async (name, memberIds) => {
               const p = await onCreateProject(name, memberIds)
-              setSelectedProject(p.id)
+              setSelectedProjects((prev) => [...new Set([...prev, p.id])])
               setShowCreateProject(false)
             }}
           />
@@ -231,15 +257,12 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
         {/* Apply Button */}
         <button
           onClick={handleApply}
-          disabled={!canApply}
           className={cn(
             "mx-4 mt-5 w-[calc(100%-32px)] rounded-xl py-3.5 text-sm font-semibold tracking-wide transition-all",
-            canApply
-              ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-[0.98]"
-              : "bg-white/10 text-muted-foreground"
+            "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-[0.98]"
           )}
         >
-          {canApply ? (isEditing ? "Save →" : "Apply →") : "Select type, project or recipients"}
+          {isEditing ? "Save →" : "Apply →"}
         </button>
       </div>
     </div>
@@ -248,38 +271,15 @@ export function TagSheet({ message, onApply, onClose, projects, onCreateProject,
 
 function TypeButton({
 
-  type,
+type,
   selected,
   onClick,
 }: {
-  type: TagType
+  type: TagType | "none"
   selected: boolean
   onClick: () => void
 }) {
-  const styles: Record<TagType, { bg: string; text: string; border: string }> = {
-    progress: {
-      bg: "bg-progress/10",
-      text: "text-progress",
-      border: "border-progress/25",
-    },
-    problem: {
-      bg: "bg-problem/10",
-      text: "text-problem",
-      border: "border-problem/25",
-    },
-    feedback: {
-      bg: "bg-feedback/10",
-      text: "text-feedback",
-      border: "border-feedback/25",
-    },
-    decision: {
-      bg: "bg-decision/10",
-      text: "text-decision",
-      border: "border-decision/25",
-    },
-  }
-
-  const style = styles[type]
+  const style = MESSAGE_TYPE_CONFIG[type]
 
   return (
     <button
@@ -291,7 +291,29 @@ function TypeButton({
           : "bg-white/5 border-white/10 text-muted-foreground"
       )}
     >
-      {type.charAt(0).toUpperCase() + type.slice(1)}
+      {style.label}
     </button>
+  )
+}
+
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+      <Search className="w-4 h-4 text-muted-foreground" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+      />
+    </label>
   )
 }

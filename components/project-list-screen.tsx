@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { ArrowLeft, Plus, FolderOpen, Star, Trash2 } from "lucide-react"
+import { ArrowLeft, Plus, FolderOpen, Star, Trash2, Pencil, X } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
-import { type Project, type Message, type Contact } from "@/lib/store"
+import { type Project, type Message, type Contact, messageHasProject } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
 interface ProjectListScreenProps {
@@ -14,6 +14,7 @@ interface ProjectListScreenProps {
   onCreateProject: (name: string, memberIds: string[]) => void
   onDeleteProject: (id: string) => void
   onFavoriteProject: (id: string) => void
+  onRenameProject: (id: string, name: string) => void
   className?: string
   contacts: Contact[]
 }
@@ -26,16 +27,18 @@ export function ProjectListScreen({
   onCreateProject,
   onDeleteProject,
   onFavoriteProject,
+  onRenameProject,
   className,
   contacts,
 }: ProjectListScreenProps) {
   const [showCreate, setShowCreate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const msgCount = (projectId: string) =>
-    messages.filter((m) => m.projectId === projectId).length
+    messages.filter((m) => messageHasProject(m, projectId)).length
 
   const startPress = (projectId: string) => {
     pressTimer.current = setTimeout(() => {
@@ -185,6 +188,18 @@ export function ProjectListScreen({
               </button>
 
               <div className="w-px h-6 bg-white/15 flex-shrink-0" />
+              <button
+                onClick={() => {
+                  setEditingProject(selectedProject)
+                  clearSelection()
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+
+              <div className="w-px h-6 bg-white/15 flex-shrink-0" />
 
               {/* Delete button — 2-step confirmation */}
               {confirmDeleteId === selectedProject.id ? (
@@ -223,6 +238,63 @@ export function ProjectListScreen({
           }}
         />
       )}
+
+      {editingProject && (
+        <EditProjectNameModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onSave={(name) => {
+            onRenameProject(editingProject.id, name)
+            setEditingProject(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function EditProjectNameModal({
+  project,
+  onClose,
+  onSave,
+}: {
+  project: Project
+  onClose: () => void
+  onSave: (name: string) => void
+}) {
+  const [name, setName] = useState(project.name)
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+      <button onClick={onClose} className="absolute inset-0 bg-black/65 backdrop-blur-sm" aria-label="Close" />
+      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop -translate-y-[5%] p-5">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">Manage Project</p>
+            <h2 className="text-xl font-bold">Edit name</h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && name.trim() && onSave(name.trim())}
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/50 transition-colors mb-4"
+        />
+        <button
+          onClick={() => name.trim() && onSave(name.trim())}
+          disabled={!name.trim()}
+          className={cn(
+            "w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide transition-all",
+            name.trim()
+              ? "bg-primary text-white shadow-[0_4px_16px_rgba(37,99,235,0.4)] active:scale-[0.98]"
+              : "bg-white/5 text-muted-foreground/40"
+          )}
+        >
+          Save
+        </button>
+      </div>
     </div>
   )
 }

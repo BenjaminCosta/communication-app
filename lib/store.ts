@@ -6,6 +6,7 @@ export interface Contact {
   name: string
   initials: string
   color: string
+  lastSeen?: Date | null
 }
 
 export interface Project {
@@ -20,12 +21,38 @@ export interface Project {
 export interface Message {
   id: string
   senderId: string       // Firebase UID of sender
+  authorId?: string
   participants: string[] // [senderId, ...recipientIds] — used for Firestore array-contains query
+  recipientIds?: string[]
   projectId: string | null
+  projectIds?: string[]
   text: string
+  content?: string
   type: MessageType
   timestamp: Date
+  createdAt?: Date
+  updatedAt?: Date
   isFavorited?: boolean
+  imageUrl?: string
+  imagePath?: string
+  imageName?: string
+  imageContentType?: string
+}
+
+export interface MessageDraft {
+  text: string
+  contactIds: string[]
+  projectIds: string[]
+  type: MessageType
+  imageFile?: File | null
+}
+
+export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string; border: string; label: string }> = {
+  progress: { bg: "bg-progress/10",  text: "text-progress",  border: "border-progress/20",  label: "Progress" },
+  problem:  { bg: "bg-problem/10",   text: "text-problem",   border: "border-problem/20",   label: "Problem" },
+  feedback: { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Feedback" },
+  decision: { bg: "bg-decision/10",  text: "text-decision",  border: "border-decision/20",  label: "Decision" },
+  none:     { bg: "bg-white/5",      text: "text-muted-foreground", border: "border-border", label: "No Type" },
 }
 
 // Project colors palette (cycles when creating new projects)
@@ -63,6 +90,19 @@ export function getContactFromList(id: string, contacts: Contact[]): Contact | u
 export function getProject(id: string | null, projects: Project[]): Project | null {
   if (!id) return null
   return projects.find((p) => p.id === id) || null
+}
+
+export function getMessageProjectIds(message: Pick<Message, "projectId" | "projectIds">): string[] {
+  const ids = new Set<string>()
+  if (Array.isArray(message.projectIds)) {
+    message.projectIds.filter(Boolean).forEach((id) => ids.add(id))
+  }
+  if (message.projectId) ids.add(message.projectId)
+  return [...ids]
+}
+
+export function messageHasProject(message: Pick<Message, "projectId" | "projectIds">, projectId: string): boolean {
+  return getMessageProjectIds(message).includes(projectId)
 }
 
 export function generateProjectId(): string {
