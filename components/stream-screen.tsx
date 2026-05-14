@@ -92,10 +92,12 @@ export function StreamScreen({
   const [isQuickSending, setIsQuickSending] = useState(false)
   const [projectSearch, setProjectSearch] = useState("")
   const [showProjectSearch, setShowProjectSearch] = useState(false)
+  const [showFeedSkeleton, setShowFeedSkeleton] = useState(false)
   const feedRef = useRef<HTMLDivElement>(null)
   const quickFileInputRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isPinnedToBottom = useRef(true)
+  const previousFilterRef = useRef(activeFilter)
 
   const clearChipSelection = () => { setSelectedChipId(null); setConfirmDeleteChipId(null) }
   const clearMsgSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
@@ -105,6 +107,20 @@ export function StreamScreen({
       if (quickImagePreview) URL.revokeObjectURL(quickImagePreview)
     }
   }, [quickImagePreview])
+
+  useEffect(() => {
+    if (previousFilterRef.current === activeFilter) return
+    previousFilterRef.current = activeFilter
+    setShowFeedSkeleton(false)
+
+    const showTimer = setTimeout(() => setShowFeedSkeleton(true), 120)
+    const hideTimer = setTimeout(() => setShowFeedSkeleton(false), 560)
+
+    return () => {
+      clearTimeout(showTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [activeFilter])
 
   // Track whether user is near the bottom
   const handleScroll = () => {
@@ -314,7 +330,9 @@ export function StreamScreen({
           <div className="flex-1 h-px bg-white/10" />
         </div>
 
-        {sortedMessages.length === 0 ? (
+        {showFeedSkeleton ? (
+          <StreamFeedSkeleton />
+        ) : sortedMessages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
             <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
               <MessageCircle className="w-7 h-7 text-muted-foreground/50" />
@@ -840,6 +858,61 @@ function ProjectSearchSheet({
         </div>
       </div>
     </>
+  )
+}
+
+function StreamFeedSkeleton() {
+  return (
+    <div className="flex flex-col gap-4 py-1">
+      <FeedSkeletonBubble side="left" width="w-[74%]" lines={2} />
+      <FeedSkeletonBubble side="right" width="w-[62%]" lines={1} />
+      <FeedSkeletonBubble side="left" width="w-[82%]" lines={3} image />
+      <FeedSkeletonBubble side="right" width="w-[70%]" lines={2} />
+    </div>
+  )
+}
+
+function FeedSkeletonBubble({
+  side,
+  width,
+  lines,
+  image,
+}: {
+  side: "left" | "right"
+  width: string
+  lines: number
+  image?: boolean
+}) {
+  return (
+    <div className={cn("flex gap-2 items-end animate-pulse", side === "right" && "flex-row-reverse")}>
+      <div className="w-8 h-8 rounded-full bg-white/8 border border-white/10 shrink-0" />
+      <div className={cn("max-w-[78%] md:max-w-[55%] flex flex-col gap-1", width, side === "right" && "items-end")}>
+        {side === "left" && <div className="h-3 w-20 rounded-full bg-white/8" />}
+        <div
+          className={cn(
+            "w-full border border-white/10 bg-white/[0.07] p-3",
+            side === "right" ? "rounded-[16px_16px_4px_16px]" : "rounded-[16px_16px_16px_4px]"
+          )}
+        >
+          {image && <div className="mb-3 h-24 rounded-xl bg-white/8" />}
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: lines }).map((_, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "h-3 rounded-full bg-white/10",
+                  index === lines - 1 ? "w-2/3" : "w-full"
+                )}
+              />
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <div className="h-4 w-16 rounded-full bg-white/8" />
+            <div className="ml-auto h-3 w-10 rounded-full bg-white/8" />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

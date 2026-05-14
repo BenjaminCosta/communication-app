@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef } from "react"
 import { Plus, Send, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -50,6 +51,14 @@ export function MessageInputBar({
 }: MessageInputBarProps) {
   const visibleProjectIds = showProjectChips ? projectIds : []
   const hasContext = recipients.length > 0 || visibleProjectIds.length > 0 || type !== "none" || !!imageFile
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = "auto"
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 132)}px`
+  }, [text])
 
   return (
     <div className="flex-shrink-0 border-t border-white/10 bg-[#071326]/95 backdrop-blur-xl px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+10px)]">
@@ -110,6 +119,7 @@ export function MessageInputBar({
           <Plus className="w-5 h-5 text-muted-foreground" />
         </button>
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -120,7 +130,7 @@ export function MessageInputBar({
           }}
           rows={1}
           placeholder="Message"
-          className="min-h-10 max-h-28 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/35"
+          className="min-h-10 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/35 scrollbar-hide"
         />
         <button
           type="button"
