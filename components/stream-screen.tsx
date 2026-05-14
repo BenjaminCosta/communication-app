@@ -16,6 +16,7 @@ import {
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
+import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
 
@@ -684,6 +685,8 @@ function QuickContextSheet({
 }) {
   const [userSearch, setUserSearch] = useState("")
   const [projectSearch, setProjectSearch] = useState("")
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const filteredContacts = contacts.filter((contact) =>
     contact.name.toLowerCase().includes(userSearch.trim().toLowerCase())
   )
@@ -694,8 +697,13 @@ function QuickContextSheet({
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200">
-        <div className="w-10 h-1 bg-white/15 rounded-full mx-auto mb-5" />
+      <div
+        style={dragStyle}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+      >
+        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+          <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
+        </div>
         {mode !== "menu" && (
           <button onClick={() => setMode("menu")} className="mb-3 text-xs font-semibold text-primary active:opacity-70">
             Back
@@ -755,32 +763,58 @@ function QuickContextSheet({
         )}
         {mode === "project" && (
           <>
-            <SheetSearchInput value={projectSearch} onChange={setProjectSearch} placeholder="Search projects/categories" />
-            <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
-              {filteredProjects.map((project) => {
-                const selected = selectedProjects.includes(project.id)
-                return (
-                  <button
-                    key={project.id}
-                    onClick={() => onToggleProject(project.id)}
-                    className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors", selected ? "bg-primary/15" : "active:bg-white/5")}
-                  >
-                    <div className={cn("w-2 h-2 rounded-full shrink-0", project.color)} />
-                    <span className={cn("text-sm font-semibold flex-1 text-left", selected ? "text-primary" : "text-foreground/90")}>{project.name}</span>
-                    {selected && <Check className="w-4 h-4 text-primary" />}
-                  </button>
-                )
-              })}
-              {projects.length === 0 && <p className="text-xs text-muted-foreground py-2">No projects yet.</p>}
-              {projects.length > 0 && filteredProjects.length === 0 && <p className="text-xs text-muted-foreground py-2">No projects found.</p>}
-              <button
-                type="button"
-                onClick={onCreateProject}
-                className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
-              >
-                + New project
-              </button>
-            </div>
+            {selectedProjects.length > 0 && (
+              <div className="mb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
+                {selectedProjects.map((projectId) => {
+                  const project = projects.find((p) => p.id === projectId)
+                  if (!project) return null
+                  return (
+                    <button
+                      key={projectId}
+                      onClick={() => onToggleProject(projectId)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap"
+                    >
+                      <span>{project.name}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <SheetSearchInput
+              value={projectSearch}
+              onChange={setProjectSearch}
+              onFocus={() => setShowProjectPicker(true)}
+              onBlur={() => setTimeout(() => setShowProjectPicker(false), 120)}
+              placeholder="Search projects/categories"
+            />
+            {showProjectPicker && (
+              <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+                {filteredProjects.map((project) => {
+                  const selected = selectedProjects.includes(project.id)
+                  return (
+                    <button
+                      key={project.id}
+                      onClick={() => onToggleProject(project.id)}
+                      className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors", selected ? "bg-primary/15" : "active:bg-white/5")}
+                    >
+                      <div className={cn("w-2 h-2 rounded-full shrink-0", project.color)} />
+                      <span className={cn("text-sm font-semibold flex-1 text-left", selected ? "text-primary" : "text-foreground/90")}>{project.name}</span>
+                      {selected && <Check className="w-4 h-4 text-primary" />}
+                    </button>
+                  )
+                })}
+                {projects.length === 0 && <p className="text-xs text-muted-foreground py-2">No projects yet.</p>}
+                {projects.length > 0 && filteredProjects.length === 0 && <p className="text-xs text-muted-foreground py-2">No projects found.</p>}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onCreateProject}
+              className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
+            >
+              + New project
+            </button>
           </>
         )}
       </div>
@@ -805,11 +839,18 @@ function ProjectSearchSheet({
   onAll: () => void
   onClose: () => void
 }) {
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200">
-        <div className="w-10 h-1 bg-white/15 rounded-full mx-auto mb-5" />
+      <div
+        style={dragStyle}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+      >
+        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+          <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
+        </div>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-bold uppercase tracking-[2px] text-muted-foreground font-mono">
             Projects
@@ -919,10 +960,14 @@ function FeedSkeletonBubble({
 function SheetSearchInput({
   value,
   onChange,
+  onFocus,
+  onBlur,
   placeholder,
 }: {
   value: string
   onChange: (value: string) => void
+  onFocus?: () => void
+  onBlur?: () => void
   placeholder: string
 }) {
   return (
@@ -931,6 +976,8 @@ function SheetSearchInput({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={placeholder}
         className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
       />

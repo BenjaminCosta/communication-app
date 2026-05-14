@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, User, Tag, Building, Check, Image as ImageIcon, Trash2, Search } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
@@ -37,11 +37,11 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
 
   const [showContacts, setShowContacts] = useState(false)
   const [showProjects, setShowProjects] = useState(false)
-  const [showTypes, setShowTypes] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [contactSearch, setContactSearch] = useState("")
   const [projectSearch, setProjectSearch] = useState("")
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -100,11 +100,6 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     .filter(Boolean)
     .join(", ")
 
-  const selectedProjectNames = selectedProjects
-    .map((id) => projects.find((p) => p.id === id)?.name)
-    .filter(Boolean)
-    .join(", ")
-
   const filteredContacts = contacts.filter((contact) =>
     contact.name.toLowerCase().includes(contactSearch.trim().toLowerCase())
   )
@@ -112,14 +107,6 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const filteredProjects = projects.filter((project) =>
     project.name.toLowerCase().includes(projectSearch.trim().toLowerCase())
   )
-
-  const typeLabels: Record<MessageType, string> = {
-    none: "Type",
-    progress: "Progress",
-    problem: "Problem",
-    feedback: "Feedback",
-    decision: "Decision",
-  }
 
   const handleFirstFocus = () => {
     if (!firstFocusRef.current) return
@@ -225,55 +212,74 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           </PickerCard>
         </div>
       )}
-      {showTypes && (
+      {showProjects && (
         <div className="shrink-0 px-4 pb-2 animate-fade-up">
-          <PickerCard title="Message type" onClose={() => setShowTypes(false)}>
-            <div className="flex flex-wrap gap-2">
+          <PickerCard title="Tag Message" onClose={() => setShowProjects(false)}>
+            <p className="text-[10px] font-bold tracking-[1.5px] uppercase text-muted-foreground mb-2">
+              Message Type
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
               {(["progress", "problem", "feedback", "decision", "none"] as MessageType[]).map((type) => (
                 <TypeChip
                   key={type}
                   type={type}
                   selected={selectedType === type}
-                  onClick={() => {
-                    setSelectedType(type)
-                    setShowTypes(false)
-                  }}
+                  onClick={() => setSelectedType(type)}
                 />
               ))}
             </div>
-          </PickerCard>
-        </div>
-      )}
-      {showProjects && (
-        <div className="shrink-0 px-4 pb-2 animate-fade-up">
-          <PickerCard title="Assign to project" onClose={() => setShowProjects(false)}>
+            <p className="text-[10px] font-bold tracking-[1.5px] uppercase text-muted-foreground mb-2">
+              Projects
+            </p>
+            {selectedProjects.length > 0 && (
+              <div className="mb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
+                {selectedProjects.map((projectId) => {
+                  const project = projects.find((p) => p.id === projectId)
+                  if (!project) return null
+                  return (
+                    <button
+                      key={projectId}
+                      onClick={() => toggleProject(projectId)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap"
+                    >
+                      <span>{project.name}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             <SearchInput
               value={projectSearch}
               onChange={setProjectSearch}
+              onFocus={() => setShowProjectPicker(true)}
+              onBlur={() => setTimeout(() => setShowProjectPicker(false), 120)}
               placeholder="Search projects/categories"
             />
-            <div className="flex flex-col gap-1 max-h-[126px] overflow-y-auto scrollbar-hide">
-              {filteredProjects.map((project) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  selected={selectedProjects.includes(project.id)}
-                  onClick={() => toggleProject(project.id)}
-                />
-              ))}
-              {projects.length === 0 && (
-                <p className="text-xs text-muted-foreground px-1 py-2">No projects yet. Create one below.</p>
-              )}
-              {projects.length > 0 && filteredProjects.length === 0 && (
-                <p className="text-xs text-muted-foreground px-1 py-2">No projects found.</p>
-              )}
-            </div>
+            {showProjectPicker && (
+              <div className="flex flex-col gap-1 max-h-[104px] overflow-y-auto scrollbar-hide">
+                {filteredProjects.map((project) => (
+                  <ProjectRow
+                    key={project.id}
+                    project={project}
+                    selected={selectedProjects.includes(project.id)}
+                    onClick={() => toggleProject(project.id)}
+                  />
+                ))}
+                {projects.length === 0 && (
+                  <p className="text-xs text-muted-foreground px-1 py-2">No projects yet. Create one below.</p>
+                )}
+                {projects.length > 0 && filteredProjects.length === 0 && (
+                  <p className="text-xs text-muted-foreground px-1 py-2">No projects found.</p>
+                )}
+              </div>
+            )}
             <button
               type="button"
-              onClick={() => { setShowProjects(false); setShowCreateProject(true) }}
-              className="mt-3 w-full text-xs font-semibold text-primary/70 border border-dashed border-primary/25 rounded-xl py-2.5 active:bg-primary/5 transition-colors"
+              onClick={() => setShowProjects(false)}
+              className="mt-2 w-full rounded-xl bg-primary py-2.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(37,99,235,0.32)] active:scale-[0.98] transition-all"
             >
-              + New project
+              Apply
             </button>
           </PickerCard>
         </div>
@@ -297,23 +303,16 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         <OptionChip
           icon={<User className="w-3.5 h-3.5" />}
           active={selectedContacts.length > 0}
-          onClick={() => { setShowContacts(!showContacts); setShowTypes(false); setShowProjects(false) }}
+          onClick={() => { setShowContacts(!showContacts); setShowProjects(false) }}
         >
           {selectedContacts.length > 0 ? selectedContactNames : "+ Who"}
         </OptionChip>
         <OptionChip
           icon={<Tag className="w-3.5 h-3.5" />}
-          active={selectedType !== "none"}
-          onClick={() => { setShowTypes(!showTypes); setShowContacts(false); setShowProjects(false) }}
+          active={selectedType !== "none" || selectedProjects.length > 0}
+          onClick={() => { setShowProjects(!showProjects); setShowContacts(false) }}
         >
-          {typeLabels[selectedType]}
-        </OptionChip>
-        <OptionChip
-          icon={<Building className="w-3.5 h-3.5" />}
-          active={selectedProjects.length > 0}
-          onClick={() => { setShowProjects(!showProjects); setShowContacts(false); setShowTypes(false) }}
-        >
-          {selectedProjectNames || "Project"}
+          Tag
         </OptionChip>
         <OptionChip
           icon={<ImageIcon className="w-3.5 h-3.5" />}
@@ -418,10 +417,14 @@ function PickerCard({
 function SearchInput({
   value,
   onChange,
+  onFocus,
+  onBlur,
   placeholder,
 }: {
   value: string
   onChange: (value: string) => void
+  onFocus?: () => void
+  onBlur?: () => void
   placeholder: string
 }) {
   return (
@@ -430,6 +433,8 @@ function SearchInput({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={placeholder}
         className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
       />
