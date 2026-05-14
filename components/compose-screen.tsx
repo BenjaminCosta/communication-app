@@ -253,10 +253,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
               value={projectSearch}
               onChange={setProjectSearch}
               onFocus={() => setShowProjectPicker(true)}
-              onBlur={() => setTimeout(() => setShowProjectPicker(false), 120)}
+              onBlur={() => setTimeout(() => {
+                if (selectedProjects.length === 0) setShowProjectPicker(false)
+              }, 120)}
               placeholder="Search projects/categories"
             />
-            {showProjectPicker && (
+            {(showProjectPicker || selectedProjects.length > 0) && (
               <div className="flex flex-col gap-1 max-h-[104px] overflow-y-auto scrollbar-hide">
                 {filteredProjects.map((project) => (
                   <ProjectRow

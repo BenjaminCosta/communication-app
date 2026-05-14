@@ -785,10 +785,12 @@ function QuickContextSheet({
               value={projectSearch}
               onChange={setProjectSearch}
               onFocus={() => setShowProjectPicker(true)}
-              onBlur={() => setTimeout(() => setShowProjectPicker(false), 120)}
+              onBlur={() => setTimeout(() => {
+                if (selectedProjects.length === 0) setShowProjectPicker(false)
+              }, 120)}
               placeholder="Search projects/categories"
             />
-            {showProjectPicker && (
+            {(showProjectPicker || selectedProjects.length > 0) && (
               <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
                 {filteredProjects.map((project) => {
                   const selected = selectedProjects.includes(project.id)
