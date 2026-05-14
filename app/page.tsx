@@ -188,13 +188,7 @@ export default function Home() {
       )
     }
     if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
-    const shouldSkeleton = prev !== "loading" && (
-      next === "projects" ||
-      next === "project-detail" ||
-      next === "profile" ||
-      next === "notifications" ||
-      next === "privacy"
-    )
+    const shouldSkeleton = prev !== "loading" && next === "project-detail"
     setShowScreenSkeleton(shouldSkeleton)
     if (shouldSkeleton) {
       skeletonTimerRef.current = setTimeout(() => setShowScreenSkeleton(false), 180)
