@@ -29,3 +29,5 @@ firestore-debug.log
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
+backups/
+svc-comms-firebase-adminsdk*.json
