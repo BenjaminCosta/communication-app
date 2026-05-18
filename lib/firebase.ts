@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from "firebase/app"
-import { getAuth } from "firebase/auth"
-import { getFirestore } from "firebase/firestore"
+import { getAuth, connectAuthEmulator } from "firebase/auth"
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore"
 import { getStorage } from "firebase/storage"
 
 const firebaseConfig = {
@@ -18,3 +18,21 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
+
+// Connect to Firebase Emulators only when NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true.
+// typeof window check prevents SSR issues (emulators are browser-only).
+// __EMULATORS_INITIALIZED__ guard prevents double-connecting on hot-reload.
+// If the env var is NOT set, everything works exactly as before (production).
+if (
+  typeof window !== "undefined" &&
+  process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true"
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any
+  if (!w.__EMULATORS_INITIALIZED__) {
+    w.__EMULATORS_INITIALIZED__ = true
+    connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true })
+    connectFirestoreEmulator(db, "localhost", 8080)
+    console.info("[Emulator] Connected to Firebase Emulators — Auth :9099, Firestore :8080")
+  }
+}

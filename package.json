@@ -4,9 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:emulator": "NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "emulator": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
+    "emulator:clean": "firebase emulators:start",
+    "emulator:export": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/export-prod-to-emulator.mjs",
+    "emulator:migrate": "FIRESTORE_EMULATOR_HOST=localhost:8080 node scripts/migrate-visible-to.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -67,6 +72,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "firebase-admin": "^13.10.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",

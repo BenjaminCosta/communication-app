@@ -1,0 +1,83 @@
+// firestore.rules.secure
+//
+// SECURE RULES — TEST ONLY IN EMULATOR
+// DO NOT deploy to production until all cases A–G pass in the emulator.
+//
+// Deploy to production only with explicit approval.
+// To test in emulator, copy this content into the Emulator UI rules tab:
+//   http://localhost:4000 → Firestore → Rules
+//
+// OR rename this file to firestore.rules and restart the emulator.
+// (firebase.json points to firestore.rules — do not change that for production)
+//
+// Visibility model:
+//   visibleToUserIds = author + direct recipients + members of all associated project-tags
+//   Legacy fallback: participants field (for messages not yet migrated)
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Users ──────────────────────────────────────────────────────────────
+    // Any authenticated user can read the user list (needed for contact resolution).
+    // Users can only write their own doc.
+    match /users/{userId} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Projects (Tags) ────────────────────────────────────────────────────
+    // Only project members can read. Owner can create/delete. Members can update.
+    match /projects/{projectId} {
+      allow read:   if request.auth != null
+                    && request.auth.uid in resource.data.members;
+
+      allow create: if request.auth != null
+                    && request.auth.uid in request.resource.data.members
+                    && request.auth.uid == request.resource.data.ownerId;
+
+      allow update: if request.auth != null
+                    && request.auth.uid in resource.data.members;
+
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.ownerId;
+    }
+
+    // ── Messages ───────────────────────────────────────────────────────────
+    match /messages/{messageId} {
+
+      // READ: user must be in visibleToUserIds (new model) OR participants (legacy fallback).
+      // resource.data.get(field, default) returns default if field doesn't exist — safe.
+      allow read: if request.auth != null && (
+        request.auth.uid in resource.data.get('visibleToUserIds', [])
+        ||
+        request.auth.uid in resource.data.get('participants', [])
+      );
+
+      // CREATE: only the author can create. Author must be in visibleToUserIds.
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.get('authorId', request.resource.data.get('senderId', ''))
+                    && request.auth.uid in request.resource.data.get('visibleToUserIds', []);
+
+      // UPDATE: user must currently be able to see the message (read access),
+      //         AND must be the author/sender.
+      // This ensures Tag Later (applying tags) only works for the message owner.
+      allow update: if request.auth != null
+                    && (
+                      request.auth.uid in resource.data.get('visibleToUserIds', [])
+                      || request.auth.uid in resource.data.get('participants', [])
+                    )
+                    && (
+                      request.auth.uid == resource.data.get('authorId', '')
+                      || request.auth.uid == resource.data.get('senderId', '')
+                    );
+
+      // DELETE: only the author/sender can delete their own message.
+      allow delete: if request.auth != null
+                    && (
+                      request.auth.uid == resource.data.get('authorId', '')
+                      || request.auth.uid == resource.data.get('senderId', '')
+                    );
+    }
+  }
+}

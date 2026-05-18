@@ -59,6 +59,7 @@ import {
   messageHasTags,
   projectTagId,
   sortTagsByActivity,
+  computeVisibleToUserIds,
 } from "@/lib/store"
 
 type Screen =
@@ -115,6 +116,7 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     senderId,
     authorId: data.authorId ?? senderId,
     participants: Array.isArray(data.participants) ? data.participants : [senderId].filter(Boolean),
+    visibleToUserIds: Array.isArray(data.visibleToUserIds) ? data.visibleToUserIds.filter(Boolean) : undefined,
     recipientIds: Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : [],
     peopleIds: Array.isArray(data.peopleIds)
       ? data.peopleIds.filter(Boolean)
@@ -150,15 +152,20 @@ export default function Home() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [participantMessages, setParticipantMessages] = useState<Message[]>([])
   const [projectMessages, setProjectMessages] = useState<Message[]>([])
+  const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
 
-  // Merged feed: union of messages-by-participant and messages-by-project, deduped by ID
+  // Merged feed: union of all message sources, deduped by ID.
+  // participantMessages = legacy query (array-contains participants)
+  // projectMessages     = legacy query (array-contains projectId)
+  // visibleMessages     = new query (array-contains visibleToUserIds)
   const messages = useMemo(() => {
     const byId = new Map<string, Message>()
     participantMessages.forEach((m) => byId.set(m.id, m))
     projectMessages.forEach((m) => byId.set(m.id, m))
+    visibleMessages.forEach((m) => byId.set(m.id, m))
     return [...byId.values()].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
-  }, [participantMessages, projectMessages])
+  }, [participantMessages, projectMessages, visibleMessages])
 
   // ── Navigation ────────────────────────────────────────────────────────
   const [activeScreen, setActiveScreen] = useState<Screen>("loading")
@@ -278,7 +285,7 @@ export default function Home() {
       setProjects(snap.docs.map((d) => d.data() as Project))
     }, () => {})
 
-    // 3. Messages where current user is a participant (sorted client-side to avoid composite index)
+    // 3. Messages where current user is a participant (legacy, kept for backward compat)
     const messagesQuery = query(
       collection(db, "messages"),
       where("participants", "array-contains", firebaseUser.uid)
@@ -290,10 +297,22 @@ export default function Home() {
       setTimeout(() => setListenerKey((k) => k + 1), 3000)
     })
 
+    // 4. Messages via visibleToUserIds (new visibility model — forward compat)
+    const visibleQuery = query(
+      collection(db, "messages"),
+      where("visibleToUserIds", "array-contains", firebaseUser.uid)
+    )
+    const visibleUnsub = onSnapshot(visibleQuery, (snap) => {
+      setVisibleMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
+    }, () => {
+      setVisibleMessages([])
+    })
+
     return () => {
       usersUnsub()
       projectsUnsub()
       messagesUnsub()
+      visibleUnsub()
     }
   }, [firebaseUser, listenerKey])
 
@@ -571,12 +590,20 @@ export default function Home() {
         }
       }
 
+      const visibleToUserIds = computeVisibleToUserIds(
+        firebaseUser.uid,
+        peopleIds,
+        tagIds,
+        projects
+      )
+
       const msgData = {
         authorId: firebaseUser.uid,
         senderId: firebaseUser.uid,
         recipientIds: peopleIds,
         peopleIds,
         participants,
+        visibleToUserIds,
         projectIds,
         projectId: projectIds[0] ?? null,
         tagIds,
@@ -611,6 +638,7 @@ export default function Home() {
             recipientIds: target.recipientIds ?? [],
             peopleIds: getMessagePeopleIds(target),
             participants: target.participants,
+            ...(target.visibleToUserIds ? { visibleToUserIds: target.visibleToUserIds } : {}),
             projectIds: getMessageProjectIds(target),
             projectId: target.projectId ?? null,
             tagIds: getMessageTagIds(target),
@@ -659,6 +687,16 @@ export default function Home() {
         ...peopleIds,
         ...projectMembers,
       ])]
+
+      // Compute visibleToUserIds fresh from the new tags + recipients
+      const authorId = selectedMessage.authorId ?? selectedMessage.senderId
+      const visibleToUserIds = computeVisibleToUserIds(
+        authorId,
+        peopleIds,
+        tagIds,
+        projects
+      )
+
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
         recipientIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
@@ -667,6 +705,7 @@ export default function Home() {
         projectId: selectedProjectIds[0] ?? null,
         tagIds,
         participants: mergedParticipants,
+        visibleToUserIds,
         updatedAt: serverTimestamp(),
       })
       setSelectedMessageId(null)

@@ -38,9 +38,10 @@ export interface Tag {
 
 export interface Message {
   id: string
-  senderId: string       // Firebase UID of sender
+  senderId: string        // Firebase UID of sender
   authorId?: string
-  participants: string[] // [senderId, ...recipientIds] — used for Firestore array-contains query
+  participants: string[]  // legacy: used for array-contains query (may be corrupted)
+  visibleToUserIds?: string[] // new: computed visibility — author + recipients + tag members
   recipientIds?: string[]
   peopleIds?: string[]
   projectId: string | null
@@ -287,6 +288,29 @@ export function sortTagsByActivity(tags: Tag[], messages: Message[]): Tag[] {
     if (a.category !== b.category) return a.category === "systemType" ? -1 : b.category === "systemType" ? 1 : 0
     return a.name.localeCompare(b.name)
   })
+}
+
+/**
+ * Compute visibleToUserIds from first-principles.
+ * Rule: author + direct recipients + members of all project-tags associated.
+ * If nothing → [authorId] only (private/unassigned message).
+ */
+export function computeVisibleToUserIds(
+  authorId: string,
+  recipientIds: string[],
+  tagIds: string[],
+  projects: Project[]
+): string[] {
+  const visible = new Set<string>([authorId].filter(Boolean))
+  recipientIds.filter(Boolean).forEach((id) => visible.add(id))
+  tagIds.forEach((tagId) => {
+    const projectId = parseProjectTagId(tagId)
+    if (projectId) {
+      const project = projects.find((p) => p.id === projectId)
+      project?.members.filter(Boolean).forEach((id) => visible.add(id))
+    }
+  })
+  return [...visible]
 }
 
 export function generateProjectId(): string {

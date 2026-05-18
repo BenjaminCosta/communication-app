@@ -14,3 +14,18 @@ next.user-config.*
 node_modules
 .next/
 .DS_Store
+
+# Firebase emulator
+emulator-data/
+service-account.json
+.env.local
+# Local env / emulator
+.env.local.emulator
+
+# Firebase emulator/debug logs
+firebase-debug.log
+firestore-debug.log
+*.log
+
+# TypeScript build cache
+tsconfig.tsbuildinfo

@@ -1332,6 +1332,8 @@ function MessageBubble({
     return project ? { id: tagId, name: project.name, projectId, color: project.color, isFavorited: project.isFavorited } : null
   }).filter(Boolean) as Array<{ id: string; name: string; color: string; systemType?: MessageType; projectId?: string; isFavorited?: boolean }>
 
+  const hasDirectRecipients = (message.recipientIds ?? []).filter(Boolean).length > 0
+
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe
     ? (!first && !last) ? "rounded-[16px_4px_4px_16px]"
@@ -1413,16 +1415,19 @@ function MessageBubble({
             </div>
           )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {messageTags.length === 0 && (
+            {/* Safety fallback: no tags computed AND no recipients → Unassigned */}
+            {messageTags.length === 0 && !hasDirectRecipients && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
-            {messageTags.length === 0 && (
+            {messageTags.length === 0 && !hasDirectRecipients && (
               <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
                 Unassigned
               </span>
             )}
             {messageTags.map((tag) => {
               if (tag.systemType === "none") {
+                // Don't show Unassigned if message has direct recipients
+                if (hasDirectRecipients) return null
                 return (
                   <Fragment key={tag.id}>
                     <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
@@ -1452,6 +1457,12 @@ function MessageBubble({
                 </button>
               )
             })}
+            {/* Direct recipients indicator — subtle yellow people icon */}
+            {hasDirectRecipients && (
+              <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">
+                <Users className="w-3 h-3" />
+              </span>
+            )}
             {message.isFavorited && (
               <Star className="w-3 h-3 text-feedback fill-current ml-0.5 flex-shrink-0" />
             )}
