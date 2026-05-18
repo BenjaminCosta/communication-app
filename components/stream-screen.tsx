@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment } from "react"
-import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users } from "lucide-react"
+import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Message,
@@ -207,7 +207,7 @@ export function StreamScreen({
   }
 
   const quickTagIds = useMemo(() => [
-    ...(quickType !== "none" ? [systemTypeTagId(quickType)].filter(Boolean) as string[] : []),
+    ...(quickType !== "none" ? [systemTypeTagId(quickType)] : []),
     ...quickProjects.map(projectTagId),
   ], [quickType, quickProjects])
 
@@ -215,6 +215,10 @@ export function StreamScreen({
     const systemType = parseSystemTypeTagId(tagId)
     if (systemType) {
       setQuickType((prev) => prev === systemType ? "none" : systemType)
+      return
+    }
+    if (tagId === systemTypeTagId("none")) {
+      setQuickType("none")
       return
     }
     const projectId = parseProjectTagId(tagId)
@@ -807,11 +811,17 @@ function QuickContextSheet({
                 {selectedTags.map((tagId) => {
                   const tag = tags.find((item) => item.id === tagId)
                   if (!tag) return null
+                  const isUnassigned = tag.id === systemTypeTagId("none")
                   return (
                     <button
                       key={tagId}
                       onClick={() => onToggleTag(tagId)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap"
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap",
+                        isUnassigned
+                          ? "border-feedback/25 bg-feedback/12 text-feedback"
+                          : "border-primary/25 bg-primary/12 text-primary"
+                      )}
                     >
                       <span>{tag.name}</span>
                       <X className="w-3 h-3" />
@@ -833,15 +843,19 @@ function QuickContextSheet({
               <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
                 {filteredTags.map((tag) => {
                   const selected = selectedTags.includes(tag.id)
+                  const isUnassigned = tag.id === systemTypeTagId("none")
                   return (
                     <button
                       key={tag.id}
                       onClick={() => onToggleTag(tag.id)}
-                      className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors", selected ? "bg-primary/15" : "active:bg-white/5")}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
+                        selected ? isUnassigned ? "bg-feedback/15" : "bg-primary/15" : "active:bg-white/5"
+                      )}
                     >
                       <div className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
-                      <span className={cn("text-sm font-semibold flex-1 text-left", selected ? "text-primary" : "text-foreground/90")}>{tag.name}</span>
-                      {selected && <Check className="w-4 h-4 text-primary" />}
+                      <span className={cn("text-sm font-semibold flex-1 text-left", selected ? isUnassigned ? "text-feedback" : "text-primary" : "text-foreground/90")}>{tag.name}</span>
+                      {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
                     </button>
                   )
                 })}
@@ -1073,6 +1087,21 @@ function PeopleFilterSheet({
         <SheetHeader title="People" onClose={onClose} />
         <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people" />
         <div className="flex flex-col gap-1 max-h-[45dvh] overflow-y-auto scrollbar-hide">
+          <button
+            onClick={() => onChange([])}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+              selectedPeople.length === 0
+                ? "bg-feedback/15 text-feedback"
+                : "active:bg-white/5 text-foreground/90"
+            )}
+          >
+            <span className="w-7 h-7 rounded-full bg-feedback/15 border border-feedback/25 flex items-center justify-center shrink-0">
+              <Users className="w-3.5 h-3.5 text-feedback" />
+            </span>
+            <span className="text-sm font-semibold flex-1 truncate">All People</span>
+            {selectedPeople.length === 0 && <Check className="w-4 h-4 text-feedback" />}
+          </button>
           {filtered.map((person) => {
             const selected = selectedPeople.includes(person.id)
             return (
@@ -1109,7 +1138,16 @@ function TagFilterSheet({
 }) {
   const [query, setQuery] = useState("")
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
-  const filtered = tags.filter((tag) => tag.name.toLowerCase().includes(query.trim().toLowerCase()))
+  const queryText = query.trim().toLowerCase()
+  const filtered = tags
+    .filter((tag) => tag.name.toLowerCase().includes(queryText))
+    .sort((a, b) => {
+      if (!queryText) {
+        if (a.id === systemTypeTagId("none")) return -1
+        if (b.id === systemTypeTagId("none")) return 1
+      }
+      return 0
+    })
   const toggle = (id: string) => {
     onChange(selectedTags.includes(id) ? selectedTags.filter((item) => item !== id) : [...selectedTags, id])
   }
@@ -1131,22 +1169,36 @@ function TagFilterSheet({
             onClick={() => onChange([])}
             className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left", selectedTags.length === 0 ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90")}
           >
-            <span className="w-2 h-2 rounded-full bg-white/30 shrink-0" />
+            <span className="w-4 h-4 rounded-full bg-white/[0.035] border border-white/[0.07] flex items-center justify-center shrink-0">
+              <LayoutGrid className="w-2.5 h-2.5 text-muted-foreground/60" />
+            </span>
             <span className="text-sm font-semibold flex-1">All Tags</span>
             {selectedTags.length === 0 && <Check className="w-4 h-4 text-primary" />}
           </button>
           {filtered.map((tag) => {
             const selected = selectedTags.includes(tag.id)
+            const isUnassigned = tag.id === systemTypeTagId("none")
             return (
               <button
                 key={tag.id}
                 onClick={() => toggle(tag.id)}
-                className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left", selected ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90")}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                  selected
+                    ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
+                    : "active:bg-white/5 text-foreground/90"
+                )}
               >
-                <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+                {isUnassigned ? (
+                  <span className="w-4 h-4 rounded-full bg-feedback/[0.07] border border-feedback/10 flex items-center justify-center shrink-0">
+                    <CircleSlash className="w-2.5 h-2.5 text-feedback/70" />
+                  </span>
+                ) : (
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+                )}
                 <span className="text-sm font-semibold flex-1 truncate">{tag.name}</span>
                 {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current" />}
-                {selected && <Check className="w-4 h-4 text-primary" />}
+                {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
               </button>
             )
           })}
@@ -1268,6 +1320,9 @@ function MessageBubble({
     ? { id: currentUserId, name: "Me", initials: userInitials, color: userColor }
     : (getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" })
   const messageTags = getMessageTagIds(message).map((tagId) => {
+    if (tagId === systemTypeTagId("none")) {
+      return { id: tagId, name: typeStyles.none.label, systemType: "none" as const, color: typeStyles.none.text }
+    }
     const systemType = parseSystemTypeTagId(tagId)
     if (systemType) {
       return { id: tagId, name: typeStyles[systemType].label, systemType, color: typeStyles[systemType].text }
@@ -1275,7 +1330,7 @@ function MessageBubble({
     const projectId = parseProjectTagId(tagId)
     const project = projectId ? projects.find((p) => p.id === projectId) : null
     return project ? { id: tagId, name: project.name, projectId, color: project.color, isFavorited: project.isFavorited } : null
-  }).filter(Boolean) as Array<{ id: string; name: string; color: string; systemType?: Exclude<MessageType, "none">; projectId?: string; isFavorited?: boolean }>
+  }).filter(Boolean) as Array<{ id: string; name: string; color: string; systemType?: MessageType; projectId?: string; isFavorited?: boolean }>
 
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe
@@ -1363,28 +1418,40 @@ function MessageBubble({
             )}
             {messageTags.length === 0 && (
               <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
-                No Tags
+                Unassigned
               </span>
             )}
-            {messageTags.map((tag) => (
-              <button
-                key={tag.id}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (tag.projectId) onProjectTagTap?.(tag.projectId)
-                }}
-                className={cn(
-                  "text-[10px] font-semibold tracking-wide border rounded px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout",
-                  tag.systemType
-                    ? cn(typeStyles[tag.systemType].bg, typeStyles[tag.systemType].text, typeStyles[tag.systemType].border)
-                    : "bg-primary/10 text-primary border-primary/20"
-                )}
-              >
-                {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
-                {tag.name}
-              </button>
-            ))}
+            {messageTags.map((tag) => {
+              if (tag.systemType === "none") {
+                return (
+                  <Fragment key={tag.id}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
+                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
+                      Unassigned
+                    </span>
+                  </Fragment>
+                )
+              }
+              return (
+                <button
+                  key={tag.id}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (tag.projectId) onProjectTagTap?.(tag.projectId)
+                  }}
+                  className={cn(
+                    "text-[10px] font-semibold tracking-wide border rounded px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout",
+                    tag.systemType
+                      ? cn(typeStyles[tag.systemType].bg, typeStyles[tag.systemType].text, typeStyles[tag.systemType].border)
+                      : "bg-primary/10 text-primary border-primary/20"
+                  )}
+                >
+                  {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
+                  {tag.name}
+                </button>
+              )
+            })}
             {message.isFavorited && (
               <Star className="w-3 h-3 text-feedback fill-current ml-0.5 flex-shrink-0" />
             )}

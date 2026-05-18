@@ -64,32 +64,39 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   }
 
   const selectedTagIds = useMemo(() => [
-    ...(selectedType !== "none" ? [systemTypeTagId(selectedType)].filter(Boolean) as string[] : []),
+    ...(selectedType !== "none" ? [systemTypeTagId(selectedType)] : []),
     ...selectedProjects.map(projectTagId),
   ], [selectedProjects, selectedType])
 
-  const displayTags = useMemo<MessageTag[]>(() => availableTags ?? [
-    ...(["progress", "problem", "feedback", "decision"] as Exclude<MessageType, "none">[]).map((type) => ({
-      id: systemTypeTagId(type) ?? type,
-      name: MESSAGE_TYPE_CONFIG[type].label,
-      category: "systemType" as const,
-      color: MESSAGE_TYPE_CONFIG[type].text,
-      systemType: type,
-    })),
-    ...projects.map((project) => ({
-      id: projectTagId(project.id),
-      name: project.name,
-      category: "project" as const,
-      color: project.color,
-      projectId: project.id,
-      isFavorited: project.isFavorited,
-    })),
-  ], [availableTags, projects])
+  const displayTags = useMemo<MessageTag[]>(() => {
+    const tags = availableTags ?? [
+      ...(["progress", "problem", "feedback", "decision"] as Exclude<MessageType, "none">[]).map((type) => ({
+        id: systemTypeTagId(type),
+        name: MESSAGE_TYPE_CONFIG[type].label,
+        category: "systemType" as const,
+        color: MESSAGE_TYPE_CONFIG[type].text,
+        systemType: type,
+      })),
+      ...projects.map((project) => ({
+        id: projectTagId(project.id),
+        name: project.name,
+        category: "project" as const,
+        color: project.color,
+        projectId: project.id,
+        isFavorited: project.isFavorited,
+      })),
+    ]
+    return tags.filter((tag) => tag.id !== systemTypeTagId("none"))
+  }, [availableTags, projects])
 
   const toggleTag = (tagId: string) => {
     const systemType = parseSystemTypeTagId(tagId)
     if (systemType) {
       setSelectedType((prev) => prev === systemType ? "none" : systemType)
+      return
+    }
+    if (tagId === systemTypeTagId("none")) {
+      setSelectedType("none")
       return
     }
     const projectId = parseProjectTagId(tagId)

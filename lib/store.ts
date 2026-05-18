@@ -75,19 +75,24 @@ export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string
   problem:  { bg: "bg-problem/10",   text: "text-problem",   border: "border-problem/20",   label: "Problem" },
   feedback: { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Feedback" },
   decision: { bg: "bg-decision/10",  text: "text-decision",  border: "border-decision/20",  label: "Decision" },
-  none:     { bg: "bg-white/5",      text: "text-muted-foreground", border: "border-border", label: "No Type" },
+  none:     { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Unassigned" },
 }
 
 export const SYSTEM_TAG_PREFIX = "type:"
 export const PROJECT_TAG_PREFIX = "project:"
 
-export const SYSTEM_TAGS: Tag[] = (["progress", "problem", "feedback", "decision"] as const).map((type) => ({
-  id: `${SYSTEM_TAG_PREFIX}${type}`,
-  name: MESSAGE_TYPE_CONFIG[type].label,
-  category: "systemType",
-  color: MESSAGE_TYPE_CONFIG[type].text,
-  systemType: type,
-}))
+export const NO_TYPE_TAG_ID = `${SYSTEM_TAG_PREFIX}none`
+
+export const SYSTEM_TAGS: Tag[] = [
+  { id: NO_TYPE_TAG_ID, name: "Unassigned", category: "systemType", color: "bg-feedback" },
+  ...(["progress", "problem", "feedback", "decision"] as const).map((type) => ({
+    id: `${SYSTEM_TAG_PREFIX}${type}`,
+    name: MESSAGE_TYPE_CONFIG[type].label,
+    category: "systemType" as const,
+    color: MESSAGE_TYPE_CONFIG[type].text,
+    systemType: type,
+  })),
+]
 
 // Project colors palette (cycles when creating new projects)
 export const PROJECT_COLORS = [
@@ -126,8 +131,8 @@ export function getProject(id: string | null, projects: Project[]): Project | nu
   return projects.find((p) => p.id === id) || null
 }
 
-export function systemTypeTagId(type: MessageType): string | null {
-  return type === "none" ? null : `${SYSTEM_TAG_PREFIX}${type}`
+export function systemTypeTagId(type: MessageType): string {
+  return `${SYSTEM_TAG_PREFIX}${type}`
 }
 
 export function projectTagId(projectId: string): string {
@@ -177,17 +182,29 @@ export function getMessageTagIds(
   message: Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">
 ): string[] {
   const ids = new Set<string>()
+  let hasUnassignedTag = false
   if (Array.isArray(message.tagIds)) {
-    message.tagIds.filter(Boolean).forEach((id) => ids.add(id))
+    message.tagIds.filter(Boolean).forEach((id) => {
+      if (id === NO_TYPE_TAG_ID) {
+        hasUnassignedTag = true
+      } else {
+        ids.add(id)
+      }
+    })
   }
-  const typeTag = systemTypeTagId(message.type ?? "none")
-  if (typeTag) ids.add(typeTag)
+  if (message.type && message.type !== "none") {
+    ids.add(systemTypeTagId(message.type))
+  }
   getMessageProjectIds(message).forEach((id) => ids.add(projectTagId(id)))
+  if (ids.size === 0 && ((message.type ?? "none") === "none" || hasUnassignedTag)) {
+    ids.add(NO_TYPE_TAG_ID)
+  }
   return [...ids]
 }
 
 export function getMessagePeopleIds(
-  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId"> &
+    Partial<Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">>
 ): string[] {
   const ids = new Set<string>()
   if (Array.isArray(message.peopleIds)) {
@@ -196,16 +213,15 @@ export function getMessagePeopleIds(
   if (Array.isArray(message.recipientIds)) {
     message.recipientIds.filter(Boolean).forEach((id) => ids.add(id))
   }
-  if (Array.isArray(message.participants)) {
-    message.participants.filter(Boolean).forEach((id) => ids.add(id))
-  }
+
   if (message.senderId) ids.delete(message.senderId)
   if (message.authorId) ids.delete(message.authorId)
   return [...ids]
 }
 
 export function getMessagePeopleFilterIds(
-  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId"> &
+    Partial<Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">>
 ): string[] {
   return [...new Set([message.senderId, message.authorId, ...getMessagePeopleIds(message)].filter(Boolean) as string[])]
 }
@@ -220,7 +236,8 @@ export function messageHasTags(
 }
 
 export function messageHasPeople(
-  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">,
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId"> &
+    Partial<Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">>,
   peopleIds: string[]
 ): boolean {
   if (peopleIds.length === 0) return true

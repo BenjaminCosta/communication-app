@@ -402,7 +402,9 @@ function ProjectMessageBubble({
             )}
             <span className={cn(
               "text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono shrink-0 border no-callout",
-              style.bg, style.text, style.border
+              message.type === "none"
+                ? "border-white/10 bg-white/5 text-muted-foreground"
+                : cn(style.bg, style.text, style.border)
             )}>
               {style.label}
             </span>

@@ -19,6 +19,7 @@ import {
   onSnapshot,
   query,
   where,
+  getDocs,
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore"
@@ -54,7 +55,6 @@ import {
   getLegacyProjectIdsFromTagIds,
   getLegacyTypeFromTagIds,
   getAvailableTags,
-  messageHasPeople,
   messageHasProject,
   messageHasTags,
   projectTagId,
@@ -115,14 +115,10 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     senderId,
     authorId: data.authorId ?? senderId,
     participants: Array.isArray(data.participants) ? data.participants : [senderId].filter(Boolean),
-    recipientIds: Array.isArray(data.recipientIds)
-      ? data.recipientIds
-      : (Array.isArray(data.participants) ? data.participants.filter((uid: string) => uid !== senderId) : []),
+    recipientIds: Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : [],
     peopleIds: Array.isArray(data.peopleIds)
       ? data.peopleIds.filter(Boolean)
-      : (Array.isArray(data.recipientIds)
-        ? data.recipientIds.filter(Boolean)
-        : (Array.isArray(data.participants) ? data.participants.filter((uid: string) => uid !== senderId) : [])),
+      : (Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : []),
     projectId: data.projectId ?? data.project_id ?? projectIds[0] ?? null,
     projectIds,
     project_id: data.project_id ?? null,
@@ -172,6 +168,7 @@ export default function Home() {
   const [selectedTagFilter, setSelectedTagFilter] = useState<string[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
+  const [listenerKey, setListenerKey] = useState(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
   const [composeInitialProjectId, setComposeInitialProjectId] = useState<string | null>(null)
   const notificationsReturnRef = useRef<Screen>("profile")
@@ -270,7 +267,7 @@ export default function Home() {
       // Update currentUser profile from Firestore
       const me = all.find((u) => u.id === firebaseUser.uid)
       if (me) setCurrentUser(me)
-    })
+    }, () => {})
 
     // 2. Projects where current user is a member
     const projectsQuery = query(
@@ -279,7 +276,7 @@ export default function Home() {
     )
     const projectsUnsub = onSnapshot(projectsQuery, (snap) => {
       setProjects(snap.docs.map((d) => d.data() as Project))
-    })
+    }, () => {})
 
     // 3. Messages where current user is a participant (sorted client-side to avoid composite index)
     const messagesQuery = query(
@@ -288,6 +285,9 @@ export default function Home() {
     )
     const messagesUnsub = onSnapshot(messagesQuery, (snap) => {
       setParticipantMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
+    }, () => {
+      // Restart all listeners after a brief delay if a permission error occurs
+      setTimeout(() => setListenerKey((k) => k + 1), 3000)
     })
 
     return () => {
@@ -295,7 +295,49 @@ export default function Home() {
       projectsUnsub()
       messagesUnsub()
     }
-  }, [firebaseUser])
+  }, [firebaseUser, listenerKey])
+
+  // ── One-time recovery: restore participants on orphaned messages ────────
+  useEffect(() => {
+    if (!firebaseUser || contacts.length === 0) return
+    const RECOVERY_KEY = "participants_recovery_v1_done"
+    if (typeof window !== "undefined" && localStorage.getItem(RECOVERY_KEY)) return
+
+    const allUids = [...new Set([firebaseUser.uid, ...contacts.map((c) => c.id)])]
+
+    // Query messages where participants was stripped to a single-element array
+    // (rules are open during recovery, so we can read all messages)
+    const orphanQueries = allUids.map((uid) =>
+      getDocs(query(collection(db, "messages"), where("participants", "==", [uid])))
+    )
+
+    Promise.all(orphanQueries).then(async (snapshots) => {
+      const orphaned = snapshots.flatMap((snap) =>
+        snap.docs.map((d) => ({ id: d.id }))
+      )
+      if (orphaned.length === 0) {
+        localStorage.setItem(RECOVERY_KEY, "1")
+        return
+      }
+
+      // Restore: add ALL known users to participants so everyone can see their messages
+      const chunks: typeof orphaned[] = []
+      for (let i = 0; i < orphaned.length; i += 400) chunks.push(orphaned.slice(i, i + 400))
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db)
+        chunk.forEach(({ id }) => {
+          batch.update(doc(db, "messages", id), {
+            participants: allUids,
+            updatedAt: serverTimestamp(),
+          })
+        })
+        await batch.commit()
+      }
+
+      localStorage.setItem(RECOVERY_KEY, "1")
+    }).catch(() => {})
+  }, [firebaseUser, contacts])
 
   useEffect(() => {
     if (!firebaseUser) return
@@ -328,7 +370,7 @@ export default function Home() {
     )
     const unsub = onSnapshot(projectMsgsQuery, (snap) => {
       setProjectMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
-    })
+    }, () => { setProjectMessages([]) })
     return () => { unsub(); setProjectMessages([]) }
   }, [firebaseUser, projects])
 
@@ -519,7 +561,7 @@ export default function Home() {
           await setDoc(doc(db, "messages", id), {
             authorId: target.authorId ?? target.senderId,
             senderId: target.senderId,
-            recipientIds: target.recipientIds ?? target.participants.filter((uid) => uid !== target.senderId),
+            recipientIds: target.recipientIds ?? [],
             peopleIds: getMessagePeopleIds(target),
             participants: target.participants,
             projectIds: getMessageProjectIds(target),
@@ -561,8 +603,15 @@ export default function Home() {
       const projectIds = getLegacyProjectIdsFromTagIds(tagIds, [])
       const selectedProjectIds = [...new Set(projectIds.filter(Boolean))]
       const projectMembers = selectedProjectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
-      const participantIds = [...new Set([selectedMessage.senderId, ...peopleIds])]
-      const mergedParticipants = [...new Set([...participantIds, ...projectMembers])]
+      // NEVER shrink participants — tag edits only ADD access, never revoke it.
+      // Existing participants keep access; new project members and people tags are added.
+      const mergedParticipants = [...new Set([
+        ...selectedMessage.participants,  // preserve all existing access
+        selectedMessage.senderId,         // always include sender
+        firebaseUser!.uid,                // always include the person editing
+        ...peopleIds,
+        ...projectMembers,
+      ])]
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
         recipientIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
@@ -691,12 +740,28 @@ export default function Home() {
 
   const availableTags = useMemo(() => sortTagsByActivity(getAvailableTags(projects), messages), [projects, messages])
 
+  const messageMatchesPeopleFilter = useCallback((message: Message, peopleIds: string[]) => {
+    if (peopleIds.length === 0) return true
+
+    const filterablePeopleIds = new Set<string>()
+    if (message.senderId) filterablePeopleIds.add(message.senderId)
+    if (message.authorId) filterablePeopleIds.add(message.authorId)
+
+    const recipientIds = (message.recipientIds ?? []).filter(Boolean)
+    const storedPeopleIds = (message.peopleIds ?? []).filter(Boolean)
+
+    recipientIds.forEach((id) => filterablePeopleIds.add(id))
+    storedPeopleIds.forEach((id) => filterablePeopleIds.add(id))
+
+    return peopleIds.some((id) => filterablePeopleIds.has(id))
+  }, [])
+
   const filteredMessages = useMemo(() =>
     messages.filter((message) =>
-      messageHasPeople(message, selectedPeopleFilter) &&
+      messageMatchesPeopleFilter(message, selectedPeopleFilter) &&
       messageHasTags(message, selectedTagFilter)
     ),
-    [messages, selectedPeopleFilter, selectedTagFilter]
+    [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter]
   )
 
   // ── Render ────────────────────────────────────────────────────────────

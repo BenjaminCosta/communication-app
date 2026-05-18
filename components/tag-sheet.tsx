@@ -18,6 +18,7 @@ import {
   parseProjectTagId,
   parseSystemTypeTagId,
   projectTagId,
+  systemTypeTagId,
 } from "@/lib/store"
 
 interface TagSheetProps {
@@ -160,11 +161,17 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
             {selectedTags.map((tagId) => {
               const tag = tags.find((item) => item.id === tagId)
               if (!tag) return null
+              const isUnassigned = tag.id === systemTypeTagId("none")
               return (
                 <button
                   key={tagId}
                   onClick={() => toggleTag(tagId)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap"
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap",
+                    isUnassigned
+                      ? "border-feedback/25 bg-feedback/12 text-feedback"
+                      : "border-primary/25 bg-primary/12 text-primary"
+                  )}
                 >
                   <span>{tag.name}</span>
                   <X className="w-3 h-3" />
@@ -186,38 +193,28 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
         </div>
         {(showTagPicker || selectedTags.length > 0) && (
           <div className="flex flex-col gap-1 px-4 max-h-[140px] overflow-y-auto scrollbar-hide">
-            {filteredTags.map((tag) => (
-              <button
-                key={tag.id}
-                onClick={() => toggleTag(tag.id)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-xl transition-colors",
-                  selectedTags.includes(tag.id)
-                    ? "bg-primary/15"
-                    : "active:bg-white/5"
-                )}
-              >
-                <div
+            {filteredTags.map((tag) => {
+              const selected = selectedTags.includes(tag.id)
+              const isUnassigned = tag.id === systemTypeTagId("none")
+              return (
+                <button
+                  key={tag.id}
+                  onClick={() => toggleTag(tag.id)}
                   className={cn(
-                    "w-2 h-2 rounded-full flex-shrink-0",
-                    tagDotClass(tag)
-                  )}
-                />
-                <span
-                  className={cn(
-                    "text-sm font-semibold flex-1 text-left",
-                    selectedTags.includes(tag.id)
-                      ? "text-primary"
-                      : "text-foreground/90"
+                    "flex items-center gap-3 px-3 py-2 rounded-xl transition-colors",
+                    selected ? isUnassigned ? "bg-feedback/15" : "bg-primary/15" : "active:bg-white/5"
                   )}
                 >
-                  {tag.name}
-                </span>
-                {selectedTags.includes(tag.id) && (
-                  <Check className="w-4 h-4 text-primary" />
-                )}
-              </button>
-            ))}
+                  <div className={cn("w-2 h-2 rounded-full flex-shrink-0", tagDotClass(tag))} />
+                  <span className={cn("text-sm font-semibold flex-1 text-left", selected ? isUnassigned ? "text-feedback" : "text-primary" : "text-foreground/90")}>
+                    {tag.name}
+                  </span>
+                  {selected && (
+                    <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />
+                  )}
+                </button>
+              )
+            })}
             {filteredTags.length === 0 && (
               <p className="text-xs text-muted-foreground py-2 px-1">No tags found.</p>
             )}
@@ -247,7 +244,7 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "decision") return "bg-decision"
   const projectId = parseProjectTagId(tag.id)
   if (projectId) return tag.color
-  return "bg-primary"
+  return tag.color || "bg-primary"
 }
 
 function SearchInput({
