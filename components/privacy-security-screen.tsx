@@ -12,7 +12,7 @@ export function PrivacySecurityScreen({ onBack, className }: PrivacySecurityScre
     <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"

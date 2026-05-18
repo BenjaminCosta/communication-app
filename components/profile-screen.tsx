@@ -25,7 +25,7 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
@@ -61,13 +61,13 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
       {/* Stats row */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 flex divide-x divide-white/10 mb-6 animate-fade-up delay-200">
         <StatCell label="Messages" value={messageCount > 0 ? String(messageCount) : "—"} />
-        <StatCell label="Projects" value={projectCount > 0 ? String(projectCount) : "—"} />
+        <StatCell label="Tags" value={projectCount > 0 ? String(projectCount) : "—"} />
         <StatCell label="Joined" value="—" />
       </div>
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
-        <SettingsRow icon={<FolderOpen className="w-4 h-4" />} label="Projects" onClick={onProjects} />
+        <SettingsRow icon={<FolderOpen className="w-4 h-4" />} label="Tags" onClick={onProjects} />
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
         <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" onClick={onPrivacy} />
       </div>

@@ -48,7 +48,7 @@ export function AppLoadingScreen() {
 export function AppScreenSkeleton() {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background animate-fade-in">
-      <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/10">
+      <div className="flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b border-white/10">
         <div className="h-6 w-32 rounded-lg bg-white/8 animate-pulse" />
         <div className="flex items-center gap-2">
           <div className="h-9 w-9 rounded-full bg-white/8 animate-pulse" />

@@ -71,14 +71,14 @@ export function ProjectListScreen({
     <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
           >
             <ArrowLeft className="w-4 h-4 text-muted-foreground" />
           </button>
-          <h1 className="text-base font-bold tracking-tight flex-1">Projects</h1>
+          <h1 className="text-base font-bold tracking-tight flex-1">Tags</h1>
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-semibold active:scale-95 hover:bg-primary/20 transition-all duration-150"
@@ -100,12 +100,12 @@ export function ProjectListScreen({
               <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
                 <FolderOpen className="w-7 h-7 text-muted-foreground/40" />
               </div>
-              <p className="text-sm text-muted-foreground">No projects yet</p>
+              <p className="text-sm text-muted-foreground">No tags yet</p>
               <button
                 onClick={() => setShowCreate(true)}
                 className="text-xs text-primary font-semibold active:opacity-70"
               >
-                Create your first project →
+                Create your first tag →
               </button>
             </div>
           ) : (
@@ -142,10 +142,10 @@ export function ProjectListScreen({
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {project.members.length === 0
-                      ? "No members"
+                      ? "No people"
                       : project.members.length === 1
-                      ? `${contacts.find(c => c.id === project.members[0])?.name ?? "1 member"}`
-                      : `${project.members.length} members`}
+                      ? `${contacts.find(c => c.id === project.members[0])?.name ?? "1 person"}`
+                      : `${project.members.length} people`}
                   </p>
                 </div>
 
@@ -164,7 +164,7 @@ export function ProjectListScreen({
         </div>
       </div>
 
-      {/* Floating action bar — shown when a project is selected */}
+      {/* Floating action bar — shown when a tag is selected */}
       {selectedProject && (
         <>
           <div className="fixed inset-0 z-20" onClick={clearSelection} />
@@ -227,7 +227,7 @@ export function ProjectListScreen({
         </>
       )}
 
-      {/* Create new project sheet */}
+      {/* Create new tag sheet */}
       {showCreate && (
         <CreateProjectModal
           contacts={contacts}
@@ -269,7 +269,7 @@ function EditProjectNameModal({
       <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop -translate-y-[5%] p-5">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">Manage Project</p>
+            <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">Manage Tag</p>
             <h2 className="text-xl font-bold">Edit name</h2>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">

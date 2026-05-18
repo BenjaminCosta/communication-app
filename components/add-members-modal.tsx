@@ -48,9 +48,9 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 shrink-0">
           <div>
-            <h3 className="text-sm font-bold">Members</h3>
+            <h3 className="text-sm font-bold">People</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {selected.length === 0 ? "No members selected" : `${selected.length} selected`}
+              {selected.length === 0 ? "No people selected" : `${selected.length} selected`}
             </p>
           </div>
           <button
@@ -112,7 +112,7 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
                 : "bg-white/8 text-muted-foreground/50"
             )}
           >
-            {selected.length === 0 ? "Save (no members)" : `Save ${selected.length} member${selected.length !== 1 ? "s" : ""}`}
+            {selected.length === 0 ? "Save (no people)" : `Save ${selected.length} ${selected.length !== 1 ? "people" : "person"}`}
           </button>
         </div>
       </div>

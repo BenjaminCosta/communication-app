@@ -13,6 +13,7 @@ import {
   formatTime,
   messageHasProject,
   MESSAGE_TYPE_CONFIG,
+  projectTagId,
 } from "@/lib/store"
 import { AddMembersModal } from "@/components/add-members-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
@@ -81,6 +82,7 @@ export function ProjectDetailScreen({
         text: quickText.trim(),
         contactIds: [],
         projectIds: [project.id],
+        tagIds: [projectTagId(project.id)],
         type: "none",
         imageFile: null,
       })
@@ -109,7 +111,7 @@ export function ProjectDetailScreen({
     <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
@@ -125,7 +127,7 @@ export function ProjectDetailScreen({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-muted-foreground text-xs font-semibold active:scale-95 hover:bg-white/8 transition-all duration-150"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            Members
+            People
           </button>
         </div>
       </div>
@@ -141,7 +143,7 @@ export function ProjectDetailScreen({
               <div className="w-7 h-7 rounded-full border border-dashed border-white/20 flex items-center justify-center">
                 <UserPlus className="w-3.5 h-3.5" />
               </div>
-              <span>Add members to this project</span>
+              <span>Add people to this tag</span>
             </button>
           ) : (
             <div className="flex items-center gap-2 flex-wrap">
@@ -172,7 +174,7 @@ export function ProjectDetailScreen({
                       (memberContacts.length > 2 ? ` +${memberContacts.length - 2}` : "")}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
-                  {memberContacts.length} member{memberContacts.length !== 1 ? "s" : ""}
+                  {memberContacts.length} {memberContacts.length !== 1 ? "people" : "person"}
                 </span>
               </div>
               <button
@@ -206,7 +208,7 @@ export function ProjectDetailScreen({
                 <span className="text-2xl">💬</span>
               </div>
               <p className="text-sm text-muted-foreground">No messages yet</p>
-              <p className="text-xs text-muted-foreground/50">Messages tagged with this project appear here</p>
+              <p className="text-xs text-muted-foreground/50">Messages with this tag appear here</p>
             </div>
           ) : (
             projectMessages.map((msg, i) => (

@@ -62,7 +62,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
             </div>
             <div className="flex flex-col items-center gap-1 animate-fade-up">
               <p className="text-base font-bold text-foreground">{name.trim()}</p>
-              <p className="text-xs text-muted-foreground">Project created</p>
+              <p className="text-xs text-muted-foreground">Tag created</p>
             </div>
           </div>
         )}
@@ -97,8 +97,8 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
         {/* ── Step 1: Name ── */}
         {step === 1 && (
           <div className="px-5 pt-5 pb-6 animate-fade-up">
-            <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">New Project</p>
-            <h2 className="text-xl font-bold mb-1">Project name</h2>
+            <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">New Tag</p>
+            <h2 className="text-xl font-bold mb-1">Tag name</h2>
             <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
               Give it a clear, recognizable name.
             </p>
@@ -124,12 +124,12 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
           </div>
         )}
 
-        {/* ── Step 2: Members ── */}
+        {/* ── Step 2: People ── */}
         {step === 2 && (
           <div className="animate-fade-up flex flex-col">
             <div className="px-5 pt-5 pb-3">
-              <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">New Project</p>
-              <h2 className="text-xl font-bold mb-0.5">Add members</h2>
+              <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">New Tag</p>
+              <h2 className="text-xl font-bold mb-0.5">Add people</h2>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Optional — you can always change this later.
               </p>
@@ -178,8 +178,8 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
                 className="w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide bg-primary text-white shadow-[0_4px_16px_rgba(37,99,235,0.4)] active:scale-[0.98] transition-all"
               >
                 {members.length > 0
-                  ? `Create with ${members.length} member${members.length !== 1 ? "s" : ""}`
-                  : "Create Project"}
+                  ? `Create with ${members.length} ${members.length !== 1 ? "people" : "person"}`
+                  : "Create Tag"}
               </button>
               <button
                 onClick={() => handleCreate([])}

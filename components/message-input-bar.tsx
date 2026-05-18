@@ -63,7 +63,7 @@ export function MessageInputBar({
   }, [text])
 
   return (
-    <div className="flex-shrink-0 border-t border-white/10 bg-[#071326]/95 backdrop-blur-xl px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+10px)]">
+    <div className="flex-shrink-0 border-t border-white/10 bg-[#071326]/95 backdrop-blur-xl px-3 pt-1 pb-[calc(env(safe-area-inset-bottom)+6px)]">
       {imagePreview && (
         <div className="mx-auto mb-2 max-w-2xl">
           <div className="relative w-24 overflow-hidden rounded-xl border border-white/10 bg-black/20">
@@ -132,7 +132,7 @@ export function MessageInputBar({
           }}
           rows={1}
           placeholder="Message"
-          className="min-h-10 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/35 scrollbar-hide"
+          className="min-h-10 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/35 scrollbar-hide"
         />
         <button
           type="button"

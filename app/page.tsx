@@ -49,7 +49,16 @@ import {
   deriveInitials,
   generateProjectId,
   getMessageProjectIds,
+  getMessagePeopleIds,
+  getMessageTagIds,
+  getLegacyProjectIdsFromTagIds,
+  getLegacyTypeFromTagIds,
+  getAvailableTags,
+  messageHasPeople,
   messageHasProject,
+  messageHasTags,
+  projectTagId,
+  sortTagsByActivity,
 } from "@/lib/store"
 
 type Screen =
@@ -109,8 +118,15 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     recipientIds: Array.isArray(data.recipientIds)
       ? data.recipientIds
       : (Array.isArray(data.participants) ? data.participants.filter((uid: string) => uid !== senderId) : []),
+    peopleIds: Array.isArray(data.peopleIds)
+      ? data.peopleIds.filter(Boolean)
+      : (Array.isArray(data.recipientIds)
+        ? data.recipientIds.filter(Boolean)
+        : (Array.isArray(data.participants) ? data.participants.filter((uid: string) => uid !== senderId) : [])),
     projectId: data.projectId ?? data.project_id ?? projectIds[0] ?? null,
     projectIds,
+    project_id: data.project_id ?? null,
+    tagIds: Array.isArray(data.tagIds) ? data.tagIds.filter(Boolean) : undefined,
     text: data.text ?? data.content ?? "",
     content: data.content ?? data.text ?? "",
     type: (data.type ?? "none") as MessageType,
@@ -152,6 +168,8 @@ export default function Home() {
   const [activeScreen, setActiveScreen] = useState<Screen>("loading")
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<string>("all")
+  const [selectedPeopleFilter, setSelectedPeopleFilter] = useState<string[]>([])
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
@@ -342,7 +360,14 @@ export default function Home() {
       nextColorIndex.current += 1
       const id = generateProjectId()
       const members = firebaseUser ? [...new Set([firebaseUser.uid, ...memberIds])] : memberIds
-      const newProject: Project = { id, name: name.trim(), color, members, ownerId: firebaseUser?.uid ?? "" }
+      const newProject: Project = {
+        id,
+        name: name.trim(),
+        color,
+        members,
+        ownerId: firebaseUser?.uid ?? "",
+        tagCategory: members.length > 1 ? "project" : "custom",
+      }
       await setDoc(doc(db, "projects", id), newProject)
       showToast(`"${newProject.name}" created`, undefined, 2500)
       return newProject
@@ -366,24 +391,28 @@ export default function Home() {
       const batch = writeBatch(db)
       affected.forEach((m) => {
         const remaining = getMessageProjectIds(m).filter((projectId) => projectId !== id)
+        const remainingTagIds = getMessageTagIds(m).filter((tagId) => tagId !== projectTagId(id))
         batch.update(doc(db, "messages", m.id), {
           projectIds: remaining,
           projectId: remaining[0] ?? null,
+          tagIds: remainingTagIds,
           updatedAt: serverTimestamp(),
         })
       })
       batch.delete(doc(db, "projects", id))
       await batch.commit()
-      showToast("Project deleted", {
+      showToast("Tag deleted", {
         label: "Undo",
         onClick: async () => {
           const restore = writeBatch(db)
           restore.set(doc(db, "projects", id), targetProject)
           affected.forEach((m) => {
             const restored = [...new Set([...getMessageProjectIds(m), id])]
+            const restoredTagIds = [...new Set([...getMessageTagIds(m), projectTagId(id)])]
             restore.update(doc(db, "messages", m.id), {
               projectIds: restored,
               projectId: restored[0] ?? id,
+              tagIds: restoredTagIds,
               updatedAt: serverTimestamp(),
             })
           })
@@ -409,7 +438,7 @@ export default function Home() {
       const nextName = name.trim()
       if (!nextName) return
       await updateDoc(doc(db, "projects", id), { name: nextName })
-      showToast("Project renamed ✓", undefined, 2000)
+      showToast("Tag renamed ✓", undefined, 2000)
     },
     [showToast]
   )
@@ -419,9 +448,22 @@ export default function Home() {
     async (draft: MessageDraft) => {
       const text = draft.text.trim()
       if ((!text && !draft.imageFile) || !firebaseUser) { navigateTo("stream"); return }
-      const projectIds = [...new Set(draft.projectIds.filter(Boolean))]
+      const incomingTagIds = draft.tagIds ?? []
+      const projectIds = getLegacyProjectIdsFromTagIds(incomingTagIds, draft.projectIds).filter(Boolean)
+      const legacyType = getLegacyTypeFromTagIds(incomingTagIds, draft.type)
+      const tagIds = [...new Set([
+        ...incomingTagIds,
+        ...getMessageTagIds({
+          tagIds: undefined,
+          type: legacyType,
+          projectId: projectIds[0] ?? null,
+          projectIds,
+          project_id: null,
+        }),
+      ])]
+      const peopleIds = [...new Set([...(draft.peopleIds ?? draft.contactIds)].filter(Boolean))]
       const projectMembers = projectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
-      const participants = [...new Set([firebaseUser.uid, ...draft.contactIds, ...projectMembers])]
+      const participants = [...new Set([firebaseUser.uid, ...peopleIds, ...projectMembers])]
       const imageMeta: Partial<Message> = {}
 
       if (draft.imageFile) {
@@ -443,13 +485,15 @@ export default function Home() {
       const msgData = {
         authorId: firebaseUser.uid,
         senderId: firebaseUser.uid,
-        recipientIds: draft.contactIds,
+        recipientIds: peopleIds,
+        peopleIds,
         participants,
         projectIds,
         projectId: projectIds[0] ?? null,
+        tagIds,
         content: text,
         text,
-        type: draft.type,
+        type: legacyType,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
@@ -476,9 +520,11 @@ export default function Home() {
             authorId: target.authorId ?? target.senderId,
             senderId: target.senderId,
             recipientIds: target.recipientIds ?? target.participants.filter((uid) => uid !== target.senderId),
+            peopleIds: getMessagePeopleIds(target),
             participants: target.participants,
             projectIds: getMessageProjectIds(target),
             projectId: target.projectId ?? null,
+            tagIds: getMessageTagIds(target),
             content: target.content ?? target.text,
             text: target.text,
             type: target.type,
@@ -506,17 +552,24 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (type: MessageType, projectIds: string[], participantIds: string[]) => {
+    async (peopleIds: string[], tagIds: string[]) => {
       if (!selectedMessageId) return
+      const selectedMessage = messages.find((m) => m.id === selectedMessageId)
+      if (!selectedMessage) return
       // Always include all project members so they receive the message
+      const type = getLegacyTypeFromTagIds(tagIds, "none")
+      const projectIds = getLegacyProjectIdsFromTagIds(tagIds, [])
       const selectedProjectIds = [...new Set(projectIds.filter(Boolean))]
       const projectMembers = selectedProjectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
+      const participantIds = [...new Set([selectedMessage.senderId, ...peopleIds])]
       const mergedParticipants = [...new Set([...participantIds, ...projectMembers])]
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
-        recipientIds: participantIds.filter((id) => id !== messages.find((m) => m.id === selectedMessageId)?.senderId),
+        recipientIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
+        peopleIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
         projectIds: selectedProjectIds,
         projectId: selectedProjectIds[0] ?? null,
+        tagIds,
         participants: mergedParticipants,
         updatedAt: serverTimestamp(),
       })
@@ -524,7 +577,7 @@ export default function Home() {
       navigateTo("stream")
       const parts: string[] = []
       if (type !== "none") parts.push(type.charAt(0).toUpperCase() + type.slice(1))
-      if (selectedProjectIds.length) parts.push("project")
+      if (selectedProjectIds.length) parts.push(selectedProjectIds.length === 1 ? "tag" : "tags")
       showToast(parts.length ? `Tagged: ${parts.join(", ")} ✓` : "Context saved ✓", undefined, 2000)
     },
     [selectedMessageId, projects, messages, navigateTo, showToast]
@@ -536,12 +589,16 @@ export default function Home() {
       const remaining = projectId && message
         ? getMessageProjectIds(message).filter((id) => id !== projectId)
         : []
+      const remainingTagIds = message && projectId
+        ? getMessageTagIds(message).filter((tagId) => tagId !== projectTagId(projectId))
+        : []
       await updateDoc(doc(db, "messages", messageId), {
         projectIds: remaining,
         projectId: remaining[0] ?? null,
+        tagIds: remainingTagIds,
         updatedAt: serverTimestamp(),
       })
-      showToast("Project removed ✓", undefined, 2000)
+      showToast("Tag removed ✓", undefined, 2000)
     },
     [messages, showToast]
   )
@@ -632,13 +689,14 @@ export default function Home() {
     )
   }, [contacts, currentUser])
 
+  const availableTags = useMemo(() => sortTagsByActivity(getAvailableTags(projects), messages), [projects, messages])
+
   const filteredMessages = useMemo(() =>
-    activeFilter === "all"
-      ? messages
-      : activeFilter === "unsorted"
-      ? messages.filter((m) => m.type === "none")
-      : messages.filter((m) => messageHasProject(m, activeFilter)),
-    [messages, activeFilter]
+    messages.filter((message) =>
+      messageHasPeople(message, selectedPeopleFilter) &&
+      messageHasTags(message, selectedTagFilter)
+    ),
+    [messages, selectedPeopleFilter, selectedTagFilter]
   )
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -730,6 +788,7 @@ export default function Home() {
           onCreateProject={handleCreateProject}
           contacts={contacts}
           initialProjectId={composeInitialProjectId}
+          availableTags={availableTags}
         />
       )}
 
@@ -741,6 +800,10 @@ export default function Home() {
             messages={filteredMessages}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
+            selectedPeopleFilter={selectedPeopleFilter}
+            selectedTagFilter={selectedTagFilter}
+            onPeopleFilterChange={setSelectedPeopleFilter}
+            onTagFilterChange={setSelectedTagFilter}
             onCompose={goToCompose}
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
@@ -762,6 +825,7 @@ export default function Home() {
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}
             activeUsers={activeUsers}
+            availableTags={availableTags}
           />
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}
           <div
@@ -783,6 +847,7 @@ export default function Home() {
                   onCreateProject={handleCreateProject}
                   contacts={contacts}
                   initialProjectId={composeInitialProjectId}
+                  availableTags={availableTags}
                 />
               </div>
             )}
@@ -795,6 +860,7 @@ export default function Home() {
               projects={projects}
               onCreateProject={handleCreateProject}
               contacts={contacts}
+              availableTags={availableTags}
             />
           )}
         </>

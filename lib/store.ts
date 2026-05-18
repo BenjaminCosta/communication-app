@@ -1,5 +1,6 @@
 // Types
 export type MessageType = "progress" | "problem" | "feedback" | "decision" | "none"
+export type TagCategory = "systemType" | "project" | "task" | "custom" | "report" | "sales"
 
 export interface Contact {
   id: string   // Firebase UID
@@ -16,6 +17,23 @@ export interface Project {
   members: string[] // Firebase UIDs
   ownerId: string
   isFavorited?: boolean
+  tagCategory?: TagCategory
+  usageCount?: number
+  lastUsedAt?: Date | null
+}
+
+export interface Tag {
+  id: string
+  name: string
+  category: TagCategory
+  color: string
+  projectId?: string
+  systemType?: Exclude<MessageType, "none">
+  members?: string[]
+  ownerId?: string
+  isFavorited?: boolean
+  usageCount?: number
+  lastUsedAt?: Date | null
 }
 
 export interface Message {
@@ -24,8 +42,11 @@ export interface Message {
   authorId?: string
   participants: string[] // [senderId, ...recipientIds] — used for Firestore array-contains query
   recipientIds?: string[]
+  peopleIds?: string[]
   projectId: string | null
   projectIds?: string[]
+  project_id?: string | null
+  tagIds?: string[]
   text: string
   content?: string
   type: MessageType
@@ -42,7 +63,9 @@ export interface Message {
 export interface MessageDraft {
   text: string
   contactIds: string[]
+  peopleIds?: string[]
   projectIds: string[]
+  tagIds?: string[]
   type: MessageType
   imageFile?: File | null
 }
@@ -54,6 +77,17 @@ export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string
   decision: { bg: "bg-decision/10",  text: "text-decision",  border: "border-decision/20",  label: "Decision" },
   none:     { bg: "bg-white/5",      text: "text-muted-foreground", border: "border-border", label: "No Type" },
 }
+
+export const SYSTEM_TAG_PREFIX = "type:"
+export const PROJECT_TAG_PREFIX = "project:"
+
+export const SYSTEM_TAGS: Tag[] = (["progress", "problem", "feedback", "decision"] as const).map((type) => ({
+  id: `${SYSTEM_TAG_PREFIX}${type}`,
+  name: MESSAGE_TYPE_CONFIG[type].label,
+  category: "systemType",
+  color: MESSAGE_TYPE_CONFIG[type].text,
+  systemType: type,
+}))
 
 // Project colors palette (cycles when creating new projects)
 export const PROJECT_COLORS = [
@@ -92,17 +126,150 @@ export function getProject(id: string | null, projects: Project[]): Project | nu
   return projects.find((p) => p.id === id) || null
 }
 
-export function getMessageProjectIds(message: Pick<Message, "projectId" | "projectIds">): string[] {
+export function systemTypeTagId(type: MessageType): string | null {
+  return type === "none" ? null : `${SYSTEM_TAG_PREFIX}${type}`
+}
+
+export function projectTagId(projectId: string): string {
+  return `${PROJECT_TAG_PREFIX}${projectId}`
+}
+
+export function parseSystemTypeTagId(tagId: string): Exclude<MessageType, "none"> | null {
+  if (!tagId.startsWith(SYSTEM_TAG_PREFIX)) return null
+  const value = tagId.slice(SYSTEM_TAG_PREFIX.length) as MessageType
+  return value !== "none" && value in MESSAGE_TYPE_CONFIG ? value as Exclude<MessageType, "none"> : null
+}
+
+export function parseProjectTagId(tagId: string): string | null {
+  return tagId.startsWith(PROJECT_TAG_PREFIX) ? tagId.slice(PROJECT_TAG_PREFIX.length) : null
+}
+
+export function projectToTag(project: Project): Tag {
+  return {
+    id: projectTagId(project.id),
+    name: project.name,
+    category: project.tagCategory ?? "project",
+    color: project.color,
+    projectId: project.id,
+    members: project.members,
+    ownerId: project.ownerId,
+    isFavorited: project.isFavorited,
+    usageCount: project.usageCount,
+    lastUsedAt: project.lastUsedAt ?? null,
+  }
+}
+
+export function getMessageProjectIds(message: Pick<Message, "projectId" | "projectIds" | "project_id">): string[] {
   const ids = new Set<string>()
   if (Array.isArray(message.projectIds)) {
     message.projectIds.filter(Boolean).forEach((id) => ids.add(id))
   }
   if (message.projectId) ids.add(message.projectId)
+  if (message.project_id) ids.add(message.project_id)
   return [...ids]
 }
 
 export function messageHasProject(message: Pick<Message, "projectId" | "projectIds">, projectId: string): boolean {
   return getMessageProjectIds(message).includes(projectId)
+}
+
+export function getMessageTagIds(
+  message: Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">
+): string[] {
+  const ids = new Set<string>()
+  if (Array.isArray(message.tagIds)) {
+    message.tagIds.filter(Boolean).forEach((id) => ids.add(id))
+  }
+  const typeTag = systemTypeTagId(message.type ?? "none")
+  if (typeTag) ids.add(typeTag)
+  getMessageProjectIds(message).forEach((id) => ids.add(projectTagId(id)))
+  return [...ids]
+}
+
+export function getMessagePeopleIds(
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">
+): string[] {
+  const ids = new Set<string>()
+  if (Array.isArray(message.peopleIds)) {
+    message.peopleIds.filter(Boolean).forEach((id) => ids.add(id))
+  }
+  if (Array.isArray(message.recipientIds)) {
+    message.recipientIds.filter(Boolean).forEach((id) => ids.add(id))
+  }
+  if (Array.isArray(message.participants)) {
+    message.participants.filter(Boolean).forEach((id) => ids.add(id))
+  }
+  if (message.senderId) ids.delete(message.senderId)
+  if (message.authorId) ids.delete(message.authorId)
+  return [...ids]
+}
+
+export function getMessagePeopleFilterIds(
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">
+): string[] {
+  return [...new Set([message.senderId, message.authorId, ...getMessagePeopleIds(message)].filter(Boolean) as string[])]
+}
+
+export function messageHasTags(
+  message: Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">,
+  tagIds: string[]
+): boolean {
+  if (tagIds.length === 0) return true
+  const messageTagIds = new Set(getMessageTagIds(message))
+  return tagIds.every((tagId) => messageTagIds.has(tagId))
+}
+
+export function messageHasPeople(
+  message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">,
+  peopleIds: string[]
+): boolean {
+  if (peopleIds.length === 0) return true
+  const messagePeopleIds = new Set(getMessagePeopleFilterIds(message))
+  return peopleIds.some((personId) => messagePeopleIds.has(personId))
+}
+
+export function messageHasAnyTags(message: Pick<Message, "tagIds" | "type" | "projectId" | "projectIds" | "project_id">): boolean {
+  return getMessageTagIds(message).length > 0
+}
+
+export function messageHasAnyPeople(message: Pick<Message, "peopleIds" | "recipientIds" | "participants" | "senderId" | "authorId">): boolean {
+  return getMessagePeopleIds(message).length > 0
+}
+
+export function getLegacyTypeFromTagIds(tagIds: string[], fallback: MessageType = "none"): MessageType {
+  const systemType = tagIds.map(parseSystemTypeTagId).find(Boolean)
+  return systemType ?? fallback
+}
+
+export function getLegacyProjectIdsFromTagIds(tagIds: string[], fallback: string[] = []): string[] {
+  const parsed = tagIds.map(parseProjectTagId).filter(Boolean) as string[]
+  return [...new Set(parsed.length > 0 ? parsed : fallback)]
+}
+
+export function getAvailableTags(projects: Project[]): Tag[] {
+  return [...SYSTEM_TAGS, ...projects.map(projectToTag)]
+}
+
+export function sortTagsByActivity(tags: Tag[], messages: Message[]): Tag[] {
+  const stats = new Map<string, { count: number; last: number }>()
+  messages.forEach((message) => {
+    const time = (message.updatedAt ?? message.createdAt ?? message.timestamp).getTime()
+    getMessageTagIds(message).forEach((tagId) => {
+      const current = stats.get(tagId) ?? { count: 0, last: 0 }
+      stats.set(tagId, { count: current.count + 1, last: Math.max(current.last, time) })
+    })
+  })
+
+  return [...tags].sort((a, b) => {
+    const aStats = stats.get(a.id)
+    const bStats = stats.get(b.id)
+    const aScore = (aStats?.count ?? a.usageCount ?? 0) * 10000000000000 + (aStats?.last ?? a.lastUsedAt?.getTime() ?? 0)
+    const bScore = (bStats?.count ?? b.usageCount ?? 0) * 10000000000000 + (bStats?.last ?? b.lastUsedAt?.getTime() ?? 0)
+    if (aScore !== bScore) return bScore - aScore
+    if (!!a.isFavorited !== !!b.isFavorited) return a.isFavorited ? -1 : 1
+    if (a.category !== b.category) return a.category === "systemType" ? -1 : b.category === "systemType" ? 1 : 0
+    return a.name.localeCompare(b.name)
+  })
 }
 
 export function generateProjectId(): string {
