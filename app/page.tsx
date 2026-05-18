@@ -316,94 +316,9 @@ export default function Home() {
     }
   }, [firebaseUser, listenerKey])
 
-  // ── One-time recovery: restore participants on orphaned messages ────────
-  useEffect(() => {
-    if (!firebaseUser || contacts.length === 0) return
-    const RECOVERY_KEY = "participants_recovery_v1_done"
-    if (typeof window !== "undefined" && localStorage.getItem(RECOVERY_KEY)) return
-
-    const allUids = [...new Set([firebaseUser.uid, ...contacts.map((c) => c.id)])]
-
-    // Query messages where participants was stripped to a single-element array
-    // (rules are open during recovery, so we can read all messages)
-    const orphanQueries = allUids.map((uid) =>
-      getDocs(query(collection(db, "messages"), where("participants", "==", [uid])))
-    )
-
-    Promise.all(orphanQueries).then(async (snapshots) => {
-      const orphaned = snapshots.flatMap((snap) =>
-        snap.docs.map((d) => ({ id: d.id }))
-      )
-      if (orphaned.length === 0) {
-        localStorage.setItem(RECOVERY_KEY, "1")
-        return
-      }
-
-      // Restore: add ALL known users to participants so everyone can see their messages
-      const chunks: typeof orphaned[] = []
-      for (let i = 0; i < orphaned.length; i += 400) chunks.push(orphaned.slice(i, i + 400))
-
-      for (const chunk of chunks) {
-        const batch = writeBatch(db)
-        chunk.forEach(({ id }) => {
-          batch.update(doc(db, "messages", id), {
-            participants: allUids,
-            updatedAt: serverTimestamp(),
-          })
-        })
-        await batch.commit()
-      }
-
-      localStorage.setItem(RECOVERY_KEY, "1")
-    }).catch(() => {})
-  }, [firebaseUser, contacts])
-
-  // ── Recovery v2: broader scan by senderId for all known users ──────────
-  useEffect(() => {
-    if (!firebaseUser || contacts.length === 0) return
-    const RECOVERY_KEY_V2 = "participants_recovery_v2_done"
-    if (typeof window !== "undefined" && localStorage.getItem(RECOVERY_KEY_V2)) return
-
-    const allUids = [...new Set([firebaseUser.uid, ...contacts.map((c) => c.id)])]
-
-    // With open rules, query every message sent by any known user
-    const sentQueries = allUids.map((uid) =>
-      getDocs(query(collection(db, "messages"), where("senderId", "==", uid)))
-    )
-
-    Promise.all(sentQueries).then(async (snapshots) => {
-      const toFix: string[] = []
-      const seen = new Set<string>()
-      snapshots.forEach((snap) => {
-        snap.docs.forEach((d) => {
-          if (seen.has(d.id)) return
-          seen.add(d.id)
-          const data = d.data()
-          const parts: string[] = Array.isArray(data.participants) ? data.participants : []
-          if (allUids.some((uid) => !parts.includes(uid))) toFix.push(d.id)
-        })
-      })
-
-      if (toFix.length === 0) {
-        localStorage.setItem(RECOVERY_KEY_V2, "1")
-        return
-      }
-
-      const chunks: string[][] = []
-      for (let i = 0; i < toFix.length; i += 400) chunks.push(toFix.slice(i, i + 400))
-      for (const chunk of chunks) {
-        const batch = writeBatch(db)
-        chunk.forEach((id) => {
-          batch.update(doc(db, "messages", id), {
-            participants: allUids,
-            updatedAt: serverTimestamp(),
-          })
-        })
-        await batch.commit()
-      }
-      localStorage.setItem(RECOVERY_KEY_V2, "1")
-    }).catch(() => {})
-  }, [firebaseUser, contacts])
+  // Recovery scripts v1/v2 removed — they corrupted participants by setting
+  // participants = allUids on every message. visibleToUserIds is now the
+  // source of truth and is computed correctly per-message.
 
   useEffect(() => {
     if (!firebaseUser) return
@@ -500,10 +415,18 @@ export default function Home() {
       affected.forEach((m) => {
         const remaining = getMessageProjectIds(m).filter((projectId) => projectId !== id)
         const remainingTagIds = getMessageTagIds(m).filter((tagId) => tagId !== projectTagId(id))
+        // Recompute visibility without the deleted project's members
+        const visibleToUserIds = computeVisibleToUserIds(
+          m.authorId ?? m.senderId,
+          m.recipientIds ?? [],
+          remainingTagIds,
+          projects
+        )
         batch.update(doc(db, "messages", m.id), {
           projectIds: remaining,
           projectId: remaining[0] ?? null,
           tagIds: remainingTagIds,
+          visibleToUserIds,
           updatedAt: serverTimestamp(),
         })
       })
@@ -517,10 +440,12 @@ export default function Home() {
           affected.forEach((m) => {
             const restored = [...new Set([...getMessageProjectIds(m), id])]
             const restoredTagIds = [...new Set([...getMessageTagIds(m), projectTagId(id)])]
+            // Restore original visibleToUserIds (before deletion)
             restore.update(doc(db, "messages", m.id), {
               projectIds: restored,
               projectId: restored[0] ?? id,
               tagIds: restoredTagIds,
+              ...(m.visibleToUserIds ? { visibleToUserIds: m.visibleToUserIds } : {}),
               updatedAt: serverTimestamp(),
             })
           })
@@ -727,15 +652,25 @@ export default function Home() {
       const remainingTagIds = message && projectId
         ? getMessageTagIds(message).filter((tagId) => tagId !== projectTagId(projectId))
         : []
+      // Recompute visibility: author + direct recipients + remaining tag members
+      const visibleToUserIds = message
+        ? computeVisibleToUserIds(
+            message.authorId ?? message.senderId,
+            message.recipientIds ?? [],
+            remainingTagIds,
+            projects
+          )
+        : undefined
       await updateDoc(doc(db, "messages", messageId), {
         projectIds: remaining,
         projectId: remaining[0] ?? null,
         tagIds: remainingTagIds,
+        ...(visibleToUserIds ? { visibleToUserIds } : {}),
         updatedAt: serverTimestamp(),
       })
       showToast("Tag removed ✓", undefined, 2000)
     },
-    [messages, showToast]
+    [messages, projects, showToast]
   )
 
   // ── Navigation helpers ────────────────────────────────────────────────
