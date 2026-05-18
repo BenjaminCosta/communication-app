@@ -339,6 +339,53 @@ export default function Home() {
     }).catch(() => {})
   }, [firebaseUser, contacts])
 
+  // ── Recovery v2: broader scan by senderId for all known users ──────────
+  useEffect(() => {
+    if (!firebaseUser || contacts.length === 0) return
+    const RECOVERY_KEY_V2 = "participants_recovery_v2_done"
+    if (typeof window !== "undefined" && localStorage.getItem(RECOVERY_KEY_V2)) return
+
+    const allUids = [...new Set([firebaseUser.uid, ...contacts.map((c) => c.id)])]
+
+    // With open rules, query every message sent by any known user
+    const sentQueries = allUids.map((uid) =>
+      getDocs(query(collection(db, "messages"), where("senderId", "==", uid)))
+    )
+
+    Promise.all(sentQueries).then(async (snapshots) => {
+      const toFix: string[] = []
+      const seen = new Set<string>()
+      snapshots.forEach((snap) => {
+        snap.docs.forEach((d) => {
+          if (seen.has(d.id)) return
+          seen.add(d.id)
+          const data = d.data()
+          const parts: string[] = Array.isArray(data.participants) ? data.participants : []
+          if (allUids.some((uid) => !parts.includes(uid))) toFix.push(d.id)
+        })
+      })
+
+      if (toFix.length === 0) {
+        localStorage.setItem(RECOVERY_KEY_V2, "1")
+        return
+      }
+
+      const chunks: string[][] = []
+      for (let i = 0; i < toFix.length; i += 400) chunks.push(toFix.slice(i, i + 400))
+      for (const chunk of chunks) {
+        const batch = writeBatch(db)
+        chunk.forEach((id) => {
+          batch.update(doc(db, "messages", id), {
+            participants: allUids,
+            updatedAt: serverTimestamp(),
+          })
+        })
+        await batch.commit()
+      }
+      localStorage.setItem(RECOVERY_KEY_V2, "1")
+    }).catch(() => {})
+  }, [firebaseUser, contacts])
+
   useEffect(() => {
     if (!firebaseUser) return
     const userRef = doc(db, "users", firebaseUser.uid)
