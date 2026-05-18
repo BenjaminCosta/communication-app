@@ -255,12 +255,22 @@ export function StreamScreen({
     haptic.success()
     setIsQuickSending(true)
     try {
+      // Auto-assign the active project filter if user hasn't manually chosen one.
+      // e.g. composing while filtering by "Project X" → message goes into that project.
+      const filterProjectId = activeFilter !== "all" && activeFilter !== "unsorted" ? activeFilter : null
+      const effectiveProjects = quickProjects.length === 0 && filterProjectId
+        ? [filterProjectId]
+        : quickProjects
+      const effectiveTagIds = [
+        ...(quickType !== "none" ? [systemTypeTagId(quickType)] : []),
+        ...effectiveProjects.map(projectTagId),
+      ]
       await onSendMessage({
         text: quickText.trim(),
         contactIds: quickRecipients,
         peopleIds: quickRecipients,
-        projectIds: quickProjects,
-        tagIds: quickTagIds,
+        projectIds: effectiveProjects,
+        tagIds: effectiveTagIds,
         type: quickType,
         imageFile: quickImage,
       })

@@ -159,13 +159,29 @@ export default function Home() {
   // participantMessages = legacy query (array-contains participants)
   // projectMessages     = legacy query (array-contains projectId)
   // visibleMessages     = new query (array-contains visibleToUserIds)
+  //
+  // IMPORTANT: after merging, apply a client-side visibility gate.
+  // If a message has visibleToUserIds, that field is the source of truth.
+  // Even if the message arrived via the legacy participants/projectId listeners,
+  // we must NOT show it to users not listed in visibleToUserIds.
+  // This is what prevents Case E (corrupted participants=allUids) from leaking.
   const messages = useMemo(() => {
     const byId = new Map<string, Message>()
     participantMessages.forEach((m) => byId.set(m.id, m))
     projectMessages.forEach((m) => byId.set(m.id, m))
     visibleMessages.forEach((m) => byId.set(m.id, m))
-    return [...byId.values()].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
-  }, [participantMessages, projectMessages, visibleMessages])
+    const uid = firebaseUser?.uid
+    return [...byId.values()]
+      .filter((m) => {
+        // If visibleToUserIds exists → it decides. Exclude if current user not in it.
+        if (uid && Array.isArray(m.visibleToUserIds)) {
+          return m.visibleToUserIds.includes(uid)
+        }
+        // Legacy: no visibleToUserIds yet → trust what the listener returned
+        return true
+      })
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+  }, [participantMessages, projectMessages, visibleMessages, firebaseUser])
 
   // ── Navigation ────────────────────────────────────────────────────────
   const [activeScreen, setActiveScreen] = useState<Screen>("loading")
