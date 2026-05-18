@@ -57,6 +57,7 @@ export function ProjectDetailScreen({
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const [quickText, setQuickText] = useState("")
   const [isQuickSending, setIsQuickSending] = useState(false)
+  const [isQuickSent, setIsQuickSent] = useState(false)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
@@ -84,6 +85,8 @@ export function ProjectDetailScreen({
         imageFile: null,
       })
       setQuickText("")
+      setIsQuickSent(true)
+      setTimeout(() => setIsQuickSent(false), 1400)
     } finally {
       setIsQuickSending(false)
     }
@@ -238,6 +241,7 @@ export function ProjectDetailScreen({
         imageFile={null}
         imagePreview={null}
         isSending={isQuickSending}
+        isSent={isQuickSent}
         onOpenSheet={() => onCompose(project.id)}
         onRemoveRecipient={() => {}}
         onRemoveProject={() => {}}
@@ -248,68 +252,73 @@ export function ProjectDetailScreen({
       />
 
       {/* Message action bar */}
-      {selectedMsg && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={clearSelection} />
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-md">
-            <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
-              {/* Tag / add context */}
-              <button
-                onClick={() => { clearSelection(); onMessageClick(selectedMsg) }}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
-              >
-                <Tag className="w-4 h-4" />
-                Tag
-              </button>
-              <div className="w-px h-6 bg-white/15 shrink-0" />
-              {/* Copy */}
-              <button
-                onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearSelection() }}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
-              >
-                <Copy className="w-4 h-4" />
-                Copy
-              </button>
-              <div className="w-px h-6 bg-white/15 shrink-0" />
-              {/* Favorite */}
-              <button
-                onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); clearSelection() }}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
-                  selectedMsg.isFavorited
-                    ? "bg-feedback/15 text-feedback"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                )}
-              >
-                <Star className={cn("w-4 h-4", selectedMsg.isFavorited && "fill-current")} />
-                {selectedMsg.isFavorited ? "Unstar" : "Star"}
-              </button>
-              {selectedMsg.senderId === currentUserId && (
-                <>
-                  <div className="w-px h-6 bg-white/15 shrink-0" />
-                  {confirmDeleteMsgId === selectedMsg.id ? (
-                    <button
-                      onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); clearSelection() }}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Sure?
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDeleteMsgId(selectedMsg.id)}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  )}
-                </>
+      {/* Persistent backdrop — never unmounts (iOS hit-test cache fix) */}
+      <div
+        className={cn("fixed inset-0 z-20", selectedMsg ? "pointer-events-auto" : "pointer-events-none")}
+        onClick={clearSelection}
+      />
+      <div className={cn(
+        "fixed bottom-24 left-1/2 -translate-x-1/2 z-30 px-3 w-full max-w-md transition-all duration-150",
+        selectedMsg ? "pointer-events-auto" : "pointer-events-none opacity-0 translate-y-2"
+      )}>
+        {selectedMsg && (
+          <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl animate-scale-in">
+            {/* Tag / add context */}
+            <button
+              onClick={() => { clearSelection(); onMessageClick(selectedMsg) }}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+            >
+              <Tag className="w-4 h-4" />
+              Tag
+            </button>
+            <div className="w-px h-6 bg-white/15 shrink-0" />
+            {/* Copy */}
+            <button
+              onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearSelection() }}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
+            >
+              <Copy className="w-4 h-4" />
+              Copy
+            </button>
+            <div className="w-px h-6 bg-white/15 shrink-0" />
+            {/* Favorite */}
+            <button
+              onClick={() => { haptic.light(); onFavoriteMessage(selectedMsg.id); clearSelection() }}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
+                selectedMsg.isFavorited
+                  ? "bg-feedback/15 text-feedback"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
-            </div>
+            >
+              <Star className={cn("w-4 h-4", selectedMsg.isFavorited && "fill-current")} />
+              {selectedMsg.isFavorited ? "Unstar" : "Star"}
+            </button>
+            {selectedMsg.senderId === currentUserId && (
+              <>
+                <div className="w-px h-6 bg-white/15 shrink-0" />
+                {confirmDeleteMsgId === selectedMsg.id ? (
+                  <button
+                    onClick={() => { haptic.destructive(); onDeleteMessage(selectedMsg.id); clearSelection() }}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Sure?
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteMsgId(selectedMsg.id)}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                )}
+              </>
+            )}
           </div>
-        </>
-      )}
+        )}
+      </div>
 
       {/* Add Members modal */}
       {showMembers && (

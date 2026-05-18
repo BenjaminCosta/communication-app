@@ -458,7 +458,6 @@ export default function Home() {
       }
       await addDoc(collection(db, "messages"), msgData)
       navigateTo("stream")
-      showToast("Sent ✓", undefined, 2000)
     },
     [firebaseUser, projects, navigateTo, showToast]
   )
@@ -764,15 +763,17 @@ export default function Home() {
             onCreateProject={handleCreateProject}
             activeUsers={activeUsers}
           />
-          {activeScreen === "compose" && (
-            <div
-              onPointerDown={goToStream}
-              className="fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-              style={{ paddingBottom: "env(keyboard-inset-height, 0px)" }}
-            >
+          {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}
+          <div
+            className={`fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center transition-opacity duration-200 ${activeScreen === "compose" && composeMode === "sheet" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+            onPointerDown={activeScreen === "compose" && composeMode === "sheet" ? goToStream : undefined}
+            style={{ paddingBottom: "env(keyboard-inset-height, 0px)" }}
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-none" />
+            {activeScreen === "compose" && composeMode === "sheet" && (
               <div
                 onPointerDown={(e) => e.stopPropagation()}
-                className="h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl"
+                className="relative z-10 h-[90%] md:h-auto md:w-140 md:max-h-[80vh] md:rounded-3xl md:overflow-hidden animate-in slide-in-from-bottom duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col shadow-2xl"
               >
                 <ComposeScreen
                   mode="sheet"
@@ -784,8 +785,8 @@ export default function Home() {
                   initialProjectId={composeInitialProjectId}
                 />
               </div>
-            </div>
-          )}
+            )}
+          </div>
           {activeScreen === "tag" && selectedMessage && (
             <TagSheet
               message={selectedMessage}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { X, ArrowRight, ChevronLeft, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Contact } from "@/lib/store"
@@ -15,11 +15,17 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState("")
   const [members, setMembers] = useState<string[]>([])
+  const [isSuccess, setIsSuccess] = useState(false)
 
   const toggle = (id: string) =>
     setMembers((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
     )
+
+  const handleCreate = (selectedMembers: string[]) => {
+    setIsSuccess(true)
+    setTimeout(() => onSubmit(name.trim(), selectedMembers), 750)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
@@ -32,6 +38,34 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
 
       {/* Modal card */}
       <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop -translate-y-[5%]">
+
+        {/* ── Success overlay ── */}
+        {isSuccess && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 bg-[#0d1c35] rounded-3xl animate-fade-in">
+            <div className="animate-sent-pop">
+              <div className="w-20 h-20 rounded-full bg-progress flex items-center justify-center shadow-[0_0_48px_rgba(34,197,94,0.55)]">
+                <svg className="w-9 h-9" viewBox="0 0 36 36" fill="none">
+                  <path
+                    d="M7 19L14 26L29 11"
+                    stroke="white"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{
+                      strokeDasharray: 32,
+                      strokeDashoffset: 32,
+                      animation: "check-draw 0.4s cubic-bezier(0.22,0.97,0.52,1) 0.12s forwards",
+                    }}
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-1 animate-fade-up">
+              <p className="text-base font-bold text-foreground">{name.trim()}</p>
+              <p className="text-xs text-muted-foreground">Project created</p>
+            </div>
+          </div>
+        )}
 
         {/* Top bar: back, dots, close */}
         <div className="relative flex items-center justify-between px-5 pt-5 pb-0">
@@ -140,7 +174,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
             {/* Create button */}
             <div className="px-5 pt-3 pb-6 border-t border-white/5 mt-2">
               <button
-                onClick={() => onSubmit(name.trim(), members)}
+                onClick={() => handleCreate(members)}
                 className="w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide bg-primary text-white shadow-[0_4px_16px_rgba(37,99,235,0.4)] active:scale-[0.98] transition-all"
               >
                 {members.length > 0
@@ -148,7 +182,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts }: CreateProjec
                   : "Create Project"}
               </button>
               <button
-                onClick={() => onSubmit(name.trim(), [])}
+                onClick={() => handleCreate([])}
                 className="w-full mt-2 py-2 text-xs text-muted-foreground/50 active:opacity-70 transition-opacity"
               >
                 Skip for now

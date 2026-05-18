@@ -21,6 +21,7 @@ interface MessageInputBarProps {
   imageFile: File | null
   imagePreview: string | null
   isSending: boolean
+  isSent?: boolean
   onOpenSheet: () => void
   onRemoveRecipient: (id: string) => void
   onRemoveProject: (id: string) => void
@@ -41,6 +42,7 @@ export function MessageInputBar({
   imageFile,
   imagePreview,
   isSending,
+  isSent = false,
   onOpenSheet,
   onRemoveRecipient,
   onRemoveProject,
@@ -135,15 +137,28 @@ export function MessageInputBar({
         <button
           type="button"
           onClick={onSend}
-          disabled={(!text.trim() && !imageFile) || isSending}
+          disabled={(!text.trim() && !imageFile) || isSending || isSent}
           className={cn(
-            "mb-0.5 w-10 h-10 rounded-full flex items-center justify-center transition-all",
-            (text.trim() || imageFile) && !isSending
-              ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
-              : "bg-white/10 text-muted-foreground"
+            "mb-0.5 w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300",
+            isSent
+              ? "bg-progress text-white shadow-[0_4px_14px_rgba(34,197,94,0.45)] animate-sent-pop"
+              : (text.trim() || imageFile) && !isSending
+                ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
+                : "bg-white/10 text-muted-foreground"
           )}
         >
-          {isSending ? (
+          {isSent ? (
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M3 8.5L6.5 12L13 4.5"
+                stroke="white"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="animate-check-draw"
+              />
+            </svg>
+          ) : isSending ? (
             <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
           ) : (
             <Send className="w-4 h-4" />

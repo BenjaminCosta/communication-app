@@ -39,6 +39,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const [showProjects, setShowProjects] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isSent, setIsSent] = useState(false)
   const [contactSearch, setContactSearch] = useState("")
   const [projectSearch, setProjectSearch] = useState("")
   const [showProjectPicker, setShowProjectPicker] = useState(false)
@@ -81,6 +82,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     if ((!text.trim() && !imageFile) || isSending) return
     haptic.success()
     setIsSending(true)
+    setIsSent(true)
     try {
       await onSend({
         text: text.trim(),
@@ -341,15 +343,28 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           <button
             type="button"
             onClick={handleSend}
-            disabled={(!text.trim() && !imageFile) || isSending}
+            disabled={(!text.trim() && !imageFile) || isSending || isSent}
             className={cn(
-              "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-all min-w-[90px] flex items-center justify-center gap-2",
-              (text.trim() || imageFile) && !isSending
-                ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
-                : "bg-white/10 text-muted-foreground"
+              "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-colors min-w-[90px] flex items-center justify-center gap-2",
+              isSent
+                ? "bg-progress text-white shadow-[0_4px_14px_rgba(34,197,94,0.45)] animate-sent-pop"
+                : (text.trim() || imageFile) && !isSending
+                  ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
+                  : "bg-white/10 text-muted-foreground"
             )}
           >
-            {isSending ? (
+            {isSent ? (
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M3 8.5L6.5 12L13 4.5"
+                  stroke="white"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="animate-check-draw"
+                />
+              </svg>
+            ) : isSending ? (
               <>
                 <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                 <span>Sending</span>

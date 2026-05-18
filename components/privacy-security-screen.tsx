@@ -9,7 +9,7 @@ interface PrivacySecurityScreenProps {
 
 export function PrivacySecurityScreen({ onBack, className }: PrivacySecurityScreenProps) {
   return (
-    <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
@@ -23,7 +23,7 @@ export function PrivacySecurityScreen({ onBack, className }: PrivacySecurityScre
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 flex flex-col gap-6">
 
           {/* Security section */}

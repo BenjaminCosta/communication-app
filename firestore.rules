@@ -32,6 +32,7 @@ service cloud.firestore {
       }
       function isProjectMember() {
         return resource.data.projectId != null
+          && exists(/databases/$(database)/documents/projects/$(resource.data.projectId))
           && request.auth.uid in get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.members;
       }
       allow read:   if request.auth != null && (isParticipant() || isProjectMember());

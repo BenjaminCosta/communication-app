@@ -91,6 +91,7 @@ export function StreamScreen({
   const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "type" | "project">("menu")
   const [showCreateQuickProject, setShowCreateQuickProject] = useState(false)
   const [isQuickSending, setIsQuickSending] = useState(false)
+  const [isQuickSent, setIsQuickSent] = useState(false)
   const [projectSearch, setProjectSearch] = useState("")
   const [showProjectSearch, setShowProjectSearch] = useState(false)
   const [showFeedSkeleton, setShowFeedSkeleton] = useState(false)
@@ -98,6 +99,7 @@ export function StreamScreen({
   const quickFileInputRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isPinnedToBottom = useRef(true)
+  const prevMessageCountRef = useRef(0)
   const previousFilterRef = useRef(activeFilter)
 
   const clearChipSelection = () => { setSelectedChipId(null); setConfirmDeleteChipId(null) }
@@ -130,11 +132,14 @@ export function StreamScreen({
     isPinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
 
-  // Only auto-scroll to bottom when pinned (i.e. user hasn't scrolled up)
+  // Auto-scroll to bottom only when a new message arrives (not on deletions)
   useEffect(() => {
+    const increased = messages.length > prevMessageCountRef.current
+    prevMessageCountRef.current = messages.length
+    if (!increased) return
     const lastMessage = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).at(-1)
     if (isPinnedToBottom.current || lastMessage?.senderId === currentUserId) {
-      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" })
+      if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
     }
   }, [messages, currentUserId])
 
@@ -184,6 +189,8 @@ export function StreamScreen({
         imageFile: quickImage,
       })
       resetQuickDraft()
+      setIsQuickSent(true)
+      setTimeout(() => setIsQuickSent(false), 1400)
     } finally {
       setIsQuickSending(false)
     }
@@ -377,6 +384,7 @@ export function StreamScreen({
         imageFile={quickImage}
         imagePreview={quickImagePreview}
         isSending={isQuickSending}
+        isSent={isQuickSent}
         onOpenSheet={() => { setQuickSheetMode("menu"); setShowQuickSheet(true) }}
         onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
         onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
@@ -392,11 +400,19 @@ export function StreamScreen({
         onChange={(e) => handleQuickImage(e.target.files?.[0] ?? null)}
       />
 
+      {/* Persistent backdrop — single div that never unmounts, toggling pointer-events
+          avoids the iOS bug where removing a fixed overlay from DOM locks scroll */}
+      <div
+        className={cn(
+          "fixed inset-0 z-20",
+          (selectedMsg || selectedChipId || projectTagCtx) ? "pointer-events-auto" : "pointer-events-none"
+        )}
+        onClick={() => { clearMsgSelection(); clearChipSelection(); setProjectTagCtx(null) }}
+      />
+
       {/* Message action bar — appears on long press */}
       {selectedMsg && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={clearMsgSelection} />
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-sm">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-sm">
             <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
               {/* Copy */}
               <button
@@ -443,8 +459,7 @@ export function StreamScreen({
                 </>
               )}
             </div>
-          </div>
-        </>
+        </div>
       )}
 
       {/* Project chip action bar — long-press on filter chip */}
@@ -452,9 +467,7 @@ export function StreamScreen({
         const proj = projects.find((p) => p.id === selectedChipId)
         if (!proj) return null
         return (
-          <>
-            <div className="fixed inset-0 z-20" onClick={clearChipSelection} />
-            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
               <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
                 {/* Label */}
                 <div className="flex items-center gap-1.5 px-2 py-2 shrink-0 max-w-[80px]">
@@ -503,7 +516,6 @@ export function StreamScreen({
                 )}
               </div>
             </div>
-          </>
         )
       })()}
 
@@ -511,9 +523,7 @@ export function StreamScreen({
       {projectTagCtx && (() => {
         const proj = projects.find((p) => p.id === projectTagCtx.projectId)
         return (
-          <>
-            <div className="fixed inset-0 z-20" onClick={() => setProjectTagCtx(null)} />
-            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
               <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
                 {/* Project label */}
                 <div className="flex items-center gap-1.5 px-3 py-2 shrink-0">
@@ -540,7 +550,6 @@ export function StreamScreen({
                 </button>
               </div>
             </div>
-          </>
         )
       })()}
 
