@@ -59,6 +59,8 @@ export interface Message {
   imagePath?: string
   imageName?: string
   imageContentType?: string
+  imageSize?: number
+  imageUploadedAt?: Date
 }
 
 export interface MessageDraft {

@@ -31,3 +31,5 @@ firestore-debug.log
 tsconfig.tsbuildinfo
 backups/
 svc-comms-firebase-adminsdk*.json
+svc-comms-firebase-adminsdk-*.json
+*.firebase-adminsdk-*.json

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo, Fragment } from "react"
 import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { validateImageFile } from "@/lib/image-upload"
 import {
   type Message,
   type MessageDraft,
@@ -121,6 +122,8 @@ export function StreamScreen({
   const [quickType, setQuickType] = useState<MessageType>("none")
   const [quickImage, setQuickImage] = useState<File | null>(null)
   const [quickImagePreview, setQuickImagePreview] = useState<string | null>(null)
+  const [quickImageError, setQuickImageError] = useState<string | null>(null)
+  const [quickSendError, setQuickSendError] = useState<string | null>(null)
   const [showQuickSheet, setShowQuickSheet] = useState(false)
   const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag">("menu")
   const [showCreateQuickProject, setShowCreateQuickProject] = useState(false)
@@ -226,7 +229,15 @@ export function StreamScreen({
   }
 
   const handleQuickImage = (file: File | null) => {
+    setQuickSendError(null)
+    const validationError = validateImageFile(file)
+    if (validationError) {
+      setQuickImageError(validationError)
+      if (quickFileInputRef.current) quickFileInputRef.current.value = ""
+      return
+    }
     if (!file) return
+    setQuickImageError(null)
     setQuickImage(file)
     setQuickImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
@@ -239,6 +250,7 @@ export function StreamScreen({
     if (quickImagePreview) URL.revokeObjectURL(quickImagePreview)
     setQuickImage(null)
     setQuickImagePreview(null)
+    setQuickImageError(null)
     if (quickFileInputRef.current) quickFileInputRef.current.value = ""
   }
 
@@ -247,6 +259,7 @@ export function StreamScreen({
     setQuickRecipients([])
     setQuickProjects([])
     setQuickType("none")
+    setQuickSendError(null)
     clearQuickImage()
   }
 
@@ -254,6 +267,7 @@ export function StreamScreen({
     if ((!quickText.trim() && !quickImage) || isQuickSending) return
     haptic.success()
     setIsQuickSending(true)
+    setQuickSendError(null)
     try {
       // Auto-assign the active project filter if user hasn't manually chosen one.
       // e.g. composing while filtering by "Project X" → message goes into that project.
@@ -277,6 +291,9 @@ export function StreamScreen({
       resetQuickDraft()
       setIsQuickSent(true)
       setTimeout(() => setIsQuickSent(false), 1400)
+    } catch {
+      setIsQuickSent(false)
+      setQuickSendError("Could not send the message. Please try again.")
     } finally {
       setIsQuickSending(false)
     }
@@ -471,6 +488,8 @@ export function StreamScreen({
         type={quickType}
         imageFile={quickImage}
         imagePreview={quickImagePreview}
+        imageError={quickImageError}
+        sendError={quickSendError}
         isSending={isQuickSending}
         isSent={isQuickSent}
         onOpenSheet={() => { setQuickSheetMode("menu"); setShowQuickSheet(true) }}
