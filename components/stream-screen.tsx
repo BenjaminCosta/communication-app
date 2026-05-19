@@ -1389,17 +1389,19 @@ function ImageViewerModal({
 
     if (pointers.current.size === 2) {
       const distance = getPointerDistance([...pointers.current.values()])
-      if (lastPinchDistance.current) {
-        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / lastPinchDistance.current!))))
+      const previousDistance = lastPinchDistance.current
+      if (previousDistance) {
+        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / previousDistance))))
       }
       lastPinchDistance.current = distance
       return
     }
 
-    if (zoom <= 1 || !lastPan.current) return
+    const previousPan = lastPan.current
+    if (zoom <= 1 || !previousPan) return
     setOffset((currentOffset) => ({
-      x: currentOffset.x + event.clientX - lastPan.current!.x,
-      y: currentOffset.y + event.clientY - lastPan.current!.y,
+      x: currentOffset.x + event.clientX - previousPan.x,
+      y: currentOffset.y + event.clientY - previousPan.y,
     }))
     lastPan.current = { x: event.clientX, y: event.clientY }
   }
@@ -1425,17 +1427,19 @@ function ImageViewerModal({
     const points = getTouchPoints(event.touches)
     if (points.length >= 2) {
       const distance = getPointerDistance(points)
-      if (lastPinchDistance.current) {
-        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / lastPinchDistance.current!))))
+      const previousDistance = lastPinchDistance.current
+      if (previousDistance) {
+        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / previousDistance))))
       }
       lastPinchDistance.current = distance
       return
     }
 
-    if (zoom <= 1 || points.length !== 1 || !lastPan.current) return
+    const previousPan = lastPan.current
+    if (zoom <= 1 || points.length !== 1 || !previousPan) return
     setOffset((currentOffset) => ({
-      x: currentOffset.x + points[0].x - lastPan.current!.x,
-      y: currentOffset.y + points[0].y - lastPan.current!.y,
+      x: currentOffset.x + points[0].x - previousPan.x,
+      y: currentOffset.y + points[0].y - previousPan.y,
     }))
     lastPan.current = points[0]
   }
