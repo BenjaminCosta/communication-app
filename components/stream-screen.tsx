@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo, Fragment } from "react"
-import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash } from "lucide-react"
+import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
+import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { validateImageFile } from "@/lib/image-upload"
 import {
   type Message,
   type MessageDraft,
@@ -115,12 +116,15 @@ export function StreamScreen({
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const [showPeopleFilterSheet, setShowPeopleFilterSheet] = useState(false)
   const [showTagFilterSheet, setShowTagFilterSheet] = useState(false)
+  const [viewerImage, setViewerImage] = useState<{ url: string; name?: string } | null>(null)
   const [quickText, setQuickText] = useState("")
   const [quickRecipients, setQuickRecipients] = useState<string[]>([])
   const [quickProjects, setQuickProjects] = useState<string[]>([])
   const [quickType, setQuickType] = useState<MessageType>("none")
   const [quickImage, setQuickImage] = useState<File | null>(null)
   const [quickImagePreview, setQuickImagePreview] = useState<string | null>(null)
+  const [quickImageError, setQuickImageError] = useState<string | null>(null)
+  const [quickSendError, setQuickSendError] = useState<string | null>(null)
   const [showQuickSheet, setShowQuickSheet] = useState(false)
   const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag">("menu")
   const [showCreateQuickProject, setShowCreateQuickProject] = useState(false)
@@ -226,7 +230,15 @@ export function StreamScreen({
   }
 
   const handleQuickImage = (file: File | null) => {
+    setQuickSendError(null)
+    const validationError = validateImageFile(file)
+    if (validationError) {
+      setQuickImageError(validationError)
+      if (quickFileInputRef.current) quickFileInputRef.current.value = ""
+      return
+    }
     if (!file) return
+    setQuickImageError(null)
     setQuickImage(file)
     setQuickImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
@@ -239,6 +251,7 @@ export function StreamScreen({
     if (quickImagePreview) URL.revokeObjectURL(quickImagePreview)
     setQuickImage(null)
     setQuickImagePreview(null)
+    setQuickImageError(null)
     if (quickFileInputRef.current) quickFileInputRef.current.value = ""
   }
 
@@ -247,6 +260,7 @@ export function StreamScreen({
     setQuickRecipients([])
     setQuickProjects([])
     setQuickType("none")
+    setQuickSendError(null)
     clearQuickImage()
   }
 
@@ -254,6 +268,7 @@ export function StreamScreen({
     if ((!quickText.trim() && !quickImage) || isQuickSending) return
     haptic.success()
     setIsQuickSending(true)
+    setQuickSendError(null)
     try {
       // Auto-assign the active project filter if user hasn't manually chosen one.
       // e.g. composing while filtering by "Project X" → message goes into that project.
@@ -277,6 +292,9 @@ export function StreamScreen({
       resetQuickDraft()
       setIsQuickSent(true)
       setTimeout(() => setIsQuickSent(false), 1400)
+    } catch {
+      setIsQuickSent(false)
+      setQuickSendError("Could not send the message. Please try again.")
     } finally {
       setIsQuickSending(false)
     }
@@ -451,6 +469,7 @@ export function StreamScreen({
                     }}
                     onPressStart={() => startPress(msg.id)}
                     onPressEnd={cancelPress}
+                    onImageOpen={(url, name) => setViewerImage({ url, name })}
                     onProjectTagTap={(projectId) => setProjectTagCtx({ projectId, messageId: msg.id })}
                   />
                 </Fragment>
@@ -471,6 +490,8 @@ export function StreamScreen({
         type={quickType}
         imageFile={quickImage}
         imagePreview={quickImagePreview}
+        imageError={quickImageError}
+        sendError={quickSendError}
         isSending={isQuickSending}
         isSent={isQuickSent}
         onOpenSheet={() => { setQuickSheetMode("menu"); setShowQuickSheet(true) }}
@@ -487,6 +508,13 @@ export function StreamScreen({
         className="hidden"
         onChange={(e) => handleQuickImage(e.target.files?.[0] ?? null)}
       />
+
+      {viewerImage && (
+        <ImageViewerModal
+          image={viewerImage}
+          onClose={() => setViewerImage(null)}
+        />
+      )}
 
       {/* Persistent backdrop — single div that never unmounts, toggling pointer-events
           avoids the iOS bug where removing a fixed overlay from DOM locks scroll */}
@@ -1303,8 +1331,212 @@ function FilterChip({
   )
 }
 
+function ImageViewerModal({
+  image,
+  onClose,
+}: {
+  image: { url: string; name?: string }
+  onClose: () => void
+}) {
+  const [zoom, setZoom] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const lastPan = useRef<{ x: number; y: number } | null>(null)
+  const lastPinchDistance = useRef<number | null>(null)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    if (zoom <= 1) setOffset({ x: 0, y: 0 })
+  }, [zoom])
+
+  const updateZoom = (nextZoom: number) => {
+    setZoom(Math.min(3, Math.max(1, nextZoom)))
+  }
+
+  const resetZoom = () => {
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  }
+
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    updateZoom(zoom + (event.deltaY < 0 ? 0.2 : -0.2))
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointers.current.size === 1) {
+      lastPan.current = { x: event.clientX, y: event.clientY }
+    }
+    if (pointers.current.size === 2) {
+      lastPinchDistance.current = getPointerDistance([...pointers.current.values()])
+    }
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return
+    if (!pointers.current.has(event.pointerId)) return
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+    if (pointers.current.size === 2) {
+      const distance = getPointerDistance([...pointers.current.values()])
+      if (lastPinchDistance.current) {
+        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / lastPinchDistance.current!))))
+      }
+      lastPinchDistance.current = distance
+      return
+    }
+
+    if (zoom <= 1 || !lastPan.current) return
+    setOffset((currentOffset) => ({
+      x: currentOffset.x + event.clientX - lastPan.current!.x,
+      y: currentOffset.y + event.clientY - lastPan.current!.y,
+    }))
+    lastPan.current = { x: event.clientX, y: event.clientY }
+  }
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return
+    pointers.current.delete(event.pointerId)
+    lastPinchDistance.current = null
+    lastPan.current = null
+  }
+
+  const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const points = getTouchPoints(event.touches)
+    if (points.length === 1) {
+      lastPan.current = points[0]
+    }
+    if (points.length >= 2) {
+      lastPinchDistance.current = getPointerDistance(points)
+    }
+  }
+
+  const handleTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const points = getTouchPoints(event.touches)
+    if (points.length >= 2) {
+      const distance = getPointerDistance(points)
+      if (lastPinchDistance.current) {
+        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / lastPinchDistance.current!))))
+      }
+      lastPinchDistance.current = distance
+      return
+    }
+
+    if (zoom <= 1 || points.length !== 1 || !lastPan.current) return
+    setOffset((currentOffset) => ({
+      x: currentOffset.x + points[0].x - lastPan.current!.x,
+      y: currentOffset.y + points[0].y - lastPan.current!.y,
+    }))
+    lastPan.current = points[0]
+  }
+
+  const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const points = getTouchPoints(event.touches)
+    lastPinchDistance.current = points.length >= 2 ? getPointerDistance(points) : null
+    lastPan.current = points.length === 1 ? points[0] : null
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] bg-[#020817]/92 backdrop-blur-md animate-fade-in"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image viewer"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[72] h-10 w-10 rounded-full border border-white/15 bg-[#0d1c35]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] flex items-center justify-center active:scale-95"
+        aria-label="Close image viewer"
+      >
+        <X className="h-5 w-5 text-white" />
+      </button>
+
+      <div
+        className="flex h-full w-full items-center justify-center overflow-hidden px-1.5 py-11"
+      >
+        <div
+          className="max-h-full max-w-full touch-none"
+          onClick={(event) => event.stopPropagation()}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onDoubleClick={resetZoom}
+        >
+          <img
+            src={image.url}
+            alt={image.name || "Attached image"}
+            draggable={false}
+            className="max-h-[calc(100dvh-5.5rem)] max-w-[calc(100vw-0.75rem)] select-none rounded-2xl border border-white/10 bg-[#071326] object-contain shadow-2xl transition-transform duration-150"
+            style={{
+              transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
+              cursor: zoom > 1 ? "grab" : "zoom-in",
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-1/2 z-[72] flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-[#0d1c35]/90 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); updateZoom(zoom - 0.25) }}
+          className="h-10 w-10 rounded-full text-muted-foreground flex items-center justify-center active:scale-95 hover:bg-white/8 hover:text-white"
+          aria-label="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <span className="min-w-12 text-center text-[11px] font-bold text-foreground/80 font-mono">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); updateZoom(zoom + 0.25) }}
+          className="h-10 w-10 rounded-full text-muted-foreground flex items-center justify-center active:scale-95 hover:bg-white/8 hover:text-white"
+          aria-label="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); resetZoom() }}
+          className="h-10 w-10 rounded-full text-muted-foreground flex items-center justify-center active:scale-95 hover:bg-white/8 hover:text-white"
+          aria-label="Reset zoom"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function getPointerDistance(points: Array<{ x: number; y: number }>): number {
+  if (points.length < 2) return 0
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+}
+
+function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Array<{ x: number; y: number }> {
+  return Array.from(touches).map((touch) => ({ x: touch.clientX, y: touch.clientY }))
+}
+
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onProjectTagTap,
+  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap,
 }: {
   message: Message
   projects: Project[]
@@ -1319,6 +1551,7 @@ function MessageBubble({
   onTap: () => void
   onPressStart: () => void
   onPressEnd: () => void
+  onImageOpen: (url: string, name?: string) => void
   onProjectTagTap?: (projectId: string) => void
 }) {
   const first = isFirstInGroup ?? true
@@ -1399,11 +1632,22 @@ function MessageBubble({
           )}
         >
           {message.imageUrl && (
-            <img
-              src={message.imageUrl}
-              alt={message.imageName || "Attached image"}
-              className="mb-2 max-h-72 w-full rounded-xl object-cover border border-white/10 bg-black/20"
-            />
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onPressEnd()
+                onImageOpen(message.imageUrl!, message.imageName)
+              }}
+              className="mb-2 block w-full overflow-hidden rounded-xl border border-white/10 bg-black/20 active:scale-[0.99]"
+            >
+              <img
+                src={message.imageUrl}
+                alt={message.imageName || "Attached image"}
+                className="max-h-72 w-full object-cover"
+              />
+            </button>
           )}
           {message.text && (
             <div>

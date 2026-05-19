@@ -1,0 +1,1485 @@
+{
+  "exportedAt": "2026-05-18T20:15:31.173Z",
+  "projectId": "svc-comms",
+  "collections": {
+    "users": {
+      "FGssZcrtvscoqbzadJrc4yATpxt2": {
+        "id": "FGssZcrtvscoqbzadJrc4yATpxt2",
+        "name": "Test",
+        "initials": "TE",
+        "color": "bg-indigo-600",
+        "lastSeen": {
+          "_seconds": 1779103875,
+          "_nanoseconds": 940000000
+        }
+      },
+      "LpDu4rksa6WD8LniPJe91wtxkHm2": {
+        "id": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "name": "AGP",
+        "initials": "AG",
+        "color": "bg-sky-600"
+      },
+      "pAIknT18JAfTVcM6z1ZHgkay8lx1": {
+        "id": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "name": "Benjamin",
+        "initials": "BE",
+        "color": "bg-cyan-600",
+        "lastSeen": {
+          "_seconds": 1779132587,
+          "_nanoseconds": 976000000
+        }
+      },
+      "tO4pk1gsuXblZVGjF7HMA5HMK1L2": {
+        "id": "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+        "name": "Eric Scott",
+        "initials": "ES",
+        "color": "bg-indigo-600",
+        "lastSeen": {
+          "_seconds": 1778868105,
+          "_nanoseconds": 515000000
+        }
+      },
+      "y4YWTpbXybPW9TUN74y99nyXZGg2": {
+        "id": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "name": "Joseph Haddad",
+        "initials": "JH",
+        "color": "bg-amber-600",
+        "lastSeen": {
+          "_seconds": 1779135274,
+          "_nanoseconds": 615000000
+        }
+      }
+    },
+    "projects": {
+      "p1777765415770-3j11i": {
+        "id": "p1777765415770-3j11i",
+        "name": "V1",
+        "color": "bg-progress",
+        "members": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "ownerId": "FGssZcrtvscoqbzadJrc4yATpxt2"
+      },
+      "p1778018452574-posiv": {
+        "id": "p1778018452574-posiv",
+        "name": "Test Project",
+        "color": "bg-progress",
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ]
+      },
+      "p1778418891130-sovyz": {
+        "id": "p1778418891130-sovyz",
+        "name": "MAY 10 TEST",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778497223694-xsg5i": {
+        "id": "p1778497223694-xsg5i",
+        "name": "Sorting test",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778538453317-juw1i": {
+        "id": "p1778538453317-juw1i",
+        "name": "ISEAS AND REQUESTS",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778594772036-j5meb": {
+        "id": "p1778594772036-j5meb",
+        "name": "O’reilly wauna Washington",
+        "color": "bg-progress",
+        "members": [
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+      },
+      "p1778615325732-f5c21": {
+        "id": "p1778615325732-f5c21",
+        "name": "HAAS + WONDER",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778712892260-mww7p": {
+        "id": "p1778712892260-mww7p",
+        "name": "1st ROUND CHANGES",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778713032936-2f7wv": {
+        "id": "p1778713032936-2f7wv",
+        "name": "TAGGING FLOW IMPROVEMENTS",
+        "color": "bg-problem",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778768479270-a7iy1": {
+        "id": "p1778768479270-a7iy1",
+        "name": "TODAYS TASKS",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778769360721-0jph1": {
+        "id": "p1778769360721-0jph1",
+        "name": "Creve Cour",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778769638022-t639y": {
+        "id": "p1778769638022-t639y",
+        "name": "RW DAKE",
+        "color": "bg-problem",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778770139442-2yas1": {
+        "id": "p1778770139442-2yas1",
+        "name": "TASK",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1778770167600-ddcgx": {
+        "id": "p1778770167600-ddcgx",
+        "name": "CALL",
+        "color": "bg-problem",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1779015321427-w55rb": {
+        "id": "p1779015321427-w55rb",
+        "name": "SALES",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2"
+      },
+      "p1779111010632-dqpi4": {
+        "id": "p1779111010632-dqpi4",
+        "name": "MAWAH",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      },
+      "p1779111024298-tf3uu": {
+        "id": "p1779111024298-tf3uu",
+        "name": "Schedule",
+        "color": "bg-problem",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      },
+      "p1779124633951-2rju0": {
+        "id": "p1779124633951-2rju0",
+        "name": "RW Dake",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      },
+      "p1779124671981-u8xw1": {
+        "id": "p1779124671981-u8xw1",
+        "name": "Atlanta",
+        "color": "bg-progress",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      },
+      "p1779124685569-gylkm": {
+        "id": "p1779124685569-gylkm",
+        "name": "Burke",
+        "color": "bg-problem",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      },
+      "p1779124702681-xtphw": {
+        "id": "p1779124702681-xtphw",
+        "name": "Money",
+        "color": "bg-decision",
+        "members": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "ownerId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "tagCategory": "custom"
+      }
+    },
+    "messages": {
+      "1cJgSybQxmarO0Bp4ALz": {
+        "senderId": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "projectId": null,
+        "text": "Hello",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419367,
+          "_nanoseconds": 863000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "1oiV0SE8puFK0aUmBOQV": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "text": "Test again",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778589435,
+          "_nanoseconds": 397000000
+        },
+        "projectId": "p1778018452574-posiv",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "4oAUGN8mD8gPZjAHTroh": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "Test",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778264146,
+          "_nanoseconds": 39000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "5oY6VA1AW0BZLxCrRVFj": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "text": "How many carpenters today in Wanua?",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778615233,
+          "_nanoseconds": 195000000
+        },
+        "projectId": "p1778594772036-j5meb",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "6c6Xsy4D2XeGHbOufoEx": {
+        "senderId": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "projectId": null,
+        "text": "Can the message send when you hit return",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419257,
+          "_nanoseconds": 573000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "8ITxFGyGdB7mpdNA8g4P": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "text": "Ben, I just saw your message Como va la",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778454917,
+          "_nanoseconds": 773000000
+        },
+        "projectId": "p1778497223694-xsg5i",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "8bn5DuOevrEBBYVzl5p6": {
+        "authorId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "recipientIds": [],
+        "projectIds": [],
+        "projectId": null,
+        "content": "Test",
+        "text": "Test",
+        "type": "none",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1778937245,
+          "_nanoseconds": 571000000
+        },
+        "timestamp": {
+          "_seconds": 1778937245,
+          "_nanoseconds": 571000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "AGv0ckjMRG2CKIVkH5Yo": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "I marked up a screen shot sent it on WhatsApp",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778713466,
+          "_nanoseconds": 274000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "BlZCC4a5H5b9gzkwZHB7": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778538453317-juw1i",
+        "text": "Ben 10 these conversations go right into AI too for AI to start learning for us",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778538546,
+          "_nanoseconds": 107000000
+        },
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ]
+      },
+      "DB9XM5o6zQ9f72t3A8W9": {
+        "senderId": "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+        "projectId": "p1778594772036-j5meb",
+        "text": "Testing your system.",
+        "type": "progress",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778594798,
+          "_nanoseconds": 682000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "GgCdjLJutzYcNwXtcVUw": {
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "projectId": null,
+        "text": "Ok",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778429665,
+          "_nanoseconds": 488000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 211000000
+        }
+      },
+      "H6TSgNd3TF7Mo9eGi13z": {
+        "authorId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "recipientIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "projectIds": [],
+        "projectId": null,
+        "content": "Hey, just pushed a few updates\n\nImage attach is added in the UI, but it’s not working yet",
+        "text": "Hey, just pushed a few updates\n\nImage attach is added in the UI, but it’s not working yet",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1778769635,
+          "_nanoseconds": 249000000
+        },
+        "timestamp": {
+          "_seconds": 1778769635,
+          "_nanoseconds": 249000000
+        },
+        "type": "progress",
+        "peopleIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "tagIds": [
+          "type:progress",
+          "type:decision"
+        ],
+        "updatedAt": {
+          "_seconds": 1779071749,
+          "_nanoseconds": 846000000
+        }
+      },
+      "HAFxAh8GAXZmZdhGXUwx": {
+        "senderId": "FGssZcrtvscoqbzadJrc4yATpxt2",
+        "text": "All right",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1777764927,
+          "_nanoseconds": 317000000
+        },
+        "type": "decision",
+        "projectId": null,
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "IYFl5k47wEj6cvDI9vPe": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778018452574-posiv",
+        "text": "Just testing things out",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778454991,
+          "_nanoseconds": 838000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "L4xF00iBFWsaapM2sh18": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "Can*",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778539725,
+          "_nanoseconds": 15000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "OsZ9zTa7TQBa1y7Nuzdq": {
+        "authorId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "recipientIds": [],
+        "peopleIds": [],
+        "content": "Mawah \n5/28 Disconnects \n6/1- 6/4 Tile\n6/15 Counter tops",
+        "text": "Mawah \n5/28 Disconnects \n6/1- 6/4 Tile\n6/15 Counter tops",
+        "type": "none",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1779110880,
+          "_nanoseconds": 968000000
+        },
+        "timestamp": {
+          "_seconds": 1779110880,
+          "_nanoseconds": 968000000
+        },
+        "tagIds": [
+          "type:none",
+          "project:p1779111010632-dqpi4",
+          "project:p1779111024298-tf3uu"
+        ],
+        "projectIds": [
+          "p1779111010632-dqpi4",
+          "p1779111024298-tf3uu"
+        ],
+        "projectId": "p1779111010632-dqpi4",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779127103,
+          "_nanoseconds": 420000000
+        }
+      },
+      "PUz4CQVao4sMvW2DvHD1": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778769360721-0jph1",
+        "text": "TASK- CALL John Kaiser",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778769500,
+          "_nanoseconds": 991000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "U2jH12ywFAOZAcREqasB": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778713032936-2f7wv",
+        "text": "Ben- what is the tagging flow?",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778713089,
+          "_nanoseconds": 955000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "UrKkKMxe9OgL9S8IIHpg": {
+        "authorId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "projectIds": [],
+        "projectId": null,
+        "content": "Image attach not functional, still working on it",
+        "text": "Image attach not functional, still working on it",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1779102607,
+          "_nanoseconds": 855000000
+        },
+        "timestamp": {
+          "_seconds": 1779102607,
+          "_nanoseconds": 855000000
+        },
+        "recipientIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "peopleIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "tagIds": [
+          "type:none",
+          "type:progress"
+        ],
+        "type": "progress",
+        "updatedAt": {
+          "_seconds": 1779103930,
+          "_nanoseconds": 280000000
+        }
+      },
+      "W2B04hIHeHv0Bb6XzNeN": {
+        "authorId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "projectIds": [],
+        "projectId": null,
+        "content": "Good morning, just pushed some updates in the tags",
+        "text": "Good morning, just pushed some updates in the tags",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1779102543,
+          "_nanoseconds": 897000000
+        },
+        "timestamp": {
+          "_seconds": 1779102543,
+          "_nanoseconds": 897000000
+        },
+        "recipientIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "peopleIds": [
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "tagIds": [
+          "type:none",
+          "type:progress"
+        ],
+        "type": "progress",
+        "updatedAt": {
+          "_seconds": 1779103922,
+          "_nanoseconds": 634000000
+        }
+      },
+      "XdiaGrPiB4e8rct8eZa9": {
+        "senderId": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "projectId": null,
+        "text": "Is this thing on",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778346311,
+          "_nanoseconds": 567000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "Xq7vbEtlZZugGBeoDseO": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "text": "Feed Back, portion, I am going to make a folder",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778496621,
+          "_nanoseconds": 398000000
+        },
+        "projectId": "p1778497223694-xsg5i",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "ZGCQt10fatvcdTpRrAw9": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "projectId": "p1778418891130-sovyz",
+        "text": "Test message trying to send a message in MAY 10 TEST PROJECT",
+        "type": "none",
+        "timestamp": {
+          "_seconds": 1778418952,
+          "_nanoseconds": 830000000
+        },
+        "isFavorited": true
+      },
+      "ZZt3d2byJxSc4rOcmuV6": {
+        "senderId": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "participants": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "projectId": "p1778418891130-sovyz",
+        "text": "I see this too",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419316,
+          "_nanoseconds": 549000000
+        }
+      },
+      "aXRx1iFRXo5oUCmJYmdU": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778538453317-juw1i",
+        "text": "Need a way to edit the categories I just entered the name of my category wrong actually project I entered the name of the project wrong supposed to be ideas and requests",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778538497,
+          "_nanoseconds": 354000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "ca5NnplltMwt0JCloZAg": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "Hey Joseph, I’ve been thinking about the feedback and these are the next changes we can start working on:\n\n* improve the tagging flow\n* add search for users in the Who section\n* add search for projects/categories\n* allow selecting multiple projects/categories for one message\n* show selected users/projects more clearly\n* add a way to edit project/category names\n* clean up the Type filter so messages can be found easier\n* add a message bar directly on the Stream, more like WhatsApp\n* add image attachments\n* add image preview before sending\n* show attached images inside the Stream\n* add active users / who is online\n\nFor image uploads, we’ll need to move Firebase to the paid setup. It should stay low for now, but I’d set aside around $10/month to start.\n\nIf you want, I can start moving on this next round of changes and we can also define the next work/payment structure from here.",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778712807,
+          "_nanoseconds": 515000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "iEVYZCLbKfigMcvDmQB4": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778594772036-j5meb",
+        "text": "TASK SALES Call Sam Hoppe",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778768757,
+          "_nanoseconds": 775000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "itqfxaESnxYUTKocCqUP": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "No, I inksut saw the message type I am going to put this is feedback folder",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778496685,
+          "_nanoseconds": 654000000
+        },
+        "type": "feedback",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "jkznNMnV6jqMFo25lbtw": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778713032936-2f7wv",
+        "text": "I pretty sure \"tagging flow\" is the steps taking to tag message",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778713427,
+          "_nanoseconds": 899000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "l0RxVpQLEBKVwG4bHGI4": {
+        "authorId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectIds": [],
+        "projectId": null,
+        "content": "Roger!",
+        "text": "Roger!",
+        "type": "none",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1778845189,
+          "_nanoseconds": 799000000
+        },
+        "timestamp": {
+          "_seconds": 1778845189,
+          "_nanoseconds": 799000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "recipientIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "peopleIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "tagIds": [
+          "type:none"
+        ],
+        "updatedAt": {
+          "_seconds": 1779103808,
+          "_nanoseconds": 535000000
+        }
+      },
+      "lmAwcaBG7RRtJkc9Qghc": {
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "projectId": null,
+        "text": "Good morning — just pushed that fix.\n\nOn the Stream screen, tap the Type filter and you can select messages by Progress, Problem, Feedback, or Decision.",
+        "type": "feedback",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778498912,
+          "_nanoseconds": 685000000
+        }
+      },
+      "mEtkRHNQWW9JkPocCadG": {
+        "senderId": "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+        "projectId": "p1778018452574-posiv",
+        "text": "como va la cosa",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778430635,
+          "_nanoseconds": 148000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 462000000
+        }
+      },
+      "oLNnGQZCY7TTPtQJLmdv": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778018452574-posiv",
+        "text": "Look",
+        "type": "feedback",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778031361,
+          "_nanoseconds": 390000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "oVG1iGm1Yf5ULpGUvkHU": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "projectId": "p1778615325732-f5c21",
+        "text": "Wonder Update on ESPANSION PLAN\nJoe P the general foreman happy we  Inam still here. The HAAS team does not have a clear view for expansion,  expanding doesn't seam to be on thier mind.",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778615441,
+          "_nanoseconds": 586000000
+        }
+      },
+      "p1U2oGXKRqxqG3ILVWe2": {
+        "authorId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectIds": [],
+        "projectId": null,
+        "content": "Oh!!!",
+        "text": "Oh!!!",
+        "type": "none",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1778845168,
+          "_nanoseconds": 117000000
+        },
+        "timestamp": {
+          "_seconds": 1778845168,
+          "_nanoseconds": 117000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "recipientIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "peopleIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "tagIds": [
+          "type:none"
+        ],
+        "updatedAt": {
+          "_seconds": 1779103799,
+          "_nanoseconds": 225000000
+        }
+      },
+      "qvuS96yML2A6zduCCx1I": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778594772036-j5meb",
+        "text": "TASK- pay Eric",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778768704,
+          "_nanoseconds": 134000000
+        },
+        "recipientIds": [
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "projectIds": [
+          "p1778594772036-j5meb",
+          "p1778770139442-2yas1"
+        ],
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "rSIW8ERl5HSRQCWxf6vM": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778018452574-posiv",
+        "text": "Ben?",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778018474,
+          "_nanoseconds": 425000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "rT67J2VA11X0VbcnKv57": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "projectId": "p1778418891130-sovyz",
+        "text": "Further testing",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778537451,
+          "_nanoseconds": 798000000
+        }
+      },
+      "rZChkhxg16iyhMhI0Gmz": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778018452574-posiv",
+        "text": "More and more and more of testing just one two three test new message new message",
+        "type": "progress",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778537553,
+          "_nanoseconds": 94000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "sBASnIVO3p60jH3JK39G": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "text": "TASK-druwall in electeic closet",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778768577,
+          "_nanoseconds": 249000000
+        },
+        "projectId": "p1778615325732-f5c21",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ]
+      },
+      "sZHsQ1d1Vef4eVL96g30": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "Good Mornng\nWhere do we go to see the specific  message tyoes?",
+        "type": "feedback",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778496807,
+          "_nanoseconds": 573000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      },
+      "tk3cseWV6VNzO5LtqtJ4": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2"
+        ],
+        "projectId": "p1778615325732-f5c21",
+        "text": "TASK- Kortman Venmo from Paulick",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778768546,
+          "_nanoseconds": 992000000
+        }
+      },
+      "uR4e8jgqPD8X16zO2fY1": {
+        "authorId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "recipientIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2"
+        ],
+        "peopleIds": [
+          "LpDu4rksa6WD8LniPJe91wtxkHm2"
+        ],
+        "content": "4547 Burke Atlanta total trip",
+        "text": "4547 Burke Atlanta total trip",
+        "type": "none",
+        "isFavorited": false,
+        "createdAt": {
+          "_seconds": 1779124615,
+          "_nanoseconds": 482000000
+        },
+        "timestamp": {
+          "_seconds": 1779124615,
+          "_nanoseconds": 482000000
+        },
+        "tagIds": [
+          "type:none",
+          "project:p1778769638022-t639y",
+          "project:p1779124671981-u8xw1",
+          "project:p1779124685569-gylkm",
+          "project:p1779124702681-xtphw",
+          "project:p1779124633951-2rju0"
+        ],
+        "projectIds": [
+          "p1778769638022-t639y",
+          "p1779124671981-u8xw1",
+          "p1779124685569-gylkm",
+          "p1779124702681-xtphw",
+          "p1779124633951-2rju0"
+        ],
+        "projectId": "p1778769638022-t639y",
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779127103,
+          "_nanoseconds": 420000000
+        }
+      },
+      "viwbmRViMYRBVM45Lj3V": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "Good plan",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1777922748,
+          "_nanoseconds": 594000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "wsBzBSHJdJ28SVYYkzq1": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "projectId": "p1778418891130-sovyz",
+        "text": "Yoski test message on mother day",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419737,
+          "_nanoseconds": 374000000
+        }
+      },
+      "xSfeGLKjFUh5FjEv1o4W": {
+        "senderId": "LpDu4rksa6WD8LniPJe91wtxkHm2",
+        "projectId": null,
+        "text": "I'm in",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419242,
+          "_nanoseconds": 387000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "xoqWnnkuMOzOarz77OKh": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": null,
+        "text": "This is my test message I'm at Lincoln Tech South Plainfield",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778256885,
+          "_nanoseconds": 866000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779076926,
+          "_nanoseconds": 457000000
+        }
+      },
+      "zeHlnwxtqcFeWbJRtcyy": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "participants": [
+          "y4YWTpbXybPW9TUN74y99nyXZGg2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "FGssZcrtvscoqbzadJrc4yATpxt2"
+        ],
+        "projectId": "p1778418891130-sovyz",
+        "text": "I see your message too",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778419774,
+          "_nanoseconds": 210000000
+        }
+      },
+      "zliB3PUMZp9irQ5saFK1": {
+        "senderId": "y4YWTpbXybPW9TUN74y99nyXZGg2",
+        "projectId": "p1778594772036-j5meb",
+        "text": "Whats the weather in Wanua?",
+        "type": "none",
+        "isFavorited": false,
+        "timestamp": {
+          "_seconds": 1778615188,
+          "_nanoseconds": 798000000
+        },
+        "participants": [
+          "pAIknT18JAfTVcM6z1ZHgkay8lx1",
+          "FGssZcrtvscoqbzadJrc4yATpxt2",
+          "LpDu4rksa6WD8LniPJe91wtxkHm2",
+          "tO4pk1gsuXblZVGjF7HMA5HMK1L2",
+          "y4YWTpbXybPW9TUN74y99nyXZGg2"
+        ],
+        "updatedAt": {
+          "_seconds": 1779079020,
+          "_nanoseconds": 775000000
+        }
+      }
+    }
+  }
+}

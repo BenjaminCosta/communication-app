@@ -29,3 +29,13 @@ firestore-debug.log
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
+
+# Firebase / Google service account secrets
+svc-comms-firebase-adminsdk-*.json
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+*.serviceAccount.json
+
+# Local env files
+.env.local
+.env.*.local

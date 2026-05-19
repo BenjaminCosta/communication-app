@@ -25,6 +25,7 @@ import {
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { auth, db, storage } from "@/lib/firebase"
+import { compressImageFile, validateImageFile } from "@/lib/image-upload"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
@@ -136,6 +137,8 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     imagePath: data.imagePath,
     imageName: data.imageName,
     imageContentType: data.imageContentType,
+    imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
+    imageUploadedAt: data.imageUploadedAt ? toDate(data.imageUploadedAt) : undefined,
   }
 }
 
@@ -513,18 +516,26 @@ export default function Home() {
       const peopleIds = [...new Set([...(draft.peopleIds ?? draft.contactIds)].filter(Boolean))]
       const projectMembers = projectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
       const participants = [...new Set([firebaseUser.uid, ...peopleIds, ...projectMembers])]
-      const imageMeta: Partial<Message> = {}
+      const imageMeta: Record<string, unknown> = {}
 
       if (draft.imageFile) {
+        const validationError = validateImageFile(draft.imageFile)
+        if (validationError) {
+          showToast(validationError, undefined, 3500)
+          throw new Error(validationError)
+        }
         try {
-          const safeName = sanitizeStorageName(draft.imageFile.name)
+          const imageFile = await compressImageFile(draft.imageFile)
+          const safeName = sanitizeStorageName(imageFile.name)
           const imagePath = `message-images/${firebaseUser.uid}/${Date.now()}-${safeName}`
           const imageRef = ref(storage, imagePath)
-          await uploadBytes(imageRef, draft.imageFile, { contentType: draft.imageFile.type || "image/jpeg" })
+          await uploadBytes(imageRef, imageFile, { contentType: imageFile.type || "image/jpeg" })
           imageMeta.imageUrl = await getDownloadURL(imageRef)
           imageMeta.imagePath = imagePath
-          imageMeta.imageName = draft.imageFile.name
-          imageMeta.imageContentType = draft.imageFile.type || "image/jpeg"
+          imageMeta.imageName = imageFile.name
+          imageMeta.imageContentType = imageFile.type || "image/jpeg"
+          imageMeta.imageSize = imageFile.size
+          imageMeta.imageUploadedAt = serverTimestamp()
         } catch (error) {
           showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)
           throw error
@@ -595,6 +606,8 @@ export default function Home() {
               imagePath: target.imagePath,
               imageName: target.imageName,
               imageContentType: target.imageContentType,
+              imageSize: target.imageSize,
+              ...(target.imageUploadedAt ? { imageUploadedAt: Timestamp.fromDate(target.imageUploadedAt) } : {}),
             } : {}),
           })
         },

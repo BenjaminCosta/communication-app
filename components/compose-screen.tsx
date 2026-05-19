@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type MessageType,
@@ -38,6 +39,8 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   const [selectedType, setSelectedType] = useState<MessageType>("none")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [isSending, setIsSending] = useState(false)
@@ -104,7 +107,15 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   }
 
   const handlePickImage = (file: File | null) => {
+    setSendError(null)
+    const validationError = validateImageFile(file)
+    if (validationError) {
+      setImageError(validationError)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return
+    }
     if (!file) return
+    setImageError(null)
     setImageFile(file)
     setImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
@@ -116,6 +127,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
     if (imagePreview) URL.revokeObjectURL(imagePreview)
     setImageFile(null)
     setImagePreview(null)
+    setImageError(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
@@ -124,6 +136,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
     haptic.success()
     setIsSending(true)
     setIsSent(true)
+    setSendError(null)
     try {
       await onSend({
         text: text.trim(),
@@ -135,6 +148,9 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         imageFile,
       })
       clearImage()
+    } catch {
+      setIsSent(false)
+      setSendError("Could not send the message. Please try again.")
     } finally {
       setIsSending(false)
     }
@@ -282,7 +298,18 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
               </button>
             </div>
           )}
+          {imageError && (
+            <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+              {imageError}
+            </p>
+          )}
         </div>
+
+        {sendError && (
+          <p className="rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+            {sendError}
+          </p>
+        )}
 
         {(selectedPeople.length > 0 || selectedTags.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
