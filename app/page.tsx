@@ -25,7 +25,7 @@ import {
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { auth, db, storage } from "@/lib/firebase"
-import { validateImageFile } from "@/lib/image-upload"
+import { compressImageFile, validateImageFile } from "@/lib/image-upload"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
@@ -525,15 +525,16 @@ export default function Home() {
           throw new Error(validationError)
         }
         try {
-          const safeName = sanitizeStorageName(draft.imageFile.name)
+          const imageFile = await compressImageFile(draft.imageFile)
+          const safeName = sanitizeStorageName(imageFile.name)
           const imagePath = `message-images/${firebaseUser.uid}/${Date.now()}-${safeName}`
           const imageRef = ref(storage, imagePath)
-          await uploadBytes(imageRef, draft.imageFile, { contentType: draft.imageFile.type || "image/jpeg" })
+          await uploadBytes(imageRef, imageFile, { contentType: imageFile.type || "image/jpeg" })
           imageMeta.imageUrl = await getDownloadURL(imageRef)
           imageMeta.imagePath = imagePath
-          imageMeta.imageName = draft.imageFile.name
-          imageMeta.imageContentType = draft.imageFile.type || "image/jpeg"
-          imageMeta.imageSize = draft.imageFile.size
+          imageMeta.imageName = imageFile.name
+          imageMeta.imageContentType = imageFile.type || "image/jpeg"
+          imageMeta.imageSize = imageFile.size
           imageMeta.imageUploadedAt = serverTimestamp()
         } catch (error) {
           showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)

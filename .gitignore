@@ -9,6 +9,8 @@ next.user-config.*
 
 # Environment variables
 .env*.local
+.env.local
+.env.*.local
 
 # Common ignores
 node_modules
@@ -18,8 +20,6 @@ node_modules
 # Firebase emulator
 emulator-data/
 service-account.json
-.env.local
-# Local env / emulator
 .env.local.emulator
 
 # Firebase emulator/debug logs
@@ -29,7 +29,14 @@ firestore-debug.log
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
+
+# Backups
 backups/
+
+# Firebase / Google service account secrets
 svc-comms-firebase-adminsdk*.json
 svc-comms-firebase-adminsdk-*.json
+*-firebase-adminsdk-*.json
 *.firebase-adminsdk-*.json
+serviceAccountKey.json
+*.serviceAccount.json
