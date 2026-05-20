@@ -9,6 +9,7 @@ export interface Contact {
   initials: string
   color: string
   lastSeen?: Date | null
+  isAdmin?: boolean
 }
 
 export type ImportedContactSource = "google" | "manual"

@@ -41,6 +41,7 @@ import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { PeopleScreen } from "@/components/people-screen"
+import { AdminScreen } from "@/components/admin-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
@@ -81,6 +82,7 @@ type Screen =
   | "projects"
   | "project-detail"
   | "people"
+  | "admin"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -95,6 +97,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   privacy: 4,
   projects: 4,
   people: 4,
+  admin: 4,
   "project-detail": 5,
 }
 
@@ -299,6 +302,7 @@ export default function Home() {
           initials: data.initials,
           color: data.color ?? getUserAvatarColor(d.id),
           lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
+          isAdmin: data.isAdmin === true,
         } as Contact
       })
       setContacts(all.filter((u) => u.id !== firebaseUser.uid))
@@ -386,7 +390,7 @@ export default function Home() {
       setDoc(userRef, { lastSeen: serverTimestamp() }, { merge: true }).catch(() => {})
     }
     updateLastSeen()
-    const interval = window.setInterval(updateLastSeen, 30000)
+    const interval = window.setInterval(updateLastSeen, 60000)
     const onVisibility = () => {
       if (document.visibilityState === "visible") updateLastSeen()
     }
@@ -884,6 +888,7 @@ export default function Home() {
   }, [navigateTo])
   const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
   const goToPeople = useCallback(() => navigateTo("people"), [navigateTo])
+  const goToAdmin = useCallback(() => navigateTo("admin"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -999,11 +1004,22 @@ export default function Home() {
           onPrivacy={goToPrivacy}
           onProjects={goToProjects}
           onPeople={goToPeople}
+          isAdmin={currentUser?.isAdmin === true}
+          onAdmin={goToAdmin}
         />
       )}
 
       {!showScreenSkeleton && activeScreen === "notifications" && (
         <NotificationsScreen className={entranceClass} onBack={handleNotificationsBack} />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "admin" && currentUser?.isAdmin && (
+        <AdminScreen
+          className={entranceClass}
+          currentUser={currentUser}
+          allUsers={[currentUser, ...contacts]}
+          onBack={goToProfile}
+        />
       )}
 
       {!showScreenSkeleton && activeScreen === "privacy" && (

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, Users, ChevronRight } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, Users, ChevronRight, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ProfileScreenProps {
@@ -17,15 +17,17 @@ interface ProfileScreenProps {
   onPrivacy: () => void
   onProjects: () => void
   onPeople: () => void
+  isAdmin?: boolean
+  onAdmin?: () => void
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, onPeople, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, onPeople, isAdmin, onAdmin, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
     <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
+      <div className="shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
@@ -72,6 +74,14 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
         <SettingsRow icon={<Users className="w-4 h-4" />} label="People" onClick={onPeople} />
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
         <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" onClick={onPrivacy} />
+        {isAdmin && onAdmin && (
+          <SettingsRow
+            icon={<Activity className="w-4 h-4 text-primary" />}
+            label="Activity Monitor"
+            onClick={onAdmin}
+            badge="Admin"
+          />
+        )}
       </div>
 
       <div className="flex-1" />
@@ -120,11 +130,16 @@ function StatCell({ label, value }: { label: string; value: string }) {
   )
 }
 
-function SettingsRow({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
+function SettingsRow({ icon, label, onClick, badge }: { icon: React.ReactNode; label: string; onClick?: () => void; badge?: string }) {
   return (
     <button onClick={onClick} className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
       <span className="text-muted-foreground">{icon}</span>
       <span className="flex-1 text-sm font-medium">{label}</span>
+      {badge && (
+        <span className="text-[10px] bg-primary/15 text-primary border border-primary/25 rounded-full px-1.5 py-0.5 font-medium mr-1">
+          {badge}
+        </span>
+      )}
       <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
     </button>
   )
