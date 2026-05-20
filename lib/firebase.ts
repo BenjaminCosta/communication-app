@@ -2,6 +2,7 @@ import { initializeApp, getApps } from "firebase/app"
 import { getAuth, connectAuthEmulator } from "firebase/auth"
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore"
 import { getStorage } from "firebase/storage"
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions"
 
 const firebaseConfig = {
   apiKey: "AIzaSyAt2oVZ9ec3bc_b6QjCBn6ZZ-4IxgVpn8o",
@@ -18,6 +19,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
+export const functions = getFunctions(app)
 
 // Connect to Firebase Emulators only when NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true.
 // typeof window check prevents SSR issues (emulators are browser-only).
@@ -33,6 +35,7 @@ if (
     w.__EMULATORS_INITIALIZED__ = true
     connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true })
     connectFirestoreEmulator(db, "localhost", 8080)
-    console.info("[Emulator] Connected to Firebase Emulators — Auth :9099, Firestore :8080")
+    connectFunctionsEmulator(functions, "localhost", 5001)
+    console.info("[Emulator] Connected to Firebase Emulators — Auth :9099, Firestore :8080, Functions :5001")
   }
 }

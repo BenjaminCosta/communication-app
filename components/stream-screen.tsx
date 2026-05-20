@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { Bell, MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -11,6 +11,7 @@ import {
   type Project,
   type Contact,
   type Tag as MessageTag,
+  type ImportedContact,
   getContactFromList,
   formatTime,
   getMessageTagIds,
@@ -57,7 +58,7 @@ interface StreamScreenProps {
   onMessageClick: (message: Message) => void
   onNewProject: (name: string, memberIds: string[]) => void
   onProfile: () => void
-  onNotifications: () => void
+  onPeople: () => void
   onDeleteMessage: (id: string) => void
   onFavoriteMessage: (id: string) => void
   userInitials: string
@@ -75,6 +76,7 @@ interface StreamScreenProps {
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   activeUsers: Contact[]
   availableTags: MessageTag[]
+  importedContacts: ImportedContact[]
 }
 
 export function StreamScreen({
@@ -89,7 +91,7 @@ export function StreamScreen({
   onMessageClick,
   onNewProject,
   onProfile,
-  onNotifications,
+  onPeople,
   onDeleteMessage,
   onFavoriteMessage,
   userInitials,
@@ -107,6 +109,7 @@ export function StreamScreen({
   onCreateProject,
   activeUsers,
   availableTags,
+  importedContacts,
 }: StreamScreenProps) {
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
@@ -119,6 +122,7 @@ export function StreamScreen({
   const [viewerImage, setViewerImage] = useState<{ url: string; name?: string } | null>(null)
   const [quickText, setQuickText] = useState("")
   const [quickRecipients, setQuickRecipients] = useState<string[]>([])
+  const [quickImportedRecipients, setQuickImportedRecipients] = useState<string[]>([])
   const [quickProjects, setQuickProjects] = useState<string[]>([])
   const [quickType, setQuickType] = useState<MessageType>("none")
   const [quickImage, setQuickImage] = useState<File | null>(null)
@@ -206,6 +210,10 @@ export function StreamScreen({
     setQuickRecipients((prev) => prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id])
   }
 
+  const toggleQuickImportedRecipient = (id: string) => {
+    setQuickImportedRecipients((prev) => prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id])
+  }
+
   const toggleQuickProject = (id: string) => {
     setQuickProjects((prev) => prev.includes(id) ? prev.filter((projectId) => projectId !== id) : [...prev, id])
   }
@@ -258,6 +266,7 @@ export function StreamScreen({
   const resetQuickDraft = () => {
     setQuickText("")
     setQuickRecipients([])
+    setQuickImportedRecipients([])
     setQuickProjects([])
     setQuickType("none")
     setQuickSendError(null)
@@ -284,6 +293,7 @@ export function StreamScreen({
         text: quickText.trim(),
         contactIds: quickRecipients,
         peopleIds: quickRecipients,
+        importedContactIds: quickImportedRecipients,
         projectIds: effectiveProjects,
         tagIds: effectiveTagIds,
         type: quickType,
@@ -341,12 +351,12 @@ export function StreamScreen({
           SVC <span className="text-primary">Stream</span>
         </h1>
         <div className="flex items-center gap-2">
-          {/* Notifications bell */}
+          {/* People */}
           <button
-            onClick={onNotifications}
+            onClick={onPeople}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
           >
-            <Bell className="w-4 h-4 text-muted-foreground" />
+            <Users className="w-4 h-4 text-muted-foreground" />
           </button>
           {/* Tags shortcut */}
           <button
@@ -486,6 +496,9 @@ export function StreamScreen({
         contacts={contacts}
         projects={projects}
         recipients={quickRecipients}
+        importedContacts={importedContacts}
+        importedRecipients={quickImportedRecipients}
+        onRemoveImportedRecipient={(id) => setQuickImportedRecipients((prev) => prev.filter((uid) => uid !== id))}
         projectIds={quickProjects}
         type={quickType}
         imageFile={quickImage}
@@ -684,6 +697,7 @@ export function StreamScreen({
       {showPeopleFilterSheet && (
         <PeopleFilterSheet
           contacts={contacts}
+          importedContacts={importedContacts}
           currentUserId={currentUserId}
           userInitials={userInitials}
           userColor={userColor}
@@ -731,9 +745,12 @@ export function StreamScreen({
           mode={quickSheetMode}
           setMode={setQuickSheetMode}
           contacts={contacts}
+          importedContacts={importedContacts}
           selectedRecipients={quickRecipients}
+          selectedImportedRecipients={quickImportedRecipients}
           selectedTags={quickTagIds}
           onToggleRecipient={toggleQuickRecipient}
+          onToggleImportedRecipient={toggleQuickImportedRecipient}
           tags={availableTags}
           onToggleTag={toggleQuickTag}
           onAttachImage={() => quickFileInputRef.current?.click()}
@@ -762,9 +779,12 @@ function QuickContextSheet({
   mode,
   setMode,
   contacts,
+  importedContacts,
   selectedRecipients,
+  selectedImportedRecipients,
   selectedTags,
   onToggleRecipient,
+  onToggleImportedRecipient,
   tags,
   onToggleTag,
   onAttachImage,
@@ -774,9 +794,12 @@ function QuickContextSheet({
   mode: "menu" | "who" | "tag"
   setMode: (mode: "menu" | "who" | "tag") => void
   contacts: Contact[]
+  importedContacts: ImportedContact[]
   selectedRecipients: string[]
+  selectedImportedRecipients: string[]
   selectedTags: string[]
   onToggleRecipient: (id: string) => void
+  onToggleImportedRecipient: (id: string) => void
   tags: MessageTag[]
   onToggleTag: (id: string) => void
   onAttachImage: () => void
@@ -789,6 +812,10 @@ function QuickContextSheet({
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const filteredContacts = contacts.filter((contact) =>
     contact.name.toLowerCase().includes(userSearch.trim().toLowerCase())
+  )
+  const unregisteredContacts = importedContacts.filter(
+    (c) => c.status === "not_registered" &&
+      c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
   )
   const filteredTags = tags.filter((tag) =>
     tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase())
@@ -838,7 +865,34 @@ function QuickContextSheet({
                 </button>
               ))}
               {contacts.length === 0 && <p className="text-xs text-muted-foreground">No other users yet.</p>}
-              {contacts.length > 0 && filteredContacts.length === 0 && <p className="text-xs text-muted-foreground">No users found.</p>}
+              {contacts.length > 0 && filteredContacts.length === 0 && userSearch && <p className="text-xs text-muted-foreground">No users found.</p>}
+              {unregisteredContacts.length > 0 && (
+                <>
+                  <div className="w-full mt-1 mb-0.5">
+                    <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-muted-foreground/60 font-mono">Not registered</p>
+                  </div>
+                  {unregisteredContacts.map((ic) => {
+                    const initials = ic.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
+                    const selected = selectedImportedRecipients.includes(ic.id)
+                    return (
+                      <button
+                        key={ic.id}
+                        onClick={() => onToggleImportedRecipient(ic.id)}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-semibold transition-all",
+                          selected ? "bg-primary/15 border-primary/30 text-primary" : "bg-white/5 border-white/10 text-muted-foreground"
+                        )}
+                      >
+                        <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                          {initials}
+                        </div>
+                        {ic.name}
+                        {selected && <Check className="w-3 h-3" />}
+                      </button>
+                    )
+                  })}
+                </>
+              )}
             </div>
           </>
         )}
@@ -1086,6 +1140,7 @@ function SheetAction({ icon, label, onClick }: { icon: React.ReactNode; label: s
 
 function PeopleFilterSheet({
   contacts,
+  importedContacts,
   currentUserId,
   userInitials,
   userColor,
@@ -1094,6 +1149,7 @@ function PeopleFilterSheet({
   onClose,
 }: {
   contacts: Contact[]
+  importedContacts: ImportedContact[]
   currentUserId: string
   userInitials: string
   userColor: string
@@ -1107,7 +1163,12 @@ function PeopleFilterSheet({
     { id: currentUserId, name: "Me", initials: userInitials, color: userColor },
     ...contacts,
   ].filter((person) => person.id)
-  const filtered = people.filter((person) => person.name.toLowerCase().includes(query.trim().toLowerCase()))
+  const q = query.trim().toLowerCase()
+  const filtered = people.filter((person) => !q || person.name.toLowerCase().includes(q))
+  // Only show unregistered imported contacts
+  const unregistered = importedContacts
+    .filter((c) => c.status === "not_registered" && c.ownerUserId)
+    .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
   const toggle = (id: string) => {
     onChange(selectedPeople.includes(id) ? selectedPeople.filter((item) => item !== id) : [...selectedPeople, id])
   }
@@ -1156,7 +1217,33 @@ function PeopleFilterSheet({
               </button>
             )
           })}
-          {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No people found.</p>}
+          {unregistered.length > 0 && (
+            <>
+              <p className="px-1 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                Not registered
+              </p>
+              {unregistered.map((c) => {
+                const selected = selectedPeople.includes(c.id)
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => toggle(c.id)}
+                    className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left", selected ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/60")}
+                  >
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white/50 shrink-0 bg-white/10 border border-white/15">
+                      {(c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{c.name}</p>
+                      {c.email && <p className="text-[10px] text-muted-foreground truncate">{c.email}</p>}
+                    </div>
+                    {selected && <Check className="w-4 h-4 text-primary" />}
+                  </button>
+                )
+              })}
+            </>
+          )}
+          {filtered.length === 0 && unregistered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No people found.</p>}
         </div>
       </div>
     </>
@@ -1338,8 +1425,12 @@ function ImageViewerModal({
   image: { url: string; name?: string }
   onClose: () => void
 }) {
-  const [zoom, setZoom] = useState(1)
-  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [displayZoom, setDisplayZoom] = useState(1)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const transformRef = useRef({ zoom: 1, x: 0, y: 0 })
+  const frameRef = useRef<number | null>(null)
+  const lastLabelAt = useRef(0)
+  const pendingLabelSync = useRef(false)
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const lastPan = useRef<{ x: number; y: number } | null>(null)
   const lastPinchDistance = useRef<number | null>(null)
@@ -1349,25 +1440,50 @@ function ImageViewerModal({
       if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      if (frameRef.current) cancelAnimationFrame(frameRef.current)
+    }
   }, [onClose])
 
-  useEffect(() => {
-    if (zoom <= 1) setOffset({ x: 0, y: 0 })
-  }, [zoom])
+  const paintTransform = (syncLabel = false) => {
+    if (syncLabel) pendingLabelSync.current = true
+    if (frameRef.current) return
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null
+      const { zoom, x, y } = transformRef.current
+      if (imageRef.current) {
+        imageRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`
+        imageRef.current.style.cursor = zoom > 1 ? "grab" : "zoom-in"
+      }
 
-  const updateZoom = (nextZoom: number) => {
-    setZoom(Math.min(3, Math.max(1, nextZoom)))
+      const now = performance.now()
+      if (pendingLabelSync.current || now - lastLabelAt.current > 120) {
+        pendingLabelSync.current = false
+        lastLabelAt.current = now
+        setDisplayZoom(zoom)
+      }
+    })
+  }
+
+  const setTransformZoom = (nextZoom: number, syncLabel = false) => {
+    const zoom = Math.min(3, Math.max(1, nextZoom))
+    transformRef.current.zoom = zoom
+    if (zoom <= 1) {
+      transformRef.current.x = 0
+      transformRef.current.y = 0
+    }
+    paintTransform(syncLabel)
   }
 
   const resetZoom = () => {
-    setZoom(1)
-    setOffset({ x: 0, y: 0 })
+    transformRef.current = { zoom: 1, x: 0, y: 0 }
+    paintTransform(true)
   }
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.stopPropagation()
-    updateZoom(zoom + (event.deltaY < 0 ? 0.2 : -0.2))
+    setTransformZoom(transformRef.current.zoom + (event.deltaY < 0 ? 0.2 : -0.2), true)
   }
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1391,18 +1507,17 @@ function ImageViewerModal({
       const distance = getPointerDistance([...pointers.current.values()])
       const previousDistance = lastPinchDistance.current
       if (previousDistance) {
-        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / previousDistance))))
+        setTransformZoom(transformRef.current.zoom * (distance / previousDistance))
       }
       lastPinchDistance.current = distance
       return
     }
 
     const previousPan = lastPan.current
-    if (zoom <= 1 || !previousPan) return
-    setOffset((currentOffset) => ({
-      x: currentOffset.x + event.clientX - previousPan.x,
-      y: currentOffset.y + event.clientY - previousPan.y,
-    }))
+    if (transformRef.current.zoom <= 1 || !previousPan) return
+    transformRef.current.x += event.clientX - previousPan.x
+    transformRef.current.y += event.clientY - previousPan.y
+    paintTransform()
     lastPan.current = { x: event.clientX, y: event.clientY }
   }
 
@@ -1429,18 +1544,17 @@ function ImageViewerModal({
       const distance = getPointerDistance(points)
       const previousDistance = lastPinchDistance.current
       if (previousDistance) {
-        setZoom((currentZoom) => Math.min(3, Math.max(1, currentZoom * (distance / previousDistance))))
+        setTransformZoom(transformRef.current.zoom * (distance / previousDistance))
       }
       lastPinchDistance.current = distance
       return
     }
 
     const previousPan = lastPan.current
-    if (zoom <= 1 || points.length !== 1 || !previousPan) return
-    setOffset((currentOffset) => ({
-      x: currentOffset.x + points[0].x - previousPan.x,
-      y: currentOffset.y + points[0].y - previousPan.y,
-    }))
+    if (transformRef.current.zoom <= 1 || points.length !== 1 || !previousPan) return
+    transformRef.current.x += points[0].x - previousPan.x
+    transformRef.current.y += points[0].y - previousPan.y
+    paintTransform()
     lastPan.current = points[0]
   }
 
@@ -1448,6 +1562,7 @@ function ImageViewerModal({
     const points = getTouchPoints(event.touches)
     lastPinchDistance.current = points.length >= 2 ? getPointerDistance(points) : null
     lastPan.current = points.length === 1 ? points[0] : null
+    paintTransform(true)
   }
 
   return (
@@ -1485,13 +1600,15 @@ function ImageViewerModal({
           onDoubleClick={resetZoom}
         >
           <img
+            ref={imageRef}
             src={image.url}
             alt={image.name || "Attached image"}
             draggable={false}
-            className="max-h-[calc(100dvh-5.5rem)] max-w-[calc(100vw-0.75rem)] select-none rounded-2xl border border-white/10 bg-[#071326] object-contain shadow-2xl transition-transform duration-150"
+            className="max-h-[calc(100dvh-5.5rem)] max-w-[calc(100vw-0.75rem)] select-none rounded-2xl border border-white/10 bg-[#071326] object-contain shadow-2xl"
             style={{
-              transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
-              cursor: zoom > 1 ? "grab" : "zoom-in",
+              transform: "translate3d(0, 0, 0) scale(1)",
+              cursor: "zoom-in",
+              willChange: "transform",
             }}
           />
         </div>
@@ -1500,18 +1617,18 @@ function ImageViewerModal({
       <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-1/2 z-[72] flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-[#0d1c35]/90 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
         <button
           type="button"
-          onClick={(event) => { event.stopPropagation(); updateZoom(zoom - 0.25) }}
+          onClick={(event) => { event.stopPropagation(); setTransformZoom(transformRef.current.zoom - 0.25, true) }}
           className="h-10 w-10 rounded-full text-muted-foreground flex items-center justify-center active:scale-95 hover:bg-white/8 hover:text-white"
           aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
         </button>
         <span className="min-w-12 text-center text-[11px] font-bold text-foreground/80 font-mono">
-          {Math.round(zoom * 100)}%
+          {Math.round(displayZoom * 100)}%
         </span>
         <button
           type="button"
-          onClick={(event) => { event.stopPropagation(); updateZoom(zoom + 0.25) }}
+          onClick={(event) => { event.stopPropagation(); setTransformZoom(transformRef.current.zoom + 0.25, true) }}
           className="h-10 w-10 rounded-full text-muted-foreground flex items-center justify-center active:scale-95 hover:bg-white/8 hover:text-white"
           aria-label="Zoom in"
         >
@@ -1579,7 +1696,9 @@ function MessageBubble({
     return project ? { id: tagId, name: project.name, projectId, color: project.color, isFavorited: project.isFavorited } : null
   }).filter(Boolean) as Array<{ id: string; name: string; color: string; systemType?: MessageType; projectId?: string; isFavorited?: boolean }>
 
-  const hasDirectRecipients = (message.recipientIds ?? []).filter(Boolean).length > 0
+  const hasDirectRecipients =
+    (message.recipientIds ?? []).filter(Boolean).length > 0 ||
+    (message.contactIds ?? []).filter(Boolean).length > 0
 
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe

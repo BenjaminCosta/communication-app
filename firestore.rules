@@ -89,5 +89,19 @@ service cloud.firestore {
                       || request.auth.uid == resource.data.get('senderId', '')
                     );
     }
+
+    // ── Imported Contacts ──────────────────────────────────────────────────
+    // Private by default. If visibility == "global", any authenticated user can read.
+    // Only the owner can update, delete, or create.
+    match /contacts/{contactId} {
+      allow read: if request.auth != null && (
+                    request.auth.uid == resource.data.ownerUserId ||
+                    resource.data.visibility == "global"
+                  );
+      allow update, delete: if request.auth != null
+                            && request.auth.uid == resource.data.ownerUserId;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.ownerUserId;
+    }
   }
 }

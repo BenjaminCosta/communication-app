@@ -92,5 +92,15 @@ service cloud.firestore {
                       || request.auth.uid == resource.data.get('senderId', '')
                     );
     }
+
+    // ── Imported Contacts ──────────────────────────────────────────────────
+    // Strictly private: only the owner can read, write, update, or delete
+    // their own imported contacts. No cross-user visibility.
+    match /contacts/{contactId} {
+      allow read, update, delete: if request.auth != null
+                                  && request.auth.uid == resource.data.ownerUserId;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.ownerUserId;
+    }
   }
 }

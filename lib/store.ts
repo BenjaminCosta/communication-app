@@ -5,9 +5,30 @@ export type TagCategory = "systemType" | "project" | "task" | "custom" | "report
 export interface Contact {
   id: string   // Firebase UID
   name: string
+  email?: string
   initials: string
   color: string
   lastSeen?: Date | null
+}
+
+export type ImportedContactSource = "google" | "manual"
+export type ImportedContactStatus = "not_registered" | "registered"
+
+export type ImportedContactVisibility = "private" | "global"
+
+export interface ImportedContact {
+  id: string                          // Firestore auto-ID
+  ownerUserId: string                 // Firebase UID of the user who imported this contact
+  name: string
+  email?: string
+  phone?: string
+  source: ImportedContactSource
+  tags: string[]                      // Freeform string labels, e.g. "client", "vendor"
+  linkedUserId?: string | null        // Firebase UID once the contact registers
+  status: ImportedContactStatus
+  visibility?: ImportedContactVisibility  // "private" (default) | "global"
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface Project {
@@ -55,6 +76,7 @@ export interface Message {
   createdAt?: Date
   updatedAt?: Date
   isFavorited?: boolean
+  contactIds?: string[]  // imported contact doc IDs from /contacts collection
   imageUrl?: string
   imagePath?: string
   imageName?: string
@@ -65,8 +87,9 @@ export interface Message {
 
 export interface MessageDraft {
   text: string
-  contactIds: string[]
+  contactIds: string[]        // registered user Firebase UIDs
   peopleIds?: string[]
+  importedContactIds?: string[] // imported contact doc IDs from /contacts collection
   projectIds: string[]
   tagIds?: string[]
   type: MessageType

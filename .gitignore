@@ -40,3 +40,9 @@ svc-comms-firebase-adminsdk-*.json
 *.firebase-adminsdk-*.json
 serviceAccountKey.json
 *.serviceAccount.json
+
+# VS Code workspace settings (personal/local)
+.vscode/
+
+# Local docs
+VSCODE_TIPS.md

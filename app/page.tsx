@@ -22,6 +22,9 @@ import {
   getDocs,
   serverTimestamp,
   Timestamp,
+  arrayUnion,
+  arrayRemove,
+  deleteField,
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { auth, db, storage } from "@/lib/firebase"
@@ -37,6 +40,7 @@ import { ProjectListScreen } from "@/components/project-list-screen"
 import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
+import { PeopleScreen } from "@/components/people-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
@@ -45,6 +49,7 @@ import {
   type MessageType,
   type Project,
   type Contact,
+  type ImportedContact,
   PROJECT_COLORS,
   USER_COLORS,
   deriveNameFromEmail,
@@ -75,6 +80,7 @@ type Screen =
   | "privacy"
   | "projects"
   | "project-detail"
+  | "people"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -88,6 +94,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   notifications: 4,
   privacy: 4,
   projects: 4,
+  people: 4,
   "project-detail": 5,
 }
 
@@ -133,6 +140,7 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     createdAt: toDate(data.createdAt ?? data.timestamp),
     updatedAt: toDate(data.updatedAt ?? data.timestamp),
     isFavorited: data.isFavorited ?? false,
+    contactIds: Array.isArray(data.contactIds) ? data.contactIds.filter(Boolean) : [],
     imageUrl: data.imageUrl,
     imagePath: data.imagePath,
     imageName: data.imageName,
@@ -157,6 +165,7 @@ export default function Home() {
   const [projectMessages, setProjectMessages] = useState<Message[]>([])
   const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [importedContacts, setImportedContacts] = useState<ImportedContact[]>([])
 
   // Merged feed: union of all message sources, deduped by ID.
   // participantMessages = legacy query (array-contains participants)
@@ -249,8 +258,6 @@ export default function Home() {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setFirebaseUser(user)
-        // User doc may not exist yet if created via createUserWithEmailAndPassword
-        // We'll get it from contacts listener or create it here as fallback
         const name = user.displayName || deriveNameFromEmail(user.email ?? "")
         const initials = deriveInitials(name)
         setCurrentUser({
@@ -258,7 +265,10 @@ export default function Home() {
           name,
           initials,
           color: getUserAvatarColor(user.uid),
+          email: user.email ?? undefined,
         })
+        // Ensure email is always persisted so other users can see it
+        await setDoc(doc(db, "users", user.uid), { email: user.email ?? "" }, { merge: true })
         navigateTo("compose")
       } else {
         setFirebaseUser(null)
@@ -267,6 +277,7 @@ export default function Home() {
         setParticipantMessages([])
         setProjectMessages([])
         setProjects([])
+        setImportedContacts([])
         navigateTo("login")
       }
     })
@@ -284,6 +295,7 @@ export default function Home() {
         return {
           id: data.id ?? d.id,
           name: data.name,
+          email: data.email ?? undefined,
           initials: data.initials,
           color: data.color ?? getUserAvatarColor(d.id),
           lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
@@ -327,11 +339,39 @@ export default function Home() {
       setVisibleMessages([])
     })
 
+    // 5. Imported contacts — strictly private, owner-only
+    const contactsQuery = query(
+      collection(db, "contacts"),
+      where("ownerUserId", "==", firebaseUser.uid)
+    )
+    const importedContactsUnsub = onSnapshot(contactsQuery, (snap) => {
+      setImportedContacts(snap.docs.map((d) => {
+        const data = d.data()
+        return {
+          id: d.id,
+          ownerUserId: data.ownerUserId,
+          name: data.name,
+          email: data.email ?? undefined,
+          phone: data.phone ?? undefined,
+          source: data.source ?? "manual",
+          tags: Array.isArray(data.tags) ? data.tags : [],
+          linkedUserId: data.linkedUserId ?? null,
+          status: data.status ?? "not_registered",
+          visibility: data.visibility ?? "private",
+          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
+          updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+        } as ImportedContact
+      }))
+    }, () => {
+      setImportedContacts([])
+    })
+
     return () => {
       usersUnsub()
       projectsUnsub()
       messagesUnsub()
       visibleUnsub()
+      importedContactsUnsub()
     }
   }, [firebaseUser, listenerKey])
 
@@ -385,7 +425,7 @@ export default function Home() {
     const uid = cred.user.uid
     const initials = deriveInitials(name)
     const color = getUserAvatarColor(uid)
-    const userDoc: Contact = { id: uid, name, initials, color }
+    const userDoc: Contact = { id: uid, name, email, initials, color }
     await setDoc(doc(db, "users", uid), userDoc)
     // onAuthStateChanged will handle navigation
   }, [])
@@ -562,6 +602,7 @@ export default function Home() {
         content: text,
         text,
         type: legacyType,
+        contactIds: draft.importedContactIds ?? [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
@@ -623,7 +664,7 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (peopleIds: string[], tagIds: string[]) => {
+    async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = []) => {
       if (!selectedMessageId) return
       const selectedMessage = messages.find((m) => m.id === selectedMessageId)
       if (!selectedMessage) return
@@ -660,6 +701,7 @@ export default function Home() {
         tagIds,
         participants: mergedParticipants,
         visibleToUserIds,
+        contactIds: importedContactIds,
         updatedAt: serverTimestamp(),
       })
       setSelectedMessageId(null)
@@ -702,6 +744,113 @@ export default function Home() {
     [messages, projects, showToast]
   )
 
+  // ── Imported contact handlers ─────────────────────────────────────────
+  const handleSaveImportedContacts = useCallback(
+    async (newContacts: Omit<ImportedContact, "id">[]) => {
+      if (!firebaseUser || newContacts.length === 0) return
+      const batch = writeBatch(db)
+      newContacts.forEach((c) => {
+        const ref = doc(collection(db, "contacts"))
+        batch.set(ref, {
+          ownerUserId: c.ownerUserId,
+          name: c.name,
+          source: c.source,
+          tags: c.tags,
+          linkedUserId: c.linkedUserId,
+          status: c.status,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...(c.email != null && { email: c.email }),
+          ...(c.phone != null && { phone: c.phone }),
+        })
+      })
+      await batch.commit()
+      showToast(`${newContacts.length} contact${newContacts.length === 1 ? "" : "s"} imported ✓`, undefined, 3000)
+    },
+    [firebaseUser, showToast]
+  )
+
+  const handleInviteContact = useCallback(
+    (contact: ImportedContact) => {
+      const url = `${window.location.origin}`
+      const fallback = () => {
+        try {
+          const el = document.createElement("textarea")
+          el.value = url
+          el.style.cssText = "position:fixed;opacity:0;pointer-events:none"
+          document.body.appendChild(el)
+          el.select()
+          document.execCommand("copy")
+          document.body.removeChild(el)
+        } catch {}
+      }
+      if (navigator?.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).catch(fallback)
+      } else {
+        fallback()
+      }
+      haptic.light()
+      showToast(`Invite link copied for ${contact.name}`, undefined, 3000)
+    },
+    [showToast]
+  )
+
+  const handleAddTagToContact = useCallback(
+    async (contactId: string, tag: string) => {
+      const trimmed = tag.trim()
+      if (!trimmed) return
+      await updateDoc(doc(db, "contacts", contactId), {
+        tags: arrayUnion(trimmed),
+        updatedAt: serverTimestamp(),
+      })
+    },
+    []
+  )
+
+  const handleRemoveTagFromContact = useCallback(
+    async (contactId: string, tag: string) => {
+      await updateDoc(doc(db, "contacts", contactId), {
+        tags: arrayRemove(tag),
+        updatedAt: serverTimestamp(),
+      })
+    },
+    []
+  )
+
+  const handleDeleteImportedContact = useCallback(
+    async (contactId: string) => {
+      haptic.destructive()
+      await deleteDoc(doc(db, "contacts", contactId))
+      showToast("Contact removed", undefined, 2000)
+    },
+    [showToast]
+  )
+
+  const handleUpdateImportedContact = useCallback(
+    async (contactId: string, updates: { email?: string | null; phone?: string | null }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fields: Record<string, any> = { updatedAt: serverTimestamp() }
+      if ("email" in updates) {
+        fields.email = updates.email?.trim() ? updates.email.trim() : deleteField()
+      }
+      if ("phone" in updates) {
+        fields.phone = updates.phone?.trim() ? updates.phone.trim() : deleteField()
+      }
+      await updateDoc(doc(db, "contacts", contactId), fields)
+    },
+    []
+  )
+
+  const handleSetContactVisibility = useCallback(
+    async (contactId: string, visibility: "private" | "global") => {
+      await updateDoc(doc(db, "contacts", contactId), {
+        visibility,
+        updatedAt: serverTimestamp(),
+      })
+    },
+    []
+  )
+
   // ── Navigation helpers ────────────────────────────────────────────────
   const handleMessageClick = useCallback((message: Message) => {
     setSelectedMessageId(message.id)
@@ -734,6 +883,7 @@ export default function Home() {
     navigateTo(notificationsReturnRef.current)
   }, [navigateTo])
   const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
+  const goToPeople = useCallback(() => navigateTo("people"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -793,18 +943,21 @@ export default function Home() {
   const messageMatchesPeopleFilter = useCallback((message: Message, peopleIds: string[]) => {
     if (peopleIds.length === 0) return true
 
-    const filterablePeopleIds = new Set<string>()
-    if (message.senderId) filterablePeopleIds.add(message.senderId)
-    if (message.authorId) filterablePeopleIds.add(message.authorId)
+    const senderIds = new Set<string>()
+    if (message.senderId) senderIds.add(message.senderId)
+    if (message.authorId) senderIds.add(message.authorId)
 
-    const recipientIds = (message.recipientIds ?? []).filter(Boolean)
-    const storedPeopleIds = (message.peopleIds ?? []).filter(Boolean)
+    const allIds = new Set<string>(senderIds)
+    ;(message.recipientIds ?? []).filter(Boolean).forEach((id) => allIds.add(id))
+    ;(message.peopleIds ?? []).filter(Boolean).forEach((id) => allIds.add(id))
+    ;(message.contactIds ?? []).filter(Boolean).forEach((id) => allIds.add(id))
 
-    recipientIds.forEach((id) => filterablePeopleIds.add(id))
-    storedPeopleIds.forEach((id) => filterablePeopleIds.add(id))
-
-    return peopleIds.some((id) => filterablePeopleIds.has(id))
-  }, [])
+    return peopleIds.some((id) => {
+      // "Me" filter → only messages the current user SENT
+      if (id === firebaseUser?.uid) return senderIds.has(id)
+      return allIds.has(id)
+    })
+  }, [firebaseUser?.uid])
 
   const filteredMessages = useMemo(() =>
     messages.filter((message) =>
@@ -845,6 +998,7 @@ export default function Home() {
           onNotifications={goToNotificationsFromProfile}
           onPrivacy={goToPrivacy}
           onProjects={goToProjects}
+          onPeople={goToPeople}
         />
       )}
 
@@ -854,6 +1008,24 @@ export default function Home() {
 
       {!showScreenSkeleton && activeScreen === "privacy" && (
         <PrivacySecurityScreen className={entranceClass} onBack={goToProfile} />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "people" && currentUser && (
+        <PeopleScreen
+          className={entranceClass}
+          contacts={contacts}
+          currentUser={currentUser}
+          importedContacts={importedContacts}
+          registeredUsers={[currentUser, ...contacts]}
+          onBack={goToProfile}
+          onSaveImportedContacts={handleSaveImportedContacts}
+          onInviteContact={handleInviteContact}
+          onAddTagToContact={handleAddTagToContact}
+          onRemoveTagFromContact={handleRemoveTagFromContact}
+          onDeleteImportedContact={handleDeleteImportedContact}
+          onUpdateImportedContact={handleUpdateImportedContact}
+          onSetContactVisibility={handleSetContactVisibility}
+        />
       )}
 
       {!showScreenSkeleton && activeScreen === "projects" && (
@@ -902,6 +1074,7 @@ export default function Home() {
           projects={projects}
           onCreateProject={handleCreateProject}
           contacts={contacts}
+          importedContacts={importedContacts}
           initialProjectId={composeInitialProjectId}
           availableTags={availableTags}
         />
@@ -923,7 +1096,7 @@ export default function Home() {
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
             onProfile={goToProfile}
-            onNotifications={goToNotificationsFromStream}
+            onPeople={goToPeople}
             onDeleteMessage={handleDeleteMessage}
             onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}
@@ -941,6 +1114,7 @@ export default function Home() {
             onCreateProject={handleCreateProject}
             activeUsers={activeUsers}
             availableTags={availableTags}
+            importedContacts={importedContacts}
           />
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}
           <div
@@ -975,6 +1149,7 @@ export default function Home() {
               projects={projects}
               onCreateProject={handleCreateProject}
               contacts={contacts}
+              importedContacts={importedContacts}
               availableTags={availableTags}
             />
           )}

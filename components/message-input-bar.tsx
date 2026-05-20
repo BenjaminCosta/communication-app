@@ -7,6 +7,7 @@ import {
   type Contact,
   type MessageType,
   type Project,
+  type ImportedContact,
   MESSAGE_TYPE_CONFIG,
 } from "@/lib/store"
 
@@ -22,6 +23,9 @@ interface MessageInputBarProps {
   imagePreview: string | null
   imageError?: string | null
   sendError?: string | null
+  importedContacts?: ImportedContact[]
+  importedRecipients?: string[]
+  onRemoveImportedRecipient?: (id: string) => void
   isSending: boolean
   isSent?: boolean
   onOpenSheet: () => void
@@ -45,6 +49,9 @@ export function MessageInputBar({
   imagePreview,
   imageError,
   sendError,
+  importedContacts = [],
+  importedRecipients = [],
+  onRemoveImportedRecipient,
   isSending,
   isSent = false,
   onOpenSheet,
@@ -56,7 +63,7 @@ export function MessageInputBar({
   showProjectChips = true,
 }: MessageInputBarProps) {
   const visibleProjectIds = showProjectChips ? projectIds : []
-  const hasContext = recipients.length > 0 || visibleProjectIds.length > 0 || type !== "none" || !!imageFile
+  const hasContext = recipients.length > 0 || importedRecipients.length > 0 || visibleProjectIds.length > 0 || type !== "none" || !!imageFile
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -97,6 +104,15 @@ export function MessageInputBar({
             return (
               <ContextChip key={id} onRemove={() => onRemoveRecipient(id)}>
                 To: {contact.name.split(" ")[0]}
+              </ContextChip>
+            )
+          })}
+          {importedRecipients.map((id) => {
+            const ic = importedContacts.find((c) => c.id === id)
+            if (!ic) return null
+            return (
+              <ContextChip key={`ic-${id}`} onRemove={() => onRemoveImportedRecipient?.(id)}>
+                To: {ic.name.split(" ")[0]}
               </ContextChip>
             )
           })}

@@ -11,6 +11,7 @@ import {
   type Contact,
   type Project,
   type Tag as MessageTag,
+  type ImportedContact,
   MESSAGE_TYPE_CONFIG,
   parseProjectTagId,
   parseSystemTypeTagId,
@@ -25,16 +26,18 @@ interface ComposeScreenProps {
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   mode?: "fullscreen" | "sheet"
   contacts: Contact[]
+  importedContacts?: ImportedContact[]
   initialProjectId?: string | null
   availableTags?: MessageTag[]
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, initialProjectId, availableTags }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, availableTags }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
+  const [selectedImportedContacts, setSelectedImportedContacts] = useState<string[]>([])
   const [selectedProjects, setSelectedProjects] = useState<string[]>(initialProjectId ? [initialProjectId] : [])
   const [selectedType, setSelectedType] = useState<MessageType>("none")
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -56,6 +59,12 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    )
+  }
+
+  const toggleImportedContact = (id: string) => {
+    setSelectedImportedContacts((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
     )
   }
@@ -142,6 +151,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         text: text.trim(),
         contactIds: selectedContacts,
         peopleIds: selectedContacts,
+        importedContactIds: selectedImportedContacts,
         projectIds: selectedProjects,
         tagIds: selectedTagIds,
         type: selectedType,
@@ -160,6 +170,10 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
     .map((id) => contacts.find((contact) => contact.id === id))
     .filter(Boolean) as Contact[]
 
+  const selectedImportedPeople = selectedImportedContacts
+    .map((id) => importedContacts.find((c) => c.id === id))
+    .filter(Boolean) as ImportedContact[]
+
   const selectedTags = selectedTagIds
     .map((id) => displayTags.find((tag) => tag.id === id))
     .filter(Boolean) as MessageTag[]
@@ -170,12 +184,18 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         .filter((contact) => contact.name.toLowerCase().includes(searchQuery))
         .slice(0, 4)
     : []
+  const searchImported = searchQuery
+    ? importedContacts
+        .filter((c) => c.status === "not_registered" &&
+          (c.name.toLowerCase().includes(searchQuery) || (c.email ?? "").toLowerCase().includes(searchQuery)))
+        .slice(0, 3)
+    : []
   const searchTags = searchQuery
     ? displayTags
         .filter((tag) => tag.name.toLowerCase().includes(searchQuery))
         .slice(0, 6)
     : []
-  const hasSearchResults = searchQuery.length > 0 && (searchPeople.length > 0 || searchTags.length > 0)
+  const hasSearchResults = searchQuery.length > 0 && (searchPeople.length > 0 || searchTags.length > 0 || searchImported.length > 0)
 
   const handleFirstFocus = () => {
     if (!firstFocusRef.current) return
@@ -247,6 +267,23 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                       }}
                     />
                   ))}
+                  {searchImported.map((c) => (
+                    <SearchResultButton
+                      key={c.id}
+                      label={c.name}
+                      typeLabel="Not registered"
+                      selected={selectedImportedContacts.includes(c.id)}
+                      icon={
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white/50 bg-white/10 border border-white/15">
+                          {(c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"}
+                        </span>
+                      }
+                      onClick={() => {
+                        toggleImportedContact(c.id)
+                        setGlobalSearch("")
+                      }}
+                    />
+                  ))}
                   {searchTags.map((tag) => (
                     <SearchResultButton
                       key={tag.id}
@@ -311,12 +348,18 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           </p>
         )}
 
-        {(selectedPeople.length > 0 || selectedTags.length > 0) && (
+        {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {selectedPeople.map((contact) => (
               <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
                 <User className="w-3 h-3" />
                 {contact.name}
+              </SelectedChip>
+            ))}
+            {selectedImportedPeople.map((c) => (
+              <SelectedChip key={c.id} onRemove={() => toggleImportedContact(c.id)}>
+                <User className="w-3 h-3 opacity-50" />
+                <span className="opacity-70">{c.name}</span>
               </SelectedChip>
             ))}
             {selectedTags.map((tag) => (
@@ -341,10 +384,35 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                       onClick={() => toggleContact(contact.id)}
                     />
                   ))}
-                  {contacts.length === 0 && (
+                  {contacts.length === 0 && importedContacts.filter(c => c.status === "not_registered").length === 0 && (
                     <p className="px-2 py-8 text-center text-xs text-muted-foreground">No people available yet.</p>
                   )}
                 </div>
+                {importedContacts.filter(c => c.status === "not_registered").length > 0 && (
+                  <>
+                    <p className="px-1 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Not registered</p>
+                    <div className="flex flex-wrap gap-2">
+                      {importedContacts.filter(c => c.status === "not_registered").map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleImportedContact(c.id)}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors",
+                            selectedImportedContacts.includes(c.id)
+                              ? "bg-primary/15 border-primary/30 text-primary"
+                              : "bg-white/5 border-white/10 text-foreground/60"
+                          )}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-[9px] font-bold text-white/50">
+                            {(c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"}
+                          </span>
+                          {c.name}
+                          {selectedImportedContacts.includes(c.id) && <Check className="w-3 h-3" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="max-h-52 overflow-y-auto pr-1 scrollbar-hide">
@@ -380,10 +448,10 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         <div className="flex gap-2 flex-wrap">
           <OptionChip
             icon={<User className="w-3.5 h-3.5" />}
-            active={activeAssociation === "who" || selectedContacts.length > 0}
+            active={activeAssociation === "who" || selectedContacts.length > 0 || selectedImportedContacts.length > 0}
             onClick={() => setActiveAssociation((current) => current === "who" ? null : "who")}
           >
-            {selectedContacts.length > 0 ? `${selectedContacts.length} Who` : "+ Who"}
+            {(selectedContacts.length + selectedImportedContacts.length) > 0 ? `${selectedContacts.length + selectedImportedContacts.length} Who` : "+ Who"}
           </OptionChip>
           <OptionChip
             icon={<Tag className="w-3.5 h-3.5" />}
@@ -536,7 +604,7 @@ function SearchResultButton({
   onClick,
 }: {
   label: string
-  typeLabel: "Person" | "Tag"
+  typeLabel: "Person" | "Tag" | string
   icon: React.ReactNode
   selected: boolean
   onClick: () => void

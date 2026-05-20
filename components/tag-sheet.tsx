@@ -8,6 +8,7 @@ import {
   type Message,
   type Project,
   type Contact,
+  type ImportedContact,
   type Tag as MessageTag,
   getContactFromList,
   formatTime,
@@ -23,20 +24,24 @@ import {
 
 interface TagSheetProps {
   message: Message
-  onApply: (peopleIds: string[], tagIds: string[]) => void
+  onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[]) => void
   onClose: () => void
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
   contacts: Contact[]
+  importedContacts?: ImportedContact[]
   availableTags?: MessageTag[]
 }
 
-export function TagSheet({ message, onApply, onClose, projects, contacts, availableTags }: TagSheetProps) {
+export function TagSheet({ message, onApply, onClose, projects, contacts, importedContacts = [], availableTags }: TagSheetProps) {
   const tags = availableTags ?? getAvailableTags(projects)
   const [selectedTags, setSelectedTags] = useState<string[]>(getMessageTagIds(message))
   // Pre-populate with existing participants minus the sender
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>(
     getMessagePeopleIds(message)
+  )
+  const [selectedImported, setSelectedImported] = useState<string[]>(
+    (message.contactIds ?? []).filter(Boolean)
   )
   const [userSearch, setUserSearch] = useState("")
   const [tagSearch, setTagSearch] = useState("")
@@ -50,6 +55,11 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     )
 
+  const toggleImported = (id: string) =>
+    setSelectedImported((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    )
+
   const toggleTag = (id: string) =>
     setSelectedTags((prev) =>
       prev.includes(id) ? prev.filter((tagId) => tagId !== id) : [...prev, id]
@@ -57,6 +67,10 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
 
   const filteredContacts = contacts.filter((c) =>
     c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
+  )
+  const unregistered = importedContacts.filter(
+    (c) => c.status === "not_registered" &&
+      c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
   )
   const filteredTags = tags.filter((tag) =>
     tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase())
@@ -66,7 +80,7 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
 
   const handleApply = () => {
     haptic.success()
-    onApply(selectedParticipants, selectedTags)
+    onApply(selectedParticipants, selectedTags, selectedImported)
   }
 
   return (
@@ -125,7 +139,7 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
           />
         </div>
         <div className="flex flex-wrap gap-2 px-4 pb-3 max-h-20 overflow-y-auto scrollbar-hide">
-          {filteredContacts.length === 0 && (
+          {filteredContacts.length === 0 && unregistered.length === 0 && (
             <p className="text-xs text-muted-foreground py-1 px-1">No other users yet.</p>
           )}
           {filteredContacts.map((c) => {
@@ -143,6 +157,28 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, availa
               >
                 <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white", c.color)}>
                   {c.initials}
+                </div>
+                {c.name.split(" ")[0]}
+                {active && <Check className="w-3 h-3" />}
+              </button>
+            )
+          })}
+          {unregistered.map((c) => {
+            const active = selectedImported.includes(c.id)
+            const initials = (c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"
+            return (
+              <button
+                key={c.id}
+                onClick={() => toggleImported(c.id)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all active:scale-95",
+                  active
+                    ? "bg-primary/15 border-primary/30 text-primary"
+                    : "bg-white/5 border-white/10 text-muted-foreground/70"
+                )}
+              >
+                <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/50">
+                  {initials}
                 </div>
                 {c.name.split(" ")[0]}
                 {active && <Check className="w-3 h-3" />}
