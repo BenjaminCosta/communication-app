@@ -42,6 +42,7 @@ import { NotificationsScreen } from "@/components/notifications-screen"
 import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { PeopleScreen } from "@/components/people-screen"
 import { AdminScreen } from "@/components/admin-screen"
+import { CalendarScreen } from "@/components/calendar-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
@@ -51,6 +52,7 @@ import {
   type Project,
   type Contact,
   type ImportedContact,
+  type TagCategory,
   PROJECT_COLORS,
   USER_COLORS,
   deriveNameFromEmail,
@@ -67,6 +69,7 @@ import {
   projectTagId,
   sortTagsByActivity,
   computeVisibleToUserIds,
+  type CategoryItem,
 } from "@/lib/store"
 
 type Screen =
@@ -83,6 +86,7 @@ type Screen =
   | "project-detail"
   | "people"
   | "admin"
+  | "calendar"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -93,6 +97,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   compose: 2,
   tag: 2,
   profile: 3,
+  calendar: 3,
   notifications: 4,
   privacy: 4,
   projects: 4,
@@ -150,6 +155,17 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     imageContentType: data.imageContentType,
     imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
     imageUploadedAt: data.imageUploadedAt ? toDate(data.imageUploadedAt) : undefined,
+    calendarDates: Array.isArray(data.calendarDates)
+      ? data.calendarDates
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((d: any) => ({
+            id: String(d.id ?? ""),
+            date: String(d.date ?? ""),
+            createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : new Date(),
+            createdBy: String(d.createdBy ?? ""),
+          }))
+          .filter((d: { date: string }) => !!d.date)
+      : undefined,
   }
 }
 
@@ -168,6 +184,7 @@ export default function Home() {
   const [projectMessages, setProjectMessages] = useState<Message[]>([])
   const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
   const [importedContacts, setImportedContacts] = useState<ImportedContact[]>([])
 
   // Merged feed: union of all message sources, deduped by ID.
@@ -209,11 +226,14 @@ export default function Home() {
   const [listenerKey, setListenerKey] = useState(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
   const [composeInitialProjectId, setComposeInitialProjectId] = useState<string | null>(null)
+  const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null)
   const notificationsReturnRef = useRef<Screen>("profile")
+  const tagSourceScreenRef = useRef<Screen>("stream")
 
   // Directional transition tracking
   const prevScreenRef = useRef<Screen>("loading")
   const [entranceClass, setEntranceClass] = useState("animate-fade-in")
+  const [calendarEntranceClass, setCalendarEntranceClass] = useState("animate-fade-in")
   const [showScreenSkeleton, setShowScreenSkeleton] = useState(false)
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -232,14 +252,16 @@ export default function Home() {
   // ── Core navigation ───────────────────────────────────────────────────
   const navigateTo = useCallback((next: Screen) => {
     const prev = prevScreenRef.current
+    let cls: string
     if (prev === "login" || prev === "register" || next === "login" || next === "register") {
-      setEntranceClass("animate-fade-in")
+      cls = "animate-fade-in"
     } else {
       const d = SCREEN_DEPTH[next] - SCREEN_DEPTH[prev]
-      setEntranceClass(
-        d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in"
-      )
+      cls = d > 0 ? "animate-slide-in-right" : d < 0 ? "animate-slide-in-left" : "animate-fade-in"
     }
+    setEntranceClass(cls)
+    // Only update calendar's entrance class when truly navigating to it (not returning from tag overlay)
+    if (next === "calendar" && prev !== "tag") setCalendarEntranceClass(cls)
     if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
     const shouldSkeleton = prev !== "loading" && next === "project-detail"
     setShowScreenSkeleton(shouldSkeleton)
@@ -320,6 +342,18 @@ export default function Home() {
       setProjects(snap.docs.map((d) => d.data() as Project))
     }, () => {})
 
+    // 2b. User-created categories
+    const categoriesUnsub = onSnapshot(collection(db, "categories"), (snap) => {
+      setCustomCategories(
+        snap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name as string,
+          isSystem: false,
+          isTimeBased: d.data().isTimeBased ?? false,
+        }))
+      )
+    }, () => {})
+
     // 3. Messages where current user is a participant (legacy, kept for backward compat)
     const messagesQuery = query(
       collection(db, "messages"),
@@ -373,6 +407,7 @@ export default function Home() {
     return () => {
       usersUnsub()
       projectsUnsub()
+      categoriesUnsub()
       messagesUnsub()
       visibleUnsub()
       importedContactsUnsub()
@@ -441,22 +476,38 @@ export default function Home() {
 
   // ── Project handlers ──────────────────────────────────────────────────
   const handleCreateProject = useCallback(
-    async (name: string, memberIds: string[] = []): Promise<Project> => {
+    async (name: string, memberIds: string[] = [], category?: TagCategory): Promise<Project> => {
       const color = PROJECT_COLORS[nextColorIndex.current % PROJECT_COLORS.length]
       nextColorIndex.current += 1
       const id = generateProjectId()
       const members = firebaseUser ? [...new Set([firebaseUser.uid, ...memberIds])] : memberIds
+      // Use user-selected category; fallback: "project" if multiple members, else "custom"
+      const tagCategory = category ?? (members.length > 1 ? "project" : "custom")
       const newProject: Project = {
         id,
         name: name.trim(),
         color,
         members,
         ownerId: firebaseUser?.uid ?? "",
-        tagCategory: members.length > 1 ? "project" : "custom",
+        tagCategory,
       }
       await setDoc(doc(db, "projects", id), newProject)
       showToast(`"${newProject.name}" created`, undefined, 2500)
       return newProject
+    },
+    [firebaseUser, showToast]
+  )
+
+  const handleCreateCategory = useCallback(
+    async (name: string) => {
+      if (!firebaseUser || !name.trim()) return
+      await addDoc(collection(db, "categories"), {
+        name: name.trim(),
+        createdBy: firebaseUser.uid,
+        createdAt: serverTimestamp(),
+        isTimeBased: false,
+      })
+      showToast(`Category "${name.trim()}" created`, undefined, 2000)
     },
     [firebaseUser, showToast]
   )
@@ -530,11 +581,14 @@ export default function Home() {
   )
 
   const handleRenameProject = useCallback(
-    async (id: string, name: string) => {
+    async (id: string, name: string, category?: TagCategory) => {
       const nextName = name.trim()
       if (!nextName) return
-      await updateDoc(doc(db, "projects", id), { name: nextName })
-      showToast("Tag renamed ✓", undefined, 2000)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updates: Record<string, any> = { name: nextName }
+      if (category) updates.tagCategory = category
+      await updateDoc(doc(db, "projects", id), updates)
+      showToast("Tag updated ✓", undefined, 2000)
     },
     [showToast]
   )
@@ -593,6 +647,16 @@ export default function Home() {
         projects
       )
 
+      // Build calendarDates from draft date strings
+      const calendarDateObjects = (draft.calendarDates ?? [])
+        .filter(Boolean)
+        .map((dateStr, idx) => ({
+          id: `cd-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          date: dateStr,
+          createdAt: Timestamp.now(),
+          createdBy: firebaseUser.uid,
+        }))
+
       const msgData = {
         authorId: firebaseUser.uid,
         senderId: firebaseUser.uid,
@@ -611,9 +675,11 @@ export default function Home() {
         updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
         isFavorited: false,
+        ...(calendarDateObjects.length > 0 ? { calendarDates: calendarDateObjects } : {}),
         ...imageMeta,
       }
       await addDoc(collection(db, "messages"), msgData)
+      setCalendarInitialDate(null)
       navigateTo("stream")
     },
     [firebaseUser, projects, navigateTo, showToast]
@@ -668,7 +734,7 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = []) => {
+    async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = [], calendarDates?: string[]) => {
       if (!selectedMessageId) return
       const selectedMessage = messages.find((m) => m.id === selectedMessageId)
       if (!selectedMessage) return
@@ -696,6 +762,18 @@ export default function Home() {
         projects
       )
 
+      // Build calendarDates update — only overwrite if caller passed the array
+      const newCalendarDates = calendarDates !== undefined
+        ? calendarDates
+            .filter(Boolean)
+            .map((dateStr, idx) => ({
+              id: `cd-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+              date: dateStr,
+              createdAt: Timestamp.now(),
+              createdBy: firebaseUser!.uid,
+            }))
+        : undefined
+
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
         recipientIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
@@ -706,6 +784,7 @@ export default function Home() {
         participants: mergedParticipants,
         visibleToUserIds,
         contactIds: importedContactIds,
+        ...(newCalendarDates !== undefined ? { calendarDates: newCalendarDates } : {}),
         updatedAt: serverTimestamp(),
       })
       setSelectedMessageId(null)
@@ -857,13 +936,14 @@ export default function Home() {
 
   // ── Navigation helpers ────────────────────────────────────────────────
   const handleMessageClick = useCallback((message: Message) => {
+    tagSourceScreenRef.current = activeScreen as Screen
     setSelectedMessageId(message.id)
     navigateTo("tag")
-  }, [navigateTo])
+  }, [navigateTo, activeScreen])
 
   const handleCloseTag = useCallback(() => {
     setSelectedMessageId(null)
-    navigateTo("stream")
+    navigateTo(tagSourceScreenRef.current)
   }, [navigateTo])
 
   const goToCompose = useCallback(() => {
@@ -902,6 +982,60 @@ export default function Home() {
   const handleProjectsBack = useCallback(() => {
     navigateTo(projectsReturnRef.current)
   }, [navigateTo])
+
+  const goToCalendar = useCallback(() => navigateTo("calendar"), [navigateTo])
+
+  const handleNewMessageFromCalendar = useCallback(
+    (date: string) => {
+      setCalendarInitialDate(date)
+      setComposeInitialProjectId(null)
+      setComposeMode("fullscreen")
+      navigateTo("compose")
+    },
+    [navigateTo]
+  )
+
+  const handleSendFromCalendar = useCallback(
+    async (text: string, date: string, peopleIds: string[] = [], incomingTagIds: string[] = [], importedContactIds: string[] = []) => {
+      if (!firebaseUser) return
+      const projectIds = getLegacyProjectIdsFromTagIds(incomingTagIds, []).filter(Boolean)
+      const legacyType = getLegacyTypeFromTagIds(incomingTagIds, "none")
+      const tagIds = [...new Set([
+        ...incomingTagIds,
+        ...getMessageTagIds({ tagIds: undefined, type: legacyType, projectId: projectIds[0] ?? null, projectIds, project_id: null }),
+      ])]
+      const projectMembers = projectIds.flatMap((pid) => projects.find((p) => p.id === pid)?.members ?? [])
+      const participants = [...new Set([firebaseUser.uid, ...peopleIds, ...projectMembers])]
+      const visibleToUserIds = computeVisibleToUserIds(firebaseUser.uid, peopleIds, tagIds, projects)
+      const calendarDateObj = {
+        id: `cd-${Date.now()}-0-${Math.random().toString(36).slice(2, 6)}`,
+        date,
+        createdAt: Timestamp.now(),
+        createdBy: firebaseUser.uid,
+      }
+      await addDoc(collection(db, "messages"), {
+        authorId: firebaseUser.uid,
+        senderId: firebaseUser.uid,
+        recipientIds: peopleIds,
+        peopleIds,
+        participants,
+        visibleToUserIds,
+        projectIds,
+        projectId: projectIds[0] ?? null,
+        tagIds,
+        content: text,
+        text,
+        type: legacyType,
+        contactIds: importedContactIds,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        timestamp: serverTimestamp(),
+        isFavorited: false,
+        calendarDates: [calendarDateObj],
+      })
+    },
+    [firebaseUser, projects]
+  )
 
   const handleCopyMessage = useCallback((text: string) => {
     const fallback = () => {
@@ -1056,6 +1190,8 @@ export default function Home() {
           onDeleteProject={handleDeleteProject}
           onFavoriteProject={handleFavoriteProject}
           onRenameProject={handleRenameProject}
+          customCategories={customCategories}
+          onCreateCategory={handleCreateCategory}
         />
       )}
 
@@ -1092,13 +1228,42 @@ export default function Home() {
           contacts={contacts}
           importedContacts={importedContacts}
           initialProjectId={composeInitialProjectId}
+          initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
           availableTags={availableTags}
         />
       )}
 
+      {!showScreenSkeleton && (activeScreen === "calendar" || (activeScreen === "tag" && tagSourceScreenRef.current === "calendar")) && (
+        <>
+          <CalendarScreen
+            className={calendarEntranceClass}
+            messages={messages}
+            contacts={contacts}
+            projects={projects}
+            currentUserId={currentUser?.id ?? ""}
+            onBack={goToStream}
+            onSendMessage={handleSendFromCalendar}
+            onMessageClick={handleMessageClick}
+            importedContacts={importedContacts}
+          />
+          {activeScreen === "tag" && selectedMessage && (
+            <TagSheet
+              message={selectedMessage}
+              onApply={handleApplyTag}
+              onClose={handleCloseTag}
+              projects={projects}
+              onCreateProject={handleCreateProject}
+              contacts={contacts}
+              importedContacts={importedContacts}
+              availableTags={availableTags}
+            />
+          )}
+        </>
+      )}
+
       {!showScreenSkeleton && (activeScreen === "stream" ||
         (activeScreen === "compose" && composeMode === "sheet") ||
-        activeScreen === "tag") && (
+        (activeScreen === "tag" && tagSourceScreenRef.current !== "calendar")) && (
         <>
           <StreamScreen
             messages={filteredMessages}
@@ -1125,12 +1290,15 @@ export default function Home() {
             onDeleteProject={handleDeleteProject}
             onFavoriteProject={handleFavoriteProject}
             onProjects={goToProjectsFromStream}
+            onCalendar={goToCalendar}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}
             activeUsers={activeUsers}
             availableTags={availableTags}
             importedContacts={importedContacts}
+            customCategories={customCategories}
+            onCreateCategory={handleCreateCategory}
           />
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}
           <div
@@ -1152,6 +1320,7 @@ export default function Home() {
                   onCreateProject={handleCreateProject}
                   contacts={contacts}
                   initialProjectId={composeInitialProjectId}
+                  initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
                   availableTags={availableTags}
                 />
               </div>

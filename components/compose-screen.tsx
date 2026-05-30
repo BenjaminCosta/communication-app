@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -12,26 +12,32 @@ import {
   type Project,
   type Tag as MessageTag,
   type ImportedContact,
+  type TagCategory,
   MESSAGE_TYPE_CONFIG,
+  CATEGORY_CONFIG,
   parseProjectTagId,
   parseSystemTypeTagId,
   projectTagId,
   systemTypeTagId,
+  isCategoryTimeBased,
 } from "@/lib/store"
+import { DatePickerModal } from "@/components/date-picker-modal"
 
 interface ComposeScreenProps {
   onCancel: () => void
   onSend: (draft: MessageDraft) => Promise<void>
   projects: Project[]
-  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
+  onCreateProject: (name: string, memberIds?: string[], category?: TagCategory) => Promise<Project>
   mode?: "fullscreen" | "sheet"
   contacts: Contact[]
   importedContacts?: ImportedContact[]
   initialProjectId?: string | null
+  /** Pre-selected calendar dates (from Calendar screen "Add" flow) */
+  initialCalendarDates?: string[]
   availableTags?: MessageTag[]
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, availableTags }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
@@ -50,6 +56,9 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   const [isSent, setIsSent] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
   const [activeAssociation, setActiveAssociation] = useState<"who" | "tag" | null>(null)
+  // Calendar dates: "YYYY-MM-DD" strings
+  const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(initialCalendarDates ?? [])
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -112,7 +121,17 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
       return
     }
     const projectId = parseProjectTagId(tagId)
-    if (projectId) toggleProject(projectId)
+    if (projectId) {
+      const isCurrentlySelected = selectedProjects.includes(projectId)
+      toggleProject(projectId)
+      // If selecting (not deselecting) a timedate-category tag, open date picker
+      if (!isCurrentlySelected) {
+        const tag = displayTags.find((t) => t.id === tagId)
+        if (isCategoryTimeBased(tag?.category ?? "")) {
+          setShowDatePicker(true)
+        }
+      }
+    }
   }
 
   const handlePickImage = (file: File | null) => {
@@ -156,6 +175,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         tagIds: selectedTagIds,
         type: selectedType,
         imageFile,
+        calendarDates: selectedCalendarDates.length > 0 ? selectedCalendarDates : undefined,
       })
       clearImage()
     } catch {
@@ -288,7 +308,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                     <SearchResultButton
                       key={tag.id}
                       label={tag.name}
-                      typeLabel="Tag"
+                      typeLabel={tag.category !== "systemType" ? CATEGORY_CONFIG[tag.category]?.label ?? "Tag" : "Tag"}
                       selected={selectedTagIds.includes(tag.id)}
                       icon={<span className={cn("w-2.5 h-2.5 rounded-full", tagDotClass(tag))} />}
                       onClick={() => {
@@ -348,7 +368,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           </p>
         )}
 
-        {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0) && (
+        {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0 || selectedCalendarDates.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {selectedPeople.map((contact) => (
               <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
@@ -368,6 +388,22 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 {tag.name}
               </SelectedChip>
             ))}
+            {selectedCalendarDates.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(true)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-400/12 px-2.5 py-1 text-[11px] font-semibold text-sky-400 active:scale-95 transition-transform"
+              >
+                <CalendarDays className="w-3 h-3" />
+                {selectedCalendarDates.length === 1
+                  ? formatDateChip(selectedCalendarDates[0])
+                  : `${selectedCalendarDates.length} dates`}
+                <X
+                  className="w-3 h-3 ml-0.5"
+                  onClick={(e) => { e.stopPropagation(); setSelectedCalendarDates([]) }}
+                />
+              </button>
+            )}
           </div>
         )}
 
@@ -467,6 +503,17 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           >
             {imageFile ? imageFile.name : "Image"}
           </OptionChip>
+          <OptionChip
+            icon={<CalendarDays className="w-3.5 h-3.5" />}
+            active={selectedCalendarDates.length > 0}
+            onClick={() => setShowDatePicker(true)}
+          >
+            {selectedCalendarDates.length > 0
+              ? selectedCalendarDates.length === 1
+                ? formatDateChip(selectedCalendarDates[0])
+                : `${selectedCalendarDates.length} dates`
+              : "Date"}
+          </OptionChip>
         </div>
       </div>
 
@@ -509,6 +556,19 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           </button>
         </div>
       </div>
+
+      {/* Date picker modal */}
+      {showDatePicker && (
+        <DatePickerModal
+          selectedDates={selectedCalendarDates}
+          title="Schedule dates"
+          onConfirm={(dates) => {
+            setSelectedCalendarDates(dates)
+            setShowDatePicker(false)
+          }}
+          onClose={() => setShowDatePicker(false)}
+        />
+      )}
     </div>
   )
 }
@@ -669,6 +729,11 @@ function TagCard({
         <span className={cn("h-2 w-2 shrink-0 rounded-full", tagDotClass(tag))} />
         <span className="min-w-0 flex-1">
           <span className="line-clamp-1 text-xs font-bold leading-snug">{tag.name}</span>
+          {tag.category !== "systemType" && (
+            <span className="block text-[9px] font-semibold uppercase tracking-[1.2px] text-muted-foreground/50 leading-none mt-0.5">
+              {CATEGORY_CONFIG[tag.category]?.label ?? "Custom"}
+            </span>
+          )}
         </span>
         {selected && <Check className="h-4 w-4 shrink-0" />}
       </span>
@@ -682,4 +747,9 @@ function tagDotClass(tag: MessageTag): string {
   if (tag.systemType === "feedback") return "bg-feedback"
   if (tag.systemType === "decision") return "bg-decision"
   return tag.color || "bg-primary"
+}
+
+function formatDateChip(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }

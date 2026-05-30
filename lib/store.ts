@@ -1,6 +1,90 @@
 // Types
 export type MessageType = "progress" | "problem" | "feedback" | "decision" | "none"
-export type TagCategory = "systemType" | "project" | "task" | "custom" | "report" | "sales"
+
+/**
+ * TagCategory is a string — supports both system categories (hardcoded constants below)
+ * and user-created custom categories (stored as Firestore /categories doc IDs).
+ * Legacy values (priority, department, sales) are kept for backward-compat but hidden from UI.
+ */
+export type TagCategory = string
+
+export interface CategoryConfig {
+  label: string
+  order: number
+  isTimeBased?: boolean
+  hint?: string
+}
+
+/** Known system categories — fixed, non-deletable */
+export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
+  systemType: { label: "Type",       order: 0 },
+  project:    { label: "Project",    order: 1,  hint: "Team or client project" },
+  status:     { label: "Status",     order: 2,  hint: "Progress, decision, feedback, problem" },
+  timedate:   { label: "Date / Time",order: 3,  hint: "Deadline or milestone", isTimeBased: true },
+  report:     { label: "Report",     order: 4,  hint: "Reporting or analytics tag" },
+  task:       { label: "Task",       order: 5,  hint: "Actionable item or to-do" },
+  custom:     { label: "Custom",     order: 6,  hint: "User-defined tag" },
+  // Legacy — hidden from picker but kept for backward compat
+  priority:   { label: "Priority",   order: 100 },
+  department: { label: "Department", order: 101 },
+  sales:      { label: "Sales",      order: 102 },
+}
+
+/** A category item — either a system category or a user-created one */
+export interface CategoryItem {
+  id: string        // system key (e.g. "project") or Firestore doc ID for user-created
+  name: string
+  isSystem: boolean
+  isTimeBased?: boolean
+}
+
+/** The 5 fixed system categories shown in the UI (excludes systemType which is internal) */
+export const SYSTEM_CATEGORIES: CategoryItem[] = [
+  { id: "project",  name: "Project",    isSystem: true },
+  { id: "status",   name: "Status",     isSystem: true },
+  { id: "timedate", name: "Date / Time",isSystem: true, isTimeBased: true },
+  { id: "report",   name: "Report",     isSystem: true },
+  { id: "task",     name: "Task",       isSystem: true },
+]
+
+/** Returns the display label for any category id (system or user-created) */
+export function getCategoryLabel(categoryId: string, customCategories: CategoryItem[] = []): string {
+  if (CATEGORY_CONFIG[categoryId]) return CATEGORY_CONFIG[categoryId].label
+  const custom = customCategories.find(c => c.id === categoryId)
+  if (custom) return custom.name
+  return "Custom"
+}
+
+/** Returns true if this category triggers the date picker */
+export function isCategoryTimeBased(categoryId: string, customCategories: CategoryItem[] = []): boolean {
+  if (categoryId === "timedate") return true
+  const custom = customCategories.find(c => c.id === categoryId)
+  return custom?.isTimeBased ?? false
+}
+
+/** Categories the user can pick from when creating / editing a tag */
+export const USER_SELECTABLE_CATEGORIES: TagCategory[] = [
+  "project",
+  "status",
+  "timedate",
+  "report",
+  "task",
+  "custom",
+]
+
+/** Sorted display order for the tag list (excludes systemType) */
+export const CATEGORY_ORDER: TagCategory[] = [
+  "project",
+  "status",
+  "timedate",
+  "report",
+  "task",
+  "custom",
+  // Legacy — appear at end if tags exist with these categories
+  "priority",
+  "department",
+  "sales",
+]
 
 export interface Contact {
   id: string   // Firebase UID
@@ -58,6 +142,22 @@ export interface Tag {
   lastUsedAt?: Date | null
 }
 
+/**
+ * A date entry attached to a message for calendar display.
+ * A message can have multiple dates (e.g. repeating deadlines).
+ * Removing all dates removes the message from the calendar.
+ *
+ * Future fields (not activated in V1):
+ *   reminderAt?: Date          — push notification trigger
+ *   notificationEnabled?: boolean
+ */
+export interface CalendarDate {
+  id: string
+  date: string        // "YYYY-MM-DD"
+  createdAt: Date
+  createdBy: string   // Firebase UID
+}
+
 export interface Message {
   id: string
   senderId: string        // Firebase UID of sender
@@ -84,6 +184,7 @@ export interface Message {
   imageContentType?: string
   imageSize?: number
   imageUploadedAt?: Date
+  calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
 }
 
 export interface MessageDraft {
@@ -95,6 +196,7 @@ export interface MessageDraft {
   tagIds?: string[]
   type: MessageType
   imageFile?: File | null
+  calendarDates?: string[]    // "YYYY-MM-DD" strings; page.tsx wraps to CalendarDate[]
 }
 
 export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string; border: string; label: string }> = {

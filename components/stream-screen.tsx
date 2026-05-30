@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -12,6 +12,8 @@ import {
   type Contact,
   type Tag as MessageTag,
   type ImportedContact,
+  type TagCategory,
+  type CategoryItem,
   getContactFromList,
   formatTime,
   getMessageTagIds,
@@ -22,10 +24,16 @@ import {
   systemTypeTagId,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
+import { UniversalAddModal } from "@/components/universal-add-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
+
+function formatCalDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
 
 function isSameDay(a: Date, b: Date): boolean {
   return (
@@ -56,7 +64,7 @@ interface StreamScreenProps {
   onTagFilterChange: (ids: string[]) => void
   onCompose: () => void
   onMessageClick: (message: Message) => void
-  onNewProject: (name: string, memberIds: string[]) => void
+  onNewProject: (name: string, memberIds: string[], category?: TagCategory) => void
   onProfile: () => void
   onPeople: () => void
   onDeleteMessage: (id: string) => void
@@ -71,12 +79,15 @@ interface StreamScreenProps {
   onDeleteProject: (id: string) => void
   onFavoriteProject: (id: string) => void
   onProjects: () => void
+  onCalendar: () => void
   onCopyMessage: (text: string) => void
   onSendMessage: (draft: MessageDraft) => Promise<void>
-  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
+  onCreateProject: (name: string, memberIds?: string[], category?: TagCategory) => Promise<Project>
   activeUsers: Contact[]
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
+  customCategories?: CategoryItem[]
+  onCreateCategory?: (name: string) => void
 }
 
 export function StreamScreen({
@@ -104,14 +115,18 @@ export function StreamScreen({
   onDeleteProject,
   onFavoriteProject,
   onProjects,
+  onCalendar,
   onCopyMessage,
   onSendMessage,
   onCreateProject,
   activeUsers,
   availableTags,
   importedContacts,
+  customCategories = [],
+  onCreateCategory,
 }: StreamScreenProps) {
   const [showCreateProject, setShowCreateProject] = useState(false)
+  const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
   const [projectTagCtx, setProjectTagCtx] = useState<{ projectId: string; messageId: string } | null>(null)
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null)
@@ -365,6 +380,13 @@ export function StreamScreen({
           >
             <LayoutGrid className="w-4 h-4 text-muted-foreground" />
           </button>
+          {/* Calendar */}
+          <button
+            onClick={onCalendar}
+            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+          >
+            <CalendarDays className="w-4 h-4 text-muted-foreground" />
+          </button>
           {/* Profile avatar */}
           <button
             onClick={onProfile}
@@ -414,7 +436,7 @@ export function StreamScreen({
           </span>
         </button>
         <button
-          onClick={() => setShowCreateProject(true)}
+          onClick={() => setShowUniversalAdd(true)}
           className="w-8 h-8 rounded-full shrink-0 transition-all border bg-white/5 border-dashed border-white/20 text-foreground/60 hover:border-primary/40 hover:text-primary hover:bg-primary/10 active:bg-white/10 flex items-center justify-center text-lg font-light"
         >
           +
@@ -686,9 +708,10 @@ export function StreamScreen({
       {showCreateProject && (
         <CreateProjectModal
           contacts={contacts}
+          customCategories={customCategories}
           onClose={() => setShowCreateProject(false)}
-          onSubmit={(name, memberIds) => {
-            onNewProject(name, memberIds)
+          onSubmit={(name, memberIds, category) => {
+            onNewProject(name, memberIds, category)
             setShowCreateProject(false)
           }}
         />
@@ -754,7 +777,7 @@ export function StreamScreen({
           tags={availableTags}
           onToggleTag={toggleQuickTag}
           onAttachImage={() => quickFileInputRef.current?.click()}
-          onCreateProject={() => { setShowQuickSheet(false); setShowCreateQuickProject(true) }}
+          onCreateProject={() => { setShowQuickSheet(false); setShowUniversalAdd(true) }}
           onClose={() => setShowQuickSheet(false)}
         />
       )}
@@ -762,11 +785,23 @@ export function StreamScreen({
       {showCreateQuickProject && (
         <CreateProjectModal
           contacts={contacts}
+          customCategories={customCategories}
           onClose={() => setShowCreateQuickProject(false)}
-          onSubmit={async (name, memberIds) => {
-            const project = await onCreateProject(name, memberIds)
+          onSubmit={async (name, memberIds, category) => {
+            const project = await onCreateProject(name, memberIds, category)
             setQuickProjects((prev) => [...new Set([...prev, project.id])])
             setShowCreateQuickProject(false)
+          }}
+        />
+      )}
+
+      {showUniversalAdd && (
+        <UniversalAddModal
+          onClose={() => setShowUniversalAdd(false)}
+          onChooseTag={() => { setShowUniversalAdd(false); setShowCreateQuickProject(true) }}
+          onCreateCategory={(name) => {
+            onCreateCategory?.(name)
+            setShowUniversalAdd(false)
           }}
         />
       )}
@@ -1792,19 +1827,19 @@ function MessageBubble({
             </div>
           )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {/* Safety fallback: no tags computed AND no recipients → Unassigned */}
-            {messageTags.length === 0 && !hasDirectRecipients && (
+            {/* Safety fallback: no tags computed AND no recipients AND no calendar dates → Unassigned */}
+            {messageTags.length === 0 && !hasDirectRecipients && !(message.calendarDates ?? []).length && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
-            {messageTags.length === 0 && !hasDirectRecipients && (
+            {messageTags.length === 0 && !hasDirectRecipients && !(message.calendarDates ?? []).length && (
               <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
                 Unassigned
               </span>
             )}
             {messageTags.map((tag) => {
               if (tag.systemType === "none") {
-                // Don't show Unassigned if message has direct recipients
-                if (hasDirectRecipients) return null
+                // Don't show Unassigned if message has direct recipients or calendar dates
+                if (hasDirectRecipients || (message.calendarDates ?? []).length > 0) return null
                 return (
                   <Fragment key={tag.id}>
                     <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
@@ -1834,6 +1869,13 @@ function MessageBubble({
                 </button>
               )
             })}
+            {/* Calendar date chips */}
+            {(message.calendarDates ?? []).map(cd => (
+              <span key={cd.id ?? cd.date} className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-400 bg-sky-400/10 border border-sky-400/25 rounded px-2 py-0.5 font-mono no-callout">
+                <CalendarDays className="w-2.5 h-2.5 shrink-0" />
+                {formatCalDate(cd.date)}
+              </span>
+            ))}
             {/* Direct recipients indicator — subtle yellow people icon */}
             {hasDirectRecipients && (
               <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, Search, X } from "lucide-react"
+import { Check, Search, X, CalendarDays } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
@@ -20,11 +20,14 @@ import {
   parseSystemTypeTagId,
   projectTagId,
   systemTypeTagId,
+  CATEGORY_CONFIG,
+  isCategoryTimeBased,
 } from "@/lib/store"
+import { DatePickerModal } from "@/components/date-picker-modal"
 
 interface TagSheetProps {
   message: Message
-  onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[]) => void
+  onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[], calendarDates?: string[]) => void
   onClose: () => void
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
@@ -46,6 +49,11 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, import
   const [userSearch, setUserSearch] = useState("")
   const [tagSearch, setTagSearch] = useState("")
   const [showTagPicker, setShowTagPicker] = useState(false)
+  // Calendar dates: pre-fill from existing message calendarDates
+  const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(
+    (message.calendarDates ?? []).map((d) => d.date).filter(Boolean)
+  )
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   const isEditing = selectedTags.length > 0 || selectedParticipants.length > 0
   const contact = getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" }
@@ -60,10 +68,22 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, import
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     )
 
-  const toggleTag = (id: string) =>
+  const toggleTag = (id: string) => {
+    const isCurrentlySelected = selectedTags.includes(id)
     setSelectedTags((prev) =>
-      prev.includes(id) ? prev.filter((tagId) => tagId !== id) : [...prev, id]
+      isCurrentlySelected ? prev.filter((tagId) => tagId !== id) : [...prev, id]
     )
+    // If selecting (not deselecting) a timedate-category project tag, open date picker
+    if (!isCurrentlySelected) {
+      const projectId = parseProjectTagId(id)
+      if (projectId) {
+        const project = projects.find((p) => p.id === projectId)
+        if (isCategoryTimeBased(project?.tagCategory ?? "")) {
+          setShowDatePicker(true)
+        }
+      }
+    }
+  }
 
   const filteredContacts = contacts.filter((c) =>
     c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
@@ -80,7 +100,7 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, import
 
   const handleApply = () => {
     haptic.success()
-    onApply(selectedParticipants, selectedTags, selectedImported)
+    onApply(selectedParticipants, selectedTags, selectedImported, selectedCalendarDates)
   }
 
   return (
@@ -241,12 +261,17 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, import
                     selected ? isUnassigned ? "bg-feedback/15" : "bg-primary/15" : "active:bg-white/5"
                   )}
                 >
-                  <div className={cn("w-2 h-2 rounded-full flex-shrink-0", tagDotClass(tag))} />
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
                   <span className={cn("text-sm font-semibold flex-1 text-left", selected ? isUnassigned ? "text-feedback" : "text-primary" : "text-foreground/90")}>
                     {tag.name}
                   </span>
+                  {tag.category !== "systemType" && (
+                    <span className="text-[10px] font-bold uppercase tracking-[1.2px] text-muted-foreground/40 font-mono shrink-0">
+                      {CATEGORY_CONFIG[tag.category]?.label ?? "Custom"}
+                    </span>
+                  )}
                   {selected && (
-                    <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />
+                    <Check className={cn("w-4 h-4 shrink-0", isUnassigned ? "text-feedback" : "text-primary")} />
                   )}
                 </button>
               )
@@ -257,19 +282,80 @@ export function TagSheet({ message, onApply, onClose, projects, contacts, import
           </div>
         )}
 
+        {/* Divider */}
+        <div className="h-px bg-white/10 mx-4 mt-3 mb-3" />
+
+        {/* Dates section */}
+        <div className="px-4 pb-1 flex items-center justify-between">
+          <h4 className="text-xs font-bold tracking-[1.5px] uppercase text-muted-foreground">
+            Dates
+          </h4>
+          <button
+            onClick={() => setShowDatePicker(true)}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-all active:scale-95",
+              selectedCalendarDates.length > 0
+                ? "bg-sky-400/12 border-sky-400/30 text-sky-400"
+                : "bg-white/5 border-white/10 text-muted-foreground"
+            )}
+          >
+            <CalendarDays className="w-3 h-3" />
+            {selectedCalendarDates.length > 0
+              ? `${selectedCalendarDates.length} date${selectedCalendarDates.length !== 1 ? "s" : ""}`
+              : "Add dates"}
+          </button>
+        </div>
+        {selectedCalendarDates.length > 0 && (
+          <div className="px-4 pb-2 flex flex-wrap gap-1.5 mt-1.5">
+            {selectedCalendarDates.map((d) => (
+              <span
+                key={d}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 bg-sky-400/10 border border-sky-400/25 rounded-full px-2.5 py-0.5"
+              >
+                {formatDateShort(d)}
+                <button
+                  type="button"
+                  onClick={() => setSelectedCalendarDates((prev) => prev.filter((x) => x !== d))}
+                  className="active:scale-90"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Apply Button */}
         <button
           onClick={handleApply}
           className={cn(
-            "mx-4 mt-4 w-[calc(100%-32px)] rounded-xl py-3 text-sm font-semibold tracking-wide transition-all",
+            "mx-4 mt-4 mb-2 w-[calc(100%-32px)] rounded-xl py-3 text-sm font-semibold tracking-wide transition-all",
             "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-[0.98]"
           )}
         >
           {isEditing ? "Save →" : "Apply →"}
         </button>
       </div>
+
+      {/* Date picker modal */}
+      {showDatePicker && (
+        <DatePickerModal
+          selectedDates={selectedCalendarDates}
+          title="Schedule dates"
+          onConfirm={(dates) => {
+            setSelectedCalendarDates(dates)
+            setShowDatePicker(false)
+          }}
+          onClose={() => setShowDatePicker(false)}
+        />
+      )}
     </div>
   )
+}
+
+function formatDateShort(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
 function tagDotClass(tag: MessageTag): string {
