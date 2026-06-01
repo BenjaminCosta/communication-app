@@ -1,8 +1,14 @@
 "use client"
 
-import { useState, useRef } from "react"
-import { ArrowLeft, Plus, FolderOpen, Star, Trash2, Pencil, X, Check } from "lucide-react"
+import { useState, useMemo } from "react"
+import {
+  ArrowLeft, Plus, FolderOpen, Trash2, Pencil, X, Check,
+  ChevronRight, Search, Hash, Folder, FileText, Clock,
+  CheckCircle2, MoreHorizontal, Lock, Info, Users, Archive,
+} from "lucide-react"
 import { UniversalAddModal } from "@/components/universal-add-modal"
+import { AddMembersModal } from "@/components/add-members-modal"
+import { ToastNotification } from "@/components/toast-notification"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Project,
@@ -13,10 +19,25 @@ import {
   messageHasProject,
   CATEGORY_CONFIG,
   CATEGORY_ORDER,
-  USER_SELECTABLE_CATEGORIES,
   SYSTEM_CATEGORIES,
+  getCategoryLabel,
+  isCategoryTimeBased,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
+
+// ── View & Sheet State Types ─────────────────────────────────────────────────
+
+type TagsView =
+  | { type: "home" }
+  | { type: "category"; categoryId: string }
+
+type ActionSheetState =
+  | { type: "none" }
+  | { type: "tagAction"; projectId: string }
+  | { type: "moveToCategory"; projectId: string }
+  | { type: "managePeople"; projectId: string }
+
+// ── Props ────────────────────────────────────────────────────────────────────
 
 interface ProjectListScreenProps {
   projects: Project[]
@@ -27,74 +48,183 @@ interface ProjectListScreenProps {
   onDeleteProject: (id: string) => void
   onFavoriteProject: (id: string) => void
   onRenameProject: (id: string, name: string, category?: TagCategory) => void
+  onUpdateMembers?: (projectId: string, memberIds: string[]) => void
   customCategories?: CategoryItem[]
   onCreateCategory?: (name: string) => void
   className?: string
   contacts: Contact[]
 }
 
+// ── Helpers (pure, outside component) ────────────────────────────────────────
+
+function isSystemLocked(categoryId: string): boolean {
+  return categoryId === "status" || categoryId === "systemType"
+}
+
+function CategoryIcon({ categoryId }: { categoryId: string }) {
+  const classes = "flex h-8 w-8 items-center justify-center rounded-xl flex-shrink-0"
+  if (categoryId === "systemType" || categoryId === "status") {
+    return <span className={cn(classes, "bg-progress/12 text-progress")}><CheckCircle2 className="w-4 h-4" /></span>
+  }
+  if (categoryId === "project") {
+    return <span className={cn(classes, "bg-primary/12 text-primary")}><Folder className="w-4 h-4" /></span>
+  }
+  if (categoryId === "report") {
+    return <span className={cn(classes, "bg-decision/12 text-decision")}><FileText className="w-4 h-4" /></span>
+  }
+  if (categoryId === "task") {
+    return <span className={cn(classes, "bg-feedback/12 text-feedback")}><CheckCircle2 className="w-4 h-4" /></span>
+  }
+  if (categoryId === "timedate") {
+    return <span className={cn(classes, "bg-sky-400/12 text-sky-400")}><Clock className="w-4 h-4" /></span>
+  }
+  return <span className={cn(classes, "bg-white/8 text-muted-foreground")}><Hash className="w-4 h-4" /></span>
+}
+
+function getPeopleLabel(project: Project, contacts: Contact[]): string {
+  if (project.members.length === 0) return "No people"
+  if (project.members.length === 1) {
+    return contacts.find(c => c.id === project.members[0])?.name ?? "1 person"
+  }
+  return `${project.members.length} people`
+}
+
+// ── Tag Row (shared between search results and category detail) ───────────────
+
+function TagRow({
+  project, msgCount, contacts, onSelect, onAction,
+}: {
+  project: Project
+  msgCount: number
+  contacts: Contact[]
+  onSelect: () => void
+  onAction: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10">
+      <div className={cn("w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center", project.color, "bg-opacity-20")}>
+        <div className={cn("w-3 h-3 rounded-full", project.color)} />
+      </div>
+      <button className="flex-1 min-w-0 text-left" onClick={onSelect}>
+        <p className="text-sm font-semibold text-foreground truncate">{project.name}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{getPeopleLabel(project, contacts)}</p>
+      </button>
+      {msgCount > 0 && (
+        <span className="flex-shrink-0 text-[10px] font-bold font-mono text-muted-foreground bg-white/5 border border-white/10 rounded-full px-2 py-0.5">
+          {msgCount} msg{msgCount !== 1 ? "s" : ""}
+        </span>
+      )}
+      <button
+        onClick={e => { e.stopPropagation(); onAction() }}
+        className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground/50 active:bg-white/10 transition-colors flex-shrink-0"
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
 export function ProjectListScreen({
   projects, messages, onBack, onProjectSelect, onCreateProject,
-  onDeleteProject, onFavoriteProject, onRenameProject,
+  onDeleteProject, onFavoriteProject, onRenameProject, onUpdateMembers,
   customCategories = [], onCreateCategory, className, contacts,
 }: ProjectListScreenProps) {
-  const [showUniversalAdd, setShowUniversalAdd] = useState(false)
-  const [showCreateTag, setShowCreateTag] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // View state
+  const [view, setView] = useState<TagsView>({ type: "home" })
+  const [homeQuery, setHomeQuery] = useState("")
+  const [categoryQuery, setCategoryQuery] = useState("")
+
+  // Sheet & modal state
+  const [actionSheet, setActionSheet] = useState<ActionSheetState>({ type: "none" })
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showUniversalAdd, setShowUniversalAdd] = useState(false)
+  const [showCreateTag, setShowCreateTag] = useState(false)
+  const [createInitialCategory, setCreateInitialCategory] = useState<TagCategory>("")
 
-  const msgCount = (projectId: string) =>
-    messages.filter((m) => messageHasProject(m, projectId)).length
-
-  const startPress = (projectId: string) => {
-    pressTimer.current = setTimeout(() => {
-      setSelectedId(projectId)
-      navigator?.vibrate?.(12)
-    }, 450)
+  // Local toast (for "Archive coming soon")
+  const [localToast, setLocalToast] = useState<string | null>(null)
+  const showLocalToast = (msg: string) => {
+    setLocalToast(msg)
+    setTimeout(() => setLocalToast(null), 2500)
   }
-  const cancelPress = () => {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null }
-  }
-  const clearSelection = () => { setSelectedId(null); setConfirmDeleteId(null) }
 
-  // All available categories for display (system + user-created)
-  const allCategories: CategoryItem[] = [
-    ...SYSTEM_CATEGORIES,
-    ...customCategories,
-    { id: "custom", name: "Custom", isSystem: true },
-  ]
+  const clearActionSheet = () => { setActionSheet({ type: "none" }); setConfirmDeleteId(null) }
 
-  // Build full display order: system order + custom categories + legacy
-  const displayOrder = [
-    ...allCategories.map(c => c.id),
-    ...CATEGORY_ORDER.filter(k => !allCategories.some(c => c.id === k)),
-  ]
+  // ── Derived data ──────────────────────────────────────────────────────────
 
-  const validCats = new Set(displayOrder)
+  // All categories in display order (system + custom, skip legacy order>=100)
+  const allDisplayCategories = useMemo((): Array<{ id: string; label: string }> => {
+    const cats: Array<{ id: string; label: string }> = []
+    for (const catId of CATEGORY_ORDER) {
+      const config = CATEGORY_CONFIG[catId]
+      if (!config || config.order >= 100) continue
+      cats.push({ id: catId, label: config.label })
+    }
+    for (const c of customCategories) {
+      if (!cats.some(cat => cat.id === c.id)) {
+        cats.push({ id: c.id, label: c.name })
+      }
+    }
+    return cats
+  }, [customCategories])
+
+  const allCategoryIds = useMemo(
+    () => new Set(allDisplayCategories.map(c => c.id)),
+    [allDisplayCategories]
+  )
+
   const effectiveCategory = (p: Project): string =>
-    p.tagCategory && validCats.has(p.tagCategory) ? p.tagCategory : "custom"
+    p.tagCategory && allCategoryIds.has(p.tagCategory) ? p.tagCategory : "custom"
 
-  const grouped: Array<{ catId: string; label: string; items: Project[] }> = []
-  for (const catId of displayOrder) {
-    const catProjects = projects.filter(p => effectiveCategory(p) === catId)
-    if (catProjects.length === 0) continue
-    const label = allCategories.find(c => c.id === catId)?.name
-      ?? CATEGORY_CONFIG[catId]?.label
-      ?? "Custom"
-    const sorted = [
-      ...catProjects.filter(p => p.isFavorited === true),
-      ...catProjects.filter(p => p.isFavorited !== true),
-    ]
-    grouped.push({ catId, label, items: sorted })
-  }
+  // Projects grouped by category
+  const projectsByCategory = useMemo(() => {
+    const map = new Map<string, Project[]>()
+    for (const p of projects) {
+      const cat = effectiveCategory(p)
+      if (!map.has(cat)) map.set(cat, [])
+      map.get(cat)!.push(p)
+    }
+    return map
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, allCategoryIds])
 
-  const selectedProject = selectedId ? projects.find(p => p.id === selectedId) : null
-  let globalIndex = 0
+  // Msg count per project
+  const msgCountByProject = useMemo(
+    () => new Map(projects.map(p => [p.id, messages.filter(m => messageHasProject(m, p.id)).length])),
+    [projects, messages]
+  )
 
-  return (
-    <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+  // Recently used: top 5 by lastUsedAt
+  const recentProjects = useMemo(
+    () => [...projects]
+      .filter(p => p.lastUsedAt != null)
+      .sort((a, b) => (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0))
+      .slice(0, 5),
+    [projects]
+  )
+
+  // Home search results
+  const homeSearchResults = useMemo(() => {
+    const q = homeQuery.trim().toLowerCase()
+    if (!q) return []
+    return projects.filter(p => p.name.toLowerCase().includes(q))
+  }, [projects, homeQuery])
+
+  // Category detail projects (filtered by search)
+  const categoryProjects = useMemo(() => {
+    if (view.type !== "category") return []
+    const all = projectsByCategory.get(view.categoryId) ?? []
+    const q = categoryQuery.trim().toLowerCase()
+    return q ? all.filter(p => p.name.toLowerCase().includes(q)) : all
+  }, [view, projectsByCategory, categoryQuery])
+
+  // ── View: Home ──────────────────────────────────────────────────────────
+
+  const homeView = (
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
@@ -112,10 +242,46 @@ export function ProjectListScreen({
         </div>
       </div>
 
-      {/* List */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide" onClick={() => selectedId && clearSelection()}>
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex flex-col gap-1">
-          {projects.length === 0 ? (
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3">
+
+          {/* Search bar */}
+          <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 mb-4">
+            <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <input
+              value={homeQuery}
+              onChange={e => setHomeQuery(e.target.value)}
+              placeholder="Search all tags..."
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+            />
+            {homeQuery && (
+              <button onClick={() => setHomeQuery("")}>
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
+          </label>
+
+          {/* Search results */}
+          {homeQuery.trim() ? (
+            homeSearchResults.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No tags found</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {homeSearchResults.map(p => (
+                  <TagRow
+                    key={p.id}
+                    project={p}
+                    msgCount={msgCountByProject.get(p.id) ?? 0}
+                    contacts={contacts}
+                    onSelect={() => onProjectSelect(p.id)}
+                    onAction={() => setActionSheet({ type: "tagAction", projectId: p.id })}
+                  />
+                ))}
+              </div>
+            )
+          ) : projects.length === 0 ? (
+            /* Empty state */
             <div className="flex flex-col items-center justify-center gap-3 py-24 animate-fade-up">
               <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
                 <FolderOpen className="w-7 h-7 text-muted-foreground/40" />
@@ -126,121 +292,345 @@ export function ProjectListScreen({
               </button>
             </div>
           ) : (
-            grouped.map(({ catId, label, items }) => (
-              <div key={catId} className="mb-3">
-                <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground/50 font-mono px-1 pb-1.5 pt-2">
-                  {label}
-                </p>
-                <div className="flex flex-col gap-2">
-                  {items.map(project => {
-                    const animIndex = globalIndex++
-                    return (
+            <>
+              {/* Recently used */}
+              {recentProjects.length > 0 && (
+                <div className="mb-5">
+                  <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground/50 font-mono px-1 pb-2">
+                    Recently Used
+                  </p>
+                  <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1">
+                    {recentProjects.map(p => (
                       <button
-                        key={project.id}
-                        onClick={e => {
-                          e.stopPropagation()
-                          if (selectedId) { clearSelection(); return }
-                          onProjectSelect(project.id)
-                        }}
-                        onPointerDown={e => { e.stopPropagation(); startPress(project.id) }}
-                        onPointerUp={cancelPress}
-                        onPointerLeave={cancelPress}
-                        onPointerCancel={cancelPress}
-                        className={cn(
-                          "w-full flex items-center gap-3 p-4 rounded-2xl bg-card border border-white/10 active:bg-white/5 hover:bg-white/[0.04] transition-colors duration-150 animate-fade-up text-left",
-                          selectedId === project.id && "ring-2 ring-primary/40 bg-primary/5"
-                        )}
-                        style={{ animationDelay: `${animIndex * 40}ms` }}
+                        key={p.id}
+                        onClick={() => onProjectSelect(p.id)}
+                        className="flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 min-w-[80px] active:bg-white/8 transition-colors"
                       >
-                        <div className={cn("w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center", project.color, "bg-opacity-20")}>
-                          <div className={cn("w-3 h-3 rounded-full", project.color)} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-sm font-semibold text-foreground truncate no-callout">{project.name}</p>
-                            {project.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current flex-shrink-0" />}
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {project.members.length === 0
-                              ? "No people"
-                              : project.members.length === 1
-                              ? contacts.find(c => c.id === project.members[0])?.name ?? "1 person"
-                              : `${project.members.length} people`}
-                          </p>
-                        </div>
-                        {msgCount(project.id) > 0 && (
-                          <span className="flex-shrink-0 text-[10px] font-bold font-mono text-muted-foreground bg-white/5 border border-white/10 rounded-full px-2 py-0.5 no-callout">
-                            {msgCount(project.id)} msg{msgCount(project.id) !== 1 ? "s" : ""}
-                          </span>
-                        )}
-                        <span className="text-muted-foreground/30 text-lg ml-1">›</span>
+                        <div className={cn("w-7 h-7 rounded-full flex-shrink-0", p.color)} />
+                        <p className="text-xs font-semibold text-foreground truncate max-w-[72px]">{p.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{getPeopleLabel(p, contacts)}</p>
                       </button>
-                    )
-                  })}
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Categories */}
+              <div>
+                <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground/50 font-mono px-1 pb-2">
+                  Categories
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {allDisplayCategories
+                    .filter(cat => (projectsByCategory.get(cat.id)?.length ?? 0) > 0 || isSystemLocked(cat.id))
+                    .map(cat => {
+                      const catProjects = projectsByCategory.get(cat.id) ?? []
+                      const totalMsgs = catProjects.reduce((sum, p) => sum + (msgCountByProject.get(p.id) ?? 0), 0)
+                      const locked = isSystemLocked(cat.id)
+                      const isTimedate = cat.id === "timedate"
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => { setCategoryQuery(""); setView({ type: "category", categoryId: cat.id }) }}
+                          className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10 active:bg-white/8 hover:bg-white/[0.06] transition-colors text-left"
+                        >
+                          <CategoryIcon categoryId={cat.id} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{cat.label}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {catProjects.length} tag{catProjects.length !== 1 ? "s" : ""}
+                            </p>
+                          </div>
+                          {locked ? (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/40 font-mono border border-white/10 rounded-full px-2 py-0.5 flex-shrink-0">
+                              system
+                            </span>
+                          ) : isTimedate ? (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400/60 font-mono border border-sky-400/20 rounded-full px-2 py-0.5 flex-shrink-0">
+                              calendar
+                            </span>
+                          ) : totalMsgs > 0 ? (
+                            <span className="text-[10px] font-bold font-mono text-muted-foreground bg-white/5 border border-white/10 rounded-full px-2 py-0.5 flex-shrink-0">
+                              {totalMsgs} msg{totalMsgs !== 1 ? "s" : ""}
+                            </span>
+                          ) : null}
+                          <ChevronRight className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
+                        </button>
+                      )
+                    })}
                 </div>
               </div>
-            ))
+
+              {/* Footer hint */}
+              <div className="mt-6 mb-2 flex items-center gap-2 px-1">
+                <Info className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />
+                <p className="text-[11px] text-muted-foreground/40 leading-snug">
+                  Manage tags by category · Organize, edit and move tags with ease.
+                </p>
+              </div>
+            </>
           )}
+
           <div className="h-6" />
         </div>
       </div>
+    </div>
+  )
 
-      {/* Floating action bar */}
-      {selectedProject && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={clearSelection} />
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-xs">
-            <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+  // ── View: Category Detail ───────────────────────────────────────────────
+
+  const categoryDetailView = view.type === "category" ? (() => {
+    const { categoryId } = view
+    const catLabel = getCategoryLabel(categoryId, customCategories)
+    const locked = isSystemLocked(categoryId)
+
+    return (
+      <div className="flex-1 min-h-0 flex flex-col">
+        {/* Header */}
+        <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
+          <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
+            <button
+              onClick={() => { setView({ type: "home" }); clearActionSheet() }}
+              className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+            >
+              <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+            </button>
+            <h1 className="text-base font-bold tracking-tight flex-1">{catLabel}</h1>
+            {!locked && (
               <button
-                onClick={() => { onFavoriteProject(selectedProject.id); clearSelection() }}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95",
-                  selectedProject.isFavorited ? "bg-feedback/15 text-feedback" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                )}
+                onClick={() => { setCreateInitialCategory(categoryId); setShowCreateTag(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/15 border border-primary/30 text-primary text-xs font-semibold active:scale-95 hover:bg-primary/20 transition-all duration-150"
               >
-                <Star className={cn("w-4 h-4", selectedProject.isFavorited && "fill-current")} />
-                {selectedProject.isFavorited ? "Unfavorite" : "Favorite"}
+                <Plus className="w-3.5 h-3.5" />
+                New
               </button>
-              <div className="w-px h-6 bg-white/15 flex-shrink-0" />
-              <button
-                onClick={() => { setEditingProject(selectedProject); clearSelection() }}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all active:scale-95"
-              >
-                <Pencil className="w-4 h-4" />
-                Edit
-              </button>
-              <div className="w-px h-6 bg-white/15 flex-shrink-0" />
-              {confirmDeleteId === selectedProject.id ? (
-                <button
-                  onClick={() => { onDeleteProject(selectedProject.id); clearSelection() }}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95 animate-pulse"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Confirm?
-                </button>
-              ) : (
-                <button
-                  onClick={() => setConfirmDeleteId(selectedProject.id)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-problem hover:bg-problem/10 transition-all active:scale-95"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
+            )}
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+          <div className="max-w-2xl mx-auto px-4 md:px-6 py-3">
+
+            {/* Search bar */}
+            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 mb-4">
+              <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <input
+                value={categoryQuery}
+                onChange={e => setCategoryQuery(e.target.value)}
+                placeholder={`Search ${catLabel.toLowerCase()} tags...`}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+              />
+              {categoryQuery && (
+                <button onClick={() => setCategoryQuery("")}>
+                  <X className="w-4 h-4 text-muted-foreground" />
                 </button>
               )}
-            </div>
+            </label>
+
+            {/* Tag list */}
+            {categoryProjects.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-center animate-fade-up">
+                <FolderOpen className="w-8 h-8 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">
+                  {categoryQuery ? "No tags found" : `No tags in ${catLabel} yet`}
+                </p>
+                {!locked && !categoryQuery && (
+                  <button
+                    onClick={() => { setCreateInitialCategory(categoryId); setShowCreateTag(true) }}
+                    className="text-xs text-primary font-semibold active:opacity-70"
+                  >
+                    Create one →
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {categoryProjects.map(p => (
+                  <TagRow
+                    key={p.id}
+                    project={p}
+                    msgCount={msgCountByProject.get(p.id) ?? 0}
+                    contacts={contacts}
+                    onSelect={() => onProjectSelect(p.id)}
+                    onAction={() => setActionSheet({ type: "tagAction", projectId: p.id })}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* System locked notice */}
+            {locked && (
+              <div className="mt-4 flex items-center gap-2.5 p-3.5 rounded-xl bg-white/5 border border-white/10">
+                <Lock className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
+                <p className="text-xs text-muted-foreground/60 leading-snug">
+                  {catLabel} tags are system-managed and cannot be edited or moved.
+                </p>
+              </div>
+            )}
+
+            <div className="h-6" />
           </div>
-        </>
-      )}
+        </div>
+      </div>
+    )
+  })() : null
+
+  // ── Tag Action Sheet ────────────────────────────────────────────────────
+
+  const actionProject = actionSheet.type !== "none"
+    ? projects.find(p => p.id === (actionSheet as { projectId: string }).projectId) ?? null
+    : null
+
+  const tagActionSheet = actionSheet.type === "tagAction" && actionProject ? (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onPointerDown={clearActionSheet} />
+      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb">
+        {/* Handle */}
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1" />
+
+        {/* Tag identity */}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-white/8">
+          <div className={cn("w-7 h-7 rounded-full flex-shrink-0", actionProject.color)} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-foreground truncate">{actionProject.name}</p>
+            <p className="text-[11px] text-muted-foreground">{getPeopleLabel(actionProject, contacts)}</p>
+          </div>
+        </div>
+
+        <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground/50 font-mono px-5 pt-4 pb-2">
+          Tag actions
+        </p>
+
+        {isSystemLocked(effectiveCategory(actionProject)) ? (
+          <div className="flex items-center gap-3 mx-5 mb-5 p-3.5 rounded-xl bg-white/5 border border-white/10">
+            <Lock className="w-4 h-4 text-muted-foreground/50 flex-shrink-0" />
+            <p className="text-xs text-muted-foreground/60 leading-snug">
+              Status tags are system-managed and cannot be edited or moved.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col pb-2">
+            {/* Edit tag */}
+            <button
+              onClick={() => { setEditingProject(actionProject); clearActionSheet() }}
+              className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-white/5 transition-colors"
+            >
+              <span className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center flex-shrink-0">
+                <Pencil className="w-4 h-4 text-foreground/70" />
+              </span>
+              <span className="text-sm font-semibold text-foreground">Edit tag</span>
+            </button>
+            <div className="h-px bg-white/8 mx-5" />
+
+            {/* Move to category */}
+            <button
+              onClick={() => setActionSheet({ type: "moveToCategory", projectId: actionProject.id })}
+              className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-white/5 transition-colors"
+            >
+              <span className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center flex-shrink-0">
+                <Folder className="w-4 h-4 text-foreground/70" />
+              </span>
+              <span className="text-sm font-semibold text-foreground">Move to category</span>
+            </button>
+            <div className="h-px bg-white/8 mx-5" />
+
+            {/* Manage people */}
+            <button
+              onClick={() => setActionSheet({ type: "managePeople", projectId: actionProject.id })}
+              className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-white/5 transition-colors"
+            >
+              <span className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center flex-shrink-0">
+                <Users className="w-4 h-4 text-foreground/70" />
+              </span>
+              <span className="text-sm font-semibold text-foreground">Manage people</span>
+            </button>
+            <div className="h-px bg-white/8 mx-5" />
+
+            {/* Archive */}
+            <button
+              onClick={() => { showLocalToast("Archive coming soon"); clearActionSheet() }}
+              className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-white/5 transition-colors"
+            >
+              <span className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center flex-shrink-0">
+                <Archive className="w-4 h-4 text-muted-foreground/60" />
+              </span>
+              <span className="text-sm font-semibold text-muted-foreground/60">Archive</span>
+            </button>
+            <div className="h-px bg-white/8 mx-5" />
+
+            {/* Delete */}
+            {confirmDeleteId === actionProject.id ? (
+              <button
+                onClick={() => { onDeleteProject(actionProject.id); clearActionSheet() }}
+                className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-problem/5 transition-colors animate-pulse"
+              >
+                <span className="w-8 h-8 rounded-xl bg-problem/10 flex items-center justify-center flex-shrink-0">
+                  <Trash2 className="w-4 h-4 text-problem" />
+                </span>
+                <span className="text-sm font-semibold text-problem">Confirm delete?</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirmDeleteId(actionProject.id)}
+                className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-problem/5 transition-colors"
+              >
+                <span className="w-8 h-8 rounded-xl bg-problem/10 flex items-center justify-center flex-shrink-0">
+                  <Trash2 className="w-4 h-4 text-problem" />
+                </span>
+                <span className="text-sm font-semibold text-problem">Delete</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null
+
+  // ── Move to Category Sheet ────────────────────────────────────────────────
+
+  const moveToCategorySheet = actionSheet.type === "moveToCategory" && actionProject ? (
+    <MoveToCategorySheet
+      project={actionProject}
+      allDisplayCategories={allDisplayCategories}
+      effectiveCategoryId={effectiveCategory(actionProject)}
+      customCategories={customCategories}
+      onConfirm={(newCategoryId) => {
+        onRenameProject(actionProject.id, actionProject.name, newCategoryId)
+        clearActionSheet()
+      }}
+      onClose={clearActionSheet}
+    />
+  ) : null
+
+  // ── Manage People Sheet ───────────────────────────────────────────────────
+
+  const managePeopleSheet = actionSheet.type === "managePeople" && actionProject ? (
+    <AddMembersModal
+      contacts={contacts}
+      currentMembers={actionProject.members}
+      onSave={(ids) => { onUpdateMembers?.(actionProject.id, ids); clearActionSheet() }}
+      onClose={clearActionSheet}
+    />
+  ) : null
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  return (
+    <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+      {view.type === "home" ? homeView : categoryDetailView}
+
+      {/* Bottom sheets */}
+      {tagActionSheet}
+      {moveToCategorySheet}
+      {managePeopleSheet}
 
       {/* Universal Add modal */}
       {showUniversalAdd && (
         <UniversalAddModal
           onClose={() => setShowUniversalAdd(false)}
-          onChooseTag={() => { setShowUniversalAdd(false); setShowCreateTag(true) }}
-          onCreateCategory={(name) => {
-            onCreateCategory?.(name)
-            setShowUniversalAdd(false)
-          }}
+          onChooseTag={() => { setShowUniversalAdd(false); setCreateInitialCategory(""); setShowCreateTag(true) }}
+          onCreateCategory={(name) => { onCreateCategory?.(name); setShowUniversalAdd(false) }}
         />
       )}
 
@@ -249,10 +639,12 @@ export function ProjectListScreen({
         <CreateProjectModal
           contacts={contacts}
           customCategories={customCategories}
-          onClose={() => setShowCreateTag(false)}
+          initialCategory={createInitialCategory}
+          onClose={() => { setShowCreateTag(false); setCreateInitialCategory("") }}
           onSubmit={(name, memberIds, category) => {
             onCreateProject(name, memberIds, category)
             setShowCreateTag(false)
+            setCreateInitialCategory("")
           }}
         />
       )}
@@ -269,11 +661,132 @@ export function ProjectListScreen({
           }}
         />
       )}
+
+      {/* Local toast */}
+      {localToast && (
+        <ToastNotification
+          message={localToast}
+          duration={2500}
+          onDismiss={() => setLocalToast(null)}
+        />
+      )}
     </div>
   )
 }
 
-// ── EditProjectModal ────────────────────────────────────────────────────────
+// ── MoveToCategorySheet ───────────────────────────────────────────────────────
+
+function MoveToCategorySheet({
+  project, allDisplayCategories, effectiveCategoryId, customCategories, onConfirm, onClose,
+}: {
+  project: Project
+  allDisplayCategories: Array<{ id: string; label: string }>
+  effectiveCategoryId: string
+  customCategories: CategoryItem[]
+  onConfirm: (newCategoryId: string) => void
+  onClose: () => void
+}) {
+  const [pendingCategory, setPendingCategory] = useState<string>("")
+  const [showTimedateWarning, setShowTimedateWarning] = useState(false)
+
+  const handleCategoryTap = (catId: string) => {
+    if (isSystemLocked(catId)) return
+    if (catId === "timedate" && !showTimedateWarning) {
+      setShowTimedateWarning(true)
+      return
+    }
+    setShowTimedateWarning(false)
+    setPendingCategory(catId)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onPointerDown={onClose} />
+      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb max-h-[85dvh] flex flex-col">
+        {/* Handle */}
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 flex-shrink-0" />
+
+        {/* Title */}
+        <div className="px-5 py-3 flex-shrink-0">
+          <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground/50 font-mono mb-0.5">Move tag</p>
+          <h3 className="text-base font-bold text-foreground truncate">&ldquo;{project.name}&rdquo; to...</h3>
+        </div>
+
+        {/* Category list */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-2">
+          {allDisplayCategories.map(cat => {
+            const current = effectiveCategoryId === cat.id
+            const locked = isSystemLocked(cat.id)
+            const selected = pendingCategory === cat.id
+
+            return (
+              <div key={cat.id}>
+                <button
+                  onClick={() => handleCategoryTap(cat.id)}
+                  disabled={locked}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-3 rounded-xl transition-colors mb-0.5",
+                    locked ? "opacity-40 cursor-not-allowed" : "active:bg-white/5",
+                    selected ? "bg-primary/10 border border-primary/25" : "border border-transparent"
+                  )}
+                >
+                  <div className={cn(
+                    "w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0",
+                    selected ? "border-primary bg-primary" : current ? "border-primary" : "border-white/20"
+                  )}>
+                    {(selected || current) && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <CategoryIcon categoryId={cat.id} />
+                  <span className={cn("flex-1 text-sm font-semibold text-left", locked ? "text-muted-foreground" : "text-foreground")}>
+                    {cat.label}
+                  </span>
+                  {current && !selected && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary/60 font-mono">current</span>
+                  )}
+                  {selected && (
+                    <Check className="w-4 h-4 text-primary flex-shrink-0" />
+                  )}
+                  {locked && (
+                    <Lock className="w-3 h-3 text-muted-foreground/30 flex-shrink-0" />
+                  )}
+                </button>
+
+                {/* Timedate warning inline */}
+                {cat.id === "timedate" && showTimedateWarning && !selected && (
+                  <div className="mx-3 mb-2 p-3 rounded-xl bg-sky-400/8 border border-sky-400/20">
+                    <p className="text-xs text-sky-300/80 leading-snug">
+                      Moving to Date / Time will make this tag trigger date selection when used in messages.
+                    </p>
+                    <button
+                      onClick={() => { setShowTimedateWarning(false); setPendingCategory("timedate") }}
+                      className="mt-2 text-xs font-semibold text-sky-400 active:opacity-70"
+                    >
+                      Move anyway →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Confirm button */}
+        {pendingCategory && pendingCategory !== effectiveCategoryId && (
+          <div className="flex-shrink-0 px-4 pb-5 pt-3 border-t border-white/8">
+            <button
+              onClick={() => onConfirm(pendingCategory)}
+              className="w-full py-3.5 rounded-xl text-sm font-semibold bg-primary text-white shadow-[0_4px_16px_rgba(37,99,235,0.4)] active:scale-[0.98] transition-all"
+            >
+              Move to {getCategoryLabel(pendingCategory, customCategories)}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── EditProjectModal ──────────────────────────────────────────────────────────
 
 function EditProjectModal({
   project, customCategories, onClose, onSave,

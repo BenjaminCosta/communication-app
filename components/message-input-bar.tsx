@@ -18,6 +18,7 @@ interface MessageInputBarProps {
   projects: Project[]
   recipients: string[]
   projectIds: string[]
+  calendarDates?: string[]
   type: MessageType
   imageFile: File | null
   imagePreview: string | null
@@ -31,6 +32,7 @@ interface MessageInputBarProps {
   onOpenSheet: () => void
   onRemoveRecipient: (id: string) => void
   onRemoveProject: (id: string) => void
+  onRemoveCalendarDate?: (date: string) => void
   onClearType: () => void
   onClearImage: () => void
   onSend: () => void
@@ -44,6 +46,7 @@ export function MessageInputBar({
   projects,
   recipients,
   projectIds,
+  calendarDates = [],
   type,
   imageFile,
   imagePreview,
@@ -57,13 +60,14 @@ export function MessageInputBar({
   onOpenSheet,
   onRemoveRecipient,
   onRemoveProject,
+  onRemoveCalendarDate,
   onClearType,
   onClearImage,
   onSend,
   showProjectChips = true,
 }: MessageInputBarProps) {
   const visibleProjectIds = showProjectChips ? projectIds : []
-  const hasContext = recipients.length > 0 || importedRecipients.length > 0 || visibleProjectIds.length > 0 || type !== "none" || !!imageFile
+  const hasContext = recipients.length > 0 || importedRecipients.length > 0 || visibleProjectIds.length > 0 || calendarDates.length > 0 || type !== "none" || !!imageFile
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -130,6 +134,11 @@ export function MessageInputBar({
               </ContextChip>
             )
           })}
+          {calendarDates.map((date) => (
+            <ContextChip key={date} tone="date" onRemove={() => onRemoveCalendarDate?.(date)}>
+              {formatDateChip(date)}
+            </ContextChip>
+          ))}
           {imageFile && (
             <ContextChip onRemove={onClearImage}>
               {imageFile.name}
@@ -195,13 +204,23 @@ export function MessageInputBar({
   )
 }
 
-function ContextChip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
+function ContextChip({ children, onRemove, tone = "primary" }: { children: React.ReactNode; onRemove: () => void; tone?: "primary" | "date" }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap">
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap",
+      tone === "date"
+        ? "border-sky-400/25 bg-sky-400/10 text-sky-400"
+        : "border-primary/25 bg-primary/12 text-primary"
+    )}>
       <span className="max-w-32 truncate">{children}</span>
       <button type="button" onClick={onRemove} className="rounded-full active:scale-90">
         <X className="w-3 h-3" />
       </button>
     </span>
   )
+}
+
+function formatDateChip(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }

@@ -10,12 +10,13 @@ interface CreateProjectModalProps {
   onSubmit: (name: string, memberIds: string[], category: TagCategory) => void
   contacts: Contact[]
   customCategories?: CategoryItem[]
+  initialCategory?: TagCategory
 }
 
-export function CreateProjectModal({ onClose, onSubmit, contacts, customCategories = [] }: CreateProjectModalProps) {
+export function CreateProjectModal({ onClose, onSubmit, contacts, customCategories = [], initialCategory = "" }: CreateProjectModalProps) {
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState("")
-  const [category, setCategory] = useState<TagCategory>("")
+  const [category, setCategory] = useState<TagCategory>(initialCategory)
   const [members, setMembers] = useState<string[]>([])
   const [isSuccess, setIsSuccess] = useState(false)
   const [categorySearch, setCategorySearch] = useState("")

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, MessageCircle } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -327,7 +327,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
 
         <div className="flex flex-col items-center gap-3 py-1">
           <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
-            <span className="text-3xl">{"🤔"}</span>
+            <MessageCircle className="w-7 h-7 text-muted-foreground/70" />
           </div>
           <span className="text-sm text-muted-foreground font-light">
             {"What's on your mind?"}

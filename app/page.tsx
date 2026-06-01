@@ -215,12 +215,18 @@ export default function Home() {
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
   }, [participantMessages, projectMessages, visibleMessages, firebaseUser])
 
+  const recentUserMessages = useMemo(
+    () => messages.filter((m) => m.senderId === firebaseUser?.uid).slice(-20).reverse(),
+    [messages, firebaseUser?.uid]
+  )
+
   // ── Navigation ────────────────────────────────────────────────────────
   const [activeScreen, setActiveScreen] = useState<Screen>("loading")
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState<string>("all")
   const [selectedPeopleFilter, setSelectedPeopleFilter] = useState<string[]>([])
   const [selectedTagFilter, setSelectedTagFilter] = useState<string[]>([])
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [listenerKey, setListenerKey] = useState(0)
@@ -634,6 +640,18 @@ export default function Home() {
           imageMeta.imageContentType = imageFile.type || "image/jpeg"
           imageMeta.imageSize = imageFile.size
           imageMeta.imageUploadedAt = serverTimestamp()
+          // Read natural dimensions from the file before it leaves memory
+          try {
+            const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+              const url = URL.createObjectURL(imageFile)
+              const el = new window.Image()
+              el.onload = () => { resolve({ w: el.naturalWidth, h: el.naturalHeight }); URL.revokeObjectURL(url) }
+              el.onerror = reject
+              el.src = url
+            })
+            imageMeta.imageWidth = dims.w
+            imageMeta.imageHeight = dims.h
+          } catch { /* non-critical — skip if decode fails */ }
         } catch (error) {
           showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)
           throw error
@@ -1101,9 +1119,11 @@ export default function Home() {
   const filteredMessages = useMemo(() =>
     messages.filter((message) =>
       messageMatchesPeopleFilter(message, selectedPeopleFilter) &&
-      messageHasTags(message, selectedTagFilter)
+      messageHasTags(message, selectedTagFilter) &&
+      (selectedDateFilter.length === 0 ||
+        (message.calendarDates ?? []).some((calendarDate) => selectedDateFilter.includes(calendarDate.date)))
     ),
-    [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter]
+    [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter]
   )
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -1190,6 +1210,7 @@ export default function Home() {
           onDeleteProject={handleDeleteProject}
           onFavoriteProject={handleFavoriteProject}
           onRenameProject={handleRenameProject}
+          onUpdateMembers={handleUpdateProjectMembers}
           customCategories={customCategories}
           onCreateCategory={handleCreateCategory}
         />
@@ -1256,6 +1277,9 @@ export default function Home() {
               contacts={contacts}
               importedContacts={importedContacts}
               availableTags={availableTags}
+              customCategories={customCategories}
+              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter }}
+              recentUserMessages={recentUserMessages}
             />
           )}
         </>
@@ -1271,8 +1295,10 @@ export default function Home() {
             onFilterChange={setActiveFilter}
             selectedPeopleFilter={selectedPeopleFilter}
             selectedTagFilter={selectedTagFilter}
+            selectedDateFilter={selectedDateFilter}
             onPeopleFilterChange={setSelectedPeopleFilter}
             onTagFilterChange={setSelectedTagFilter}
+            onDateFilterChange={setSelectedDateFilter}
             onCompose={goToCompose}
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
@@ -1336,6 +1362,9 @@ export default function Home() {
               contacts={contacts}
               importedContacts={importedContacts}
               availableTags={availableTags}
+              customCategories={customCategories}
+              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter }}
+              recentUserMessages={recentUserMessages}
             />
           )}
         </>

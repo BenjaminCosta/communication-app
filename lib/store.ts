@@ -183,6 +183,8 @@ export interface Message {
   imageName?: string
   imageContentType?: string
   imageSize?: number
+  imageWidth?: number
+  imageHeight?: number
   imageUploadedAt?: Date
   calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
 }
