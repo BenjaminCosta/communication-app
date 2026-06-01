@@ -162,8 +162,10 @@ export function ProjectListScreen({
   // "timedate" is skipped — normalized to "date" everywhere for V1 consistency
   const allDisplayCategories = useMemo((): Array<{ id: string; label: string }> => {
     const cats: Array<{ id: string; label: string }> = []
+    // V1-deprecated categories — never shown in tag manager UI
+    const SKIP = new Set(["timedate", "project", "report", "systemType"])
     for (const catId of CATEGORY_ORDER) {
-      if (catId === "timedate") continue  // legacy alias — normalized to "date"
+      if (SKIP.has(catId)) continue
       const config = CATEGORY_CONFIG[catId]
       if (!config || config.order >= 100) continue
       cats.push({ id: catId, label: config.label })
@@ -639,7 +641,7 @@ export function ProjectListScreen({
   const moveToCategorySheet = actionSheet.type === "moveToCategory" && actionProject ? (
     <MoveToCategorySheet
       project={actionProject}
-      allDisplayCategories={allDisplayCategories}
+      allDisplayCategories={allDisplayCategories.filter(cat => cat.id !== "date")}
       effectiveCategoryId={effectiveCategory(actionProject)}
       customCategories={customCategories}
       onConfirm={(newCategoryId) => {

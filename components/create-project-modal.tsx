@@ -23,7 +23,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
   const [showCategoryPicker, setShowCategoryPicker] = useState(false)
 
   const allCategories: CategoryItem[] = [
-    ...SYSTEM_CATEGORIES,
+    ...SYSTEM_CATEGORIES.filter(c => c.id !== "date"),
     ...customCategories.filter(c => !SYSTEM_CATEGORIES.some(s => s.id === c.id)),
   ]
 
@@ -169,7 +169,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
                           selected ? "bg-primary/15" : "hover:bg-white/5 active:bg-white/5"
                         )}
                       >
-                        <div className={cn("w-2 h-2 rounded-full flex-shrink-0", selected ? "bg-primary" : "bg-white/20")} />
+                        <div className={cn("w-2 h-2 rounded-full flex-shrink-0 shadow-[0_0_6px_2px_rgba(139,92,246,0.5)]", selected ? "bg-primary" : "bg-violet-500")} />
                         <span className={cn("text-sm font-semibold flex-1", selected ? "text-primary" : "text-foreground/90")}>
                           {cat.name}
                         </span>
