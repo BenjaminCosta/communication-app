@@ -186,17 +186,17 @@ export function TagSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
-      <div onPointerDown={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-[1px] cursor-default" />
+      <div onPointerDown={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default" />
 
       <div
         style={dragStyle}
-        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[94dvh] overflow-y-auto scrollbar-hide safe-area-pb"
+        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[88dvh] flex flex-col"
       >
         <div {...swipeHandlers} className="py-3 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 rounded-full bg-white/20 mx-auto" />
         </div>
 
-        <div className="flex items-center justify-between px-4 mb-3">
+        <div className="flex items-center justify-between px-4 mb-2">
           {view.type === "main" ? (
             <div className="w-8" />
           ) : (
@@ -219,6 +219,7 @@ export function TagSheet({
           </button>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         {view.type === "main" && (
           <MainContextView
             message={message}
@@ -285,11 +286,12 @@ export function TagSheet({
             onRemoveDate={(date) => setSelectedCalendarDates((prev) => prev.filter((item) => item !== date))}
           />
         )}
+        </div>
 
-        <div className="sticky bottom-0 bg-[#0d1c35]/95 backdrop-blur-xl px-4 pt-3 pb-2 border-t border-white/8 safe-area-pb">
+        <div className="shrink-0 bg-[#0d1c35]/95 backdrop-blur-xl px-4 pt-3 pb-2 border-t border-white/8 safe-area-pb">
           <button
             onClick={handleApply}
-            className="w-full rounded-2xl py-3.5 text-sm font-semibold tracking-wide transition-all bg-primary text-white shadow-[0_10px_28px_rgba(37,99,235,0.35)] active:scale-[0.98]"
+            className="w-full rounded-2xl py-3 text-sm font-semibold tracking-wide transition-all bg-primary text-white shadow-[0_10px_28px_rgba(37,99,235,0.35)] active:scale-[0.98]"
           >
             Save changes <span className="ml-1">→</span>
           </button>
@@ -364,16 +366,16 @@ function MainContextView({
 }) {
   return (
     <>
-      <div className="mx-4 mb-3 bg-card/80 border border-white/10 rounded-xl p-3">
-        <p className="text-xs font-bold text-muted-foreground mb-1">
+      <div className="mx-4 mb-2 bg-card/80 border border-white/10 rounded-xl px-3 py-2.5">
+        <p className="text-[10px] font-bold text-muted-foreground mb-0.5">
           {contact.name} · {formatTime(message.timestamp)}
         </p>
-        <p className="text-sm text-foreground/90 leading-snug max-h-12 overflow-hidden">
+        <p className="text-xs text-foreground/85 leading-snug max-h-9 overflow-hidden">
           {message.text}
         </p>
       </div>
 
-      <div className="px-4 pb-4">
+      <div className="px-4 pb-3">
         <SearchInput value={query} onChange={onQueryChange} placeholder="Search people, tags, dates..." />
       </div>
 
@@ -392,7 +394,7 @@ function MainContextView({
         />
       ) : (
         <>
-          <section className="px-4 pb-4">
+          <section className="px-4 pb-2.5">
             <SectionTitle>Selected context</SectionTitle>
             <CompactContextSummary
               items={summaryItems}
@@ -405,29 +407,29 @@ function MainContextView({
           </section>
 
           {suggestedItems.length > 0 && (
-            <section className="px-4 pb-4">
+            <section className="px-4 pb-2.5">
               <SectionTitle>Suggested</SectionTitle>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-4 gap-1.5">
                 {suggestedItems.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={item.onClick}
-                    className="min-h-[76px] rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2 text-center active:scale-[0.98] active:bg-white/8"
+                    className="rounded-xl border border-white/10 bg-white/[0.04] px-1.5 py-2.5 text-center active:scale-[0.98] active:bg-white/8"
                   >
-                    <span className={cn("mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-full", item.iconBg)}>
+                    <span className={cn("mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-full", item.iconBg)}>
                       {item.icon}
                     </span>
-                    <span className="block truncate text-xs font-semibold text-foreground/85">{item.label}</span>
+                    <span className="block truncate text-[11px] font-semibold text-foreground/85">{item.label}</span>
                   </button>
                 ))}
               </div>
             </section>
           )}
 
-          <div className="h-px bg-white/10 mx-4 mb-4" />
+          <div className="h-px bg-white/10 mx-4 mb-2.5" />
 
-          <section className="px-4 pb-3">
+          <section className="px-4 pb-2">
             <SectionTitle>Organize</SectionTitle>
             <div className="flex flex-col gap-2">
               <OrganizeRow
@@ -620,7 +622,7 @@ function TagsCategoryView({
         )}
         <button
           type="button"
-          className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-3 text-left text-primary active:bg-white/8"
+          className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2.5 text-left text-primary active:bg-white/8"
         >
           <Plus className="w-4 h-4" />
           <span className="text-sm font-semibold">Create tag</span>
@@ -645,7 +647,7 @@ function TagCategoryDetailView({
   return (
     <div className="px-4 pb-4">
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-white/10 px-3 py-3">
+        <div className="flex items-center gap-3 border-b border-white/10 px-3 py-2">
           <CategoryIcon categoryId={group.id} />
           <span className="text-sm font-semibold text-foreground">{group.name}</span>
           <span className="ml-auto text-xs text-muted-foreground">{selectedTags.filter((id) => group.tags.some((tag) => tag.id === id)).length} selected</span>
@@ -660,7 +662,7 @@ function TagCategoryDetailView({
                 type="button"
                 onClick={() => onToggleTag(tag.id)}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors",
+                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
                   selected ? "bg-primary/15 text-primary" : "text-foreground/90 active:bg-white/5"
                 )}
               >
@@ -696,7 +698,7 @@ function DatesDetailView({
         <button
           type="button"
           onClick={onAddDate}
-          className="flex items-center gap-3 rounded-2xl border border-sky-400/20 bg-sky-400/[0.08] px-3 py-3 text-left text-sky-400 active:bg-sky-400/12"
+          className="flex items-center gap-3 rounded-2xl border border-sky-400/20 bg-sky-400/[0.08] px-3 py-2.5 text-left text-sky-400 active:bg-sky-400/12"
         >
           <CalendarDays className="w-5 h-5" />
           <span className="flex-1 text-sm font-semibold">Add date</span>
@@ -707,7 +709,7 @@ function DatesDetailView({
             key={date}
             type="button"
             onClick={() => onRemoveDate(date)}
-            className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-3 text-left active:bg-white/8"
+            className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2.5 text-left active:bg-white/8"
           >
             <CalendarDays className="w-4 h-4 text-sky-400" />
             <span className="flex-1 text-sm font-semibold">{formatDateShort(date)}</span>
@@ -747,7 +749,7 @@ function SearchInput({
   placeholder: string
 }) {
   return (
-    <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+    <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
       <Search className="w-4 h-4 text-muted-foreground shrink-0" />
       <input
         value={value}
@@ -909,9 +911,9 @@ function OrganizeRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3 text-left active:bg-white/8"
+      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left active:bg-white/8"
     >
-      <span className={cn("flex h-9 w-9 items-center justify-center rounded-full", iconClassName)}>
+      <span className={cn("flex h-8 w-8 items-center justify-center rounded-full", iconClassName)}>
         {icon}
       </span>
       <span className="flex-1 text-sm font-semibold text-foreground">{label}</span>
@@ -979,7 +981,7 @@ function CategoryRow({
   const selected = group.tags.filter((tag) => selectedTags.includes(tag.id))
   const detail = selected.length > 0
     ? selected.slice(0, 2).map((tag) => tag.name).join(", ") + (selected.length > 2 ? `, +${selected.length - 2}` : "")
-    : group.id === "timedate" && selectedCalendarDates.length > 0
+    : (group.id === "timedate" || group.id === "date") && selectedCalendarDates.length > 0
       ? `${selectedCalendarDates.length} date${selectedCalendarDates.length !== 1 ? "s" : ""}`
       : "None"
 
@@ -987,7 +989,7 @@ function CategoryRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3 text-left active:bg-white/8"
+      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left active:bg-white/8"
     >
       <CategoryIcon categoryId={group.id} />
       <span className="min-w-0 flex-1">
@@ -1014,7 +1016,7 @@ function CategoryIcon({ categoryId }: { categoryId: string }) {
   if (categoryId === "task") {
     return <span className={cn(classes, "bg-feedback/12 text-feedback")}><CheckCircle2 className="w-4 h-4" /></span>
   }
-  if (categoryId === "timedate") {
+  if (categoryId === "timedate" || categoryId === "date") {
     return <span className={cn(classes, "bg-sky-400/12 text-sky-400")}><Clock className="w-4 h-4" /></span>
   }
   return <span className={cn(classes, "bg-white/8 text-muted-foreground")}><Hash className="w-4 h-4" /></span>
@@ -1038,7 +1040,9 @@ function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[
   })
 
   tags.forEach((tag) => {
-    const categoryId = tag.category || "custom"
+    // Normalize legacy "timedate" → "date" so both pre- and post-migration tags land in the same group
+    const rawCategory = tag.category || "custom"
+    const categoryId = rawCategory === "timedate" ? "date" : rawCategory
     if (!categoryMap.has(categoryId)) {
       categoryMap.set(categoryId, {
         id: categoryId,

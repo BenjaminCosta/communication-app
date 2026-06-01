@@ -14,7 +14,7 @@ interface MakeGlobalModalProps {
 export function MakeGlobalModal({ open, contactName, onConfirm, onCancel }: MakeGlobalModalProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel() }}>
-      <DialogContent className="max-w-sm rounded-2xl bg-card border border-white/10 p-0 overflow-hidden">
+      <DialogContent className="max-w-sm rounded-2xl glass-modal border border-white/10 p-0 overflow-hidden">
         <div className="flex flex-col">
           {/* Header */}
           <DialogHeader className="px-6 pt-6 pb-4">

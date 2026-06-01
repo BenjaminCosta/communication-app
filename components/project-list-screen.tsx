@@ -20,8 +20,11 @@ import {
   CATEGORY_CONFIG,
   CATEGORY_ORDER,
   SYSTEM_CATEGORIES,
+  MESSAGE_TYPE_CONFIG,
   getCategoryLabel,
   isCategoryTimeBased,
+  getMessageTagIds,
+  systemTypeTagId,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 
@@ -75,7 +78,7 @@ function CategoryIcon({ categoryId }: { categoryId: string }) {
   if (categoryId === "task") {
     return <span className={cn(classes, "bg-feedback/12 text-feedback")}><CheckCircle2 className="w-4 h-4" /></span>
   }
-  if (categoryId === "timedate") {
+  if (categoryId === "timedate" || categoryId === "date") {
     return <span className={cn(classes, "bg-sky-400/12 text-sky-400")}><Clock className="w-4 h-4" /></span>
   }
   return <span className={cn(classes, "bg-white/8 text-muted-foreground")}><Hash className="w-4 h-4" /></span>
@@ -156,9 +159,11 @@ export function ProjectListScreen({
   // ── Derived data ──────────────────────────────────────────────────────────
 
   // All categories in display order (system + custom, skip legacy order>=100)
+  // "timedate" is skipped — normalized to "date" everywhere for V1 consistency
   const allDisplayCategories = useMemo((): Array<{ id: string; label: string }> => {
     const cats: Array<{ id: string; label: string }> = []
     for (const catId of CATEGORY_ORDER) {
+      if (catId === "timedate") continue  // legacy alias — normalized to "date"
       const config = CATEGORY_CONFIG[catId]
       if (!config || config.order >= 100) continue
       cats.push({ id: catId, label: config.label })
@@ -176,8 +181,12 @@ export function ProjectListScreen({
     [allDisplayCategories]
   )
 
-  const effectiveCategory = (p: Project): string =>
-    p.tagCategory && allCategoryIds.has(p.tagCategory) ? p.tagCategory : "custom"
+  const effectiveCategory = (p: Project): string => {
+    if (!p.tagCategory) return "custom"
+    // Normalize legacy "timedate" → "date" (V1 migration)
+    const normalized = p.tagCategory === "timedate" ? "date" : p.tagCategory
+    return allCategoryIds.has(normalized) ? normalized : "custom"
+  }
 
   // Projects grouped by category
   const projectsByCategory = useMemo(() => {
@@ -196,6 +205,15 @@ export function ProjectListScreen({
     () => new Map(projects.map(p => [p.id, messages.filter(m => messageHasProject(m, p.id)).length])),
     [projects, messages]
   )
+
+  // Msg count for each system status tag (type:progress etc.)
+  const systemTagMsgCounts = useMemo(() => {
+    const types = ["progress", "decision", "feedback", "problem"] as const
+    return new Map(types.map(type => [
+      systemTypeTagId(type),
+      messages.filter(m => getMessageTagIds(m).includes(systemTypeTagId(type))).length,
+    ]))
+  }, [messages])
 
   // Recently used: top 5 by lastUsedAt
   const recentProjects = useMemo(
@@ -322,12 +340,12 @@ export function ProjectListScreen({
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {allDisplayCategories
-                    .filter(cat => (projectsByCategory.get(cat.id)?.length ?? 0) > 0 || isSystemLocked(cat.id))
+                    .filter(cat => (projectsByCategory.get(cat.id)?.length ?? 0) > 0 || ["status", "task", "custom"].includes(cat.id))
                     .map(cat => {
                       const catProjects = projectsByCategory.get(cat.id) ?? []
                       const totalMsgs = catProjects.reduce((sum, p) => sum + (msgCountByProject.get(p.id) ?? 0), 0)
                       const locked = isSystemLocked(cat.id)
-                      const isTimedate = cat.id === "timedate"
+                      const isTimedate = isCategoryTimeBased(cat.id)
                       return (
                         <button
                           key={cat.id}
@@ -429,7 +447,36 @@ export function ProjectListScreen({
             </label>
 
             {/* Tag list */}
-            {categoryProjects.length === 0 ? (
+
+            {/* System status tags — always shown for status category */}
+            {categoryId === "status" && (
+              <div className="flex flex-col gap-2 mb-2">
+                {(["progress", "decision", "feedback", "problem"] as const).map(type => {
+                  const config = MESSAGE_TYPE_CONFIG[type]
+                  const tagId = systemTypeTagId(type)
+                  const count = systemTagMsgCounts.get(tagId) ?? 0
+                  return (
+                    <div key={type} className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10">
+                      <div className={cn("w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center", config.bg)}>
+                        <div className={cn("w-3 h-3 rounded-full", config.text.replace("text-", "bg-"))} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{config.label}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">System tag</p>
+                      </div>
+                      {count > 0 && (
+                        <span className="text-[10px] font-bold font-mono text-muted-foreground bg-white/5 border border-white/10 rounded-full px-2 py-0.5 flex-shrink-0">
+                          {count} msg{count !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      <Lock className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {categoryProjects.length === 0 && categoryId !== "status" ? (
               <div className="flex flex-col items-center gap-2 py-16 text-center animate-fade-up">
                 <FolderOpen className="w-8 h-8 text-muted-foreground/30" />
                 <p className="text-sm text-muted-foreground">
@@ -444,7 +491,7 @@ export function ProjectListScreen({
                   </button>
                 )}
               </div>
-            ) : (
+            ) : categoryProjects.length > 0 ? (
               <div className="flex flex-col gap-2">
                 {categoryProjects.map(p => (
                   <TagRow
@@ -457,7 +504,7 @@ export function ProjectListScreen({
                   />
                 ))}
               </div>
-            )}
+            ) : null}
 
             {/* System locked notice */}
             {locked && (
@@ -484,8 +531,8 @@ export function ProjectListScreen({
 
   const tagActionSheet = actionSheet.type === "tagAction" && actionProject ? (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onPointerDown={clearActionSheet} />
-      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onPointerDown={clearActionSheet} />
+      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb">
         {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1" />
 
@@ -617,7 +664,7 @@ export function ProjectListScreen({
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className={`flex-1 min-h-0 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 min-h-0 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {view.type === "home" ? homeView : categoryDetailView}
 
       {/* Bottom sheets */}
@@ -687,22 +734,22 @@ function MoveToCategorySheet({
   onClose: () => void
 }) {
   const [pendingCategory, setPendingCategory] = useState<string>("")
-  const [showTimedateWarning, setShowTimedateWarning] = useState(false)
+  const [pendingTimedateCatId, setPendingTimedateCatId] = useState<string | null>(null)
 
   const handleCategoryTap = (catId: string) => {
     if (isSystemLocked(catId)) return
-    if (catId === "timedate" && !showTimedateWarning) {
-      setShowTimedateWarning(true)
+    if (isCategoryTimeBased(catId, customCategories) && pendingTimedateCatId !== catId) {
+      setPendingTimedateCatId(catId)
       return
     }
-    setShowTimedateWarning(false)
+    setPendingTimedateCatId(null)
     setPendingCategory(catId)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onPointerDown={onClose} />
-      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb max-h-[85dvh] flex flex-col">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onPointerDown={onClose} />
+      <div className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up safe-area-pb max-h-[85dvh] flex flex-col">
         {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 flex-shrink-0" />
 
@@ -751,14 +798,14 @@ function MoveToCategorySheet({
                   )}
                 </button>
 
-                {/* Timedate warning inline */}
-                {cat.id === "timedate" && showTimedateWarning && !selected && (
+                {/* Time-based category warning inline */}
+                {isCategoryTimeBased(cat.id) && pendingTimedateCatId === cat.id && !selected && (
                   <div className="mx-3 mb-2 p-3 rounded-xl bg-sky-400/8 border border-sky-400/20">
                     <p className="text-xs text-sky-300/80 leading-snug">
-                      Moving to Date / Time will make this tag trigger date selection when used in messages.
+                      Moving to Date will make this tag trigger date selection when used in messages.
                     </p>
                     <button
-                      onClick={() => { setShowTimedateWarning(false); setPendingCategory("timedate") }}
+                      onClick={() => { setPendingTimedateCatId(null); setPendingCategory(cat.id) }}
                       className="mt-2 text-xs font-semibold text-sky-400 active:opacity-70"
                     >
                       Move anyway →
@@ -798,8 +845,7 @@ function EditProjectModal({
 }) {
   const allCategories: CategoryItem[] = [
     ...SYSTEM_CATEGORIES,
-    ...customCategories,
-    { id: "custom", name: "Custom", isSystem: true },
+    ...customCategories.filter(c => !SYSTEM_CATEGORIES.some(s => s.id === c.id)),
   ]
   const validIds = new Set(allCategories.map(c => c.id))
   const [name, setName] = useState(project.name)
@@ -810,8 +856,8 @@ function EditProjectModal({
   )
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
-      <button onClick={onClose} className="absolute inset-0 bg-black/65 backdrop-blur-sm" aria-label="Close" />
-      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-y-auto max-h-[90dvh] animate-spring-pop -translate-y-[5%] p-5">
+      <button onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-label="Close" />
+      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl overflow-y-auto max-h-[90dvh] animate-spring-pop -translate-y-[5%] p-5">
         <div className="flex items-center justify-between mb-5">
           <div>
             <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-1">Manage Tag</p>

@@ -25,7 +25,7 @@ interface ProfileScreenProps {
 export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, onPeople, isAdmin, onAdmin, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
-    <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">

@@ -387,34 +387,34 @@ export function StreamScreen({
   }, [projectSearch, sortedProjects])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background animate-fade-in">
+    <div className="stream-glass-screen flex-1 flex flex-col min-h-0 animate-fade-in overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b border-white/10 animate-slide-down">
+      <div className="glass-panel flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b animate-slide-down">
         <h1 className="text-lg font-bold tracking-tight">
-          SVC <span className="text-primary">Stream</span>
+          SVC <span className="text-blue-300">Stream</span>
         </h1>
         <div className="flex items-center gap-2">
           {/* Search */}
           <button
             onClick={() => setShowSearch(true)}
-            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+            className="glass-button w-9 h-9 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
             aria-label="Search"
           >
-            <Search className="w-4 h-4 text-muted-foreground" />
+            <Search className="w-4 h-4 text-white" />
           </button>
           {/* Navigation menu */}
           <button
             onClick={() => setShowNavMenu(true)}
-            className="w-9 h-9 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center active:scale-95 hover:bg-primary/22 transition-all duration-150"
+            className="w-9 h-9 rounded-full border border-primary/35 bg-primary/80 flex items-center justify-center active:scale-[0.98] hover:bg-primary transition-all duration-150 glow-blue shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
             aria-label="Navigation menu"
           >
-            <LayoutGrid className="w-4 h-4 text-primary" />
+            <LayoutGrid className="w-4 h-4 text-white" />
           </button>
           {/* Profile avatar */}
           <button
             onClick={onProfile}
             className={cn(
-              "w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all duration-150",
+              "w-9 h-9 rounded-full flex items-center justify-center active:scale-[0.98] transition-all duration-150 border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
               userColor
             )}
           >
@@ -424,70 +424,71 @@ export function StreamScreen({
       </div>
 
       {/* Filter Bar */}
-      <div className="flex-shrink-0 flex items-center gap-2 overflow-x-auto px-4 py-2 border-b border-white/10 scrollbar-hide">
-        <FilterChip
-          active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0 && selectedDateFilter.length === 0}
-          onClick={() => {
-            onPeopleFilterChange([])
-            onTagFilterChange([])
-            onDateFilterChange([])
-            onFilterChange("all")
-          }}
-        >
-          All
-        </FilterChip>
-        <FilterChip
-          active={selectedPeopleFilter.length > 0}
-          tone="people"
-          icon={<Users className="w-3.5 h-3.5" />}
-          onClick={() => setShowPeopleFilterSheet(true)}
-        >
-          People{selectedPeopleFilter.length > 0 ? ` (${selectedPeopleFilter.length})` : ""}
-        </FilterChip>
-        <button
-          onClick={() => setShowTagFilterSheet(true)}
-          className={cn(
-            "h-9 min-w-[128px] flex-1 rounded-full border px-3 transition-all flex items-center gap-2 justify-start active:scale-95",
-            selectedTagFilter.length > 0
-              ? "bg-primary/15 border-primary/35 text-primary"
-              : "bg-white/5 border-white/10 text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-          )}
-          aria-label="Filter tags"
-        >
-          <Tag className="w-4 h-4 shrink-0" />
-          <span className="text-xs font-semibold tracking-wide truncate">
-            Tags{selectedTagFilter.length > 0 ? ` (${selectedTagFilter.length})` : ""}
-          </span>
-        </button>
-        <button
-          onClick={() => setShowDateFilterPicker(true)}
-          className={cn(
-            "relative h-9 w-9 rounded-full shrink-0 transition-all border active:scale-95 flex items-center justify-center",
-            selectedDateFilter.length > 0
-              ? "bg-sky-400/18 border-sky-400/40 text-sky-300"
-              : "bg-sky-400/10 border-sky-400/25 text-sky-400 hover:bg-sky-400/15 hover:border-sky-400/40"
-          )}
-          aria-label="Filter dates"
-        >
-          <CalendarDays className="w-3.5 h-3.5" />
-          {selectedDateFilter.length > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#0a1628] bg-sky-400 px-1 text-[9px] font-bold leading-none text-[#07111f]">
-              {selectedDateFilter.length}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Feed */}
+      {/* Feed — filter bar and input bar float as absolute overlays so messages are visible behind them */}
       <div className="flex-1 min-h-0 relative">
-        {/* Floating date badge — WhatsApp style */}
+        {/* Filter bar — transparent overlay at top */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 overflow-x-auto px-4 py-1.5 scrollbar-hide">
+          <FilterChip
+            active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0 && selectedDateFilter.length === 0}
+            onClick={() => {
+              onPeopleFilterChange([])
+              onTagFilterChange([])
+              onDateFilterChange([])
+              onFilterChange("all")
+            }}
+          >
+            All
+          </FilterChip>
+          <FilterChip
+            active={selectedPeopleFilter.length > 0}
+            tone="people"
+            icon={<Users className="w-3.5 h-3.5" />}
+            onClick={() => setShowPeopleFilterSheet(true)}
+          >
+            People{selectedPeopleFilter.length > 0 ? ` (${selectedPeopleFilter.length})` : ""}
+          </FilterChip>
+          <button
+            onClick={() => setShowTagFilterSheet(true)}
+            className={cn(
+              "h-9 min-w-[118px] flex-1 rounded-full border px-3 transition-all duration-150 flex items-center gap-2 justify-start active:scale-[0.98]",
+              selectedTagFilter.length > 0
+                ? "glass-pill-active"
+                : "glass-pill text-white/85 hover:border-primary/40 hover:text-blue-200"
+            )}
+            aria-label="Filter tags"
+          >
+            <Tag className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold tracking-wide truncate">
+              Tags{selectedTagFilter.length > 0 ? ` (${selectedTagFilter.length})` : ""}
+            </span>
+          </button>
+          <button
+            onClick={() => setShowDateFilterPicker(true)}
+            className={cn(
+              "relative h-9 w-9 rounded-full shrink-0 transition-all duration-150 border active:scale-[0.98] flex items-center justify-center",
+              selectedDateFilter.length > 0
+                ? "border-sky-300/55 bg-sky-400/24 text-sky-100 shadow-[0_14px_34px_rgba(56,189,248,0.18)] backdrop-blur-xl"
+                : "glass-pill border-sky-400/32 text-sky-200 hover:bg-sky-400/16 hover:border-sky-300/50"
+            )}
+            aria-label="Filter dates"
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            {selectedDateFilter.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#07111f] bg-sky-300 px-1 text-[9px] font-bold leading-none text-[#07111f]">
+                {selectedDateFilter.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Floating date badge — offset below filter bar */}
         <div
           className={cn(
-            "absolute top-2 left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-opacity duration-150",
+            "absolute top-[56px] left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-opacity duration-150",
             showFloatingDate ? "opacity-90" : "opacity-0"
           )}
         >
-          <span className="px-2.5 py-0.5 rounded-full bg-black/80 border border-white/15 text-[9px] font-semibold tracking-tight uppercase text-foreground/90">
+          <span className="glass-pill px-2.5 py-0.5 rounded-full border text-[9px] font-semibold tracking-tight uppercase text-foreground/90">
             {floatingDate}
           </span>
         </div>
@@ -495,14 +496,14 @@ export function StreamScreen({
         <div
           ref={feedRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-4 py-3 flex flex-col gap-0 scrollbar-hide"
+          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[88px] flex flex-col gap-0 scrollbar-hide"
           onClick={() => selectedMsgId && clearMsgSelection()}
         >
           {showFeedSkeleton ? (
             <StreamFeedSkeleton />
           ) : sortedMessages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
-              <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
+              <div className="glass-panel w-16 h-16 rounded-full border flex items-center justify-center animate-float">
                 <MessageCircle className="w-7 h-7 text-muted-foreground/50" />
               </div>
               <p className="text-sm text-muted-foreground">Nothing sent yet</p>
@@ -546,34 +547,37 @@ export function StreamScreen({
           )}
           <div className="h-3" />
         </div>
-      </div>
 
-      <MessageInputBar
-        text={quickText}
-        setText={setQuickText}
-        contacts={contacts}
-        projects={projects}
-        recipients={quickRecipients}
-        importedContacts={importedContacts}
-        importedRecipients={quickImportedRecipients}
-        onRemoveImportedRecipient={(id) => setQuickImportedRecipients((prev) => prev.filter((uid) => uid !== id))}
-        projectIds={quickProjects}
-        calendarDates={quickCalendarDates}
-        type={quickType}
-        imageFile={quickImage}
-        imagePreview={quickImagePreview}
-        imageError={quickImageError}
-        sendError={quickSendError}
-        isSending={isQuickSending}
-        isSent={isQuickSent}
-        onOpenSheet={() => setShowQuickActionMenu(true)}
-        onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
-        onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
-        onRemoveCalendarDate={(date) => setQuickCalendarDates((prev) => prev.filter((item) => item !== date))}
-        onClearType={() => setQuickType("none")}
-        onClearImage={clearQuickImage}
-        onSend={handleQuickSend}
-      />
+        {/* Message input — transparent overlay at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 z-10">
+          <MessageInputBar
+            text={quickText}
+            setText={setQuickText}
+            contacts={contacts}
+            projects={projects}
+            recipients={quickRecipients}
+            importedContacts={importedContacts}
+            importedRecipients={quickImportedRecipients}
+            onRemoveImportedRecipient={(id) => setQuickImportedRecipients((prev) => prev.filter((uid) => uid !== id))}
+            projectIds={quickProjects}
+            calendarDates={quickCalendarDates}
+            type={quickType}
+            imageFile={quickImage}
+            imagePreview={quickImagePreview}
+            imageError={quickImageError}
+            sendError={quickSendError}
+            isSending={isQuickSending}
+            isSent={isQuickSent}
+            onOpenSheet={() => setShowQuickActionMenu(true)}
+            onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
+            onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
+            onRemoveCalendarDate={(date) => setQuickCalendarDates((prev) => prev.filter((item) => item !== date))}
+            onClearType={() => setQuickType("none")}
+            onClearImage={clearQuickImage}
+            onSend={handleQuickSend}
+          />
+        </div>
+      </div>
       {showQuickActionMenu && (
         <QuickActionPopover
           onClose={() => setShowQuickActionMenu(false)}
@@ -585,6 +589,10 @@ export function StreamScreen({
           onAttachImage={() => {
             setShowQuickActionMenu(false)
             quickFileInputRef.current?.click()
+          }}
+          onCreateTag={() => {
+            setShowQuickActionMenu(false)
+            setShowCreateProject(true)
           }}
         />
       )}
@@ -616,7 +624,7 @@ export function StreamScreen({
       {/* Message action bar — appears on long press */}
       {selectedMsg && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-sm">
-            <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+            <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
               {/* Copy */}
               <button
                 onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearMsgSelection() }}
@@ -671,7 +679,7 @@ export function StreamScreen({
         if (!proj) return null
         return (
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
-              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
                 {/* Label */}
                 <div className="flex items-center gap-1.5 px-2 py-2 shrink-0 max-w-[80px]">
                   <div className={cn("w-2 h-2 rounded-full shrink-0", proj.color)} />
@@ -727,7 +735,7 @@ export function StreamScreen({
         const proj = projects.find((p) => p.id === projectTagCtx.projectId)
         return (
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
-              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
                 {/* Tag label */}
                 <div className="flex items-center gap-1.5 px-3 py-2 shrink-0">
                   <div className={cn("w-2 h-2 rounded-full shrink-0", proj?.color ?? "bg-white/30")} />
@@ -915,10 +923,12 @@ export function StreamScreen({
 function QuickActionPopover({
   onAddTags,
   onAttachImage,
+  onCreateTag,
   onClose,
 }: {
   onAddTags: () => void
   onAttachImage: () => void
+  onCreateTag: () => void
   onClose: () => void
 }) {
   return (
@@ -929,7 +939,7 @@ function QuickActionPopover({
         onClick={onClose}
         className="fixed inset-0 z-40 bg-transparent"
       />
-      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+58px)] left-3 z-50 w-64 overflow-hidden rounded-[22px] border border-white/10 bg-[#15171a]/95 shadow-2xl shadow-black/45 backdrop-blur-xl animate-fade-up">
+      <div className="glass-panel fixed bottom-[calc(env(safe-area-inset-bottom)+64px)] left-3 z-50 w-64 overflow-hidden rounded-[22px] border animate-fade-up">
         <QuickActionItem
           icon={<Tag className="w-5 h-5" />}
           iconClassName="text-primary"
@@ -941,6 +951,13 @@ function QuickActionPopover({
           iconClassName="text-sky-400"
           label="Attach image"
           onClick={onAttachImage}
+        />
+        <div className="h-px bg-white/8 mx-4" />
+        <QuickActionItem
+          icon={<Plus className="w-5 h-5" />}
+          iconClassName="text-emerald-400"
+          label="New tag"
+          onClick={onCreateTag}
         />
       </div>
     </>
@@ -1202,12 +1219,12 @@ function QuickContextSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <SheetHeader title="Add Context" onClose={onClose} />
@@ -1435,12 +1452,12 @@ function ProjectSearchSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <div className="flex items-center justify-between mb-3">
@@ -1518,12 +1535,12 @@ function FeedSkeletonBubble({
 }) {
   return (
     <div className={cn("flex gap-2 items-end animate-pulse", side === "right" && "flex-row-reverse")}>
-      <div className="w-8 h-8 rounded-full bg-white/8 border border-white/10 shrink-0" />
+      <div className="w-8 h-8 rounded-full bg-white/8 border border-white/10 shrink-0 backdrop-blur-md" />
       <div className={cn("max-w-[78%] md:max-w-[55%] flex flex-col gap-1", width, side === "right" && "items-end")}>
         {side === "left" && <div className="h-3 w-20 rounded-full bg-white/8" />}
         <div
           className={cn(
-            "w-full border border-white/10 bg-white/[0.07] p-3",
+            "glass-message w-full border p-3",
             side === "right" ? "rounded-[16px_16px_4px_16px]" : "rounded-[16px_16px_16px_4px]"
           )}
         >
@@ -1614,17 +1631,17 @@ function PeopleFilterSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <SheetHeader title="People" onClose={onClose} />
         <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people" />
-        <div className="flex flex-col gap-1 max-h-[45dvh] overflow-y-auto scrollbar-hide">
+        <div className="flex flex-col gap-1 max-h-[42dvh] overflow-y-auto scrollbar-hide">
           <button
             onClick={() => onChange([])}
             className={cn(
@@ -1706,19 +1723,14 @@ function TagFilterSheet({
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const queryText = query.trim().toLowerCase()
+  const unassignedTag = tags.find(t => t.id === systemTypeTagId("none"))
   const filtered = tags
     .filter((tag) => {
+      if (tag.id === systemTypeTagId("none")) return false  // shown separately as top pill
       if (!queryText) return true
       const categoryId = tag.category || "custom"
       const categoryLabel = getCategoryLabel(categoryId, customCategories)
       return tag.name.toLowerCase().includes(queryText) || categoryLabel.toLowerCase().includes(queryText)
-    })
-    .sort((a, b) => {
-      if (!queryText) {
-        if (a.id === systemTypeTagId("none")) return -1
-        if (b.id === systemTypeTagId("none")) return 1
-      }
-      return 0
     })
   const tagGroups = groupTagsByCategory(filtered, customCategories)
   const selectedTagObjects = tags.filter((tag) => selectedTags.includes(tag.id))
@@ -1730,12 +1742,12 @@ function TagFilterSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[84dvh] flex-col bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-8 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[82dvh] flex-col glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 shrink-0 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <SheetHeader title="Filter Tags" onClose={onClose} />
@@ -1754,6 +1766,21 @@ function TagFilterSheet({
             <LayoutGrid className="w-3.5 h-3.5" />
             All
           </button>
+          {unassignedTag && (
+            <button
+              type="button"
+              onClick={() => toggle(unassignedTag.id)}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all active:scale-95",
+                selectedTags.includes(unassignedTag.id)
+                  ? "border-feedback/35 bg-feedback/15 text-feedback"
+                  : "border-white/10 bg-white/5 text-muted-foreground"
+              )}
+            >
+              <CircleSlash className="w-3.5 h-3.5" />
+              Unassigned
+            </button>
+          )}
           {selectedTags.length > 0 && (
             <div className="min-w-0 flex-1 overflow-x-auto scrollbar-hide">
               <div className="flex gap-1.5">
@@ -1899,6 +1926,14 @@ function tagDotClass(tag: MessageTag): string {
   return tag.color || "bg-primary"
 }
 
+function messageTypeChipClass(type: MessageType): string {
+  if (type === "progress") return "bg-progress/12 text-green-300 border-progress/35"
+  if (type === "problem") return "bg-problem/12 text-red-300 border-problem/35"
+  if (type === "feedback") return "bg-feedback/12 text-amber-300 border-feedback/35"
+  if (type === "decision") return "bg-decision/12 text-blue-300 border-decision/35"
+  return "bg-feedback/10 text-feedback border-feedback/25"
+}
+
 function FilterChip({
   children, active, highlight, isFavorited, icon, tone, onClick, onLongPress,
 }: {
@@ -1939,16 +1974,16 @@ function FilterChip({
       onPointerCancel={cancelPress}
       onClick={handleClick}
       className={cn(
-        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all border flex items-center gap-1",
+        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all duration-150 border flex items-center gap-1 active:scale-[0.98]",
         active && tone === "people"
-          ? "bg-feedback/15 border-feedback/35 text-feedback"
+          ? "glass-pill-people-active"
         : active
-          ? "bg-primary/20 border-primary/35 text-primary"
+          ? "glass-pill-active"
         : highlight
-          ? "bg-feedback/10 border-feedback/25 text-feedback"
+          ? "glass-pill-people"
         : tone === "people"
-          ? "bg-feedback/8 border-feedback/20 text-feedback/80 hover:bg-feedback/12 hover:border-feedback/35"
-          : "bg-white/5 border-white/10 text-muted-foreground hover:bg-primary/10 hover:border-primary/35 hover:text-primary"
+          ? "glass-pill-people hover:bg-feedback/15 hover:border-feedback/35"
+          : "glass-pill text-white/85 hover:border-primary/40 hover:text-blue-200"
       )}
     >
       {isFavorited && <Star className="w-2.5 h-2.5 fill-current text-feedback shrink-0" />}
@@ -2200,21 +2235,62 @@ function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Ar
 // Once a URL has been loaded once, we skip the skeleton entirely on subsequent renders.
 const loadedImageUrls = new Set<string>()
 
+// Decode a BlurHash string to a small data URL for use as CSS background.
+// Returns null if blurhash is not available or decoding fails.
+function decodeBlurHashToDataURL(hash: string, w = 32, h = 32): string | null {
+  try {
+    // Use require so this only runs client-side and doesn't block
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { decode } = require("blurhash") as typeof import("blurhash")
+    const pixels = decode(hash, w, h)
+    const canvas = document.createElement("canvas")
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    const imageData = ctx.createImageData(w, h)
+    imageData.data.set(pixels)
+    ctx.putImageData(imageData, 0, 0)
+    return canvas.toDataURL()
+  } catch {
+    return null
+  }
+}
+
+// Cache decoded data URLs so we don't re-decode the same hash repeatedly
+const blurHashDataUrlCache = new Map<string, string>()
+
+function getBlurHashDataURL(hash: string, w: number, h: number): string | null {
+  const key = `${hash}-${w}-${h}`
+  if (blurHashDataUrlCache.has(key)) return blurHashDataUrlCache.get(key)!
+  const thumbW = 32
+  const thumbH = Math.max(1, Math.round((h / w) * thumbW))
+  const url = decodeBlurHashToDataURL(hash, thumbW, thumbH)
+  if (url) blurHashDataUrlCache.set(key, url)
+  return url
+}
+
 function MessageImage({
   src,
   alt,
   width,
   height,
+  blurHash,
   onClick,
 }: {
   src: string
   alt: string
   width?: number
   height?: number
+  blurHash?: string
   onClick: () => void
 }) {
   const [loaded, setLoaded] = useState(() => loadedImageUrls.has(src))
   const hasKnownDimensions = !!(width && height)
+
+  // Decode BlurHash to a tiny data URL once (cached), used as skeleton background
+  const blurDataUrl = blurHash && width && height && !loaded
+    ? getBlurHashDataURL(blurHash, width, height)
+    : null
 
   return (
     <button
@@ -2226,28 +2302,36 @@ function MessageImage({
       }}
       className="mb-2 block w-full overflow-hidden rounded-xl border border-white/10 active:scale-[0.99]"
     >
-      {/*
-        Image is IN FLOW — drives natural height (respects real image dimensions, max-h-72 cap).
-        Container has min-h-36 so the skeleton overlay is always visible while loading.
-        Skeleton is absolute inset-0 — fades out once image is ready, no layout change.
-        For messages with stored dimensions: aspectRatio reserves exact space → zero shift.
-      */}
       <div
-        className={cn("relative w-full min-h-36 bg-white/4")}
+        className={cn("relative w-full min-h-36")}
         style={hasKnownDimensions ? { aspectRatio: `${width} / ${height}`, maxHeight: 288 } : undefined}
       >
-        {/* Skeleton — absolute overlay, visible until image loads */}
+        {/* BlurHash / shimmer skeleton — absolute overlay, fades out when image is ready */}
         <div
           className={cn(
-            "absolute inset-0 flex items-center justify-center transition-opacity duration-300 z-10",
+            "absolute inset-0 z-10 transition-opacity duration-500",
             loaded ? "opacity-0 pointer-events-none" : "opacity-100",
           )}
+          style={blurDataUrl ? {
+            backgroundImage: `url(${blurDataUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(12px)",
+            transform: "scale(1.08)", // hide blur edges
+          } : { background: "rgba(255,255,255,0.04)" }}
         >
-          <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/8 to-transparent animate-pulse" />
-          <ImageIcon className="w-7 h-7 text-white/20 relative z-10" />
+          {/* Fallback shimmer when no BlurHash */}
+          {!blurDataUrl && (
+            <>
+              <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/8 to-transparent animate-pulse" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <ImageIcon className="w-7 h-7 text-white/20" />
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Image in flow — natural dimensions, fades in over skeleton */}
+        {/* Real image — in flow, natural dimensions, fades in over skeleton */}
         <img
           src={src}
           alt={alt}
@@ -2256,7 +2340,7 @@ function MessageImage({
             setLoaded(true)
           }}
           className={cn(
-            "w-full max-h-72 object-cover block transition-opacity duration-300",
+            "w-full max-h-72 object-cover block transition-opacity duration-500",
             loaded ? "opacity-100" : "opacity-0",
           )}
         />
@@ -2314,32 +2398,32 @@ function MessageBubble({
 
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe
-    ? (!first && !last) ? "rounded-[16px_4px_4px_16px]"
-    : !first            ? "rounded-[16px_4px_16px_16px]"
-    :                     "rounded-[16px_16px_4px_16px]"
-    : (!first && !last) ? "rounded-[4px_16px_16px_4px]"
-    : !first            ? "rounded-[4px_16px_16px_16px]"
-    :                     "rounded-[16px_16px_16px_4px]"
+    ? (!first && !last) ? "rounded-[18px_4px_4px_18px]"
+    : !first            ? "rounded-[18px_4px_18px_18px]"
+    :                     "rounded-[18px_18px_4px_18px]"
+    : (!first && !last) ? "rounded-[4px_18px_18px_4px]"
+    : !first            ? "rounded-[4px_18px_18px_18px]"
+    :                     "rounded-[18px_18px_18px_4px]"
 
   return (
     <div
       data-msg-id={message.id}
       className={cn(
-        "flex gap-2 items-end select-none no-callout",
+        "flex gap-2.5 items-end select-none no-callout",
         isMe && "flex-row-reverse",
         isSelected && "opacity-90",
-        first ? "mt-3 animate-fade-up" : "mt-1"
+        first ? "mt-2.5 animate-fade-up" : "mt-1"
       )}
     >
       {/* Avatar — only visible on first message in a group */}
       {first ? (
         <div className={cn(
-          "relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white",
+          "relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
           contact.color
         )}>
           {contact.initials}
           {isAuthorActive && (
-            <span className="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-[3px] border-background shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+            <span className="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-[3px] border-[#05090f] shadow-[0_0_12px_rgba(52,211,153,0.72)]" />
           )}
         </div>
       ) : (
@@ -2348,7 +2432,7 @@ function MessageBubble({
 
       <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
         {!isMe && first && (
-          <span className="text-xs font-semibold text-muted-foreground px-1">{contact.name}</span>
+          <span className="text-[11px] font-semibold text-muted-foreground/75 px-1 mb-0.5">{contact.name}</span>
         )}
         <div
           onPointerDown={(e) => { e.stopPropagation(); onPressStart() }}
@@ -2358,14 +2442,12 @@ function MessageBubble({
           onClick={(e) => { e.stopPropagation(); onTap() }}
           onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
           className={cn(
-            "border p-3 px-3.5 cursor-pointer transition-all duration-300",
+            "border px-3.5 py-2.5 cursor-pointer transition-all duration-300",
             isMe
-              ? cn("bg-[#112a52] border-primary/25", bubbleRadius)
-              : cn("bg-card border-white/10", bubbleRadius),
-            isSelected && (isMe
-              ? "bg-primary/25 border-primary/50 shadow-[0_0_0_2px_rgba(37,99,235,0.3)]"
-              : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]"),
-            isHighlighted && "border-violet-400/50 shadow-[0_0_0_2px_rgba(167,139,250,0.35),0_0_24px_rgba(139,92,246,0.2)]"
+              ? cn("glass-message-me", bubbleRadius)
+              : cn("glass-message", bubbleRadius),
+            isSelected && "glass-message-selected",
+            isHighlighted && "glass-message-highlighted"
           )}
         >
           {message.imageUrl && (
@@ -2374,6 +2456,7 @@ function MessageBubble({
               alt={message.imageName || "Attached image"}
               width={message.imageWidth}
               height={message.imageHeight}
+              blurHash={message.imageBlurHash}
               onClick={() => {
                 onPressEnd()
                 onImageOpen(message.imageUrl!, message.imageName)
@@ -2399,18 +2482,18 @@ function MessageBubble({
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             {/* Safety fallback: no tags computed AND no recipients AND no calendar dates → Unassigned */}
             {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
             {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
-              <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
+              <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
                 Unassigned
               </span>
             )}
             {visibleTagCount === 0 && hasCalendarDates && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-400 bg-sky-400/10 border border-sky-400/25 rounded px-2 py-0.5 font-mono no-callout">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
                 <CalendarDays className="w-2.5 h-2.5 shrink-0" />
                 Scheduled
               </span>
@@ -2422,7 +2505,7 @@ function MessageBubble({
                 return (
                   <Fragment key={tag.id}>
                     <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
-                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
+                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
                       Unassigned
                     </span>
                   </Fragment>
@@ -2437,10 +2520,10 @@ function MessageBubble({
                     if (tag.projectId) onProjectTagTap?.(tag.projectId)
                   }}
                   className={cn(
-                    "text-[10px] font-semibold tracking-wide border rounded px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout",
+                    "text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout backdrop-blur-md",
                     tag.systemType
-                      ? cn(typeStyles[tag.systemType].bg, typeStyles[tag.systemType].text, typeStyles[tag.systemType].border)
-                      : "bg-primary/10 text-primary border-primary/20"
+                      ? messageTypeChipClass(tag.systemType)
+                      : "bg-primary/12 text-blue-300 border-primary/30"
                   )}
                 >
                   {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
@@ -2450,7 +2533,7 @@ function MessageBubble({
             })}
             {/* Calendar date chips */}
             {(message.calendarDates ?? []).map(cd => (
-              <span key={cd.id ?? cd.date} className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-400 bg-sky-400/10 border border-sky-400/25 rounded px-2 py-0.5 font-mono no-callout">
+              <span key={cd.id ?? cd.date} className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
                 <CalendarDays className="w-2.5 h-2.5 shrink-0" />
                 {formatCalDate(cd.date)}
               </span>

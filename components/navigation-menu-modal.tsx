@@ -11,11 +11,6 @@ interface NavigationMenuModalProps {
   activeScreen?: NavTarget
 }
 
-// Color tokens consistent with the rest of the app:
-// Stream  → primary blue  (#2563EB)
-// People  → amber/yellow  (#F59E0B = feedback)
-// Tags    → decision blue (#3B82F6)
-// Calendar→ cyan          (#06B6D4)
 const NAV_ITEMS: {
   id: NavTarget
   icon: React.ReactNode
@@ -31,19 +26,19 @@ const NAV_ITEMS: {
     icon: <MessageSquare className="w-4.5 h-4.5" />,
     title: "Stream",
     description: "Your message feed",
-    iconClass: "text-blue-400 bg-blue-400/12 border-blue-400/20",
-    glowClass: "hover:border-blue-400/30 hover:bg-blue-400/7",
-    activeClass: "border-blue-400/35 bg-blue-400/10 shadow-[0_0_24px_rgba(96,165,250,0.14)]",
-    dotClass: "bg-blue-400",
+    iconClass: "text-blue-200 bg-blue-400/18 border-blue-200/35",
+    glowClass: "hover:border-blue-200/35 hover:bg-blue-400/12",
+    activeClass: "border-blue-200/50 bg-blue-400/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(37,99,235,0.22)]",
+    dotClass: "bg-blue-300",
   },
   {
     id: "people",
     icon: <Users className="w-4.5 h-4.5" />,
     title: "People",
     description: "Contacts & members",
-    iconClass: "text-amber-400 bg-amber-400/12 border-amber-400/20",
-    glowClass: "hover:border-amber-400/30 hover:bg-amber-400/7",
-    activeClass: "border-amber-400/35 bg-amber-400/10 shadow-[0_0_24px_rgba(251,191,36,0.14)]",
+    iconClass: "text-amber-100 bg-amber-400/18 border-amber-200/35",
+    glowClass: "hover:border-amber-200/35 hover:bg-amber-400/12",
+    activeClass: "border-amber-200/50 bg-amber-400/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(245,158,11,0.20)]",
     dotClass: "bg-amber-400",
   },
   {
@@ -51,20 +46,20 @@ const NAV_ITEMS: {
     icon: <Tag className="w-4.5 h-4.5" />,
     title: "Tags",
     description: "Browse your tags",
-    iconClass: "text-decision bg-decision/10 border-decision/20",
-    glowClass: "hover:border-decision/30 hover:bg-decision/7",
-    activeClass: "border-decision/40 bg-decision/10 shadow-[0_0_24px_rgba(59,130,246,0.14)]",
-    dotClass: "bg-decision",
+    iconClass: "text-indigo-100 bg-decision/18 border-blue-200/35",
+    glowClass: "hover:border-blue-200/35 hover:bg-decision/12",
+    activeClass: "border-blue-200/50 bg-decision/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(59,130,246,0.20)]",
+    dotClass: "bg-blue-300",
   },
   {
     id: "calendar",
     icon: <CalendarDays className="w-4.5 h-4.5" />,
     title: "Calendar",
     description: "Scheduled messages",
-    iconClass: "text-cyan-400 bg-cyan-400/12 border-cyan-400/20",
-    glowClass: "hover:border-cyan-400/30 hover:bg-cyan-400/7",
-    activeClass: "border-cyan-400/35 bg-cyan-400/10 shadow-[0_0_24px_rgba(34,211,238,0.14)]",
-    dotClass: "bg-cyan-400",
+    iconClass: "text-cyan-100 bg-cyan-400/18 border-cyan-200/35",
+    glowClass: "hover:border-cyan-200/35 hover:bg-cyan-400/12",
+    activeClass: "border-cyan-200/50 bg-cyan-400/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(34,211,238,0.18)]",
+    dotClass: "bg-cyan-300",
   },
 ]
 
@@ -76,47 +71,41 @@ export function NavigationMenuModal({ onClose, onNavigate, activeScreen }: Navig
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
-      {/* Backdrop — stronger blur for glassmorphism depth */}
       <button
         onClick={onClose}
-        className="absolute inset-0 bg-black/55 backdrop-blur-lg animate-fade-in"
+        className="absolute inset-0 bg-[#020817]/62 backdrop-blur-xl animate-fade-in"
         aria-label="Close navigation menu"
       />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(37,99,235,0.20),transparent_34%),radial-gradient(circle_at_90%_80%,rgba(14,165,233,0.14),transparent_32%)]" />
 
-      {/* Modal card — glass effect */}
       <div
         className={cn(
-          "relative z-10 w-full max-w-95",
-          "bg-white/6 backdrop-blur-2xl",
-          "rounded-3xl border border-white/12",
-          "shadow-[0_32px_80px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.08)]",
+          "glass-menu-panel relative z-10 w-full max-w-[23.75rem]",
+          "rounded-3xl border overflow-hidden",
           "animate-spring-pop -translate-y-[6%]",
         )}
       >
-        {/* Subtle top sheen */}
-        <div className="absolute inset-x-0 top-0 h-px rounded-t-3xl bg-linear-to-r from-transparent via-white/20 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/30 to-transparent" />
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-5">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4">
           <div>
-            <p className="text-[10px] font-bold tracking-[2.5px] uppercase text-white/35 font-mono mb-0.5">
+            <p className="text-[10px] font-bold tracking-[2.5px] uppercase text-white/45 font-mono mb-0.5">
               SVC
             </p>
             <h2 className="text-xl font-bold tracking-tight text-white">Navigate</h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/8 border border-white/10 flex items-center justify-center active:scale-90 transition-all duration-150 hover:bg-white/12"
+            className="glass-button w-8 h-8 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
+            aria-label="Close"
           >
-            <X className="w-3.5 h-3.5 text-white/60" />
+            <X className="w-3.5 h-3.5 text-white/75" />
           </button>
         </div>
 
-        {/* Divider */}
-        <div className="h-px bg-white/8 mx-6" />
+        <div className="h-px bg-white/10 mx-6" />
 
-        {/* 2×2 grid */}
-        <div className="grid grid-cols-2 gap-3 p-6 pt-5">
+        <div className="grid grid-cols-2 gap-3 p-5 pt-4">
           {NAV_ITEMS.map((item, i) => {
             const isActive = activeScreen === item.id
             return (
@@ -124,16 +113,18 @@ export function NavigationMenuModal({ onClose, onNavigate, activeScreen }: Navig
                 key={item.id}
                 onClick={() => handleNavigate(item.id)}
                 className={cn(
-                  "relative group flex flex-col items-start gap-4 rounded-2xl border p-4",
+                  "glass-menu-item relative group flex min-h-[132px] flex-col items-start gap-4 rounded-2xl border p-4",
                   "active:scale-[0.96] transition-all duration-200",
                   isActive
                     ? item.activeClass
-                    : ["bg-white/4 border-white/9", item.glowClass],
+                    : item.glowClass,
                   "animate-fade-up",
                 )}
                 style={{ animationDelay: `${i * 60}ms` }}
               >
-                {/* Icon badge */}
+                {isActive && (
+                  <span className={cn("absolute right-3 top-3 h-2 w-2 rounded-full shadow-[0_0_12px_currentColor]", item.dotClass)} />
+                )}
                 <div
                   className={cn(
                     "w-10 h-10 rounded-xl border flex items-center justify-center",
@@ -147,7 +138,6 @@ export function NavigationMenuModal({ onClose, onNavigate, activeScreen }: Navig
                   {item.icon}
                 </div>
 
-                {/* Text */}
                 <div className="flex flex-col items-start gap-0.5">
                   <span className={cn(
                     "text-sm font-semibold leading-tight transition-colors duration-200",
@@ -162,7 +152,6 @@ export function NavigationMenuModal({ onClose, onNavigate, activeScreen }: Navig
           })}
         </div>
 
-        {/* Bottom padding for safe area feel */}
         <div className="h-1" />
       </div>
     </div>

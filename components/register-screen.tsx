@@ -50,7 +50,7 @@ export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-background overflow-y-auto">
+    <div className="flex-1 flex flex-col stream-glass-screen overflow-y-auto">
       {/* Top spacer */}
       <div className="flex-1 min-h-8" />
 

@@ -101,7 +101,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
       ...projects.map((project) => ({
         id: projectTagId(project.id),
         name: project.name,
-        category: "project" as const,
+        category: (project.tagCategory ?? "custom") as TagCategory,
         color: project.color,
         projectId: project.id,
         isFavorited: project.isFavorited,
@@ -235,7 +235,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
     <div
       style={mode === "sheet" ? dragStyle : undefined}
       className={cn(
-        "h-full flex flex-col bg-background overflow-hidden",
+        "stream-glass-screen h-full flex flex-col overflow-hidden",
         mode === "sheet" ? "rounded-t-3xl" : ""
       )}
     >
@@ -243,19 +243,19 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
       {mode === "sheet" && (
         <div
           {...swipeHandlers}
-          className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 mb-1 shrink-0 cursor-grab active:cursor-grabbing touch-none"
+          className="w-10 h-1 rounded-full bg-white/25 mx-auto mt-3 mb-1 shrink-0 cursor-grab active:cursor-grabbing touch-none shadow-[0_1px_10px_rgba(255,255,255,0.12)]"
         />
       )}
       {/* Header */}
-      <div className="shrink-0 px-4 app-topbar flex items-center justify-between border-b border-white/10">
+      <div className="glass-panel shrink-0 px-4 app-topbar flex items-center justify-between border-b">
         <h1 className="text-base font-bold">
-          New <span className="text-primary">Message</span>
+          New <span className="text-blue-300">Message</span>
         </h1>
         <button
           onClick={onCancel}
-          className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
+          className="glass-button w-8 h-8 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
         >
-          <X className="w-4 h-4 text-muted-foreground" />
+          <X className="w-4 h-4 text-white/75" />
         </button>
       </div>
 
@@ -267,7 +267,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
             placeholder="Search people or tags"
           />
           {searchQuery && (
-            <div className="absolute left-0 right-0 top-[calc(100%-6px)] z-20 rounded-2xl border border-white/10 bg-[#0d1c35] p-2 shadow-2xl animate-fade-up">
+            <div className="glass-panel absolute left-0 right-0 top-[calc(100%-6px)] z-20 rounded-2xl border p-2 animate-fade-up">
               {hasSearchResults ? (
                 <div className="flex max-h-56 flex-col gap-1 overflow-y-auto scrollbar-hide">
                   {searchPeople.map((contact) => (
@@ -326,7 +326,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         </div>
 
         <div className="flex flex-col items-center gap-3 py-1">
-          <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
+          <div className="glass-panel w-16 h-16 rounded-full border flex items-center justify-center animate-float">
             <MessageCircle className="w-7 h-7 text-muted-foreground/70" />
           </div>
           <span className="text-sm text-muted-foreground font-light">
@@ -334,7 +334,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           </span>
         </div>
 
-        <div className="bg-card border border-white/10 rounded-2xl p-4 min-h-[150px] flex flex-col">
+        <div className="glass-message border rounded-2xl p-4 min-h-[150px] flex flex-col">
           <textarea
             ref={textareaRef}
             value={text}
@@ -344,12 +344,12 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
             placeholder={"Type your message...\n\nContext is optional.\nSend first, tag later."}
           />
           {imagePreview && (
-            <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+            <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-[0_14px_34px_rgba(0,0,0,0.18)]">
               <img src={imagePreview} alt="Attachment preview" className="max-h-44 w-full object-cover" />
               <button
                 type="button"
                 onClick={clearImage}
-                className="absolute right-2 top-2 w-8 h-8 rounded-full bg-black/55 border border-white/15 flex items-center justify-center active:scale-95"
+                className="glass-button absolute right-2 top-2 w-8 h-8 rounded-full border flex items-center justify-center active:scale-[0.98]"
               >
                 <Trash2 className="w-4 h-4 text-white" />
               </button>
@@ -392,7 +392,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
               <button
                 type="button"
                 onClick={() => setShowDatePicker(true)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-400/12 px-2.5 py-1 text-[11px] font-semibold text-sky-400 active:scale-95 transition-transform"
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/35 bg-sky-400/14 px-2.5 py-1 text-[11px] font-semibold text-sky-300 active:scale-[0.98] transition-transform backdrop-blur-md"
               >
                 <CalendarDays className="w-3 h-3" />
                 {selectedCalendarDates.length === 1
@@ -408,7 +408,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         )}
 
         {activeAssociation && (
-          <div className="rounded-3xl border border-white/10 bg-[#0d1c35] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] animate-fade-up">
+          <div className="glass-panel rounded-3xl border p-3 animate-fade-up">
             {activeAssociation === "who" ? (
               <div className="max-h-52 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-wrap gap-2">
@@ -433,10 +433,10 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                           key={c.id}
                           onClick={() => toggleImportedContact(c.id)}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors",
+                            "flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all active:scale-[0.98]",
                             selectedImportedContacts.includes(c.id)
-                              ? "bg-primary/15 border-primary/30 text-primary"
-                              : "bg-white/5 border-white/10 text-foreground/60"
+                              ? "glass-pill-active"
+                              : "glass-pill text-white/75"
                           )}
                         >
                           <span className="w-5 h-5 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-[9px] font-bold text-white/50">
@@ -480,7 +480,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         />
       </div>
 
-      <div className="flex-shrink-0 border-t border-white/10 bg-background px-4 py-3">
+      <div className="glass-compose flex-shrink-0 px-4 py-3">
         <div className="flex gap-2 flex-wrap">
           <OptionChip
             icon={<User className="w-3.5 h-3.5" />}
@@ -518,7 +518,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
       </div>
 
       {/* Bottom Action Bar */}
-      <div className="flex-shrink-0 bg-[#0d1c35] px-4 py-4 safe-area-pb">
+      <div className="flex-shrink-0 bg-[rgba(8,14,25,0.68)] px-4 py-4 safe-area-pb backdrop-blur-2xl border-t border-white/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <div className="flex justify-between items-center gap-4">
           <span className="text-xs text-muted-foreground font-light">
             {text.length > 0 ? `${text.length} chars` : "Context optional"}
@@ -532,8 +532,8 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
               isSent
                 ? "bg-progress text-white shadow-[0_4px_14px_rgba(34,197,94,0.45)] animate-sent-pop"
                 : (text.trim() || imageFile) && !isSending
-                  ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
-                  : "bg-white/10 text-muted-foreground"
+                  ? "border border-primary/30 bg-[linear-gradient(135deg,rgba(37,99,235,0.96),rgba(99,102,241,0.92))] text-white glow-blue active:scale-[0.98]"
+                  : "glass-button border text-muted-foreground"
             )}
           >
             {isSent ? (
@@ -588,10 +588,10 @@ function OptionChip({
     <button
       onClick={onClick}
       className={cn(
-        "text-xs font-semibold px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition-all active:scale-95",
+        "text-xs font-semibold px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition-all active:scale-[0.98]",
         active
-          ? "bg-primary/15 border-primary/30 text-primary"
-          : "border-dashed border-white/15 text-muted-foreground"
+          ? "glass-pill-active"
+          : "glass-pill border-dashed text-white/75 hover:text-blue-200"
       )}
     >
       {icon}
@@ -614,7 +614,7 @@ function SearchInput({
   placeholder: string
 }) {
   return (
-    <label className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+    <label className="glass-compose-pill mb-3 flex items-center gap-2 rounded-xl border px-3 py-2">
       <Search className="w-4 h-4 text-muted-foreground" />
       <input
         value={value}
@@ -643,8 +643,8 @@ function PersonCard({
       className={cn(
         "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-2 rounded-2xl border px-3 py-2.5 text-left transition-all active:scale-[0.98]",
         selected
-          ? "border-primary/35 bg-primary/15 text-primary"
-          : "border-white/10 bg-white/[0.045] text-foreground/90 active:bg-white/8"
+          ? "glass-pill-active"
+          : "glass-menu-item text-foreground/90 active:bg-white/8"
       )}
     >
       <span className={cn("w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0", contact.color)}>
@@ -673,10 +673,10 @@ function SearchResultButton({
     <button
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all active:scale-[0.99]",
+        "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all active:scale-[0.99]",
         selected
-          ? "bg-primary/15 text-primary"
-          : "text-foreground/90 active:bg-white/5"
+          ? "border-primary/35 bg-primary/18 text-blue-200"
+          : "border-transparent text-foreground/90 active:bg-white/5"
       )}
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center">{icon}</span>
@@ -691,7 +691,7 @@ function SearchResultButton({
 
 function SelectedChip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/30 bg-primary/14 px-2.5 py-1 text-[11px] font-semibold text-blue-300 backdrop-blur-md">
       <span className="inline-flex min-w-0 items-center gap-1 truncate">{children}</span>
       <button type="button" onClick={onRemove} className="shrink-0 rounded-full active:scale-90">
         <X className="w-3 h-3" />
@@ -720,9 +720,9 @@ function TagCard({
         offset && "translate-y-0.5",
         selected
           ? tag.systemType && systemStyle
-            ? cn(systemStyle.bg, systemStyle.text, systemStyle.border, "ring-1 ring-current/20")
-            : "border-primary/35 bg-primary/15 text-primary"
-          : "border-white/10 bg-white/[0.045] text-foreground/90 active:bg-white/8"
+            ? cn(systemStyle.bg, systemStyle.text, systemStyle.border, "ring-1 ring-current/20 backdrop-blur-md")
+            : "glass-pill-active"
+          : "glass-menu-item text-foreground/90 active:bg-white/8"
       )}
     >
       <span className="flex items-center gap-2">

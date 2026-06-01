@@ -18,7 +18,8 @@
     "emulator:verify": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/verify-test-cases.mjs",
     "emulator:migrate-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/migrate-tag-categories.mjs",
     "emulator:test-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-tag-categories.mjs",
-    "emulator:test-calendar": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-calendar.mjs"
+    "emulator:test-calendar": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-calendar.mjs",
+    "migrate:tags": "node scripts/normalize-tags-v1.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -53,6 +54,7 @@
     "@radix-ui/react-tooltip": "1.2.8",
     "@vercel/analytics": "1.6.1",
     "autoprefixer": "^10.4.20",
+    "blurhash": "^2.0.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.1.1",

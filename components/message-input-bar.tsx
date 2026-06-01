@@ -78,7 +78,7 @@ export function MessageInputBar({
   }, [text])
 
   return (
-    <div className="flex-shrink-0 border-t border-white/10 bg-[#071326]/95 backdrop-blur-xl px-3 pt-1 pb-[calc(env(safe-area-inset-bottom)+6px)]">
+    <div className="glass-compose flex-shrink-0 px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+8px)]">
       {imagePreview && (
         <div className="mx-auto mb-2 max-w-2xl">
           <div className="relative w-24 overflow-hidden rounded-xl border border-white/10 bg-black/20">
@@ -151,7 +151,7 @@ export function MessageInputBar({
         <button
           type="button"
           onClick={onOpenSheet}
-          className="mb-0.5 w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 transition-all"
+          className="glass-button mb-0.5 w-11 h-11 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
         >
           <Plus className="w-5 h-5 text-muted-foreground" />
         </button>
@@ -167,19 +167,19 @@ export function MessageInputBar({
           }}
           rows={1}
           placeholder="Message"
-          className="min-h-10 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/35 scrollbar-hide"
+          className="glass-compose-pill min-h-11 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-full border px-4 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 scrollbar-hide transition-colors duration-150"
         />
         <button
           type="button"
           onClick={onSend}
           disabled={(!text.trim() && !imageFile) || isSending || isSent}
           className={cn(
-            "mb-0.5 w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300",
+            "mb-0.5 w-11 h-11 rounded-full flex items-center justify-center border transition-all duration-300",
             isSent
-              ? "bg-progress text-white shadow-[0_4px_14px_rgba(34,197,94,0.45)] animate-sent-pop"
+              ? "border-progress/35 bg-progress text-white shadow-[0_4px_16px_rgba(34,197,94,0.42)] animate-sent-pop"
               : (text.trim() || imageFile) && !isSending
-                ? "bg-primary text-white shadow-[0_4px_14px_rgba(37,99,235,0.4)] active:scale-95"
-                : "bg-white/10 text-muted-foreground"
+                ? "border-primary/30 bg-[linear-gradient(135deg,rgba(37,99,235,0.96),rgba(99,102,241,0.92))] text-white glow-blue active:scale-[0.98]"
+                : "glass-button text-muted-foreground"
           )}
         >
           {isSent ? (
@@ -207,10 +207,10 @@ export function MessageInputBar({
 function ContextChip({ children, onRemove, tone = "primary" }: { children: React.ReactNode; onRemove: () => void; tone?: "primary" | "date" }) {
   return (
     <span className={cn(
-      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap",
+      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap backdrop-blur-md",
       tone === "date"
-        ? "border-sky-400/25 bg-sky-400/10 text-sky-400"
-        : "border-primary/25 bg-primary/12 text-primary"
+        ? "border-sky-400/30 bg-sky-400/12 text-sky-300"
+        : "border-primary/30 bg-primary/12 text-blue-300"
     )}>
       <span className="max-w-32 truncate">{children}</span>
       <button type="button" onClick={onRemove} className="rounded-full active:scale-90">

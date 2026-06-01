@@ -118,7 +118,7 @@ export function CalendarScreen({
   const dayMessages = messagesByDate.get(selectedDate) ?? []
 
   return (
-    <div className={cn("flex-1 min-h-0 flex flex-col bg-background", className ?? "animate-fade-in")}>
+    <div className={cn("flex-1 min-h-0 flex flex-col stream-glass-screen", className ?? "animate-fade-in")}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
@@ -317,11 +317,11 @@ function CalendarComposeSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
-      <div onPointerDown={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-[1px] cursor-default" />
+      <div onPointerDown={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default" />
 
       <div
         style={dragStyle}
-        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[85dvh] overflow-y-auto scrollbar-hide safe-area-pb"
+        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[85dvh] overflow-y-auto scrollbar-hide safe-area-pb"
       >
         {/* Drag handle */}
         <div {...swipeHandlers} className="py-3 touch-none cursor-grab active:cursor-grabbing">

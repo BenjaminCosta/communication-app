@@ -173,14 +173,14 @@ export function GlobalSearchSheet({
       {/* Backdrop — stronger blur, consistent with nav modal */}
       <button
         onClick={onClose}
-        className="absolute inset-0 bg-black/65 backdrop-blur-lg"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         aria-label="Close search"
       />
 
       {/* Sheet card — dark glass, slides down from top */}
       <div className={cn(
         "relative z-10 flex flex-col w-full max-w-lg mx-auto mt-safe overflow-hidden animate-slide-down",
-        "bg-[#07111f]/92 backdrop-blur-2xl",
+        "glass-modal",
         "rounded-b-3xl border-b border-x border-white/10",
         "shadow-[0_32px_80px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.07)]",
       )}>

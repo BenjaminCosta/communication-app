@@ -640,17 +640,38 @@ export default function Home() {
           imageMeta.imageContentType = imageFile.type || "image/jpeg"
           imageMeta.imageSize = imageFile.size
           imageMeta.imageUploadedAt = serverTimestamp()
-          // Read natural dimensions from the file before it leaves memory
+          // Read natural dimensions + generate BlurHash from the file before it leaves memory
           try {
-            const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+            const dims = await new Promise<{ w: number; h: number; blurHash: string }>((resolve, reject) => {
               const url = URL.createObjectURL(imageFile)
               const el = new window.Image()
-              el.onload = () => { resolve({ w: el.naturalWidth, h: el.naturalHeight }); URL.revokeObjectURL(url) }
+              el.onload = () => {
+                const w = el.naturalWidth
+                const h = el.naturalHeight
+                // Draw at small size for fast BlurHash encoding (32px wide, proportional height)
+                const thumbW = 32
+                const thumbH = Math.max(1, Math.round((h / w) * thumbW))
+                const canvas = document.createElement("canvas")
+                canvas.width = thumbW
+                canvas.height = thumbH
+                const ctx = canvas.getContext("2d")!
+                ctx.drawImage(el, 0, 0, thumbW, thumbH)
+                const { data } = ctx.getImageData(0, 0, thumbW, thumbH)
+                // Dynamic import so blurhash encode only runs in this path
+                import("blurhash").then(({ encode }) => {
+                  try {
+                    const hash = encode(data, thumbW, thumbH, 4, 3)
+                    resolve({ w, h, blurHash: hash })
+                  } catch { resolve({ w, h, blurHash: "" }) }
+                }).catch(() => resolve({ w, h, blurHash: "" }))
+                URL.revokeObjectURL(url)
+              }
               el.onerror = reject
               el.src = url
             })
             imageMeta.imageWidth = dims.w
             imageMeta.imageHeight = dims.h
+            if (dims.blurHash) imageMeta.imageBlurHash = dims.blurHash
           } catch { /* non-critical — skip if decode fails */ }
         } catch (error) {
           showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)
@@ -986,6 +1007,14 @@ export default function Home() {
   }, [navigateTo])
   const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
   const goToPeople = useCallback(() => navigateTo("people"), [navigateTo])
+  const peopleReturnRef = useRef<Screen>("profile")
+  const goToPeopleFromStream = useCallback(() => {
+    peopleReturnRef.current = "stream"
+    navigateTo("people")
+  }, [navigateTo])
+  const handlePeopleBack = useCallback(() => {
+    navigateTo(peopleReturnRef.current)
+  }, [navigateTo])
   const goToAdmin = useCallback(() => navigateTo("admin"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
@@ -1187,8 +1216,7 @@ export default function Home() {
           currentUser={currentUser}
           importedContacts={importedContacts}
           registeredUsers={[currentUser, ...contacts]}
-          onBack={goToProfile}
-          onSaveImportedContacts={handleSaveImportedContacts}
+          onBack={handlePeopleBack}
           onInviteContact={handleInviteContact}
           onAddTagToContact={handleAddTagToContact}
           onRemoveTagFromContact={handleRemoveTagFromContact}
@@ -1303,7 +1331,7 @@ export default function Home() {
             onMessageClick={handleMessageClick}
             onNewProject={handleCreateProject}
             onProfile={goToProfile}
-            onPeople={goToPeople}
+            onPeople={goToPeopleFromStream}
             onDeleteMessage={handleDeleteMessage}
             onFavoriteMessage={handleFavoriteMessage}
             userInitials={userInitials}

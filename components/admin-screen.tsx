@@ -54,7 +54,7 @@ export function AdminScreen({ currentUser, allUsers, onBack, className }: AdminS
   const onlineCount = sorted.filter((u) => getStatus(u.lastSeen) === "online").length
 
   return (
-    <div className={cn("flex-1 flex flex-col bg-background overflow-hidden", className)}>
+    <div className={cn("flex-1 flex flex-col stream-glass-screen overflow-hidden", className)}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">

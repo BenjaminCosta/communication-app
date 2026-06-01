@@ -20,6 +20,8 @@ export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   systemType: { label: "Type",       order: 0 },
   project:    { label: "Project",    order: 1,  hint: "Team or client project" },
   status:     { label: "Status",     order: 2,  hint: "Progress, decision, feedback, problem" },
+  // "date" is the V1 normalized ID for the time-based category (migrated from "timedate")
+  date:       { label: "Date",       order: 3,  hint: "Deadline or milestone", isTimeBased: true },
   timedate:   { label: "Date / Time",order: 3,  hint: "Deadline or milestone", isTimeBased: true },
   report:     { label: "Report",     order: 4,  hint: "Reporting or analytics tag" },
   task:       { label: "Task",       order: 5,  hint: "Actionable item or to-do" },
@@ -38,13 +40,12 @@ export interface CategoryItem {
   isTimeBased?: boolean
 }
 
-/** The 5 fixed system categories shown in the UI (excludes systemType which is internal) */
+/** V1 user-facing system categories (project and report are deprecated — map to "custom") */
 export const SYSTEM_CATEGORIES: CategoryItem[] = [
-  { id: "project",  name: "Project",    isSystem: true },
-  { id: "status",   name: "Status",     isSystem: true },
-  { id: "timedate", name: "Date / Time",isSystem: true, isTimeBased: true },
-  { id: "report",   name: "Report",     isSystem: true },
-  { id: "task",     name: "Task",       isSystem: true },
+  { id: "status", name: "Status", isSystem: true },
+  { id: "date",   name: "Date",   isSystem: true, isTimeBased: true },
+  { id: "task",   name: "Task",   isSystem: true },
+  { id: "custom", name: "Custom", isSystem: true },
 ]
 
 /** Returns the display label for any category id (system or user-created) */
@@ -57,17 +58,16 @@ export function getCategoryLabel(categoryId: string, customCategories: CategoryI
 
 /** Returns true if this category triggers the date picker */
 export function isCategoryTimeBased(categoryId: string, customCategories: CategoryItem[] = []): boolean {
-  if (categoryId === "timedate") return true
+  // "date" is the V1 normalized ID; "timedate" is the legacy ID — both trigger the date picker
+  if (categoryId === "timedate" || categoryId === "date") return true
   const custom = customCategories.find(c => c.id === categoryId)
   return custom?.isTimeBased ?? false
 }
 
-/** Categories the user can pick from when creating / editing a tag */
+/** Categories the user can pick from when creating / editing a tag (V1 model) */
 export const USER_SELECTABLE_CATEGORIES: TagCategory[] = [
-  "project",
   "status",
-  "timedate",
-  "report",
+  "date",
   "task",
   "custom",
 ]
@@ -76,7 +76,8 @@ export const USER_SELECTABLE_CATEGORIES: TagCategory[] = [
 export const CATEGORY_ORDER: TagCategory[] = [
   "project",
   "status",
-  "timedate",
+  "date",      // V1 normalized ID for time-based category
+  "timedate",  // Legacy alias — kept so old data still displays correctly
   "report",
   "task",
   "custom",
@@ -185,6 +186,7 @@ export interface Message {
   imageSize?: number
   imageWidth?: number
   imageHeight?: number
+  imageBlurHash?: string
   imageUploadedAt?: Date
   calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
 }

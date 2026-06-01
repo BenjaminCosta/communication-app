@@ -43,7 +43,7 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-background">
+    <div className="flex-1 flex flex-col stream-glass-screen">
       {/* Top spacer */}
       <div className="flex-1" />
 

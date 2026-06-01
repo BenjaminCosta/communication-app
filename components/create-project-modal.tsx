@@ -24,8 +24,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
 
   const allCategories: CategoryItem[] = [
     ...SYSTEM_CATEGORIES,
-    ...customCategories,
-    { id: "custom", name: "Custom", isSystem: true },
+    ...customCategories.filter(c => !SYSTEM_CATEGORIES.some(s => s.id === c.id)),
   ]
 
   const toggle = (id: string) =>
@@ -43,16 +42,16 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
       {/* Backdrop */}
       <button
         onClick={onClose}
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         aria-label="Close"
       />
 
       {/* Modal card */}
-      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl overflow-y-auto max-h-[92dvh] animate-spring-pop -translate-y-[5%]">
+      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl overflow-y-auto max-h-[92dvh] animate-spring-pop -translate-y-[5%]">
 
         {/* ── Success overlay ── */}
         {isSuccess && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 bg-[#0d1c35] rounded-3xl animate-fade-in">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 glass-modal rounded-3xl animate-fade-in">
             <div className="animate-sent-pop">
               <div className="w-20 h-20 rounded-full bg-progress flex items-center justify-center shadow-[0_0_48px_rgba(34,197,94,0.55)]">
                 <svg className="w-9 h-9" viewBox="0 0 36 36" fill="none">
@@ -76,7 +75,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
               <div className="flex items-center gap-1.5">
                 <p className="text-xs text-muted-foreground">Tag created</p>
                 <span className="text-[10px] font-bold uppercase tracking-[1.5px] text-primary/70 font-mono">
-                  · {CATEGORY_CONFIG[category].label}
+                  · {CATEGORY_CONFIG[category]?.label ?? "Custom"}
                 </span>
               </div>
             </div>

@@ -22,8 +22,8 @@ export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory }: Un
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
-      <button onClick={onClose} className="absolute inset-0 bg-black/65 backdrop-blur-sm" aria-label="Close" />
-      <div className="relative z-10 w-full max-w-sm bg-[#0d1c35] rounded-3xl border border-white/10 shadow-2xl animate-spring-pop -translate-y-[5%]">
+      <button onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-label="Close" />
+      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl animate-spring-pop -translate-y-[5%]">
 
         <div className="flex items-center justify-between px-5 pt-5 pb-0">
           {mode === "category" ? (

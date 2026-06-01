@@ -95,7 +95,7 @@ export function PeopleScreen({
   const cutoff = 90_000
 
   return (
-    <div className={cn("flex-1 flex flex-col bg-background overflow-hidden", className)}>
+    <div className={cn("flex-1 flex flex-col stream-glass-screen overflow-hidden", className)}>
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
