@@ -9,7 +9,7 @@ import {
 import { UniversalAddModal } from "@/components/universal-add-modal"
 import { AddMembersModal } from "@/components/add-members-modal"
 import { ToastNotification } from "@/components/toast-notification"
-import { cn, haptic } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import {
   type Project,
   type Message,
@@ -356,7 +356,7 @@ export function ProjectListScreen({
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-foreground">{cat.label}</p>
                             <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {catProjects.length} tag{catProjects.length !== 1 ? "s" : ""}
+                              {cat.id === "status" ? catProjects.length + 4 : catProjects.length} tag{(cat.id === "status" ? catProjects.length + 4 : catProjects.length) !== 1 ? "s" : ""}
                             </p>
                           </div>
                           {locked ? (

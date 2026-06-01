@@ -496,7 +496,7 @@ export function StreamScreen({
         <div
           ref={feedRef}
           onScroll={handleScroll}
-          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[88px] flex flex-col gap-0 scrollbar-hide"
+          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[68px] flex flex-col gap-0 scrollbar-hide"
           onClick={() => selectedMsgId && clearMsgSelection()}
         >
           {showFeedSkeleton ? (
@@ -2412,13 +2412,13 @@ function MessageBubble({
         "flex gap-2.5 items-end select-none no-callout",
         isMe && "flex-row-reverse",
         isSelected && "opacity-90",
-        first ? "mt-2.5 animate-fade-up" : "mt-1"
+        first ? "mt-2 animate-fade-up" : "mt-0.5"
       )}
     >
       {/* Avatar — only visible on first message in a group */}
       {first ? (
         <div className={cn(
-          "relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
+          "relative w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 text-white border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
           contact.color
         )}>
           {contact.initials}
@@ -2427,12 +2427,12 @@ function MessageBubble({
           )}
         </div>
       ) : (
-        <div className="w-8 shrink-0" />
+        <div className="w-7 shrink-0" />
       )}
 
       <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
         {!isMe && first && (
-          <span className="text-[11px] font-semibold text-muted-foreground/75 px-1 mb-0.5">{contact.name}</span>
+          <span className="text-[10px] font-semibold text-muted-foreground/75 px-1 mb-0.5">{contact.name}</span>
         )}
         <div
           onPointerDown={(e) => { e.stopPropagation(); onPressStart() }}
@@ -2442,7 +2442,7 @@ function MessageBubble({
           onClick={(e) => { e.stopPropagation(); onTap() }}
           onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
           className={cn(
-            "border px-3.5 py-2.5 cursor-pointer transition-all duration-300",
+            "border px-3 py-2 cursor-pointer transition-all duration-300",
             isMe
               ? cn("glass-message-me", bubbleRadius)
               : cn("glass-message", bubbleRadius),
@@ -2466,7 +2466,7 @@ function MessageBubble({
           {message.text && (
             <div>
               <p className={cn(
-                "text-sm leading-relaxed text-foreground/90 no-callout",
+                "text-sm leading-snug text-foreground/90 no-callout",
                 isLong && !isExpanded && "line-clamp-10"
               )}>
                 {message.text}
@@ -2482,7 +2482,7 @@ function MessageBubble({
               )}
             </div>
           )}
-          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
             {/* Safety fallback: no tags computed AND no recipients AND no calendar dates → Unassigned */}
             {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />

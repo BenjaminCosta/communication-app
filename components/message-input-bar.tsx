@@ -78,7 +78,7 @@ export function MessageInputBar({
   }, [text])
 
   return (
-    <div className="glass-compose flex-shrink-0 px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+    <div className="glass-compose flex-shrink-0 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+6px)]">
       {imagePreview && (
         <div className="mx-auto mb-2 max-w-2xl">
           <div className="relative w-24 overflow-hidden rounded-xl border border-white/10 bg-black/20">
@@ -151,7 +151,7 @@ export function MessageInputBar({
         <button
           type="button"
           onClick={onOpenSheet}
-          className="glass-button mb-0.5 w-11 h-11 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
+          className="glass-button mb-0.5 w-9 h-9 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
         >
           <Plus className="w-5 h-5 text-muted-foreground" />
         </button>
@@ -167,14 +167,14 @@ export function MessageInputBar({
           }}
           rows={1}
           placeholder="Message"
-          className="glass-compose-pill min-h-11 max-h-[132px] flex-1 resize-none overflow-y-auto rounded-full border px-4 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 scrollbar-hide transition-colors duration-150"
+          className="glass-compose-pill min-h-[38px] max-h-[132px] flex-1 resize-none overflow-y-auto rounded-full border px-4 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 scrollbar-hide transition-colors duration-150"
         />
         <button
           type="button"
           onClick={onSend}
           disabled={(!text.trim() && !imageFile) || isSending || isSent}
           className={cn(
-            "mb-0.5 w-11 h-11 rounded-full flex items-center justify-center border transition-all duration-300",
+            "mb-0.5 w-9 h-9 rounded-full flex items-center justify-center border transition-all duration-300",
             isSent
               ? "border-progress/35 bg-progress text-white shadow-[0_4px_16px_rgba(34,197,94,0.42)] animate-sent-pop"
               : (text.trim() || imageFile) && !isSending
