@@ -150,12 +150,17 @@ async function createMessages() {
       participants: [carol],
     }),
 
-    // ── Case G: mensaje al que le vamos a editar tags/recipients después ──────
+    // ── Case G: Tag Later applied — project (Alice+Carol) + recipient Bob ─────
+    // Simulates the state AFTER a Tag Later edit:
+    // Alice sent it, then tagged with the Alice+Carol project and added Bob as recipient.
     "msg-case-g": msgBase(alice, {
-      text:         "[Case G] Will have tags+recipients edited via Tag Later",
-      tagIds:       [],
-      recipientIds: [],
-      participants: [alice],
+      text:         "[Case G] Tag Later applied: project (Alice+Carol) + recipient Bob",
+      tagIds:       [PROJECT_TAG],
+      projectId:    PROJECT_ID,
+      projectIds:   [PROJECT_ID],
+      recipientIds: [bob],
+      peopleIds:    [bob],
+      participants: [alice, bob, carol],
     }),
 
   }

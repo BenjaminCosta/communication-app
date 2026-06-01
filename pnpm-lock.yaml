@@ -104,6 +104,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.24(postcss@8.5.6)
+      blurhash:
+        specifier: ^2.0.5
+        version: 2.0.5
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1637,6 +1640,9 @@ packages:
 
   bignumber.js@9.3.1:
     resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
+
+  blurhash@2.0.5:
+    resolution: {integrity: sha512-cRygWd7kGBQO3VEhPiTgq4Wc43ctsM+o46urrmPOiuAe+07fzlSB9OJVdpgDL0jPqXUVQ9ht7aq7kxOeJHRK+w==}
 
   browserslist@4.28.1:
     resolution: {integrity: sha512-ZC5Bd0LgJXgwGqUknZY/vkUQ04r8NXnJZ3yYi4vDmSiZmC/pdSN0NbNRPxZpbtO4uAfDUAFffO8IZoM3Gj8IkA==}
@@ -4067,6 +4073,8 @@ snapshots:
   baseline-browser-mapping@2.9.19: {}
 
   bignumber.js@9.3.1: {}
+
+  blurhash@2.0.5: {}
 
   browserslist@4.28.1:
     dependencies:

@@ -366,7 +366,7 @@ export function ImportContactsModal({
 
       {/* Modal */}
       <div className="fixed inset-x-0 bottom-0 z-50 md:inset-0 md:flex md:items-center md:justify-center">
-        <div className="bg-[#0a1628] border border-white/10 rounded-t-3xl md:rounded-3xl shadow-2xl w-full md:max-w-lg overflow-hidden flex flex-col max-h-[90dvh] md:max-h-[80vh] animate-in slide-in-from-bottom md:slide-in-from-bottom-0 md:fade-in duration-200">
+        <div className="glass-modal border border-white/10 rounded-t-3xl md:rounded-3xl shadow-2xl w-full md:max-w-lg overflow-hidden flex flex-col max-h-[90dvh] md:max-h-[80vh] animate-in slide-in-from-bottom md:slide-in-from-bottom-0 md:fade-in duration-200">
 
           {/* Header */}
           <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/10 shrink-0">
@@ -470,7 +470,7 @@ export function ImportContactsModal({
                       </div>
                     ) : (
                       <>
-                        <div className="px-4 pt-4 pb-2 flex flex-col gap-2 sticky top-0 bg-[#0a1628] z-10 border-b border-white/8">
+                        <div className="px-4 pt-4 pb-2 flex flex-col gap-2 sticky top-0 bg-[rgba(7,13,24,0.95)] backdrop-blur-md z-10 border-b border-white/8">
                           <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" />
                             <input

@@ -9,7 +9,7 @@ interface NotificationsScreenProps {
 
 export function NotificationsScreen({ onBack, className }: NotificationsScreenProps) {
   return (
-    <div className={`flex-1 flex flex-col bg-background ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">

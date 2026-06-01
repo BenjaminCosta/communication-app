@@ -31,13 +31,13 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
       {/* Backdrop */}
       <div
         onPointerDown={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[1px] cursor-default"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
       />
 
       {/* Sheet */}
       <div
         style={dragStyle}
-        className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl bg-[#0d1c35] border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[80dvh] flex flex-col"
+                className="relative z-10 w-full md:w-[420px] md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[78dvh] flex flex-col"
       >
         {/* Handle */}
         <div
@@ -46,7 +46,7 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
         />
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-4 shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div>
             <h3 className="text-sm font-bold">People</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -70,13 +70,13 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
                 key={contact.id}
                 onClick={() => toggle(contact.id)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-150 mb-1",
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 mb-1",
                   isSelected ? "bg-primary/10" : "active:bg-white/5"
                 )}
               >
                 {/* Avatar */}
                 <div className={cn(
-                  "w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0",
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0",
                   contact.color
                 )}>
                   {contact.initials}

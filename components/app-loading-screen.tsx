@@ -2,7 +2,7 @@
 
 export function AppLoadingScreen() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-10 bg-background animate-fade-in">
+    <div className="flex-1 flex flex-col items-center justify-center gap-10 stream-glass-screen animate-fade-in">
       <div className="flex flex-col items-center gap-4">
         <div className="relative animate-spring-pop">
           <div
@@ -47,7 +47,7 @@ export function AppLoadingScreen() {
 
 export function AppScreenSkeleton() {
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background animate-fade-in">
+    <div className="flex-1 flex flex-col min-h-0 stream-glass-screen animate-fade-in">
       <div className="flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b border-white/10">
         <div className="h-6 w-32 rounded-lg bg-white/8 animate-pulse" />
         <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export function AppScreenSkeleton() {
         <MessageSkeleton align="right" width="w-[58%]" />
       </div>
 
-      <div className="flex-shrink-0 border-t border-white/10 bg-[#071326]/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+10px)]">
+      <div className="flex-shrink-0 border-t border-white/10 bg-[rgba(7,13,24,0.92)] backdrop-blur-md px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+10px)]">
         <div className="mx-auto max-w-2xl flex items-end gap-2">
           <div className="w-10 h-10 rounded-full bg-white/8 animate-pulse" />
           <div className="h-10 flex-1 rounded-2xl bg-white/8 animate-pulse" />

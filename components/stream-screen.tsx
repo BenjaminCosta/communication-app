@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronDown, ChevronRight, Plus } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -12,6 +12,8 @@ import {
   type Contact,
   type Tag as MessageTag,
   type ImportedContact,
+  type TagCategory,
+  type CategoryItem,
   getContactFromList,
   formatTime,
   getMessageTagIds,
@@ -20,12 +22,23 @@ import {
   parseSystemTypeTagId,
   projectTagId,
   systemTypeTagId,
+  getCategoryLabel,
+  SYSTEM_CATEGORIES,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
+import { UniversalAddModal } from "@/components/universal-add-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
+import { DatePickerModal } from "@/components/date-picker-modal"
+import { NavigationMenuModal } from "@/components/navigation-menu-modal"
+import { GlobalSearchSheet } from "@/components/global-search-sheet"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
+
+function formatCalDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
 
 function isSameDay(a: Date, b: Date): boolean {
   return (
@@ -52,11 +65,13 @@ interface StreamScreenProps {
   onFilterChange: (filter: string) => void
   selectedPeopleFilter: string[]
   selectedTagFilter: string[]
+  selectedDateFilter: string[]
   onPeopleFilterChange: (ids: string[]) => void
   onTagFilterChange: (ids: string[]) => void
+  onDateFilterChange: (dates: string[]) => void
   onCompose: () => void
   onMessageClick: (message: Message) => void
-  onNewProject: (name: string, memberIds: string[]) => void
+  onNewProject: (name: string, memberIds: string[], category?: TagCategory) => void
   onProfile: () => void
   onPeople: () => void
   onDeleteMessage: (id: string) => void
@@ -71,12 +86,15 @@ interface StreamScreenProps {
   onDeleteProject: (id: string) => void
   onFavoriteProject: (id: string) => void
   onProjects: () => void
+  onCalendar: () => void
   onCopyMessage: (text: string) => void
   onSendMessage: (draft: MessageDraft) => Promise<void>
-  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
+  onCreateProject: (name: string, memberIds?: string[], category?: TagCategory) => Promise<Project>
   activeUsers: Contact[]
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
+  customCategories?: CategoryItem[]
+  onCreateCategory?: (name: string) => void
 }
 
 export function StreamScreen({
@@ -85,8 +103,10 @@ export function StreamScreen({
   onFilterChange,
   selectedPeopleFilter,
   selectedTagFilter,
+  selectedDateFilter,
   onPeopleFilterChange,
   onTagFilterChange,
+  onDateFilterChange,
   onCompose,
   onMessageClick,
   onNewProject,
@@ -104,14 +124,18 @@ export function StreamScreen({
   onDeleteProject,
   onFavoriteProject,
   onProjects,
+  onCalendar,
   onCopyMessage,
   onSendMessage,
   onCreateProject,
   activeUsers,
   availableTags,
   importedContacts,
+  customCategories = [],
+  onCreateCategory,
 }: StreamScreenProps) {
   const [showCreateProject, setShowCreateProject] = useState(false)
+  const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
   const [projectTagCtx, setProjectTagCtx] = useState<{ projectId: string; messageId: string } | null>(null)
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null)
@@ -119,36 +143,53 @@ export function StreamScreen({
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const [showPeopleFilterSheet, setShowPeopleFilterSheet] = useState(false)
   const [showTagFilterSheet, setShowTagFilterSheet] = useState(false)
+  const [showDateFilterPicker, setShowDateFilterPicker] = useState(false)
   const [viewerImage, setViewerImage] = useState<{ url: string; name?: string } | null>(null)
   const [quickText, setQuickText] = useState("")
   const [quickRecipients, setQuickRecipients] = useState<string[]>([])
   const [quickImportedRecipients, setQuickImportedRecipients] = useState<string[]>([])
   const [quickProjects, setQuickProjects] = useState<string[]>([])
+  const [quickCalendarDates, setQuickCalendarDates] = useState<string[]>([])
   const [quickType, setQuickType] = useState<MessageType>("none")
   const [quickImage, setQuickImage] = useState<File | null>(null)
   const [quickImagePreview, setQuickImagePreview] = useState<string | null>(null)
   const [quickImageError, setQuickImageError] = useState<string | null>(null)
   const [quickSendError, setQuickSendError] = useState<string | null>(null)
   const [showQuickSheet, setShowQuickSheet] = useState(false)
-  const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag">("menu")
+  const [showQuickActionMenu, setShowQuickActionMenu] = useState(false)
+  const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag" | "date">("menu")
   const [showCreateQuickProject, setShowCreateQuickProject] = useState(false)
   const [isQuickSending, setIsQuickSending] = useState(false)
   const [isQuickSent, setIsQuickSent] = useState(false)
   const [projectSearch, setProjectSearch] = useState("")
   const [showProjectSearch, setShowProjectSearch] = useState(false)
   const [showFeedSkeleton, setShowFeedSkeleton] = useState(false)
+  const [showNavMenu, setShowNavMenu] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   const [floatingDate, setFloatingDate] = useState<string | null>(null)
   const [showFloatingDate, setShowFloatingDate] = useState(false)
   const feedRef = useRef<HTMLDivElement>(null)
   const quickFileInputRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const floatingHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isPinnedToBottom = useRef(true)
   const prevMessageCountRef = useRef(0)
   const previousFilterRef = useRef(activeFilter)
 
   const clearChipSelection = () => { setSelectedChipId(null); setConfirmDeleteChipId(null) }
   const clearMsgSelection = () => { setSelectedMsgId(null); setConfirmDeleteMsgId(null) }
+
+  function scrollToAndHighlight(id: string) {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setHighlightMessageId(id)
+    setTimeout(() => {
+      const el = feedRef.current?.querySelector(`[data-msg-id="${id}"]`)
+      el?.scrollIntoView({ behavior: "smooth", block: "center" })
+    }, 180)
+    highlightTimerRef.current = setTimeout(() => setHighlightMessageId(null), 2500)
+  }
 
   useEffect(() => {
     return () => {
@@ -268,6 +309,7 @@ export function StreamScreen({
     setQuickRecipients([])
     setQuickImportedRecipients([])
     setQuickProjects([])
+    setQuickCalendarDates([])
     setQuickType("none")
     setQuickSendError(null)
     clearQuickImage()
@@ -298,6 +340,7 @@ export function StreamScreen({
         tagIds: effectiveTagIds,
         type: quickType,
         imageFile: quickImage,
+        calendarDates: quickCalendarDates.length > 0 ? quickCalendarDates : undefined,
       })
       resetQuickDraft()
       setIsQuickSent(true)
@@ -344,32 +387,34 @@ export function StreamScreen({
   }, [projectSearch, sortedProjects])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background animate-fade-in">
+    <div className="stream-glass-screen flex-1 flex flex-col min-h-0 animate-fade-in overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b border-white/10 animate-slide-down">
+      <div className="glass-panel flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b animate-slide-down">
         <h1 className="text-lg font-bold tracking-tight">
-          SVC <span className="text-primary">Stream</span>
+          SVC <span className="text-blue-300">Stream</span>
         </h1>
         <div className="flex items-center gap-2">
-          {/* People */}
+          {/* Search */}
           <button
-            onClick={onPeople}
-            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+            onClick={() => setShowSearch(true)}
+            className="glass-button w-9 h-9 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
+            aria-label="Search"
           >
-            <Users className="w-4 h-4 text-muted-foreground" />
+            <Search className="w-4 h-4 text-white" />
           </button>
-          {/* Tags shortcut */}
+          {/* Navigation menu */}
           <button
-            onClick={onProjects}
-            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+            onClick={() => setShowNavMenu(true)}
+            className="w-9 h-9 rounded-full border border-primary/35 bg-primary/80 flex items-center justify-center active:scale-[0.98] hover:bg-primary transition-all duration-150 glow-blue shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+            aria-label="Navigation menu"
           >
-            <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+            <LayoutGrid className="w-4 h-4 text-white" />
           </button>
           {/* Profile avatar */}
           <button
             onClick={onProfile}
             className={cn(
-              "w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition-all duration-150",
+              "w-9 h-9 rounded-full flex items-center justify-center active:scale-[0.98] transition-all duration-150 border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
               userColor
             )}
           >
@@ -379,58 +424,71 @@ export function StreamScreen({
       </div>
 
       {/* Filter Bar */}
-      <div className="flex-shrink-0 flex items-center gap-2 overflow-x-auto px-4 py-2 border-b border-white/10 scrollbar-hide">
-        <FilterChip
-          active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0}
-          onClick={() => {
-            onPeopleFilterChange([])
-            onTagFilterChange([])
-            onFilterChange("all")
-          }}
-        >
-          All
-        </FilterChip>
-        <FilterChip
-          active={selectedPeopleFilter.length > 0}
-          tone="people"
-          icon={<Users className="w-3.5 h-3.5" />}
-          onClick={() => setShowPeopleFilterSheet(true)}
-        >
-          People{selectedPeopleFilter.length > 0 ? ` (${selectedPeopleFilter.length})` : ""}
-        </FilterChip>
-        <button
-          onClick={() => setShowTagFilterSheet(true)}
-          className={cn(
-            "h-9 min-w-[150px] flex-1 rounded-full border px-3 transition-all flex items-center gap-2 justify-start active:scale-95",
-            selectedTagFilter.length > 0
-              ? "bg-primary/15 border-primary/35 text-primary"
-              : "bg-white/5 border-white/10 text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-          )}
-          aria-label="Filter tags"
-        >
-          <Tag className="w-4 h-4 shrink-0" />
-          <span className="text-xs font-semibold tracking-wide truncate">
-            Tags{selectedTagFilter.length > 0 ? ` (${selectedTagFilter.length})` : ""}
-          </span>
-        </button>
-        <button
-          onClick={() => setShowCreateProject(true)}
-          className="w-8 h-8 rounded-full shrink-0 transition-all border bg-white/5 border-dashed border-white/20 text-foreground/60 hover:border-primary/40 hover:text-primary hover:bg-primary/10 active:bg-white/10 flex items-center justify-center text-lg font-light"
-        >
-          +
-        </button>
-      </div>
-
-      {/* Feed */}
+      {/* Feed — filter bar and input bar float as absolute overlays so messages are visible behind them */}
       <div className="flex-1 min-h-0 relative">
-        {/* Floating date badge — WhatsApp style */}
+        {/* Filter bar — transparent overlay at top */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 overflow-x-auto px-4 py-1.5 scrollbar-hide">
+          <FilterChip
+            active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0 && selectedDateFilter.length === 0}
+            onClick={() => {
+              onPeopleFilterChange([])
+              onTagFilterChange([])
+              onDateFilterChange([])
+              onFilterChange("all")
+            }}
+          >
+            All
+          </FilterChip>
+          <FilterChip
+            active={selectedPeopleFilter.length > 0}
+            tone="people"
+            icon={<Users className="w-3.5 h-3.5" />}
+            onClick={() => setShowPeopleFilterSheet(true)}
+          >
+            People{selectedPeopleFilter.length > 0 ? ` (${selectedPeopleFilter.length})` : ""}
+          </FilterChip>
+          <button
+            onClick={() => setShowTagFilterSheet(true)}
+            className={cn(
+              "h-9 min-w-[118px] flex-1 rounded-full border px-3 transition-all duration-150 flex items-center gap-2 justify-start active:scale-[0.98]",
+              selectedTagFilter.length > 0
+                ? "glass-pill-active"
+                : "glass-pill text-white/85 hover:border-primary/40 hover:text-blue-200"
+            )}
+            aria-label="Filter tags"
+          >
+            <Tag className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold tracking-wide truncate">
+              Tags{selectedTagFilter.length > 0 ? ` (${selectedTagFilter.length})` : ""}
+            </span>
+          </button>
+          <button
+            onClick={() => setShowDateFilterPicker(true)}
+            className={cn(
+              "relative h-9 w-9 rounded-full shrink-0 transition-all duration-150 border active:scale-[0.98] flex items-center justify-center",
+              selectedDateFilter.length > 0
+                ? "border-sky-300/55 bg-sky-400/24 text-sky-100 shadow-[0_14px_34px_rgba(56,189,248,0.18)] backdrop-blur-xl"
+                : "glass-pill border-sky-400/32 text-sky-200 hover:bg-sky-400/16 hover:border-sky-300/50"
+            )}
+            aria-label="Filter dates"
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            {selectedDateFilter.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#07111f] bg-sky-300 px-1 text-[9px] font-bold leading-none text-[#07111f]">
+                {selectedDateFilter.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Floating date badge — offset below filter bar */}
         <div
           className={cn(
-            "absolute top-2 left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-opacity duration-150",
+            "absolute top-[56px] left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-opacity duration-150",
             showFloatingDate ? "opacity-90" : "opacity-0"
           )}
         >
-          <span className="px-2.5 py-0.5 rounded-full bg-black/80 border border-white/15 text-[9px] font-semibold tracking-tight uppercase text-foreground/90">
+          <span className="glass-pill px-2.5 py-0.5 rounded-full border text-[9px] font-semibold tracking-tight uppercase text-foreground/90">
             {floatingDate}
           </span>
         </div>
@@ -438,18 +496,18 @@ export function StreamScreen({
         <div
           ref={feedRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-4 py-3 flex flex-col gap-0 scrollbar-hide"
+          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[68px] flex flex-col gap-0 scrollbar-hide"
           onClick={() => selectedMsgId && clearMsgSelection()}
         >
           {showFeedSkeleton ? (
             <StreamFeedSkeleton />
           ) : sortedMessages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
-              <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
+              <div className="glass-panel w-16 h-16 rounded-full border flex items-center justify-center animate-float">
                 <MessageCircle className="w-7 h-7 text-muted-foreground/50" />
               </div>
               <p className="text-sm text-muted-foreground">Nothing sent yet</p>
-              <p className="text-xs text-muted-foreground/50">Tap 🤔 to send your first message</p>
+              <p className="text-xs text-muted-foreground/50">Use the message bar to send your first message</p>
             </div>
           ) : (
             sortedMessages.map((msg, index) => {
@@ -471,6 +529,7 @@ export function StreamScreen({
                     userColor={userColor}
                     isAuthorActive={activeUserIds.has(msg.senderId)}
                     isSelected={selectedMsgId === msg.id}
+                    isHighlighted={highlightMessageId === msg.id}
                     isFirstInGroup={isFirstInGroup}
                     isLastInGroup={isLastInGroup}
                     onTap={() => {
@@ -488,32 +547,55 @@ export function StreamScreen({
           )}
           <div className="h-3" />
         </div>
-      </div>
 
-      <MessageInputBar
-        text={quickText}
-        setText={setQuickText}
-        contacts={contacts}
-        projects={projects}
-        recipients={quickRecipients}
-        importedContacts={importedContacts}
-        importedRecipients={quickImportedRecipients}
-        onRemoveImportedRecipient={(id) => setQuickImportedRecipients((prev) => prev.filter((uid) => uid !== id))}
-        projectIds={quickProjects}
-        type={quickType}
-        imageFile={quickImage}
-        imagePreview={quickImagePreview}
-        imageError={quickImageError}
-        sendError={quickSendError}
-        isSending={isQuickSending}
-        isSent={isQuickSent}
-        onOpenSheet={() => { setQuickSheetMode("menu"); setShowQuickSheet(true) }}
-        onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
-        onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
-        onClearType={() => setQuickType("none")}
-        onClearImage={clearQuickImage}
-        onSend={handleQuickSend}
-      />
+        {/* Message input — transparent overlay at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 z-10">
+          <MessageInputBar
+            text={quickText}
+            setText={setQuickText}
+            contacts={contacts}
+            projects={projects}
+            recipients={quickRecipients}
+            importedContacts={importedContacts}
+            importedRecipients={quickImportedRecipients}
+            onRemoveImportedRecipient={(id) => setQuickImportedRecipients((prev) => prev.filter((uid) => uid !== id))}
+            projectIds={quickProjects}
+            calendarDates={quickCalendarDates}
+            type={quickType}
+            imageFile={quickImage}
+            imagePreview={quickImagePreview}
+            imageError={quickImageError}
+            sendError={quickSendError}
+            isSending={isQuickSending}
+            isSent={isQuickSent}
+            onOpenSheet={() => setShowQuickActionMenu(true)}
+            onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
+            onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
+            onRemoveCalendarDate={(date) => setQuickCalendarDates((prev) => prev.filter((item) => item !== date))}
+            onClearType={() => setQuickType("none")}
+            onClearImage={clearQuickImage}
+            onSend={handleQuickSend}
+          />
+        </div>
+      </div>
+      {showQuickActionMenu && (
+        <QuickActionPopover
+          onClose={() => setShowQuickActionMenu(false)}
+          onAddTags={() => {
+            setShowQuickActionMenu(false)
+            setQuickSheetMode("menu")
+            setShowQuickSheet(true)
+          }}
+          onAttachImage={() => {
+            setShowQuickActionMenu(false)
+            quickFileInputRef.current?.click()
+          }}
+          onCreateTag={() => {
+            setShowQuickActionMenu(false)
+            setShowCreateProject(true)
+          }}
+        />
+      )}
       <input
         ref={quickFileInputRef}
         type="file"
@@ -542,7 +624,7 @@ export function StreamScreen({
       {/* Message action bar — appears on long press */}
       {selectedMsg && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-3 w-full max-w-sm">
-            <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+            <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
               {/* Copy */}
               <button
                 onClick={() => { haptic.light(); onCopyMessage(selectedMsg.text); clearMsgSelection() }}
@@ -597,7 +679,7 @@ export function StreamScreen({
         if (!proj) return null
         return (
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
-              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
                 {/* Label */}
                 <div className="flex items-center gap-1.5 px-2 py-2 shrink-0 max-w-[80px]">
                   <div className={cn("w-2 h-2 rounded-full shrink-0", proj.color)} />
@@ -653,7 +735,7 @@ export function StreamScreen({
         const proj = projects.find((p) => p.id === projectTagCtx.projectId)
         return (
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 animate-scale-in px-4 w-full max-w-sm">
-              <div className="flex items-center justify-center gap-1 bg-[#0d1c35] border border-white/15 rounded-2xl p-1.5 shadow-2xl">
+              <div className="glass-panel flex items-center justify-center gap-1 border rounded-2xl p-1.5">
                 {/* Tag label */}
                 <div className="flex items-center gap-1.5 px-3 py-2 shrink-0">
                   <div className={cn("w-2 h-2 rounded-full shrink-0", proj?.color ?? "bg-white/30")} />
@@ -686,9 +768,10 @@ export function StreamScreen({
       {showCreateProject && (
         <CreateProjectModal
           contacts={contacts}
+          customCategories={customCategories}
           onClose={() => setShowCreateProject(false)}
-          onSubmit={(name, memberIds) => {
-            onNewProject(name, memberIds)
+          onSubmit={(name, memberIds, category) => {
+            onNewProject(name, memberIds, category)
             setShowCreateProject(false)
           }}
         />
@@ -710,6 +793,7 @@ export function StreamScreen({
       {showTagFilterSheet && (
         <TagFilterSheet
           tags={availableTags}
+          customCategories={customCategories}
           selectedTags={selectedTagFilter}
           onChange={(ids) => {
             onTagFilterChange(ids)
@@ -717,6 +801,17 @@ export function StreamScreen({
             onFilterChange(projectIds.length === 1 && ids.length === 1 ? projectIds[0] : "all")
           }}
           onClose={() => setShowTagFilterSheet(false)}
+        />
+      )}
+      {showDateFilterPicker && (
+        <DatePickerModal
+          selectedDates={selectedDateFilter}
+          title="Filter dates"
+          onConfirm={(dates) => {
+            onDateFilterChange(dates)
+            setShowDateFilterPicker(false)
+          }}
+          onClose={() => setShowDateFilterPicker(false)}
         />
       )}
 
@@ -749,12 +844,14 @@ export function StreamScreen({
           selectedRecipients={quickRecipients}
           selectedImportedRecipients={quickImportedRecipients}
           selectedTags={quickTagIds}
+          selectedCalendarDates={quickCalendarDates}
           onToggleRecipient={toggleQuickRecipient}
           onToggleImportedRecipient={toggleQuickImportedRecipient}
           tags={availableTags}
+          customCategories={customCategories}
           onToggleTag={toggleQuickTag}
-          onAttachImage={() => quickFileInputRef.current?.click()}
-          onCreateProject={() => { setShowQuickSheet(false); setShowCreateQuickProject(true) }}
+          onCalendarDatesChange={setQuickCalendarDates}
+          onCreateProject={() => { setShowQuickSheet(false); setShowUniversalAdd(true) }}
           onClose={() => setShowQuickSheet(false)}
         />
       )}
@@ -762,16 +859,133 @@ export function StreamScreen({
       {showCreateQuickProject && (
         <CreateProjectModal
           contacts={contacts}
+          customCategories={customCategories}
           onClose={() => setShowCreateQuickProject(false)}
-          onSubmit={async (name, memberIds) => {
-            const project = await onCreateProject(name, memberIds)
+          onSubmit={async (name, memberIds, category) => {
+            const project = await onCreateProject(name, memberIds, category)
             setQuickProjects((prev) => [...new Set([...prev, project.id])])
             setShowCreateQuickProject(false)
           }}
         />
       )}
 
+      {showUniversalAdd && (
+        <UniversalAddModal
+          onClose={() => setShowUniversalAdd(false)}
+          onChooseTag={() => { setShowUniversalAdd(false); setShowCreateQuickProject(true) }}
+          onCreateCategory={(name) => {
+            onCreateCategory?.(name)
+            setShowUniversalAdd(false)
+          }}
+        />
+      )}
+
+      {/* Navigation menu modal */}
+      {showNavMenu && (
+        <NavigationMenuModal
+          activeScreen="stream"
+          onClose={() => setShowNavMenu(false)}
+          onNavigate={(target) => {
+            if (target === "stream") {
+              // Already on stream — just close
+            } else if (target === "people") {
+              onPeople()
+            } else if (target === "projects") {
+              onProjects()
+            } else if (target === "calendar") {
+              onCalendar()
+            }
+          }}
+        />
+      )}
+
+      {/* Global search sheet */}
+      {showSearch && (
+        <GlobalSearchSheet
+          onClose={() => setShowSearch(false)}
+          messages={messages}
+          contacts={contacts}
+          importedContacts={importedContacts}
+          projects={projects}
+          customCategories={customCategories}
+          availableTags={availableTags}
+          currentUserId={currentUserId}
+          onMessageClick={(msg) => { setShowSearch(false); scrollToAndHighlight(msg.id) }}
+          onPersonFilterClick={(id) => { setShowSearch(false); onPeopleFilterChange([id]) }}
+          onTagFilterClick={(id) => { setShowSearch(false); onTagFilterChange([id]) }}
+        />
+      )}
+
     </div>
+  )
+}
+
+function QuickActionPopover({
+  onAddTags,
+  onAttachImage,
+  onCreateTag,
+  onClose,
+}: {
+  onAddTags: () => void
+  onAttachImage: () => void
+  onCreateTag: () => void
+  onClose: () => void
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close quick actions"
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-transparent"
+      />
+      <div className="glass-panel fixed bottom-[calc(env(safe-area-inset-bottom)+64px)] left-3 z-50 w-64 overflow-hidden rounded-[22px] border animate-fade-up">
+        <QuickActionItem
+          icon={<Tag className="w-5 h-5" />}
+          iconClassName="text-primary"
+          label="Tags"
+          onClick={onAddTags}
+        />
+        <QuickActionItem
+          icon={<ImageIcon className="w-5 h-5" />}
+          iconClassName="text-sky-400"
+          label="Attach image"
+          onClick={onAttachImage}
+        />
+        <div className="h-px bg-white/8 mx-4" />
+        <QuickActionItem
+          icon={<Plus className="w-5 h-5" />}
+          iconClassName="text-emerald-400"
+          label="New tag"
+          onClick={onCreateTag}
+        />
+      </div>
+    </>
+  )
+}
+
+function QuickActionItem({
+  icon,
+  iconClassName,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode
+  iconClassName: string
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-4 px-5 py-4 text-left text-[15px] font-semibold text-foreground/90 transition-colors active:bg-white/8"
+    >
+      <span className={cn("flex h-7 w-7 items-center justify-center", iconClassName)}>
+        {icon}
+      </span>
+      <span className="flex-1">{label}</span>
+    </button>
   )
 }
 
@@ -783,157 +997,154 @@ function QuickContextSheet({
   selectedRecipients,
   selectedImportedRecipients,
   selectedTags,
+  selectedCalendarDates,
   onToggleRecipient,
   onToggleImportedRecipient,
   tags,
+  customCategories,
   onToggleTag,
-  onAttachImage,
+  onCalendarDatesChange,
   onCreateProject,
   onClose,
 }: {
-  mode: "menu" | "who" | "tag"
-  setMode: (mode: "menu" | "who" | "tag") => void
+  mode: "menu" | "who" | "tag" | "date"
+  setMode: (mode: "menu" | "who" | "tag" | "date") => void
   contacts: Contact[]
   importedContacts: ImportedContact[]
   selectedRecipients: string[]
   selectedImportedRecipients: string[]
   selectedTags: string[]
+  selectedCalendarDates: string[]
   onToggleRecipient: (id: string) => void
   onToggleImportedRecipient: (id: string) => void
   tags: MessageTag[]
+  customCategories: CategoryItem[]
   onToggleTag: (id: string) => void
-  onAttachImage: () => void
+  onCalendarDatesChange: (dates: string[]) => void
   onCreateProject: () => void
   onClose: () => void
 }) {
-  const [userSearch, setUserSearch] = useState("")
-  const [tagSearch, setTagSearch] = useState("")
-  const [showTagPicker, setShowTagPicker] = useState(false)
+  const [query, setQuery] = useState("")
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
+  const q = query.trim().toLowerCase()
+  const selectableTags = tags.filter((tag) => tag.id !== systemTypeTagId("none"))
   const filteredContacts = contacts.filter((contact) =>
-    contact.name.toLowerCase().includes(userSearch.trim().toLowerCase())
+    !q || contact.name.toLowerCase().includes(q)
   )
   const unregisteredContacts = importedContacts.filter(
     (c) => c.status === "not_registered" &&
-      c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
+      (!q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
   )
-  const filteredTags = tags.filter((tag) =>
-    tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase())
+  const filteredTags = selectableTags.filter((tag) =>
+    !q || tag.name.toLowerCase().includes(q)
+  )
+  const tagGroups = groupTagsByCategory(filteredTags, customCategories)
+  const selectedCount = selectedRecipients.length + selectedImportedRecipients.length + selectedTags.length + selectedCalendarDates.length
+  const showSearchResults = q.length > 0
+
+  const toggleCategory = (categoryId: string) =>
+    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }))
+
+  const handleCreateFromSearch = () => {
+    onCreateProject()
+    setQuery("")
+  }
+
+  const renderPeople = (compact = false) => (
+    <div className={cn("flex flex-col overflow-y-auto scrollbar-hide", compact ? "max-h-[112px] gap-0.5" : "max-h-[42dvh] gap-1")}>
+      {filteredContacts.map((contact) => {
+        const selected = selectedRecipients.includes(contact.id)
+        return (
+          <button
+            key={contact.id}
+            onClick={() => onToggleRecipient(contact.id)}
+            className={cn(
+              "flex items-center rounded-xl text-left transition-colors",
+              compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-3 py-2",
+              selected ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90"
+            )}
+          >
+            <span className={cn(
+              "rounded-full flex items-center justify-center font-bold text-white shrink-0",
+              compact ? "w-6 h-6 text-[9px]" : "w-7 h-7 text-[10px]",
+              contact.color
+            )}>
+              {contact.initials}
+            </span>
+            <span className={cn("min-w-0 flex-1 truncate font-semibold", compact ? "text-[13px]" : "text-sm")}>{contact.name}</span>
+            {selected && <Check className="w-4 h-4 shrink-0 text-primary" />}
+          </button>
+        )
+      })}
+      {unregisteredContacts.length > 0 && (
+        <>
+          <p className="px-1 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[1.5px] text-muted-foreground/60 font-mono">Not registered</p>
+          {unregisteredContacts.map((ic) => {
+            const initials = ic.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
+            const selected = selectedImportedRecipients.includes(ic.id)
+            return (
+              <button
+                key={ic.id}
+                onClick={() => onToggleImportedRecipient(ic.id)}
+                className={cn(
+                  "flex items-center rounded-xl text-left transition-colors",
+                  compact ? "gap-2 px-2.5 py-1.5" : "gap-3 px-3 py-2",
+                  selected ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/70"
+                )}
+              >
+                <span className={cn(
+                  "rounded-full bg-white/10 border border-white/15 flex items-center justify-center font-bold text-muted-foreground shrink-0",
+                  compact ? "w-6 h-6 text-[9px]" : "w-7 h-7 text-[10px]"
+                )}>
+                  {initials}
+                </span>
+                <span className={cn("min-w-0 flex-1 truncate font-semibold", compact ? "text-[13px]" : "text-sm")}>{ic.name}</span>
+                {selected && <Check className="w-4 h-4 shrink-0 text-primary" />}
+              </button>
+            )
+          })}
+        </>
+      )}
+      {filteredContacts.length === 0 && unregisteredContacts.length === 0 && (
+        <p className="px-1 py-3 text-xs text-muted-foreground">No people found.</p>
+      )}
+    </div>
   )
 
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div
-        style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
-      >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
-          <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
-        </div>
-        {mode !== "menu" && (
-          <button onClick={() => setMode("menu")} className="mb-3 text-xs font-semibold text-primary active:opacity-70">
-            Back
-          </button>
-        )}
-        {mode === "menu" && (
-          <div className="grid grid-cols-2 gap-2">
-            <SheetAction icon={<User className="w-4 h-4" />} label="Who" onClick={() => setMode("who")} />
-            <SheetAction icon={<Tag className="w-4 h-4" />} label="Tag" onClick={() => setMode("tag")} />
-            <SheetAction icon={<ImageIcon className="w-4 h-4" />} label="Attach image" onClick={() => { onAttachImage(); onClose() }} />
-            <SheetAction icon={<Tag className="w-4 h-4" />} label="New tag" onClick={onCreateProject} />
-          </div>
-        )}
-        {mode === "who" && (
-          <>
-            <SheetSearchInput value={userSearch} onChange={setUserSearch} placeholder="Search users" />
-            <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto">
-              {filteredContacts.map((contact) => (
-                <button
-                  key={contact.id}
-                  onClick={() => onToggleRecipient(contact.id)}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-semibold transition-all",
-                    selectedRecipients.includes(contact.id) ? "bg-primary/15 border-primary/30 text-primary" : "bg-white/5 border-white/10 text-muted-foreground"
-                  )}
-                >
-                  <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white", contact.color)}>
-                    {contact.initials}
-                  </div>
-                  {contact.name}
-                  {selectedRecipients.includes(contact.id) && <Check className="w-3 h-3" />}
-                </button>
-              ))}
-              {contacts.length === 0 && <p className="text-xs text-muted-foreground">No other users yet.</p>}
-              {contacts.length > 0 && filteredContacts.length === 0 && userSearch && <p className="text-xs text-muted-foreground">No users found.</p>}
-              {unregisteredContacts.length > 0 && (
-                <>
-                  <div className="w-full mt-1 mb-0.5">
-                    <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-muted-foreground/60 font-mono">Not registered</p>
-                  </div>
-                  {unregisteredContacts.map((ic) => {
-                    const initials = ic.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
-                    const selected = selectedImportedRecipients.includes(ic.id)
-                    return (
-                      <button
-                        key={ic.id}
-                        onClick={() => onToggleImportedRecipient(ic.id)}
-                        className={cn(
-                          "flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-semibold transition-all",
-                          selected ? "bg-primary/15 border-primary/30 text-primary" : "bg-white/5 border-white/10 text-muted-foreground"
-                        )}
-                      >
-                        <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-muted-foreground">
-                          {initials}
-                        </div>
-                        {ic.name}
-                        {selected && <Check className="w-3 h-3" />}
-                      </button>
-                    )
-                  })}
-                </>
+  const renderTags = (compact = false) => (
+    <div className={cn("flex flex-col overflow-y-auto pr-1 scrollbar-hide", compact ? "max-h-56 gap-2.5 pb-1" : "max-h-[42dvh] gap-3 pb-1")}>
+      {tagGroups.map((group) => {
+        const expanded = showSearchResults || (expandedCategories[group.id] ?? false)
+        const selectedInGroup = group.tags.filter((tag) => selectedTags.includes(tag.id)).length
+        return (
+          <div key={group.id} className="shrink-0 rounded-xl border border-white/10 bg-white/[0.035] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleCategory(group.id)}
+              className={cn(
+                "flex w-full items-center gap-2 text-left active:bg-white/5",
+                compact ? "min-h-10 px-3 py-2" : "min-h-11 px-3 py-2.5"
               )}
-            </div>
-          </>
-        )}
-        {mode === "tag" && (
-          <>
-            {selectedTags.length > 0 && (
-              <div className="mb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
-                {selectedTags.map((tagId) => {
-                  const tag = tags.find((item) => item.id === tagId)
-                  if (!tag) return null
-                  const isUnassigned = tag.id === systemTypeTagId("none")
-                  return (
-                    <button
-                      key={tagId}
-                      onClick={() => onToggleTag(tagId)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap",
-                        isUnassigned
-                          ? "border-feedback/25 bg-feedback/12 text-feedback"
-                          : "border-primary/25 bg-primary/12 text-primary"
-                      )}
-                    >
-                      <span>{tag.name}</span>
-                      <X className="w-3 h-3" />
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            <SheetSearchInput
-              value={tagSearch}
-              onChange={setTagSearch}
-              onFocus={() => setShowTagPicker(true)}
-              onBlur={() => setTimeout(() => {
-                if (selectedTags.length === 0) setShowTagPicker(false)
-              }, 120)}
-              placeholder="Search tags"
-            />
-            {(showTagPicker || selectedTags.length > 0) && (
-              <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
-                {filteredTags.map((tag) => {
+            >
+              <span className={cn("h-2 w-2 rounded-full shrink-0", categoryDotClass(group.id))} />
+              <span className="min-w-0 flex-1 text-xs font-bold uppercase tracking-[1.4px] text-foreground/80 font-mono">
+                {group.name}
+              </span>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                selectedInGroup > 0
+                  ? "bg-primary/15 text-primary"
+                  : "bg-white/5 text-muted-foreground/60"
+              )}>
+                {selectedInGroup > 0 ? `${selectedInGroup} selected` : group.tags.length}
+              </span>
+              {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+            </button>
+            {expanded && (
+              <div className="border-t border-white/10 p-1">
+                {group.tags.map((tag) => {
                   const selected = selectedTags.includes(tag.id)
                   const isUnassigned = tag.id === systemTypeTagId("none")
                   return (
@@ -941,25 +1152,283 @@ function QuickContextSheet({
                       key={tag.id}
                       onClick={() => onToggleTag(tag.id)}
                       className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
-                        selected ? isUnassigned ? "bg-feedback/15" : "bg-primary/15" : "active:bg-white/5"
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+                        selected ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90"
                       )}
                     >
-                      <div className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
-                      <span className={cn("text-sm font-semibold flex-1 text-left", selected ? isUnassigned ? "text-feedback" : "text-primary" : "text-foreground/90")}>{tag.name}</span>
-                      {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{tag.name}</span>
+                      {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current shrink-0" />}
+                      {selected && <Check className={cn("w-4 h-4 shrink-0", isUnassigned ? "text-feedback" : "text-primary")} />}
                     </button>
                   )
                 })}
-                {tags.length === 0 && <p className="text-xs text-muted-foreground py-2">No tags yet.</p>}
-                {tags.length > 0 && filteredTags.length === 0 && <p className="text-xs text-muted-foreground py-2">No tags found.</p>}
               </div>
             )}
-          </>
+          </div>
+        )
+      })}
+      {tagGroups.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
+          <p className="text-xs text-muted-foreground">No tags found.</p>
+          {q && (
+            <button
+              type="button"
+              onClick={handleCreateFromSearch}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/12 px-3 py-1.5 text-xs font-semibold text-primary active:scale-95"
+            >
+              <Plus className="w-3 h-3" />
+              Create tag "{query.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  const renderDates = () => (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setShowDatePicker(true)}
+        className="flex items-center gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/[0.035] px-3 py-2 text-left text-sky-300/85 active:scale-[0.99]"
+      >
+        <span className="w-7 h-7 rounded-full border border-sky-400/20 bg-sky-400/8 flex items-center justify-center">
+          <CalendarDays className="w-3.5 h-3.5" />
+        </span>
+        <span className="flex-1 text-xs font-semibold">
+          {selectedCalendarDates.length > 0
+            ? `${selectedCalendarDates.length} date${selectedCalendarDates.length !== 1 ? "s" : ""}`
+            : "Add dates"}
+        </span>
+        <ChevronRight className="w-3.5 h-3.5 text-sky-300/45" />
+      </button>
+      {selectedCalendarDates.map((date) => (
+        <button
+          key={date}
+          type="button"
+          onClick={() => onCalendarDatesChange(selectedCalendarDates.filter((item) => item !== date))}
+          className="inline-flex w-fit items-center gap-1.5 rounded-full border border-sky-400/25 bg-sky-400/10 px-2.5 py-1 text-[11px] font-semibold text-sky-400 active:scale-95"
+        >
+          {formatCalDate(date)}
+          <X className="w-3 h-3" />
+        </button>
+      ))}
+    </div>
+  )
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        style={dragStyle}
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
+      >
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
+          <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
+        </div>
+        <SheetHeader title="Add Context" onClose={onClose} />
+        {selectedCount > 0 && (
+          <div className="mb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
+            {selectedRecipients.map((id) => {
+              const contact = contacts.find((item) => item.id === id)
+              if (!contact) return null
+              return (
+                <button key={id} onClick={() => onToggleRecipient(id)} className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap">
+                  <User className="w-3 h-3" />
+                  {contact.name.split(" ")[0]}
+                  <X className="w-3 h-3" />
+                </button>
+              )
+            })}
+            {selectedImportedRecipients.map((id) => {
+              const contact = importedContacts.find((item) => item.id === id)
+              if (!contact) return null
+              return (
+                <button key={id} onClick={() => onToggleImportedRecipient(id)} className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap">
+                  <User className="w-3 h-3 opacity-60" />
+                  {contact.name.split(" ")[0]}
+                  <X className="w-3 h-3" />
+                </button>
+              )
+            })}
+            {selectedTags.map((tagId) => {
+              const tag = selectableTags.find((item) => item.id === tagId)
+              if (!tag) return null
+              return (
+                <button key={tagId} onClick={() => onToggleTag(tagId)} className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[11px] font-semibold text-primary whitespace-nowrap">
+                  <span className={cn("w-2 h-2 rounded-full", tagDotClass(tag))} />
+                  {tag.name}
+                  <X className="w-3 h-3" />
+                </button>
+              )
+            })}
+            {selectedCalendarDates.map((date) => (
+              <button
+                key={date}
+                onClick={() => onCalendarDatesChange(selectedCalendarDates.filter((item) => item !== date))}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/25 bg-sky-400/10 px-2.5 py-1 text-[11px] font-semibold text-sky-400 whitespace-nowrap"
+              >
+                <CalendarDays className="w-3 h-3" />
+                {formatCalDate(date)}
+                <X className="w-3 h-3" />
+              </button>
+            ))}
+          </div>
+        )}
+        <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people, tags, dates" />
+        <div className="mb-3 flex gap-1.5 overflow-x-auto scrollbar-hide">
+          <ContextModeChip active={mode === "menu"} icon={<LayoutGrid className="w-3.5 h-3.5" />} onClick={() => setMode("menu")}>All</ContextModeChip>
+          <ContextModeChip active={mode === "who"} icon={<User className="w-3.5 h-3.5" />} onClick={() => setMode("who")}>People</ContextModeChip>
+          <ContextModeChip active={mode === "tag"} icon={<Tag className="w-3.5 h-3.5" />} onClick={() => setMode("tag")}>Tags</ContextModeChip>
+          <ContextModeChip active={mode === "date"} icon={<CalendarDays className="w-3.5 h-3.5" />} onClick={() => setMode("date")}>Dates</ContextModeChip>
+        </div>
+
+        {showSearchResults ? (
+          <div className="space-y-4">
+            {(filteredContacts.length > 0 || unregisteredContacts.length > 0) && (
+              <div>
+                <SectionMiniTitle>People</SectionMiniTitle>
+                {renderPeople(true)}
+              </div>
+            )}
+            {tagGroups.length > 0 && (
+              <div>
+                <SectionMiniTitle>Tags</SectionMiniTitle>
+                {renderTags(true)}
+              </div>
+            )}
+            {filteredContacts.length === 0 && unregisteredContacts.length === 0 && tagGroups.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
+                <p className="text-xs text-muted-foreground">Nothing matched "{query.trim()}".</p>
+                <button
+                  type="button"
+                  onClick={handleCreateFromSearch}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/12 px-3 py-1.5 text-xs font-semibold text-primary active:scale-95"
+                >
+                  <Plus className="w-3 h-3" />
+                  Create tag
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {mode === "menu" && (
+              <>
+                <div>
+                  <SectionMiniTitle>People</SectionMiniTitle>
+                  {renderPeople(true)}
+                </div>
+                <div>
+                  <SectionMiniTitle>Tags by category</SectionMiniTitle>
+                  {renderTags(true)}
+                </div>
+                <div>
+                  <SectionMiniTitle>Dates</SectionMiniTitle>
+                  {renderDates()}
+                </div>
+              </>
+            )}
+            {mode === "who" && renderPeople()}
+            {mode === "tag" && renderTags()}
+            {mode === "date" && renderDates()}
+          </div>
         )}
       </div>
+      {showDatePicker && (
+        <DatePickerModal
+          selectedDates={selectedCalendarDates}
+          title="Schedule dates"
+          onConfirm={(dates) => {
+            onCalendarDatesChange(dates)
+            setShowDatePicker(false)
+          }}
+          onClose={() => setShowDatePicker(false)}
+        />
+      )}
     </>
   )
+}
+
+function ContextModeChip({
+  children,
+  icon,
+  active,
+  onClick,
+}: {
+  children: React.ReactNode
+  icon: React.ReactNode
+  active?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all active:scale-95",
+        active
+          ? "border-primary/35 bg-primary/15 text-primary"
+          : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground/80"
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
+
+function SectionMiniTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[1.6px] text-muted-foreground/65 font-mono">
+      {children}
+    </p>
+  )
+}
+
+function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[]) {
+  const categoryMap = new Map<string, { id: string; name: string; order: number; tags: MessageTag[] }>()
+  const orderedCategories = [
+    { id: "systemType", name: "Status", isSystem: true },
+    ...SYSTEM_CATEGORIES,
+    ...customCategories,
+  ]
+
+  orderedCategories.forEach((category, index) => {
+    categoryMap.set(category.id, {
+      id: category.id,
+      name: category.id === "systemType" ? "Status" : category.name,
+      order: index,
+      tags: [],
+    })
+  })
+
+  tags.forEach((tag) => {
+    const categoryId = tag.category || "custom"
+    if (!categoryMap.has(categoryId)) {
+      categoryMap.set(categoryId, {
+        id: categoryId,
+        name: getCategoryLabel(categoryId, customCategories),
+        order: 100,
+        tags: [],
+      })
+    }
+    categoryMap.get(categoryId)?.tags.push(tag)
+  })
+
+  return Array.from(categoryMap.values())
+    .filter((group) => group.tags.length > 0)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+}
+
+function categoryDotClass(categoryId: string): string {
+  if (categoryId === "systemType" || categoryId === "status") return "bg-feedback"
+  if (categoryId === "timedate") return "bg-sky-400"
+  if (categoryId === "report") return "bg-decision"
+  if (categoryId === "task") return "bg-progress"
+  if (categoryId === "project") return "bg-primary"
+  return "bg-white/35"
 }
 
 function ProjectSearchSheet({
@@ -983,12 +1452,12 @@ function ProjectSearchSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <div className="flex items-center justify-between mb-3">
@@ -1066,12 +1535,12 @@ function FeedSkeletonBubble({
 }) {
   return (
     <div className={cn("flex gap-2 items-end animate-pulse", side === "right" && "flex-row-reverse")}>
-      <div className="w-8 h-8 rounded-full bg-white/8 border border-white/10 shrink-0" />
+      <div className="w-8 h-8 rounded-full bg-white/8 border border-white/10 shrink-0 backdrop-blur-md" />
       <div className={cn("max-w-[78%] md:max-w-[55%] flex flex-col gap-1", width, side === "right" && "items-end")}>
         {side === "left" && <div className="h-3 w-20 rounded-full bg-white/8" />}
         <div
           className={cn(
-            "w-full border border-white/10 bg-white/[0.07] p-3",
+            "glass-message w-full border p-3",
             side === "right" ? "rounded-[16px_16px_4px_16px]" : "rounded-[16px_16px_16px_4px]"
           )}
         >
@@ -1125,19 +1594,6 @@ function SheetSearchInput({
   )
 }
 
-function SheetAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-left text-sm font-semibold text-foreground/90 active:bg-white/10"
-    >
-      <span className="w-8 h-8 rounded-full bg-primary/12 text-primary flex items-center justify-center">{icon}</span>
-      {label}
-    </button>
-  )
-}
-
 function PeopleFilterSheet({
   contacts,
   importedContacts,
@@ -1175,17 +1631,17 @@ function PeopleFilterSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <SheetHeader title="People" onClose={onClose} />
         <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people" />
-        <div className="flex flex-col gap-1 max-h-[45dvh] overflow-y-auto scrollbar-hide">
+        <div className="flex flex-col gap-1 max-h-[42dvh] overflow-y-auto scrollbar-hide">
           <button
             onClick={() => onChange([])}
             className={cn(
@@ -1252,82 +1708,193 @@ function PeopleFilterSheet({
 
 function TagFilterSheet({
   tags,
+  customCategories,
   selectedTags,
   onChange,
   onClose,
 }: {
   tags: MessageTag[]
+  customCategories: CategoryItem[]
   selectedTags: string[]
   onChange: (ids: string[]) => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState("")
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const queryText = query.trim().toLowerCase()
+  const unassignedTag = tags.find(t => t.id === systemTypeTagId("none"))
   const filtered = tags
-    .filter((tag) => tag.name.toLowerCase().includes(queryText))
-    .sort((a, b) => {
-      if (!queryText) {
-        if (a.id === systemTypeTagId("none")) return -1
-        if (b.id === systemTypeTagId("none")) return 1
-      }
-      return 0
+    .filter((tag) => {
+      if (tag.id === systemTypeTagId("none")) return false  // shown separately as top pill
+      if (!queryText) return true
+      const categoryId = tag.category || "custom"
+      const categoryLabel = getCategoryLabel(categoryId, customCategories)
+      return tag.name.toLowerCase().includes(queryText) || categoryLabel.toLowerCase().includes(queryText)
     })
+  const tagGroups = groupTagsByCategory(filtered, customCategories)
+  const selectedTagObjects = tags.filter((tag) => selectedTags.includes(tag.id))
   const toggle = (id: string) => {
     onChange(selectedTags.includes(id) ? selectedTags.filter((item) => item !== id) : [...selectedTags, id])
   }
+  const toggleCategory = (categoryId: string) =>
+    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }))
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a1628] border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[82dvh] flex-col glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
-        <div {...swipeHandlers} className="-mx-5 -mt-4 pt-4 pb-5 touch-none cursor-grab active:cursor-grabbing">
+        <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
-        <SheetHeader title="Tags" onClose={onClose} />
-        <SheetSearchInput value={query} onChange={setQuery} placeholder="Search tags" />
-        <div className="flex flex-col gap-1 max-h-[45dvh] overflow-y-auto scrollbar-hide">
+        <SheetHeader title="Filter Tags" onClose={onClose} />
+        <SheetSearchInput value={query} onChange={setQuery} placeholder="Search tags or categories" />
+        <div className="mb-3 flex shrink-0 items-center gap-2">
           <button
+            type="button"
             onClick={() => onChange([])}
-            className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left", selectedTags.length === 0 ? "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90")}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all active:scale-95",
+              selectedTags.length === 0
+                ? "border-primary/35 bg-primary/15 text-primary"
+                : "border-white/10 bg-white/5 text-muted-foreground"
+            )}
           >
-            <span className="w-4 h-4 rounded-full bg-white/[0.035] border border-white/[0.07] flex items-center justify-center shrink-0">
-              <LayoutGrid className="w-2.5 h-2.5 text-muted-foreground/60" />
-            </span>
-            <span className="text-sm font-semibold flex-1">All Tags</span>
-            {selectedTags.length === 0 && <Check className="w-4 h-4 text-primary" />}
+            <LayoutGrid className="w-3.5 h-3.5" />
+            All
           </button>
-          {filtered.map((tag) => {
-            const selected = selectedTags.includes(tag.id)
-            const isUnassigned = tag.id === systemTypeTagId("none")
-            return (
-              <button
-                key={tag.id}
-                onClick={() => toggle(tag.id)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
-                  selected
-                    ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
-                    : "active:bg-white/5 text-foreground/90"
-                )}
-              >
-                {isUnassigned ? (
-                  <span className="w-4 h-4 rounded-full bg-feedback/[0.07] border border-feedback/10 flex items-center justify-center shrink-0">
-                    <CircleSlash className="w-2.5 h-2.5 text-feedback/70" />
+          {unassignedTag && (
+            <button
+              type="button"
+              onClick={() => toggle(unassignedTag.id)}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all active:scale-95",
+                selectedTags.includes(unassignedTag.id)
+                  ? "border-feedback/35 bg-feedback/15 text-feedback"
+                  : "border-white/10 bg-white/5 text-muted-foreground"
+              )}
+            >
+              <CircleSlash className="w-3.5 h-3.5" />
+              Unassigned
+            </button>
+          )}
+          {selectedTags.length > 0 && (
+            <div className="min-w-0 flex-1 overflow-x-auto scrollbar-hide">
+              <div className="flex gap-1.5">
+                {selectedTagObjects.slice(0, 4).map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => toggle(tag.id)}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 text-[11px] font-semibold text-primary active:scale-95"
+                  >
+                    <span className={cn("h-2 w-2 rounded-full", tagDotClass(tag))} />
+                    <span className="max-w-24 truncate">{tag.name}</span>
+                    <X className="w-3 h-3" />
+                  </button>
+                ))}
+                {selectedTags.length > 4 && (
+                  <span className="inline-flex h-8 shrink-0 items-center rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] font-semibold text-muted-foreground">
+                    +{selectedTags.length - 4}
                   </span>
-                ) : (
-                  <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
                 )}
-                <span className="text-sm font-semibold flex-1 truncate">{tag.name}</span>
-                {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current" />}
-                {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
-              </button>
-            )
-          })}
-          {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No tags found.</p>}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mb-2 flex shrink-0 items-center justify-between px-1">
+          <p className="text-[10px] font-bold uppercase tracking-[1.6px] text-muted-foreground/65 font-mono">
+            Categories
+          </p>
+          <span className="text-[10px] font-semibold text-muted-foreground/55">
+            {tagGroups.length} categories
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-hide">
+          <div className="flex flex-col gap-2.5 pb-2">
+            <button
+              onClick={() => onChange([])}
+              className={cn(
+                "flex shrink-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                selectedTags.length === 0
+                  ? "border-primary/25 bg-primary/12 text-primary"
+                  : "border-white/10 bg-white/[0.03] active:bg-white/5 text-foreground/90"
+              )}
+            >
+              <span className="w-7 h-7 rounded-full bg-white/[0.035] border border-white/[0.07] flex items-center justify-center shrink-0">
+                <LayoutGrid className="w-3.5 h-3.5 text-muted-foreground/70" />
+              </span>
+              <span className="text-sm font-semibold flex-1">All Tags</span>
+              {selectedTags.length === 0 && <Check className="w-4 h-4 text-primary" />}
+            </button>
+            {tagGroups.map((group) => {
+              const expanded = queryText.length > 0 || (expandedCategories[group.id] ?? false)
+              const selectedInGroup = group.tags.filter((tag) => selectedTags.includes(tag.id)).length
+              return (
+                <div key={group.id} className="shrink-0 rounded-xl border border-white/10 bg-white/[0.035] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleCategory(group.id)}
+                    className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left active:bg-white/5"
+                  >
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", categoryDotClass(group.id))} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold uppercase tracking-[1.4px] text-foreground/80 font-mono">
+                        {group.name}
+                      </p>
+                      {selectedInGroup > 0 && (
+                        <p className="mt-0.5 truncate text-[10px] font-semibold text-primary/80">
+                          {selectedInGroup} selected
+                        </p>
+                      )}
+                    </div>
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      selectedInGroup > 0 ? "bg-primary/15 text-primary" : "bg-white/5 text-muted-foreground/60"
+                    )}>
+                      {selectedInGroup > 0 ? selectedInGroup : group.tags.length}
+                    </span>
+                    {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                  </button>
+                  {expanded && (
+                    <div className="max-h-56 overflow-y-auto border-t border-white/10 p-1 scrollbar-hide">
+                      {group.tags.map((tag) => {
+                        const selected = selectedTags.includes(tag.id)
+                        const isUnassigned = tag.id === systemTypeTagId("none")
+                        return (
+                          <button
+                            key={tag.id}
+                            onClick={() => toggle(tag.id)}
+                            className={cn(
+                              "flex w-full items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                              selected
+                                ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
+                                : "active:bg-white/5 text-foreground/90"
+                            )}
+                          >
+                            {isUnassigned ? (
+                              <span className="w-4 h-4 rounded-full bg-feedback/[0.07] border border-feedback/10 flex items-center justify-center shrink-0">
+                                <CircleSlash className="w-2.5 h-2.5 text-feedback/70" />
+                              </span>
+                            ) : (
+                              <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+                            )}
+                            <span className="text-sm font-semibold flex-1 truncate">{tag.name}</span>
+                            {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current" />}
+                            {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No tags found.</p>}
+          </div>
         </div>
       </div>
     </>
@@ -1357,6 +1924,14 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
   return tag.color || "bg-primary"
+}
+
+function messageTypeChipClass(type: MessageType): string {
+  if (type === "progress") return "bg-progress/12 text-green-300 border-progress/35"
+  if (type === "problem") return "bg-problem/12 text-red-300 border-problem/35"
+  if (type === "feedback") return "bg-feedback/12 text-amber-300 border-feedback/35"
+  if (type === "decision") return "bg-decision/12 text-blue-300 border-decision/35"
+  return "bg-feedback/10 text-feedback border-feedback/25"
 }
 
 function FilterChip({
@@ -1399,16 +1974,16 @@ function FilterChip({
       onPointerCancel={cancelPress}
       onClick={handleClick}
       className={cn(
-        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all border flex items-center gap-1",
+        "text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0 tracking-wide transition-all duration-150 border flex items-center gap-1 active:scale-[0.98]",
         active && tone === "people"
-          ? "bg-feedback/15 border-feedback/35 text-feedback"
+          ? "glass-pill-people-active"
         : active
-          ? "bg-primary/20 border-primary/35 text-primary"
+          ? "glass-pill-active"
         : highlight
-          ? "bg-feedback/10 border-feedback/25 text-feedback"
+          ? "glass-pill-people"
         : tone === "people"
-          ? "bg-feedback/8 border-feedback/20 text-feedback/80 hover:bg-feedback/12 hover:border-feedback/35"
-          : "bg-white/5 border-white/10 text-muted-foreground hover:bg-primary/10 hover:border-primary/35 hover:text-primary"
+          ? "glass-pill-people hover:bg-feedback/15 hover:border-feedback/35"
+          : "glass-pill text-white/85 hover:border-primary/40 hover:text-blue-200"
       )}
     >
       {isFavorited && <Star className="w-2.5 h-2.5 fill-current text-feedback shrink-0" />}
@@ -1656,8 +2231,126 @@ function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Ar
   return Array.from(touches).map((touch) => ({ x: touch.clientX, y: touch.clientY }))
 }
 
+// Module-level cache: survives screen switches (component unmount/remount).
+// Once a URL has been loaded once, we skip the skeleton entirely on subsequent renders.
+const loadedImageUrls = new Set<string>()
+
+// Decode a BlurHash string to a small data URL for use as CSS background.
+// Returns null if blurhash is not available or decoding fails.
+function decodeBlurHashToDataURL(hash: string, w = 32, h = 32): string | null {
+  try {
+    // Use require so this only runs client-side and doesn't block
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { decode } = require("blurhash") as typeof import("blurhash")
+    const pixels = decode(hash, w, h)
+    const canvas = document.createElement("canvas")
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    const imageData = ctx.createImageData(w, h)
+    imageData.data.set(pixels)
+    ctx.putImageData(imageData, 0, 0)
+    return canvas.toDataURL()
+  } catch {
+    return null
+  }
+}
+
+// Cache decoded data URLs so we don't re-decode the same hash repeatedly
+const blurHashDataUrlCache = new Map<string, string>()
+
+function getBlurHashDataURL(hash: string, w: number, h: number): string | null {
+  const key = `${hash}-${w}-${h}`
+  if (blurHashDataUrlCache.has(key)) return blurHashDataUrlCache.get(key)!
+  const thumbW = 32
+  const thumbH = Math.max(1, Math.round((h / w) * thumbW))
+  const url = decodeBlurHashToDataURL(hash, thumbW, thumbH)
+  if (url) blurHashDataUrlCache.set(key, url)
+  return url
+}
+
+function MessageImage({
+  src,
+  alt,
+  width,
+  height,
+  blurHash,
+  onClick,
+}: {
+  src: string
+  alt: string
+  width?: number
+  height?: number
+  blurHash?: string
+  onClick: () => void
+}) {
+  const [loaded, setLoaded] = useState(() => loadedImageUrls.has(src))
+  const hasKnownDimensions = !!(width && height)
+
+  // Decode BlurHash to a tiny data URL once (cached), used as skeleton background
+  const blurDataUrl = blurHash && width && height && !loaded
+    ? getBlurHashDataURL(blurHash, width, height)
+    : null
+
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className="mb-2 block w-full overflow-hidden rounded-xl border border-white/10 active:scale-[0.99]"
+    >
+      <div
+        className={cn("relative w-full min-h-36")}
+        style={hasKnownDimensions ? { aspectRatio: `${width} / ${height}`, maxHeight: 288 } : undefined}
+      >
+        {/* BlurHash / shimmer skeleton — absolute overlay, fades out when image is ready */}
+        <div
+          className={cn(
+            "absolute inset-0 z-10 transition-opacity duration-500",
+            loaded ? "opacity-0 pointer-events-none" : "opacity-100",
+          )}
+          style={blurDataUrl ? {
+            backgroundImage: `url(${blurDataUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(12px)",
+            transform: "scale(1.08)", // hide blur edges
+          } : { background: "rgba(255,255,255,0.04)" }}
+        >
+          {/* Fallback shimmer when no BlurHash */}
+          {!blurDataUrl && (
+            <>
+              <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/8 to-transparent animate-pulse" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <ImageIcon className="w-7 h-7 text-white/20" />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Real image — in flow, natural dimensions, fades in over skeleton */}
+        <img
+          src={src}
+          alt={alt}
+          onLoad={() => {
+            loadedImageUrls.add(src)
+            setLoaded(true)
+          }}
+          className={cn(
+            "w-full max-h-72 object-cover block transition-opacity duration-500",
+            loaded ? "opacity-100" : "opacity-0",
+          )}
+        />
+      </div>
+    </button>
+  )
+}
+
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap,
+  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap,
 }: {
   message: Message
   projects: Project[]
@@ -1667,6 +2360,7 @@ function MessageBubble({
   userColor: string
   isAuthorActive: boolean
   isSelected: boolean
+  isHighlighted?: boolean
   isFirstInGroup?: boolean
   isLastInGroup?: boolean
   onTap: () => void
@@ -1699,43 +2393,46 @@ function MessageBubble({
   const hasDirectRecipients =
     (message.recipientIds ?? []).filter(Boolean).length > 0 ||
     (message.contactIds ?? []).filter(Boolean).length > 0
+  const hasCalendarDates = (message.calendarDates ?? []).length > 0
+  const visibleTagCount = messageTags.filter((tag) => tag.systemType !== "none").length
 
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe
-    ? (!first && !last) ? "rounded-[16px_4px_4px_16px]"
-    : !first            ? "rounded-[16px_4px_16px_16px]"
-    :                     "rounded-[16px_16px_4px_16px]"
-    : (!first && !last) ? "rounded-[4px_16px_16px_4px]"
-    : !first            ? "rounded-[4px_16px_16px_16px]"
-    :                     "rounded-[16px_16px_16px_4px]"
+    ? (!first && !last) ? "rounded-[18px_4px_4px_18px]"
+    : !first            ? "rounded-[18px_4px_18px_18px]"
+    :                     "rounded-[18px_18px_4px_18px]"
+    : (!first && !last) ? "rounded-[4px_18px_18px_4px]"
+    : !first            ? "rounded-[4px_18px_18px_18px]"
+    :                     "rounded-[18px_18px_18px_4px]"
 
   return (
     <div
+      data-msg-id={message.id}
       className={cn(
-        "flex gap-2 items-end select-none no-callout",
+        "flex gap-2.5 items-end select-none no-callout",
         isMe && "flex-row-reverse",
         isSelected && "opacity-90",
-        first ? "mt-3 animate-fade-up" : "mt-1"
+        first ? "mt-2 animate-fade-up" : "mt-0.5"
       )}
     >
       {/* Avatar — only visible on first message in a group */}
       {first ? (
         <div className={cn(
-          "relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white",
+          "relative w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 text-white border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(0,0,0,0.18)]",
           contact.color
         )}>
           {contact.initials}
           {isAuthorActive && (
-            <span className="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-[3px] border-background shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+            <span className="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-[3px] border-[#05090f] shadow-[0_0_12px_rgba(52,211,153,0.72)]" />
           )}
         </div>
       ) : (
-        <div className="w-8 shrink-0" />
+        <div className="w-7 shrink-0" />
       )}
 
       <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
         {!isMe && first && (
-          <span className="text-xs font-semibold text-muted-foreground px-1">{contact.name}</span>
+          <span className="text-[10px] font-semibold text-muted-foreground/75 px-1 mb-0.5">{contact.name}</span>
         )}
         <div
           onPointerDown={(e) => { e.stopPropagation(); onPressStart() }}
@@ -1745,37 +2442,31 @@ function MessageBubble({
           onClick={(e) => { e.stopPropagation(); onTap() }}
           onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
           className={cn(
-            "border p-3 px-3.5 cursor-pointer transition-all duration-150",
+            "border px-3 py-2 cursor-pointer transition-all duration-300",
             isMe
-              ? cn("bg-[#112a52] border-primary/25", bubbleRadius)
-              : cn("bg-card border-white/10", bubbleRadius),
-            isSelected && (isMe
-              ? "bg-primary/25 border-primary/50 shadow-[0_0_0_2px_rgba(37,99,235,0.3)]"
-              : "bg-primary/10 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,235,0.2)]")
+              ? cn("glass-message-me", bubbleRadius)
+              : cn("glass-message", bubbleRadius),
+            isSelected && "glass-message-selected",
+            isHighlighted && "glass-message-highlighted"
           )}
         >
           {message.imageUrl && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
+            <MessageImage
+              src={message.imageUrl}
+              alt={message.imageName || "Attached image"}
+              width={message.imageWidth}
+              height={message.imageHeight}
+              blurHash={message.imageBlurHash}
+              onClick={() => {
                 onPressEnd()
                 onImageOpen(message.imageUrl!, message.imageName)
               }}
-              className="mb-2 block w-full overflow-hidden rounded-xl border border-white/10 bg-black/20 active:scale-[0.99]"
-            >
-              <img
-                src={message.imageUrl}
-                alt={message.imageName || "Attached image"}
-                className="max-h-72 w-full object-cover"
-              />
-            </button>
+            />
           )}
           {message.text && (
             <div>
               <p className={cn(
-                "text-sm leading-relaxed text-foreground/90 no-callout",
+                "text-sm leading-snug text-foreground/90 no-callout",
                 isLong && !isExpanded && "line-clamp-10"
               )}>
                 {message.text}
@@ -1791,24 +2482,30 @@ function MessageBubble({
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {/* Safety fallback: no tags computed AND no recipients → Unassigned */}
-            {messageTags.length === 0 && !hasDirectRecipients && (
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            {/* Safety fallback: no tags computed AND no recipients AND no calendar dates → Unassigned */}
+            {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
-            {messageTags.length === 0 && !hasDirectRecipients && (
-              <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
+            {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
+              <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
                 Unassigned
+              </span>
+            )}
+            {visibleTagCount === 0 && hasCalendarDates && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
+                <CalendarDays className="w-2.5 h-2.5 shrink-0" />
+                Scheduled
               </span>
             )}
             {messageTags.map((tag) => {
               if (tag.systemType === "none") {
-                // Don't show Unassigned if message has direct recipients
-                if (hasDirectRecipients) return null
+                // Don't show Unassigned if message has direct recipients or calendar dates
+                if (hasDirectRecipients || hasCalendarDates) return null
                 return (
                   <Fragment key={tag.id}>
                     <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
-                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-white/10 bg-white/5 text-muted-foreground no-callout">
+                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
                       Unassigned
                     </span>
                   </Fragment>
@@ -1823,10 +2520,10 @@ function MessageBubble({
                     if (tag.projectId) onProjectTagTap?.(tag.projectId)
                   }}
                   className={cn(
-                    "text-[10px] font-semibold tracking-wide border rounded px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout",
+                    "text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout backdrop-blur-md",
                     tag.systemType
-                      ? cn(typeStyles[tag.systemType].bg, typeStyles[tag.systemType].text, typeStyles[tag.systemType].border)
-                      : "bg-primary/10 text-primary border-primary/20"
+                      ? messageTypeChipClass(tag.systemType)
+                      : "bg-primary/12 text-blue-300 border-primary/30"
                   )}
                 >
                   {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
@@ -1834,6 +2531,13 @@ function MessageBubble({
                 </button>
               )
             })}
+            {/* Calendar date chips */}
+            {(message.calendarDates ?? []).map(cd => (
+              <span key={cd.id ?? cd.date} className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
+                <CalendarDays className="w-2.5 h-2.5 shrink-0" />
+                {formatCalDate(cd.date)}
+              </span>
+            ))}
             {/* Direct recipients indicator — subtle yellow people icon */}
             {hasDirectRecipients && (
               <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">
