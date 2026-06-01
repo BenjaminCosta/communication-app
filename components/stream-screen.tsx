@@ -496,7 +496,7 @@ export function StreamScreen({
         <div
           ref={feedRef}
           onScroll={handleScroll}
-          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[68px] flex flex-col gap-0 scrollbar-hide"
+          className="absolute inset-0 overflow-y-auto px-4 pt-12 pb-[calc(env(safe-area-inset-bottom)+58px)] flex flex-col gap-0 scrollbar-hide"
           onClick={() => selectedMsgId && clearMsgSelection()}
         >
           {showFeedSkeleton ? (
