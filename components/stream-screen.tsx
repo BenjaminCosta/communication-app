@@ -938,7 +938,7 @@ function QuickActionPopover({
         onClick={onClose}
         className="fixed inset-0 z-40 bg-transparent"
       />
-      <div className="glass-panel fixed bottom-[calc(env(safe-area-inset-bottom)+64px)] left-3 z-50 w-64 overflow-hidden rounded-[22px] border animate-fade-up">
+      <div className="glass-panel fixed bottom-[calc(var(--sab)+64px)] left-3 z-50 w-64 overflow-hidden rounded-[22px] border animate-fade-up">
         <QuickActionItem
           icon={<Tag className="w-5 h-5" />}
           iconClassName="text-primary"
