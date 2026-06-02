@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Analytics } from '@vercel/analytics/next'
+import { ServiceWorkerRegister } from '@/components/ui/ServiceWorkerRegister'
 import '@fontsource/sora/300.css'
 import '@fontsource/sora/400.css'
 import '@fontsource/sora/500.css'
@@ -12,9 +13,15 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'SVC Messaging — MVP',
   description: 'Capture messages fast, organize later. Three screens, one flow.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'SVC',
+  },
   icons: {
-    icon: '/logo.png',
-    apple: '/logo.png',
+    icon: '/icon-192x192.png',
+    apple: '/icon-192x192.png',
   },
 }
 
@@ -36,6 +43,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-background h-full">
       <body suppressHydrationWarning className="font-sans antialiased h-dvh overflow-hidden no-select" style={{ position: 'fixed', width: '100%', top: 0, left: 0 }}>
+        <ServiceWorkerRegister />
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
