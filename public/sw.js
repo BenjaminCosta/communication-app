@@ -1,4 +1,4 @@
-const CACHE_NAME = 'svc-v1';
+const CACHE_NAME = 'svc-v2';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -36,9 +36,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Never serve Next/Turbopack chunks from the app cache. They are versioned by
+  // Next and must revalidate normally or stale module factories can crash.
+  if (url.pathname.startsWith('/_next/')) {
+    return;
+  }
+
   // Cache-first for static assets
   if (
-    url.pathname.startsWith('/_next/static/') ||
     url.pathname.match(/\.(png|jpg|jpeg|svg|ico|webp|woff2?)$/)
   ) {
     event.respondWith(

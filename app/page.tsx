@@ -154,6 +154,9 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     imageName: data.imageName,
     imageContentType: data.imageContentType,
     imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
+    imageWidth: typeof data.imageWidth === "number" ? data.imageWidth : undefined,
+    imageHeight: typeof data.imageHeight === "number" ? data.imageHeight : undefined,
+    imageBlurHash: typeof data.imageBlurHash === "string" ? data.imageBlurHash : undefined,
     imageUploadedAt: data.imageUploadedAt ? toDate(data.imageUploadedAt) : undefined,
     calendarDates: Array.isArray(data.calendarDates)
       ? data.calendarDates
@@ -1217,6 +1220,7 @@ export default function Home() {
           importedContacts={importedContacts}
           registeredUsers={[currentUser, ...contacts]}
           onBack={handlePeopleBack}
+          onSaveImportedContacts={handleSaveImportedContacts}
           onInviteContact={handleInviteContact}
           onAddTagToContact={handleAddTagToContact}
           onRemoveTagFromContact={handleRemoveTagFromContact}

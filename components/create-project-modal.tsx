@@ -4,6 +4,7 @@ import { useState } from "react"
 import { X, ArrowRight, ChevronLeft, Check, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Contact, type TagCategory, type CategoryItem, SYSTEM_CATEGORIES, CATEGORY_CONFIG } from "@/lib/store"
+import { CategoryIcon } from "@/components/category-icon"
 
 interface CreateProjectModalProps {
   onClose: () => void
@@ -38,7 +39,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center px-5">
       {/* Backdrop */}
       <button
         onClick={onClose}
@@ -130,12 +131,13 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
             {/* Selected category chip — only shown when user explicitly picked one */}
             {category && category !== "" && (
               <div className="mb-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-primary/15 border border-primary/40 text-primary">
-                  {allCategories.find(c => c.id === category)?.name ?? "Custom"}
+                <span className="flex items-center gap-3 rounded-xl border border-primary/35 bg-primary/12 px-3 py-2.5 text-xs font-semibold text-foreground">
+                  <CategoryIcon categoryId={category} />
+                  <span className="min-w-0 flex-1 truncate">{allCategories.find(c => c.id === category)?.name ?? "Custom"}</span>
                   <button
                     type="button"
                     onClick={() => { setCategory(""); setCategorySearch("") }}
-                    className="active:scale-90"
+                    className="shrink-0 active:scale-90"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -169,7 +171,7 @@ export function CreateProjectModal({ onClose, onSubmit, contacts, customCategori
                           selected ? "bg-primary/15" : "hover:bg-white/5 active:bg-white/5"
                         )}
                       >
-                        <div className={cn("w-2 h-2 rounded-full flex-shrink-0 shadow-[0_0_6px_2px_rgba(139,92,246,0.5)]", selected ? "bg-primary" : "bg-violet-500")} />
+                        <CategoryIcon categoryId={cat.id} />
                         <span className={cn("text-sm font-semibold flex-1", selected ? "text-primary" : "text-foreground/90")}>
                           {cat.name}
                         </span>

@@ -5,13 +5,8 @@ import {
   ArrowLeft,
   CalendarDays,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
-  FileText,
-  Folder,
-  Hash,
   Plus,
   Search,
   Tag,
@@ -40,13 +35,15 @@ import {
   getCategoryLabel,
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
+import { CreateProjectModal } from "@/components/create-project-modal"
+import { CategoryIcon, getCategoryDotClass } from "@/components/category-icon"
 
 interface TagSheetProps {
   message: Message
   onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[], calendarDates?: string[]) => void
   onClose: () => void
   projects: Project[]
-  onCreateProject: (name: string, memberIds?: string[]) => Promise<Project>
+  onCreateProject: (name: string, memberIds?: string[], category?: string) => Promise<Project>
   contacts: Contact[]
   importedContacts?: ImportedContact[]
   availableTags?: MessageTag[]
@@ -69,6 +66,7 @@ export function TagSheet({
   onApply,
   onClose,
   projects,
+  onCreateProject,
   contacts,
   importedContacts = [],
   availableTags,
@@ -89,6 +87,7 @@ export function TagSheet({
     (message.calendarDates ?? []).map((d) => d.date).filter(Boolean)
   )
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [showCreateTagModal, setShowCreateTagModal] = useState(false)
 
   const contact = getContactFromList(message.senderId, contacts) ?? {
     id: message.senderId,
@@ -268,6 +267,7 @@ export function TagSheet({
             selectedTags={selectedTags}
             selectedCalendarDates={selectedCalendarDates}
             onOpenCategory={(group) => setView({ type: "category", categoryId: group.id, title: group.name })}
+            onCreateTag={() => setShowCreateTagModal(true)}
           />
         )}
 
@@ -307,6 +307,23 @@ export function TagSheet({
             setShowDatePicker(false)
           }}
           onClose={() => setShowDatePicker(false)}
+        />
+      )}
+
+      {showCreateTagModal && (
+        <CreateProjectModal
+          contacts={contacts}
+          customCategories={customCategories}
+          onClose={() => setShowCreateTagModal(false)}
+          onSubmit={async (name, memberIds, category) => {
+            setShowCreateTagModal(false)
+            if (!onCreateProject) return
+            const project = await onCreateProject(name, memberIds, category)
+            if (project) {
+              const tagId = `project:${project.id}`
+              setSelectedTags((prev) => prev.includes(tagId) ? prev : [...prev, tagId])
+            }
+          }}
         />
       )}
     </div>
@@ -589,11 +606,13 @@ function TagsCategoryView({
   selectedTags,
   selectedCalendarDates,
   onOpenCategory,
+  onCreateTag,
 }: {
   groups: TagGroup[]
   selectedTags: string[]
   selectedCalendarDates: string[]
   onOpenCategory: (group: TagGroup) => void
+  onCreateTag: () => void
 }) {
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
@@ -622,6 +641,7 @@ function TagsCategoryView({
         )}
         <button
           type="button"
+          onClick={onCreateTag}
           className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2.5 text-left text-primary active:bg-white/8"
         >
           <Plus className="w-4 h-4" />
@@ -1002,30 +1022,9 @@ function CategoryRow({
   )
 }
 
-function CategoryIcon({ categoryId }: { categoryId: string }) {
-  const classes = "flex h-8 w-8 items-center justify-center rounded-xl"
-  if (categoryId === "systemType" || categoryId === "status") {
-    return <span className={cn(classes, "bg-progress/12 text-progress")}><CheckCircle2 className="w-4 h-4" /></span>
-  }
-  if (categoryId === "project") {
-    return <span className={cn(classes, "bg-primary/12 text-primary")}><Folder className="w-4 h-4" /></span>
-  }
-  if (categoryId === "report") {
-    return <span className={cn(classes, "bg-decision/12 text-decision")}><FileText className="w-4 h-4" /></span>
-  }
-  if (categoryId === "task") {
-    return <span className={cn(classes, "bg-feedback/12 text-feedback")}><CheckCircle2 className="w-4 h-4" /></span>
-  }
-  if (categoryId === "timedate" || categoryId === "date") {
-    return <span className={cn(classes, "bg-sky-400/12 text-sky-400")}><Clock className="w-4 h-4" /></span>
-  }
-  return <span className={cn(classes, "bg-white/8 text-muted-foreground")}><Hash className="w-4 h-4" /></span>
-}
-
 function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[]): TagGroup[] {
   const categoryMap = new Map<string, TagGroup>()
   const orderedCategories = [
-    { id: "systemType", name: "Status", isSystem: true },
     ...SYSTEM_CATEGORIES,
     ...customCategories,
   ]
@@ -1033,16 +1032,20 @@ function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[
   orderedCategories.forEach((category, index) => {
     categoryMap.set(category.id, {
       id: category.id,
-      name: category.id === "systemType" ? "Status" : category.name,
+      name: category.name,
       order: index,
       tags: [],
     })
   })
 
   tags.forEach((tag) => {
-    // Normalize legacy "timedate" → "date" so both pre- and post-migration tags land in the same group
+    // Normalize legacy/system aliases so the UI never renders duplicate category rows.
     const rawCategory = tag.category || "custom"
-    const categoryId = rawCategory === "timedate" ? "date" : rawCategory
+    const categoryId = rawCategory === "timedate"
+      ? "date"
+      : rawCategory === "systemType"
+        ? "status"
+        : rawCategory
     if (!categoryMap.has(categoryId)) {
       categoryMap.set(categoryId, {
         id: categoryId,
@@ -1055,7 +1058,12 @@ function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[
   })
 
   return Array.from(categoryMap.values())
-    .filter((group) => group.tags.length > 0)
+    .filter((group) =>
+      group.tags.length > 0 ||
+      group.id === "status" ||
+      group.id === "custom" ||
+      customCategories.some((category) => category.id === group.id)
+    )
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
 }
 
@@ -1296,9 +1304,7 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  const projectId = parseProjectTagId(tag.id)
-  if (projectId) return tag.color
-  return tag.color || "bg-primary"
+  return getCategoryDotClass(tag.category)
 }
 
 function formatDateShort(dateStr: string): string {

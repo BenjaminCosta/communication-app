@@ -1,29 +1,54 @@
 "use client"
 
 import { useState } from "react"
-import { X, Tag, FolderPlus, ArrowRight } from "lucide-react"
+import { X, Tag, FolderPlus, ArrowRight, Check } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 
 interface UniversalAddModalProps {
   onClose: () => void
   onChooseTag: () => void
-  onCreateCategory: (name: string) => void
+  onCreateCategory: (name: string) => Promise<void> | void
 }
 
 export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory }: UniversalAddModalProps) {
   const [mode, setMode] = useState<"choose" | "category">("choose")
   const [catName, setCatName] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleCreateCategory = () => {
+  const handleCreateCategory = async () => {
     if (!catName.trim()) return
-    haptic.success()
-    onCreateCategory(catName.trim())
+    setIsCreating(true)
+    setError(null)
+    try {
+      await onCreateCategory(catName.trim())
+      haptic.success()
+      setIsSuccess(true)
+      setTimeout(onClose, 750)
+    } catch {
+      setError("Could not create this category. Check permissions and try again.")
+      setIsCreating(false)
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
       <button onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-label="Close" />
       <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl animate-spring-pop -translate-y-[5%]">
+        {isSuccess && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 glass-modal rounded-3xl animate-fade-in">
+            <div className="animate-sent-pop">
+              <div className="w-20 h-20 rounded-full bg-progress flex items-center justify-center shadow-[0_0_48px_rgba(34,197,94,0.55)]">
+                <Check className="w-9 h-9 text-white animate-check-draw" strokeWidth={3} />
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-1 animate-fade-up">
+              <p className="text-base font-bold text-foreground">{catName.trim()}</p>
+              <p className="text-xs text-muted-foreground">Category created</p>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between px-5 pt-5 pb-0">
           {mode === "category" ? (
@@ -88,22 +113,27 @@ export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory }: Un
             <input
               autoFocus
               value={catName}
-              onChange={e => setCatName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && catName.trim() && handleCreateCategory()}
+              onChange={e => { setCatName(e.target.value); setError(null) }}
+              onKeyDown={e => e.key === "Enter" && catName.trim() && !isCreating && handleCreateCategory()}
               placeholder="e.g. Marketing, Legal, Finance…"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/50 transition-colors mb-4"
             />
+            {error && (
+              <p className="text-[11px] text-problem/85 px-1 -mt-2 mb-3 animate-fade-in">
+                {error}
+              </p>
+            )}
             <button
               onClick={handleCreateCategory}
-              disabled={!catName.trim()}
+              disabled={!catName.trim() || isCreating}
               className={cn(
                 "w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide transition-all",
-                catName.trim()
+                catName.trim() && !isCreating
                   ? "bg-primary text-white shadow-[0_4px_16px_rgba(37,99,235,0.4)] active:scale-[0.98]"
                   : "bg-white/5 text-muted-foreground/40"
               )}
             >
-              Create Category
+              {isCreating ? "Creating..." : "Create Category"}
             </button>
           </div>
         )}

@@ -22,6 +22,7 @@ import {
   isCategoryTimeBased,
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
+import { getCategoryDotClass } from "@/components/category-icon"
 
 interface ComposeScreenProps {
   onCancel: () => void
@@ -746,7 +747,7 @@ function tagDotClass(tag: MessageTag): string {
   if (tag.systemType === "problem") return "bg-problem"
   if (tag.systemType === "feedback") return "bg-feedback"
   if (tag.systemType === "decision") return "bg-decision"
-  return tag.color || "bg-primary"
+  return getCategoryDotClass(tag.category)
 }
 
 function formatDateChip(dateStr: string): string {

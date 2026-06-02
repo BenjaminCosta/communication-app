@@ -3,12 +3,13 @@
 import { useState, useMemo } from "react"
 import {
   ArrowLeft, Plus, FolderOpen, Trash2, Pencil, X, Check,
-  ChevronRight, Search, Hash, Folder, FileText, Clock,
-  CheckCircle2, MoreHorizontal, Lock, Info, Users, Archive,
+  ChevronRight, Search, Folder,
+  MoreHorizontal, Lock, Info, Users, Archive,
 } from "lucide-react"
 import { UniversalAddModal } from "@/components/universal-add-modal"
 import { AddMembersModal } from "@/components/add-members-modal"
 import { ToastNotification } from "@/components/toast-notification"
+import { CategoryDot, CategoryIcon } from "@/components/category-icon"
 import { cn } from "@/lib/utils"
 import {
   type Project,
@@ -53,7 +54,7 @@ interface ProjectListScreenProps {
   onRenameProject: (id: string, name: string, category?: TagCategory) => void
   onUpdateMembers?: (projectId: string, memberIds: string[]) => void
   customCategories?: CategoryItem[]
-  onCreateCategory?: (name: string) => void
+  onCreateCategory?: (name: string) => Promise<void> | void
   className?: string
   contacts: Contact[]
 }
@@ -62,26 +63,6 @@ interface ProjectListScreenProps {
 
 function isSystemLocked(categoryId: string): boolean {
   return categoryId === "status" || categoryId === "systemType"
-}
-
-function CategoryIcon({ categoryId }: { categoryId: string }) {
-  const classes = "flex h-8 w-8 items-center justify-center rounded-xl flex-shrink-0"
-  if (categoryId === "systemType" || categoryId === "status") {
-    return <span className={cn(classes, "bg-progress/12 text-progress")}><CheckCircle2 className="w-4 h-4" /></span>
-  }
-  if (categoryId === "project") {
-    return <span className={cn(classes, "bg-primary/12 text-primary")}><Folder className="w-4 h-4" /></span>
-  }
-  if (categoryId === "report") {
-    return <span className={cn(classes, "bg-decision/12 text-decision")}><FileText className="w-4 h-4" /></span>
-  }
-  if (categoryId === "task") {
-    return <span className={cn(classes, "bg-feedback/12 text-feedback")}><CheckCircle2 className="w-4 h-4" /></span>
-  }
-  if (categoryId === "timedate" || categoryId === "date") {
-    return <span className={cn(classes, "bg-sky-400/12 text-sky-400")}><Clock className="w-4 h-4" /></span>
-  }
-  return <span className={cn(classes, "bg-white/8 text-muted-foreground")}><Hash className="w-4 h-4" /></span>
 }
 
 function getPeopleLabel(project: Project, contacts: Contact[]): string {
@@ -105,9 +86,7 @@ function TagRow({
 }) {
   return (
     <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10">
-      <div className={cn("w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center", project.color, "bg-opacity-20")}>
-        <div className={cn("w-3 h-3 rounded-full", project.color)} />
-      </div>
+      <CategoryDot categoryId={project.tagCategory ?? "custom"} />
       <button className="flex-1 min-w-0 text-left" onClick={onSelect}>
         <p className="text-sm font-semibold text-foreground truncate">{project.name}</p>
         <p className="text-[11px] text-muted-foreground mt-0.5">{getPeopleLabel(project, contacts)}</p>
@@ -181,6 +160,10 @@ export function ProjectListScreen({
   const allCategoryIds = useMemo(
     () => new Set(allDisplayCategories.map(c => c.id)),
     [allDisplayCategories]
+  )
+  const customCategoryIds = useMemo(
+    () => new Set(customCategories.map((c) => c.id)),
+    [customCategories]
   )
 
   const effectiveCategory = (p: Project): string => {
@@ -326,7 +309,7 @@ export function ProjectListScreen({
                         onClick={() => onProjectSelect(p.id)}
                         className="flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-white/5 border border-white/10 min-w-[80px] active:bg-white/8 transition-colors"
                       >
-                        <div className={cn("w-7 h-7 rounded-full flex-shrink-0", p.color)} />
+                        <CategoryDot categoryId={p.tagCategory ?? "custom"} className="h-7 w-7 rounded-full" />
                         <p className="text-xs font-semibold text-foreground truncate max-w-[72px]">{p.name}</p>
                         <p className="text-[10px] text-muted-foreground">{getPeopleLabel(p, contacts)}</p>
                       </button>
@@ -342,7 +325,11 @@ export function ProjectListScreen({
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {allDisplayCategories
-                    .filter(cat => (projectsByCategory.get(cat.id)?.length ?? 0) > 0 || ["status", "task", "custom"].includes(cat.id))
+                    .filter(cat =>
+                      (projectsByCategory.get(cat.id)?.length ?? 0) > 0 ||
+                      ["status", "task", "custom"].includes(cat.id) ||
+                      customCategoryIds.has(cat.id)
+                    )
                     .map(cat => {
                       const catProjects = projectsByCategory.get(cat.id) ?? []
                       const totalMsgs = catProjects.reduce((sum, p) => sum + (msgCountByProject.get(p.id) ?? 0), 0)
@@ -459,9 +446,7 @@ export function ProjectListScreen({
                   const count = systemTagMsgCounts.get(tagId) ?? 0
                   return (
                     <div key={type} className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10">
-                      <div className={cn("w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center", config.bg)}>
-                        <div className={cn("w-3 h-3 rounded-full", config.text.replace("text-", "bg-"))} />
-                      </div>
+                      <CategoryDot categoryId="status" dotClassName={config.text.replace("text-", "bg-")} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">{config.label}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">System tag</p>
@@ -540,7 +525,7 @@ export function ProjectListScreen({
 
         {/* Tag identity */}
         <div className="flex items-center gap-3 px-5 py-3 border-b border-white/8">
-          <div className={cn("w-7 h-7 rounded-full flex-shrink-0", actionProject.color)} />
+          <CategoryDot categoryId={actionProject.tagCategory ?? "custom"} className="h-7 w-7 rounded-full" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{actionProject.name}</p>
             <p className="text-[11px] text-muted-foreground">{getPeopleLabel(actionProject, contacts)}</p>
@@ -679,7 +664,7 @@ export function ProjectListScreen({
         <UniversalAddModal
           onClose={() => setShowUniversalAdd(false)}
           onChooseTag={() => { setShowUniversalAdd(false); setCreateInitialCategory(""); setShowCreateTag(true) }}
-          onCreateCategory={(name) => { onCreateCategory?.(name); setShowUniversalAdd(false) }}
+          onCreateCategory={(name) => onCreateCategory?.(name)}
         />
       )}
 
@@ -879,19 +864,21 @@ function EditProjectModal({
         />
 
         <p className="text-[10px] font-bold tracking-[2px] uppercase text-muted-foreground font-mono mb-2">Category</p>
-        <div className="flex flex-wrap gap-1.5 mb-5">
+        <div className="flex flex-col gap-1.5 mb-5">
           {allCategories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setCategory(cat.id)}
               className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-95",
+                "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition-all active:scale-[0.98]",
                 category === cat.id
-                  ? "bg-primary/15 border-primary/40 text-primary"
-                  : "bg-white/5 border-white/10 text-muted-foreground hover:border-white/20"
+                  ? "bg-primary/12 border-primary/35 text-foreground"
+                  : "bg-white/[0.035] border-white/10 text-muted-foreground hover:border-white/20"
               )}
             >
-              {cat.name}
+              <CategoryIcon categoryId={cat.id} />
+              <span className="min-w-0 flex-1 truncate">{cat.name}</span>
+              {category === cat.id && <Check className="h-4 w-4 shrink-0 text-primary" />}
             </button>
           ))}
         </div>

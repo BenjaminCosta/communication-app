@@ -17,6 +17,7 @@ import {
 } from "@/lib/store"
 import { AddMembersModal } from "@/components/add-members-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
+import { MessageImage } from "@/components/message-image"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
 
@@ -389,10 +390,13 @@ function ProjectMessageBubble({
           )}
         >
           {message.imageUrl && (
-            <img
+            <MessageImage
               src={message.imageUrl}
               alt={message.imageName || "Attached image"}
-              className="mb-2 max-h-72 w-full rounded-xl object-cover border border-white/10 bg-black/20"
+              width={message.imageWidth}
+              height={message.imageHeight}
+              blurHash={message.imageBlurHash}
+              onClick={() => {}}
             />
           )}
           {message.text && <p className="text-sm leading-relaxed text-foreground/90 no-callout">{message.text}</p>}

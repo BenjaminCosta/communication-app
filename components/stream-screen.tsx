@@ -32,6 +32,8 @@ import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { NavigationMenuModal } from "@/components/navigation-menu-modal"
 import { GlobalSearchSheet } from "@/components/global-search-sheet"
+import { CategoryIcon, getCategoryDotClass } from "@/components/category-icon"
+import { MessageImage } from "@/components/message-image"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
 
@@ -94,7 +96,7 @@ interface StreamScreenProps {
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
   customCategories?: CategoryItem[]
-  onCreateCategory?: (name: string) => void
+  onCreateCategory?: (name: string) => Promise<void> | void
 }
 
 export function StreamScreen({
@@ -873,10 +875,7 @@ export function StreamScreen({
         <UniversalAddModal
           onClose={() => setShowUniversalAdd(false)}
           onChooseTag={() => { setShowUniversalAdd(false); setShowCreateQuickProject(true) }}
-          onCreateCategory={(name) => {
-            onCreateCategory?.(name)
-            setShowUniversalAdd(false)
-          }}
+          onCreateCategory={(name) => onCreateCategory?.(name)}
         />
       )}
 
@@ -1128,7 +1127,7 @@ function QuickContextSheet({
                 compact ? "min-h-10 px-3 py-2" : "min-h-11 px-3 py-2.5"
               )}
             >
-              <span className={cn("h-2 w-2 rounded-full shrink-0", categoryDotClass(group.id))} />
+              <CategoryIcon categoryId={group.id} />
               <span className="min-w-0 flex-1 text-xs font-bold uppercase tracking-[1.4px] text-foreground/80 font-mono">
                 {group.name}
               </span>
@@ -1420,15 +1419,6 @@ function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[
   return Array.from(categoryMap.values())
     .filter((group) => group.tags.length > 0)
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
-}
-
-function categoryDotClass(categoryId: string): string {
-  if (categoryId === "systemType" || categoryId === "status") return "bg-feedback"
-  if (categoryId === "timedate") return "bg-sky-400"
-  if (categoryId === "report") return "bg-decision"
-  if (categoryId === "task") return "bg-progress"
-  if (categoryId === "project") return "bg-primary"
-  return "bg-white/35"
 }
 
 function ProjectSearchSheet({
@@ -1840,7 +1830,7 @@ function TagFilterSheet({
                     onClick={() => toggleCategory(group.id)}
                     className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left active:bg-white/5"
                   >
-                    <span className={cn("h-2 w-2 rounded-full shrink-0", categoryDotClass(group.id))} />
+                    <CategoryIcon categoryId={group.id} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-bold uppercase tracking-[1.4px] text-foreground/80 font-mono">
                         {group.name}
@@ -1923,7 +1913,7 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  return tag.color || "bg-primary"
+  return getCategoryDotClass(tag.category)
 }
 
 function messageTypeChipClass(type: MessageType): string {
@@ -2231,123 +2221,6 @@ function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Ar
   return Array.from(touches).map((touch) => ({ x: touch.clientX, y: touch.clientY }))
 }
 
-// Module-level cache: survives screen switches (component unmount/remount).
-// Once a URL has been loaded once, we skip the skeleton entirely on subsequent renders.
-const loadedImageUrls = new Set<string>()
-
-// Decode a BlurHash string to a small data URL for use as CSS background.
-// Returns null if blurhash is not available or decoding fails.
-function decodeBlurHashToDataURL(hash: string, w = 32, h = 32): string | null {
-  try {
-    // Use require so this only runs client-side and doesn't block
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { decode } = require("blurhash") as typeof import("blurhash")
-    const pixels = decode(hash, w, h)
-    const canvas = document.createElement("canvas")
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext("2d")!
-    const imageData = ctx.createImageData(w, h)
-    imageData.data.set(pixels)
-    ctx.putImageData(imageData, 0, 0)
-    return canvas.toDataURL()
-  } catch {
-    return null
-  }
-}
-
-// Cache decoded data URLs so we don't re-decode the same hash repeatedly
-const blurHashDataUrlCache = new Map<string, string>()
-
-function getBlurHashDataURL(hash: string, w: number, h: number): string | null {
-  const key = `${hash}-${w}-${h}`
-  if (blurHashDataUrlCache.has(key)) return blurHashDataUrlCache.get(key)!
-  const thumbW = 32
-  const thumbH = Math.max(1, Math.round((h / w) * thumbW))
-  const url = decodeBlurHashToDataURL(hash, thumbW, thumbH)
-  if (url) blurHashDataUrlCache.set(key, url)
-  return url
-}
-
-function MessageImage({
-  src,
-  alt,
-  width,
-  height,
-  blurHash,
-  onClick,
-}: {
-  src: string
-  alt: string
-  width?: number
-  height?: number
-  blurHash?: string
-  onClick: () => void
-}) {
-  const [loaded, setLoaded] = useState(() => loadedImageUrls.has(src))
-  const hasKnownDimensions = !!(width && height)
-
-  // Decode BlurHash to a tiny data URL once (cached), used as skeleton background
-  const blurDataUrl = blurHash && width && height && !loaded
-    ? getBlurHashDataURL(blurHash, width, height)
-    : null
-
-  return (
-    <button
-      type="button"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className="mb-2 block w-full overflow-hidden rounded-xl border border-white/10 active:scale-[0.99]"
-    >
-      <div
-        className={cn("relative w-full min-h-36")}
-        style={hasKnownDimensions ? { aspectRatio: `${width} / ${height}`, maxHeight: 288 } : undefined}
-      >
-        {/* BlurHash / shimmer skeleton — absolute overlay, fades out when image is ready */}
-        <div
-          className={cn(
-            "absolute inset-0 z-10 transition-opacity duration-500",
-            loaded ? "opacity-0 pointer-events-none" : "opacity-100",
-          )}
-          style={blurDataUrl ? {
-            backgroundImage: `url(${blurDataUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(12px)",
-            transform: "scale(1.08)", // hide blur edges
-          } : { background: "rgba(255,255,255,0.04)" }}
-        >
-          {/* Fallback shimmer when no BlurHash */}
-          {!blurDataUrl && (
-            <>
-              <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/8 to-transparent animate-pulse" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <ImageIcon className="w-7 h-7 text-white/20" />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Real image — in flow, natural dimensions, fades in over skeleton */}
-        <img
-          src={src}
-          alt={alt}
-          onLoad={() => {
-            loadedImageUrls.add(src)
-            setLoaded(true)
-          }}
-          className={cn(
-            "w-full max-h-72 object-cover block transition-opacity duration-500",
-            loaded ? "opacity-100" : "opacity-0",
-          )}
-        />
-      </div>
-    </button>
-  )
-}
 
 function MessageBubble({
   message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap,

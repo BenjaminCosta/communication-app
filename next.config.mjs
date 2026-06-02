@@ -10,6 +10,12 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
+        ],
+      },
+      {
         source: '/(.*)',
         headers: [
           // Allow cross-origin popup references (needed for Google OAuth implicit flow)

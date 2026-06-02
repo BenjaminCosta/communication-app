@@ -19,7 +19,9 @@
     "emulator:migrate-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/migrate-tag-categories.mjs",
     "emulator:test-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-tag-categories.mjs",
     "emulator:test-calendar": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-calendar.mjs",
-    "migrate:tags": "node scripts/normalize-tags-v1.mjs"
+    "migrate:tags": "node scripts/normalize-tags-v1.mjs",
+    "backfill:image-dims": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs",
+    "backfill:image-dims:dry": "DRY_RUN=1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -83,6 +85,7 @@
     "@types/react-dom": "^19",
     "firebase-admin": "^13.10.0",
     "postcss": "^8.5",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3"
