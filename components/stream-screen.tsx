@@ -407,10 +407,10 @@ export function StreamScreen({
           {/* Navigation menu */}
           <button
             onClick={() => setShowNavMenu(true)}
-            className="w-9 h-9 rounded-full border border-primary/35 bg-primary/80 flex items-center justify-center active:scale-[0.98] hover:bg-primary transition-all duration-150 glow-blue shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+            className="w-9 h-9 rounded-full border border-primary/30 bg-[linear-gradient(135deg,rgba(37,99,235,0.96),rgba(99,102,241,0.92))] flex items-center justify-center active:scale-[0.98] transition-all duration-150 glow-blue text-white"
             aria-label="Navigation menu"
           >
-            <LayoutGrid className="w-4 h-4 text-white" />
+            <LayoutGrid className="w-4 h-4" />
           </button>
           {/* Profile avatar */}
           <button
@@ -1221,7 +1221,7 @@ function QuickContextSheet({
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 h-[88dvh] glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
       >
         <div {...swipeHandlers} className="-mx-4 -mt-3 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
@@ -1284,7 +1284,7 @@ function QuickContextSheet({
         </div>
 
         {showSearchResults ? (
-          <div className="space-y-4">
+          <div className="max-h-[calc(88dvh-280px)] overflow-y-auto scrollbar-hide space-y-4">
             {(filteredContacts.length > 0 || unregisteredContacts.length > 0) && (
               <div>
                 <SectionMiniTitle>People</SectionMiniTitle>
@@ -1312,7 +1312,7 @@ function QuickContextSheet({
             )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="max-h-[calc(88dvh-280px)] overflow-y-auto scrollbar-hide space-y-4">
             {mode === "menu" && (
               <>
                 <div>

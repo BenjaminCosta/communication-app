@@ -189,7 +189,7 @@ export function TagSheet({
 
       <div
         style={dragStyle}
-        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl max-h-[88dvh] flex flex-col"
+        className="relative z-10 w-full md:w-120 md:mb-6 md:rounded-3xl glass-modal border-t md:border border-white/10 rounded-t-3xl animate-slide-up md:shadow-2xl h-[88dvh] flex flex-col"
       >
         <div {...swipeHandlers} className="py-3 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 rounded-full bg-white/20 mx-auto" />

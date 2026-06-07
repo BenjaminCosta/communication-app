@@ -444,9 +444,22 @@ export function ProjectListScreen({
                   const config = MESSAGE_TYPE_CONFIG[type]
                   const tagId = systemTypeTagId(type)
                   const count = systemTagMsgCounts.get(tagId) ?? 0
+                  
+                  // Map each type to its shell styling
+                  const shellClasses: Record<typeof type, string> = {
+                    progress: "border-progress/18 bg-progress/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_10px_26px_-18px_rgba(34,197,94,0.60)]",
+                    problem: "border-problem/18 bg-problem/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_10px_26px_-18px_rgba(239,68,68,0.60)]",
+                    feedback: "border-feedback/18 bg-feedback/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_10px_26px_-18px_rgba(245,158,11,0.60)]",
+                    decision: "border-decision/18 bg-decision/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_10px_26px_-18px_rgba(168,85,247,0.60)]",
+                  }
+                  
                   return (
                     <div key={type} className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/5 border border-white/10">
-                      <CategoryDot categoryId="status" dotClassName={config.text.replace("text-", "bg-")} />
+                      <CategoryDot 
+                        categoryId="status" 
+                        dotClassName={config.text.replace("text-", "bg-")}
+                        shellClassName={shellClasses[type]}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">{config.label}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">System tag</p>

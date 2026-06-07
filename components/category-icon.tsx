@@ -61,17 +61,19 @@ export function getCategoryDotShellClass(categoryId: string): string {
 export function CategoryDot({
   categoryId,
   dotClassName,
+  shellClassName,
   className,
 }: {
   categoryId: string
   dotClassName?: string
+  shellClassName?: string
   className?: string
 }) {
   return (
     <span
       className={cn(
         "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
-        getCategoryDotShellClass(categoryId),
+        shellClassName ?? getCategoryDotShellClass(categoryId),
         className
       )}
     >
