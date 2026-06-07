@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'black',
     title: 'SVC',
   },
   icons: {
@@ -31,7 +31,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  viewportFit: 'cover',
+  viewportFit: 'auto',
   interactiveWidget: 'resizes-visual',
 }
 
@@ -47,9 +47,13 @@ export default function RootLayout({
             Measure it with a test element; if < 20px, override --sab to cover the nav bar. */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){if(!/android/i.test(navigator.userAgent))return;if(!window.matchMedia('(display-mode: standalone)').matches)return;var e=document.createElement('div');e.style.cssText='position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);width:0;pointer-events:none';document.documentElement.appendChild(e);var h=e.offsetHeight;document.documentElement.removeChild(e);if(h<20)document.documentElement.style.setProperty('--sab','48px');})();` }} />
       </head>
-      <body suppressHydrationWarning className="font-sans antialiased h-dvh overflow-hidden no-select" style={{ position: 'fixed', width: '100%', top: 0, left: 0 }}>
+      <body suppressHydrationWarning className="font-sans antialiased overflow-hidden no-select" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0 }}>
         <ServiceWorkerRegister />
         {children}
+        {/* iOS PWA safe-area bottom guard — fixed element that paints over any
+            system-black seam in the home-indicator zone. Harmless on all other
+            platforms (background matches app, pointer-events none). */}
+        <div className="ios-bottom-safe-area-guard" aria-hidden="true" />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

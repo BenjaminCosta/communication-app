@@ -82,9 +82,48 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow: hidden;
+    /* Paints the document canvas (behind all content, including safe-area
+       zones) with the app dark background. On iOS PWA this prevents a
+       white/system flash and ensures any sub-pixel gap is dark. */
+    background-color: #0B0F14;
+  }
   body {
     @apply bg-background text-foreground;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow: hidden;
   }
+}
+
+/* ── iOS PWA safe-area bottom guard ───────────────────────────────────────
+   Fixed element pinned to the very bottom of the layout viewport.
+   bottom: -2px ensures it bleeds 2 px below the viewport edge so that any
+   1–2 px anti-alias or sub-pixel rendering gap cannot expose the system
+   black background.
+   height: env(safe-area-inset-bottom) + 18px covers the home-indicator zone
+   plus a generous safety margin.
+   z-index: max int so nothing can render above it in that strip.
+   pointer-events: none so it never captures touches.
+   background-color matches the app dark background. */
+.ios-bottom-safe-area-guard {
+  position: fixed;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  background-color: var(--background);
+  pointer-events: none;
+  z-index: 2147483647;
 }
 
 /* State color utilities */

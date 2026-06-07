@@ -1170,7 +1170,7 @@ export default function Home() {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="h-dvh w-full flex flex-col bg-background overflow-hidden relative">
+    <div className="h-full w-full flex flex-col bg-background overflow-hidden relative">
 
       {/* Loading splash */}
       {activeScreen === "loading" && <AppLoadingScreen />}
