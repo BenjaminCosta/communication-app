@@ -2376,12 +2376,22 @@ function MessageBubble({
   const first = isFirstInGroup ?? true
   const last = isLastInGroup ?? true
   const [isExpanded, setIsExpanded] = useState(false)
-  const { swipeHandlers, swipeStyle, swipeTouchAction, swipeProgress } = useSwipeToReply(() => onReply?.(message))
+  const { swipeHandlers, swipeStyle, swipeTouchAction, swipeProgress } = useSwipeToReply(
+    () => onReply?.(message),
+    onPressEnd,  // cancel long-press selection when horizontal swipe is confirmed
+  )
   const isLong = !!message.text && message.text.length > 360
   const isMe = message.senderId === currentUserId
   const contact = isMe
     ? { id: currentUserId, name: "Me", initials: userInitials, color: userColor }
     : (getContactFromList(message.senderId, contacts) ?? { id: message.senderId, name: "Unknown", initials: "?", color: "bg-white/10" })
+
+  // Resolve the color of the user being replied to for the quote accent
+  const replyAccentColor = message.replyPreview
+    ? (message.replyPreview.authorId === currentUserId
+        ? userColor
+        : (getContactFromList(message.replyPreview.authorId, contacts)?.color ?? "bg-blue-400"))
+    : "bg-blue-400"
   const messageTags = getMessageTagIds(message).map((tagId) => {
     if (tagId === systemTypeTagId("none")) {
       return { id: tagId, name: typeStyles.none.label, systemType: "none" as const, color: typeStyles.none.text }
@@ -2477,9 +2487,12 @@ function MessageBubble({
               }}
               className={cn("reply-quote", isMe && "reply-quote-me")}
             >
-              <div className="reply-quote-inner">
-                <p className="reply-quote-author">{message.replyPreview.authorName}</p>
-                <p className="reply-quote-text">{message.replyPreview.text || "📷 Image"}</p>
+              <div className="flex items-stretch">
+                <div className={cn("w-0.75 rounded-full shrink-0", replyAccentColor)} />
+                <div className="reply-quote-inner flex-1">
+                  <p className="reply-quote-author">{message.replyPreview.authorName}</p>
+                  <p className="reply-quote-text">{message.replyPreview.text || "📷 Image"}</p>
+                </div>
               </div>
             </button>
           )}

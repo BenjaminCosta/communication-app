@@ -12,7 +12,7 @@ import { useRef, useState } from "react"
  * Uses CSS touch-action: pan-y instead of e.preventDefault() to avoid the
  * "passive event listener" console error while still allowing vertical scroll.
  */
-export function useSwipeToReply(onReply: () => void, threshold = 56) {
+export function useSwipeToReply(onReply: () => void, onSwipeConfirmed?: () => void, threshold = 56) {
   const startX = useRef(0)
   const startY = useRef(0)
   // dragOffset: pixel offset while swiping (positive = right); null = at rest
@@ -36,6 +36,7 @@ export function useSwipeToReply(onReply: () => void, threshold = 56) {
 
       if (isHorizontal.current === null && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         isHorizontal.current = Math.abs(dx) > Math.abs(dy)
+        if (isHorizontal.current) onSwipeConfirmed?.()
       }
       if (!isHorizontal.current) return
 
