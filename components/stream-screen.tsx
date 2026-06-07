@@ -608,6 +608,7 @@ export function StreamScreen({
                       setQuickProjects(msg.projectIds ?? (msg.projectId ? [msg.projectId] : []))
                       setQuickCalendarDates((msg.calendarDates ?? []).map((d) => d.date))
                     }}
+                    onReplyQuoteTap={(msgId) => scrollToAndHighlight(msgId)}
                   />
                 </Fragment>
               )
@@ -2351,7 +2352,7 @@ function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Ar
 
 
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap, onReply,
+  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap, onReply, onReplyQuoteTap,
 }: {
   message: Message
   projects: Project[]
@@ -2370,6 +2371,7 @@ function MessageBubble({
   onImageOpen: (url: string, name?: string) => void
   onProjectTagTap?: (projectId: string) => void
   onReply?: (message: Message) => void
+  onReplyQuoteTap?: (messageId: string) => void
 }) {
   const first = isFirstInGroup ?? true
   const last = isLastInGroup ?? true
@@ -2467,10 +2469,19 @@ function MessageBubble({
           )}
         >
           {message.replyPreview && (
-            <div className="mb-2 px-2 py-1.5 rounded-lg bg-white/[0.05] border-l-2 border-blue-400/60">
-              <p className="text-[11px] font-semibold text-blue-300 truncate">{message.replyPreview.authorName}</p>
-              <p className="text-[11px] text-white/50 line-clamp-2">{message.replyPreview.text || "Image"}</p>
-            </div>
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (message.replyToId) onReplyQuoteTap?.(message.replyToId)
+              }}
+              className={cn("reply-quote", isMe && "reply-quote-me")}
+            >
+              <div className="reply-quote-inner">
+                <p className="reply-quote-author">{message.replyPreview.authorName}</p>
+                <p className="reply-quote-text">{message.replyPreview.text || "📷 Image"}</p>
+              </div>
+            </button>
           )}
           {message.imageUrl && (
             <MessageImage

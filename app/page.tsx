@@ -169,6 +169,15 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
           }))
           .filter((d: { date: string }) => !!d.date)
       : undefined,
+    replyToId: typeof data.replyToId === "string" ? data.replyToId : undefined,
+    replyPreview: data.replyPreview && typeof data.replyPreview === "object"
+      ? {
+          messageId: String(data.replyPreview.messageId ?? ""),
+          authorId: String(data.replyPreview.authorId ?? ""),
+          authorName: String(data.replyPreview.authorName ?? ""),
+          text: String(data.replyPreview.text ?? ""),
+        }
+      : undefined,
   }
 }
 
