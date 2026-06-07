@@ -159,6 +159,13 @@ export interface CalendarDate {
   createdBy: string   // Firebase UID
 }
 
+export interface ReplyPreview {
+  messageId: string
+  authorId: string
+  authorName: string  // denormalized sender display name
+  text: string        // first ~120 chars of original message text
+}
+
 export interface Message {
   id: string
   senderId: string        // Firebase UID of sender
@@ -189,6 +196,8 @@ export interface Message {
   imageBlurHash?: string
   imageUploadedAt?: Date
   calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
+  replyToId?: string              // ID of the message being replied to
+  replyPreview?: ReplyPreview     // denormalized preview of the original message
 }
 
 export interface MessageDraft {
@@ -201,6 +210,8 @@ export interface MessageDraft {
   type: MessageType
   imageFile?: File | null
   calendarDates?: string[]    // "YYYY-MM-DD" strings; page.tsx wraps to CalendarDate[]
+  replyToId?: string
+  replyPreview?: ReplyPreview
 }
 
 export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string; border: string; label: string }> = {

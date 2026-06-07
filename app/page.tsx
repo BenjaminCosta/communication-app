@@ -718,6 +718,7 @@ export default function Home() {
         timestamp: serverTimestamp(),
         isFavorited: false,
         ...(calendarDateObjects.length > 0 ? { calendarDates: calendarDateObjects } : {}),
+        ...(draft.replyToId ? { replyToId: draft.replyToId, replyPreview: draft.replyPreview } : {}),
         ...imageMeta,
       }
       await addDoc(collection(db, "messages"), msgData)

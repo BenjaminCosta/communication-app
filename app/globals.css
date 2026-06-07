@@ -164,6 +164,15 @@
   padding-bottom: max(1.5rem, var(--sab));
 }
 
+/* ── Reply banner collapse/expand (grid-rows trick) ── */
+.reply-banner-grid {
+  display: grid;
+  transition: grid-template-rows 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.18s ease-out;
+}
+.reply-banner-grid[data-open="true"]  { grid-template-rows: 1fr; opacity: 1; }
+.reply-banner-grid[data-open="false"] { grid-template-rows: 0fr; opacity: 0; }
+
 /* ── Entrance animations (GPU-only: transform + opacity) ── */
 
 /* Smooth fade + lift — for text blocks and form sections */
