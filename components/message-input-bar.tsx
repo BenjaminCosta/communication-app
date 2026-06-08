@@ -78,7 +78,7 @@ export function MessageInputBar({
   }, [text])
 
   return (
-    <div className="glass-compose flex-shrink-0 px-3 pt-2 pb-[calc(var(--sab)+6px)]">
+    <div className="glass-compose flex-shrink-0 px-3 pt-2" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom, 0px))' }}>
       {imagePreview && (
         <div className="mx-auto mb-2 max-w-2xl">
           <div className="relative w-24 overflow-hidden rounded-xl border border-white/10 bg-black/20">

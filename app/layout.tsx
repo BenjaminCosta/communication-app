@@ -50,10 +50,6 @@ export default function RootLayout({
       <body suppressHydrationWarning className="font-sans antialiased overflow-hidden no-select" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0 }}>
         <ServiceWorkerRegister />
         {children}
-        {/* iOS PWA safe-area bottom guard — fixed element that paints over any
-            system-black seam in the home-indicator zone. Harmless on all other
-            platforms (background matches app, pointer-events none). */}
-        <div className="ios-bottom-safe-area-guard" aria-hidden="true" />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
