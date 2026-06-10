@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, MessageCircle } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, MessageCircle, Hash, Plus } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -13,6 +13,7 @@ import {
   type Tag as MessageTag,
   type ImportedContact,
   type TagCategory,
+  type AppContext,
   MESSAGE_TYPE_CONFIG,
   CATEGORY_CONFIG,
   parseProjectTagId,
@@ -36,9 +37,11 @@ interface ComposeScreenProps {
   /** Pre-selected calendar dates (from Calendar screen "Add" flow) */
   initialCalendarDates?: string[]
   availableTags?: MessageTag[]
+  contexts?: AppContext[]
+  onCreateContext?: (name: string) => Promise<AppContext>
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
@@ -56,10 +59,14 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   const [isSending, setIsSending] = useState(false)
   const [isSent, setIsSent] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
-  const [activeAssociation, setActiveAssociation] = useState<"who" | "tag" | null>(null)
+  const [activeAssociation, setActiveAssociation] = useState<"who" | "tag" | "context" | null>(null)
   // Calendar dates: "YYYY-MM-DD" strings
   const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(initialCalendarDates ?? [])
   const [showDatePicker, setShowDatePicker] = useState(false)
+  // Contexts
+  const [selectedContextIds, setSelectedContextIds] = useState<string[]>([])
+  const [contextSearch, setContextSearch] = useState("")
+  const [creatingContext, setCreatingContext] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -177,6 +184,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         type: selectedType,
         imageFile,
         calendarDates: selectedCalendarDates.length > 0 ? selectedCalendarDates : undefined,
+        contextIds: selectedContextIds.length > 0 ? selectedContextIds : undefined,
       })
       clearImage()
     } catch {
@@ -369,7 +377,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           </p>
         )}
 
-        {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0 || selectedCalendarDates.length > 0) && (
+        {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0 || selectedCalendarDates.length > 0 || selectedContextIds.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {selectedPeople.map((contact) => (
               <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
@@ -405,12 +413,104 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 />
               </button>
             )}
+            {selectedContextIds.map((id) => {
+              const ctx = contexts.find((c) => c.id === id)
+              if (!ctx) return null
+              return (
+                <SelectedChip key={id} onRemove={() => setSelectedContextIds((prev) => prev.filter((x) => x !== id))}>
+                  <Hash className="w-3 h-3" />
+                  {ctx.name}
+                </SelectedChip>
+              )
+            })}
           </div>
         )}
 
         {activeAssociation && (
           <div className="glass-panel rounded-3xl border p-3 animate-fade-up">
-            {activeAssociation === "who" ? (
+            {activeAssociation === "context" ? (
+              <div className="flex flex-col gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" />
+                  <input
+                    autoFocus
+                    value={contextSearch}
+                    onChange={(e) => setContextSearch(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        const q = contextSearch.trim()
+                        if (!q || creatingContext) return
+                        const exact = contexts.find((c) => c.name.toLowerCase() === q.toLowerCase())
+                        if (exact) {
+                          if (!selectedContextIds.includes(exact.id)) setSelectedContextIds((p) => [...p, exact.id])
+                          setContextSearch("")
+                        } else if (onCreateContext) {
+                          setCreatingContext(true)
+                          try {
+                            const created = await onCreateContext(q)
+                            setSelectedContextIds((p) => [...p, created.id])
+                            setContextSearch("")
+                          } finally { setCreatingContext(false) }
+                        }
+                      }
+                    }}
+                    placeholder="Search or create context…"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-sm outline-none focus:border-emerald-400/40 transition-colors placeholder:text-muted-foreground/50"
+                  />
+                </div>
+                <div className="max-h-44 overflow-y-auto scrollbar-hide flex flex-col gap-0.5">
+                  {(() => {
+                    const q = contextSearch.trim().toLowerCase()
+                    const filtered = q
+                      ? contexts.filter((c) => c.name.toLowerCase().includes(q))
+                      : contexts
+                    const showCreate = q.length > 0 && !contexts.some((c) => c.name.toLowerCase() === q)
+                    return (
+                      <>
+                        {filtered.map((ctx) => (
+                          <button
+                            key={ctx.id}
+                            onClick={() => {
+                              setSelectedContextIds((p) => p.includes(ctx.id) ? p.filter((x) => x !== ctx.id) : [...p, ctx.id])
+                              setContextSearch("")
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-left transition-all active:scale-[0.98]",
+                              selectedContextIds.includes(ctx.id) ? "bg-emerald-400/15 border border-emerald-400/30 text-emerald-300" : "hover:bg-white/5 text-foreground/80"
+                            )}
+                          >
+                            <Hash className="w-3 h-3 shrink-0 text-emerald-400" />
+                            <span className="flex-1 truncate">{ctx.name}</span>
+                            {selectedContextIds.includes(ctx.id) && <Check className="w-3 h-3 shrink-0" />}
+                          </button>
+                        ))}
+                        {showCreate && onCreateContext && (
+                          <button
+                            disabled={creatingContext}
+                            onClick={async () => {
+                              if (creatingContext) return
+                              setCreatingContext(true)
+                              try {
+                                const created = await onCreateContext(contextSearch.trim())
+                                setSelectedContextIds((p) => [...p, created.id])
+                                setContextSearch("")
+                              } finally { setCreatingContext(false) }
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-left border border-dashed border-emerald-400/30 bg-emerald-400/8 hover:bg-emerald-400/12 text-emerald-300 active:scale-[0.98] transition-all disabled:opacity-50"
+                          >
+                            <Plus className="w-3 h-3 shrink-0" />
+                            {creatingContext ? "Creating…" : `Create "${contextSearch.trim()}"`}
+                          </button>
+                        )}
+                        {filtered.length === 0 && !showCreate && (
+                          <p className="px-3 py-4 text-xs text-center text-muted-foreground/50">No contexts yet. Type to create one.</p>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+            ) : activeAssociation === "who" ? (
               <div className="max-h-52 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-wrap gap-2">
                   {contacts.map((contact) => (
@@ -514,6 +614,13 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 ? formatDateChip(selectedCalendarDates[0])
                 : `${selectedCalendarDates.length} dates`
               : "Date"}
+          </OptionChip>
+          <OptionChip
+            icon={<Hash className="w-3.5 h-3.5" />}
+            active={activeAssociation === "context" || selectedContextIds.length > 0}
+            onClick={() => setActiveAssociation((current) => current === "context" ? null : "context")}
+          >
+            {selectedContextIds.length > 0 ? `${selectedContextIds.length} Context${selectedContextIds.length !== 1 ? "s" : ""}` : "Context"}
           </OptionChip>
         </div>
       </div>

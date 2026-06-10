@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronDown, ChevronRight, Plus, CornerDownLeft } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronDown, ChevronRight, Plus, CornerDownLeft, Hash } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -14,6 +14,7 @@ import {
   type ImportedContact,
   type TagCategory,
   type CategoryItem,
+  type AppContext,
   getContactFromList,
   formatTime,
   getMessageTagIds,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
 import { UniversalAddModal } from "@/components/universal-add-modal"
+import { CreateContextModal } from "@/components/create-context-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import { useSwipeToReply } from "@/hooks/use-swipe-to-reply"
@@ -70,12 +72,13 @@ interface StreamScreenProps {
   selectedPeopleFilter: string[]
   selectedTagFilter: string[]
   selectedDateFilter: string[]
+  selectedContextFilter: string[]
   onPeopleFilterChange: (ids: string[]) => void
   onTagFilterChange: (ids: string[]) => void
   onDateFilterChange: (dates: string[]) => void
+  onContextFilterChange: (ids: string[]) => void
   onCompose: () => void
   onMessageClick: (message: Message) => void
-  onNewProject: (name: string, memberIds: string[], category?: TagCategory) => void
   onProfile: () => void
   onPeople: () => void
   onDeleteMessage: (id: string) => void
@@ -91,9 +94,12 @@ interface StreamScreenProps {
   onFavoriteProject: (id: string) => void
   onProjects: () => void
   onCalendar: () => void
+  onContexts: () => void
   onCopyMessage: (text: string) => void
+  contexts?: AppContext[]
   onSendMessage: (draft: MessageDraft) => Promise<void>
   onCreateProject: (name: string, memberIds?: string[], category?: TagCategory) => Promise<Project>
+  onCreateContext?: (name: string, description?: string) => Promise<AppContext>
   activeUsers: Contact[]
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
@@ -108,12 +114,13 @@ export function StreamScreen({
   selectedPeopleFilter,
   selectedTagFilter,
   selectedDateFilter,
+  selectedContextFilter,
   onPeopleFilterChange,
   onTagFilterChange,
   onDateFilterChange,
+  onContextFilterChange,
   onCompose,
   onMessageClick,
-  onNewProject,
   onProfile,
   onPeople,
   onDeleteMessage,
@@ -129,16 +136,18 @@ export function StreamScreen({
   onFavoriteProject,
   onProjects,
   onCalendar,
+  onContexts,
   onCopyMessage,
+  contexts = [],
   onSendMessage,
   onCreateProject,
+  onCreateContext,
   activeUsers,
   availableTags,
   importedContacts,
   customCategories = [],
   onCreateCategory,
 }: StreamScreenProps) {
-  const [showCreateProject, setShowCreateProject] = useState(false)
   const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
   const [projectTagCtx, setProjectTagCtx] = useState<{ projectId: string; messageId: string } | null>(null)
@@ -147,6 +156,7 @@ export function StreamScreen({
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const [showPeopleFilterSheet, setShowPeopleFilterSheet] = useState(false)
   const [showTagFilterSheet, setShowTagFilterSheet] = useState(false)
+  const [showContextFilterSheet, setShowContextFilterSheet] = useState(false)
   const [showDateFilterPicker, setShowDateFilterPicker] = useState(false)
   const [viewerImage, setViewerImage] = useState<{ url: string; name?: string } | null>(null)
   const [quickText, setQuickText] = useState("")
@@ -154,6 +164,7 @@ export function StreamScreen({
   const [quickImportedRecipients, setQuickImportedRecipients] = useState<string[]>([])
   const [quickProjects, setQuickProjects] = useState<string[]>([])
   const [quickCalendarDates, setQuickCalendarDates] = useState<string[]>([])
+  const [quickContextIds, setQuickContextIds] = useState<string[]>([])
   const [quickType, setQuickType] = useState<MessageType>("none")
   const [quickImage, setQuickImage] = useState<File | null>(null)
   const [quickImagePreview, setQuickImagePreview] = useState<string | null>(null)
@@ -161,8 +172,9 @@ export function StreamScreen({
   const [quickSendError, setQuickSendError] = useState<string | null>(null)
   const [showQuickSheet, setShowQuickSheet] = useState(false)
   const [showQuickActionMenu, setShowQuickActionMenu] = useState(false)
-  const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag" | "date">("menu")
+  const [quickSheetMode, setQuickSheetMode] = useState<"menu" | "who" | "tag" | "date" | "context">("menu")
   const [showCreateQuickProject, setShowCreateQuickProject] = useState(false)
+  const [showCreateQuickContext, setShowCreateQuickContext] = useState(false)
   const [isQuickSending, setIsQuickSending] = useState(false)
   const [isQuickSent, setIsQuickSent] = useState(false)
   const [projectSearch, setProjectSearch] = useState("")
@@ -324,6 +336,10 @@ export function StreamScreen({
     if (projectId) toggleQuickProject(projectId)
   }
 
+  const toggleQuickContext = (id: string) => {
+    setQuickContextIds((prev) => prev.includes(id) ? prev.filter((cid) => cid !== id) : [...prev, id])
+  }
+
   const handleQuickImage = (file: File | null) => {
     setQuickSendError(null)
     const validationError = validateImageFile(file)
@@ -356,6 +372,7 @@ export function StreamScreen({
     setQuickImportedRecipients([])
     setQuickProjects([])
     setQuickCalendarDates([])
+    setQuickContextIds([])
     setQuickType("none")
     setQuickSendError(null)
     setReplyingTo(null)
@@ -393,6 +410,7 @@ export function StreamScreen({
         type: quickType,
         imageFile: quickImage,
         calendarDates: quickCalendarDates.length > 0 ? quickCalendarDates : undefined,
+        contextIds: quickContextIds.length > 0 ? quickContextIds : undefined,
         ...(replyingTo ? {
           replyToId: replyingTo.id,
           replyPreview: {
@@ -490,11 +508,12 @@ export function StreamScreen({
         {/* Filter bar — transparent overlay at top */}
         <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 overflow-x-auto px-4 py-1.5 scrollbar-hide">
           <FilterChip
-            active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0 && selectedDateFilter.length === 0}
+            active={selectedPeopleFilter.length === 0 && selectedTagFilter.length === 0 && selectedDateFilter.length === 0 && selectedContextFilter.length === 0}
             onClick={() => {
               onPeopleFilterChange([])
               onTagFilterChange([])
               onDateFilterChange([])
+              onContextFilterChange([])
               onFilterChange("all")
             }}
           >
@@ -522,6 +541,23 @@ export function StreamScreen({
             <span className="text-xs font-semibold tracking-wide truncate">
               Tags{selectedTagFilter.length > 0 ? ` (${selectedTagFilter.length})` : ""}
             </span>
+          </button>
+          <button
+            onClick={() => setShowContextFilterSheet(true)}
+            className={cn(
+              "relative h-9 w-9 rounded-full shrink-0 transition-all duration-150 border active:scale-[0.98] flex items-center justify-center",
+              selectedContextFilter.length > 0
+                ? "border-emerald-400/55 bg-emerald-400/24 text-emerald-100 shadow-[0_14px_34px_rgba(52,211,153,0.18)] backdrop-blur-xl"
+                : "glass-pill border-emerald-400/32 text-emerald-300 hover:bg-emerald-400/16 hover:border-emerald-300/50"
+            )}
+            aria-label="Filter contexts"
+          >
+            <Hash className="w-3.5 h-3.5" />
+            {selectedContextFilter.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#07111f] bg-emerald-400 px-1 text-[9px] font-bold leading-none text-[#07111f]">
+                {selectedContextFilter.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setShowDateFilterPicker(true)}
@@ -586,6 +622,7 @@ export function StreamScreen({
                     message={msg}
                     projects={projects}
                     contacts={contacts}
+                    contexts={contexts}
                     currentUserId={currentUserId}
                     userInitials={userInitials}
                     userColor={userColor}
@@ -687,9 +724,11 @@ export function StreamScreen({
             setShowQuickActionMenu(false)
             quickFileInputRef.current?.click()
           }}
-          onCreateTag={() => {
+          onNew={() => {
             setShowQuickActionMenu(false)
-            setShowCreateProject(true)
+            setShowCreateQuickProject(false)
+            setShowCreateQuickContext(false)
+            setShowUniversalAdd(true)
           }}
         />
       )}
@@ -861,19 +900,6 @@ export function StreamScreen({
         )
       })()}
 
-      {/* Create Tag modal */}
-      {showCreateProject && (
-        <CreateProjectModal
-          contacts={contacts}
-          customCategories={customCategories}
-          onClose={() => setShowCreateProject(false)}
-          onSubmit={(name, memberIds, category) => {
-            onNewProject(name, memberIds, category)
-            setShowCreateProject(false)
-          }}
-        />
-      )}
-
       {showPeopleFilterSheet && (
         <PeopleFilterSheet
           contacts={contacts}
@@ -898,6 +924,14 @@ export function StreamScreen({
             onFilterChange(projectIds.length === 1 && ids.length === 1 ? projectIds[0] : "all")
           }}
           onClose={() => setShowTagFilterSheet(false)}
+        />
+      )}
+      {showContextFilterSheet && (
+        <ContextFilterSheet
+          contexts={contexts}
+          selectedContexts={selectedContextFilter}
+          onChange={onContextFilterChange}
+          onClose={() => setShowContextFilterSheet(false)}
         />
       )}
       {showDateFilterPicker && (
@@ -942,12 +976,15 @@ export function StreamScreen({
           selectedImportedRecipients={quickImportedRecipients}
           selectedTags={quickTagIds}
           selectedCalendarDates={quickCalendarDates}
+          selectedContextIds={quickContextIds}
           onToggleRecipient={toggleQuickRecipient}
           onToggleImportedRecipient={toggleQuickImportedRecipient}
           tags={availableTags}
           customCategories={customCategories}
           onToggleTag={toggleQuickTag}
           onCalendarDatesChange={setQuickCalendarDates}
+          onToggleContext={toggleQuickContext}
+          contexts={contexts}
           onCreateProject={() => { setShowQuickSheet(false); setShowUniversalAdd(true) }}
           onClose={() => setShowQuickSheet(false)}
         />
@@ -971,6 +1008,22 @@ export function StreamScreen({
           onClose={() => setShowUniversalAdd(false)}
           onChooseTag={() => { setShowUniversalAdd(false); setShowCreateQuickProject(true) }}
           onCreateCategory={(name) => onCreateCategory?.(name)}
+          onChooseContext={() => {
+            setShowUniversalAdd(false)
+            if (onCreateContext) setShowCreateQuickContext(true)
+            else onContexts()
+          }}
+        />
+      )}
+
+      {showCreateQuickContext && onCreateContext && (
+        <CreateContextModal
+          onClose={() => setShowCreateQuickContext(false)}
+          onSubmit={async (name, description) => {
+            const ctx = await onCreateContext(name, description || undefined)
+            setQuickContextIds((prev) => prev.includes(ctx.id) ? prev : [...prev, ctx.id])
+            setTimeout(() => setShowCreateQuickContext(false), 900)
+          }}
         />
       )}
 
@@ -988,6 +1041,8 @@ export function StreamScreen({
               onProjects()
             } else if (target === "calendar") {
               onCalendar()
+            } else if (target === "contexts") {
+              onContexts()
             }
           }}
         />
@@ -1003,10 +1058,12 @@ export function StreamScreen({
           projects={projects}
           customCategories={customCategories}
           availableTags={availableTags}
+          contexts={contexts}
           currentUserId={currentUserId}
           onMessageClick={(msg) => { setShowSearch(false); scrollToAndHighlight(msg.id) }}
           onPersonFilterClick={(id) => { setShowSearch(false); onPeopleFilterChange([id]) }}
           onTagFilterClick={(id) => { setShowSearch(false); onTagFilterChange([id]) }}
+          onContextFilterClick={(id) => { setShowSearch(false); onContextFilterChange([id]) }}
         />
       )}
 
@@ -1017,12 +1074,12 @@ export function StreamScreen({
 function QuickActionPopover({
   onAddTags,
   onAttachImage,
-  onCreateTag,
+  onNew,
   onClose,
 }: {
   onAddTags: () => void
   onAttachImage: () => void
-  onCreateTag: () => void
+  onNew: () => void
   onClose: () => void
 }) {
   return (
@@ -1050,8 +1107,8 @@ function QuickActionPopover({
         <QuickActionItem
           icon={<Plus className="w-5 h-5" />}
           iconClassName="text-emerald-400"
-          label="New tag"
-          onClick={onCreateTag}
+          label="New"
+          onClick={onNew}
         />
       </div>
     </>
@@ -1092,29 +1149,35 @@ function QuickContextSheet({
   selectedImportedRecipients,
   selectedTags,
   selectedCalendarDates,
+  selectedContextIds,
   onToggleRecipient,
   onToggleImportedRecipient,
   tags,
   customCategories,
   onToggleTag,
   onCalendarDatesChange,
+  onToggleContext,
+  contexts,
   onCreateProject,
   onClose,
 }: {
-  mode: "menu" | "who" | "tag" | "date"
-  setMode: (mode: "menu" | "who" | "tag" | "date") => void
+  mode: "menu" | "who" | "tag" | "date" | "context"
+  setMode: (mode: "menu" | "who" | "tag" | "date" | "context") => void
   contacts: Contact[]
   importedContacts: ImportedContact[]
   selectedRecipients: string[]
   selectedImportedRecipients: string[]
   selectedTags: string[]
   selectedCalendarDates: string[]
+  selectedContextIds: string[]
   onToggleRecipient: (id: string) => void
   onToggleImportedRecipient: (id: string) => void
   tags: MessageTag[]
   customCategories: CategoryItem[]
   onToggleTag: (id: string) => void
   onCalendarDatesChange: (dates: string[]) => void
+  onToggleContext: (id: string) => void
+  contexts: AppContext[]
   onCreateProject: () => void
   onClose: () => void
 }) {
@@ -1135,7 +1198,10 @@ function QuickContextSheet({
     !q || tag.name.toLowerCase().includes(q)
   )
   const tagGroups = groupTagsByCategory(filteredTags, customCategories)
-  const selectedCount = selectedRecipients.length + selectedImportedRecipients.length + selectedTags.length + selectedCalendarDates.length
+  const filteredContexts = contexts.filter((c) =>
+    !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
+  )
+  const selectedCount = selectedRecipients.length + selectedImportedRecipients.length + selectedTags.length + selectedCalendarDates.length + selectedContextIds.length
   const showSearchResults = q.length > 0
 
   const toggleCategory = (categoryId: string) =>
@@ -1311,6 +1377,38 @@ function QuickContextSheet({
     </div>
   )
 
+  const renderContexts = (compact = false) => (
+    <div className={cn("flex flex-col", compact ? "gap-0.5" : "gap-1")}>
+      {filteredContexts.map((ctx) => {
+        const selected = selectedContextIds.includes(ctx.id)
+        return (
+          <button
+            key={ctx.id}
+            onClick={() => onToggleContext(ctx.id)}
+            className={cn(
+              "flex items-center rounded-xl text-left transition-colors",
+              compact ? "gap-2.5 px-3 py-2" : "gap-3 px-3 py-2.5",
+              selected ? "bg-emerald-400/15 text-emerald-300" : "active:bg-white/5 text-foreground/90"
+            )}
+          >
+            <span className={cn(
+              "rounded-lg border flex items-center justify-center shrink-0",
+              "w-7 h-7",
+              selected ? "bg-emerald-400/15 border-emerald-400/30 text-emerald-400" : "bg-white/5 border-white/10 text-muted-foreground"
+            )}>
+              <Hash className="w-3.5 h-3.5" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{ctx.name}</span>
+            {selected && <Check className="w-4 h-4 shrink-0 text-emerald-400" />}
+          </button>
+        )
+      })}
+      {filteredContexts.length === 0 && (
+        <p className="px-1 py-3 text-xs text-muted-foreground">No contexts found.</p>
+      )}
+    </div>
+  )
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -1376,6 +1474,17 @@ function QuickContextSheet({
                       <X className="w-3 h-3" />
                     </button>
                   ))}
+                  {selectedContextIds.map((ctxId) => {
+                    const ctx = contexts.find((c) => c.id === ctxId)
+                    if (!ctx) return null
+                    return (
+                      <button key={ctxId} onClick={() => onToggleContext(ctxId)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap">
+                        <Hash className="w-3 h-3 text-emerald-400" />
+                        {ctx.name}
+                        <X className="w-3 h-3" />
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ) : (
@@ -1383,11 +1492,12 @@ function QuickContextSheet({
                 No context selected
               </div>
             )}
-            <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people, tags, dates" />
+            <SheetSearchInput value={query} onChange={setQuery} placeholder="Search people, tags, contexts" />
             <div className="mb-3 flex gap-1.5 overflow-x-auto scrollbar-hide">
               <ContextModeChip active={mode === "menu"} icon={<LayoutGrid className="w-3.5 h-3.5" />} onClick={() => setMode("menu")}>All</ContextModeChip>
               <ContextModeChip active={mode === "who"} icon={<User className="w-3.5 h-3.5" />} onClick={() => setMode("who")}>People</ContextModeChip>
               <ContextModeChip active={mode === "tag"} icon={<Tag className="w-3.5 h-3.5" />} onClick={() => setMode("tag")}>Tags</ContextModeChip>
+              <ContextModeChip active={mode === "context"} icon={<Hash className="w-3.5 h-3.5" />} onClick={() => setMode("context")} emerald>Contexts</ContextModeChip>
               <ContextModeChip active={mode === "date"} icon={<CalendarDays className="w-3.5 h-3.5" />} onClick={() => setMode("date")}>Dates</ContextModeChip>
             </div>
 
@@ -1405,7 +1515,13 @@ function QuickContextSheet({
                     {renderTags(true)}
                   </div>
                 )}
-                {filteredContacts.length === 0 && unregisteredContacts.length === 0 && tagGroups.length === 0 && (
+                {filteredContexts.length > 0 && (
+                  <div>
+                    <SectionMiniTitle>Contexts</SectionMiniTitle>
+                    {renderContexts(true)}
+                  </div>
+                )}
+                {filteredContacts.length === 0 && unregisteredContacts.length === 0 && tagGroups.length === 0 && filteredContexts.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
                     <p className="text-xs text-muted-foreground">Nothing matched "{query.trim()}".</p>
                     <button
@@ -1431,6 +1547,12 @@ function QuickContextSheet({
                       <SectionMiniTitle>Tags by category</SectionMiniTitle>
                       {renderTags(true)}
                     </div>
+                    {contexts.length > 0 && (
+                      <div>
+                        <SectionMiniTitle>Contexts</SectionMiniTitle>
+                        {renderContexts(true)}
+                      </div>
+                    )}
                     <div>
                       <SectionMiniTitle>Dates</SectionMiniTitle>
                       {renderDates()}
@@ -1439,6 +1561,7 @@ function QuickContextSheet({
                 )}
                 {mode === "who" && renderPeople()}
                 {mode === "tag" && renderTags()}
+                {mode === "context" && renderContexts()}
                 {mode === "date" && renderDates()}
               </div>
             )}
@@ -1474,11 +1597,13 @@ function ContextModeChip({
   children,
   icon,
   active,
+  emerald,
   onClick,
 }: {
   children: React.ReactNode
   icon: React.ReactNode
   active?: boolean
+  emerald?: boolean
   onClick: () => void
 }) {
   return (
@@ -1488,7 +1613,9 @@ function ContextModeChip({
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all active:scale-95",
         active
-          ? "border-primary/35 bg-primary/15 text-primary"
+          ? emerald
+            ? "border-emerald-400/35 bg-emerald-400/15 text-emerald-400"
+            : "border-primary/35 bg-primary/15 text-primary"
           : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground/80"
       )}
     >
@@ -1508,23 +1635,34 @@ function SectionMiniTitle({ children }: { children: React.ReactNode }) {
 
 function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[]) {
   const categoryMap = new Map<string, { id: string; name: string; order: number; tags: MessageTag[] }>()
+
+  // "systemType" and "status" are both labelled "Status" — merge them under "status"
+  // so Progress/Decision/Feedback/Problem and any user project tags in "status" appear together
+  const MERGE_TO_STATUS = new Set(["systemType", "status"])
+
   const orderedCategories = [
-    { id: "systemType", name: "Status", isSystem: true },
-    ...SYSTEM_CATEGORIES,
-    ...customCategories,
+    { id: "status", name: "Status" },   // unified Status group (index 0 = first)
+    ...SYSTEM_CATEGORIES.filter(c => c.id !== "status"),  // remaining system cats
+    ...customCategories.filter(c =>
+      !SYSTEM_CATEGORIES.some(s => s.id === c.id) &&
+      c.name.trim().toLowerCase() !== "status"
+    ),
   ]
 
   orderedCategories.forEach((category, index) => {
     categoryMap.set(category.id, {
       id: category.id,
-      name: category.id === "systemType" ? "Status" : category.name,
+      name: category.name,
       order: index,
       tags: [],
     })
   })
 
   tags.forEach((tag) => {
-    const categoryId = tag.category || "custom"
+    // Redirect systemType tags → unified "status" group
+    const rawCategoryId = tag.category || "custom"
+    const categoryId = MERGE_TO_STATUS.has(rawCategoryId) ? "status" : rawCategoryId
+
     if (!categoryMap.has(categoryId)) {
       categoryMap.set(categoryId, {
         id: categoryId,
@@ -2019,6 +2157,87 @@ function TagFilterSheet({
   )
 }
 
+function ContextFilterSheet({
+  contexts,
+  selectedContexts,
+  onChange,
+  onClose,
+}: {
+  contexts: AppContext[]
+  selectedContexts: string[]
+  onChange: (ids: string[]) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
+  const q = query.trim().toLowerCase()
+  const filtered = contexts.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q))
+  const toggle = (id: string) =>
+    onChange(selectedContexts.includes(id) ? selectedContexts.filter((x) => x !== id) : [...selectedContexts, id])
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        style={dragStyle}
+        className="fixed bottom-0 left-0 right-0 z-50 h-[60dvh] glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
+      >
+        <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
+          <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
+        </div>
+        <div className="shrink-0">
+          <SheetHeader title="Filter Contexts" onClose={onClose} />
+          <SheetSearchInput value={query} onChange={setQuery} placeholder="Search contexts" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => onChange([])}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                selectedContexts.length === 0
+                  ? "bg-emerald-400/15 text-emerald-300"
+                  : "active:bg-white/5 text-foreground/90"
+              )}
+            >
+              <span className="w-7 h-7 rounded-full bg-emerald-400/15 border border-emerald-400/25 flex items-center justify-center shrink-0">
+                <Hash className="w-3.5 h-3.5 text-emerald-400" />
+              </span>
+              <span className="text-sm font-semibold flex-1 truncate">All Contexts</span>
+              {selectedContexts.length === 0 && <Check className="w-4 h-4 text-emerald-400" />}
+            </button>
+            {filtered.map((ctx) => {
+              const selected = selectedContexts.includes(ctx.id)
+              return (
+                <button
+                  key={ctx.id}
+                  onClick={() => toggle(ctx.id)}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                    selected ? "bg-emerald-400/12 text-emerald-300" : "active:bg-white/5 text-foreground/90"
+                  )}
+                >
+                  <span className="w-7 h-7 rounded-full bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center shrink-0 text-[10px] font-bold text-emerald-400">
+                    <Hash className="w-3.5 h-3.5" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold truncate block">{ctx.name}</span>
+                    {ctx.description && (
+                      <span className="text-[11px] text-muted-foreground/60 truncate block">{ctx.description}</span>
+                    )}
+                  </div>
+                  {selected && <Check className="w-4 h-4 text-emerald-400 shrink-0" />}
+                </button>
+              )
+            })}
+            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No contexts found.</p>}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function SheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div className="flex items-center justify-between mb-3">
@@ -2352,11 +2571,12 @@ function getTouchPoints(touches: ReactTouchEvent<HTMLDivElement>["touches"]): Ar
 
 
 function MessageBubble({
-  message, projects, contacts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap, onReply, onReplyQuoteTap,
+  message, projects, contacts, contexts, currentUserId, userInitials, userColor, isAuthorActive, isSelected, isHighlighted, isFirstInGroup, isLastInGroup, onTap, onPressStart, onPressEnd, onImageOpen, onProjectTagTap, onReply, onReplyQuoteTap,
 }: {
   message: Message
   projects: Project[]
   contacts: Contact[]
+  contexts: AppContext[]
   currentUserId: string
   userInitials: string
   userColor: string
@@ -2584,6 +2804,17 @@ function MessageBubble({
                 {formatCalDate(cd.date)}
               </span>
             ))}
+            {/* Context chips */}
+            {(message.contextIds ?? []).map((id) => {
+              const ctx = contexts.find((c) => c.id === id)
+              if (!ctx) return null
+              return (
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-300 bg-emerald-400/10 border border-emerald-400/25 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
+                  <Hash className="w-2.5 h-2.5 shrink-0" />
+                  {ctx.name}
+                </span>
+              )
+            })}
             {/* Direct recipients indicator — subtle yellow people icon */}
             {hasDirectRecipients && (
               <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">

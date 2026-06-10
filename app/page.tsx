@@ -43,6 +43,8 @@ import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { PeopleScreen } from "@/components/people-screen"
 import { AdminScreen } from "@/components/admin-screen"
 import { CalendarScreen } from "@/components/calendar-screen"
+import { ContextsScreen } from "@/components/contexts-screen"
+import { ContextDetailScreen } from "@/components/context-detail-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
@@ -53,6 +55,7 @@ import {
   type Contact,
   type ImportedContact,
   type TagCategory,
+  type AppContext,
   PROJECT_COLORS,
   USER_COLORS,
   deriveNameFromEmail,
@@ -87,6 +90,8 @@ type Screen =
   | "people"
   | "admin"
   | "calendar"
+  | "contexts"
+  | "context-detail"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -104,6 +109,8 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   people: 4,
   admin: 4,
   "project-detail": 5,
+  contexts: 4,
+  "context-detail": 5,
 }
 
 interface ToastState {
@@ -149,6 +156,7 @@ function mapMessageDoc(id: string, data: Record<string, any>): Message {
     updatedAt: toDate(data.updatedAt ?? data.timestamp),
     isFavorited: data.isFavorited ?? false,
     contactIds: Array.isArray(data.contactIds) ? data.contactIds.filter(Boolean) : [],
+    contextIds: Array.isArray(data.contextIds) ? data.contextIds.filter(Boolean) : [],
     imageUrl: data.imageUrl,
     imagePath: data.imagePath,
     imageName: data.imageName,
@@ -198,6 +206,8 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([])
   const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
   const [importedContacts, setImportedContacts] = useState<ImportedContact[]>([])
+  const [appContexts, setAppContexts] = useState<AppContext[]>([])
+  const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
 
   // Merged feed: union of all message sources, deduped by ID.
   // participantMessages = legacy query (array-contains participants)
@@ -239,6 +249,7 @@ export default function Home() {
   const [selectedPeopleFilter, setSelectedPeopleFilter] = useState<string[]>([])
   const [selectedTagFilter, setSelectedTagFilter] = useState<string[]>([])
   const [selectedDateFilter, setSelectedDateFilter] = useState<string[]>([])
+  const [selectedContextFilter, setSelectedContextFilter] = useState<string[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [listenerKey, setListenerKey] = useState(0)
@@ -351,24 +362,24 @@ export default function Home() {
       if (me) setCurrentUser(me)
     }, () => {})
 
-    // 2. Projects where current user is a member
-    const projectsQuery = query(
-      collection(db, "projects"),
-      where("members", "array-contains", firebaseUser.uid)
-    )
-    const projectsUnsub = onSnapshot(projectsQuery, (snap) => {
+    // 2. All projects (tags are global — visible to any authenticated user)
+    const projectsUnsub = onSnapshot(collection(db, "projects"), (snap) => {
       setProjects(snap.docs.map((d) => d.data() as Project))
     }, () => {})
 
     // 2b. User-created categories
+    // Filter out any docs whose name shadows a system category (prevents duplicates)
+    const _systemNames = new Set(["project","status","date / time","report","task","custom","type"])
     const categoriesUnsub = onSnapshot(collection(db, "categories"), (snap) => {
       setCustomCategories(
-        snap.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name as string,
-          isSystem: false,
-          isTimeBased: d.data().isTimeBased ?? false,
-        }))
+        snap.docs
+          .map((d) => ({
+            id: d.id,
+            name: d.data().name as string,
+            isSystem: false,
+            isTimeBased: d.data().isTimeBased ?? false,
+          }))
+          .filter((c) => !_systemNames.has(c.name.trim().toLowerCase()))
       )
     }, () => {})
 
@@ -422,6 +433,24 @@ export default function Home() {
       setImportedContacts([])
     })
 
+    // 6. Contexts — global, no filter needed
+    const contextsUnsub = onSnapshot(collection(db, "contexts"), (snap) => {
+      setAppContexts(snap.docs.map((d) => {
+        const data = d.data()
+        return {
+          id: d.id,
+          name: data.name ?? "",
+          description: data.description || undefined,
+          fields: Array.isArray(data.fields) ? data.fields : [],
+          createdBy: data.createdBy ?? "",
+          createdAt: toDate(data.createdAt),
+          updatedAt: toDate(data.updatedAt),
+        } as AppContext
+      }))
+    }, () => {
+      setAppContexts([])
+    })
+
     return () => {
       usersUnsub()
       projectsUnsub()
@@ -429,6 +458,7 @@ export default function Home() {
       messagesUnsub()
       visibleUnsub()
       importedContactsUnsub()
+      contextsUnsub()
     }
   }, [firebaseUser, listenerKey])
 
@@ -711,6 +741,7 @@ export default function Home() {
         text,
         type: legacyType,
         contactIds: draft.importedContactIds ?? [],
+        contextIds: draft.contextIds ?? [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
@@ -775,7 +806,7 @@ export default function Home() {
   }, [messages])
 
   const handleApplyTag = useCallback(
-    async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = [], calendarDates?: string[]) => {
+    async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = [], calendarDates?: string[], contextIds?: string[]) => {
       if (!selectedMessageId) return
       const selectedMessage = messages.find((m) => m.id === selectedMessageId)
       if (!selectedMessage) return
@@ -821,6 +852,7 @@ export default function Home() {
         participants: mergedParticipants,
         visibleToUserIds,
         contactIds: importedContactIds,
+        ...(contextIds !== undefined ? { contextIds } : {}),
         ...(newCalendarDates !== undefined ? { calendarDates: newCalendarDates } : {}),
         updatedAt: serverTimestamp(),
       })
@@ -1028,6 +1060,54 @@ export default function Home() {
 
   const goToCalendar = useCallback(() => navigateTo("calendar"), [navigateTo])
 
+  // ── Contexts navigation ───────────────────────────────────────────────
+  const contextsReturnRef = useRef<Screen>("stream")
+  const goToContextsFromStream = useCallback(() => {
+    contextsReturnRef.current = "stream"
+    navigateTo("contexts")
+  }, [navigateTo])
+  const handleContextsBack = useCallback(() => {
+    navigateTo(contextsReturnRef.current)
+  }, [navigateTo])
+  const goToContextDetail = useCallback((contextId: string) => {
+    setSelectedContextId(contextId)
+    navigateTo("context-detail")
+  }, [navigateTo])
+
+  // ── Context CRUD ──────────────────────────────────────────────────────
+  const handleCreateContext = useCallback(async (name: string, description?: string): Promise<AppContext> => {
+    if (!firebaseUser) throw new Error("Not authenticated")
+    const ref = await addDoc(collection(db, "contexts"), {
+      name,
+      ...(description ? { description } : {}),
+      fields: [],
+      createdBy: firebaseUser.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    return {
+      id: ref.id,
+      name,
+      description: description || undefined,
+      fields: [],
+      createdBy: firebaseUser.uid,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  }, [firebaseUser])
+
+  const handleUpdateContext = useCallback(async (
+    id: string,
+    updates: Partial<Pick<AppContext, "name" | "description" | "fields">>
+  ) => {
+    await updateDoc(doc(db, "contexts", id), { ...updates, updatedAt: serverTimestamp() })
+  }, [])
+
+  const handleDeleteContext = useCallback(async (id: string) => {
+    await deleteDoc(doc(db, "contexts", id))
+    navigateTo("contexts")
+  }, [navigateTo])
+
   const handleNewMessageFromCalendar = useCallback(
     (date: string) => {
       setCalendarInitialDate(date)
@@ -1145,9 +1225,11 @@ export default function Home() {
       messageMatchesPeopleFilter(message, selectedPeopleFilter) &&
       messageHasTags(message, selectedTagFilter) &&
       (selectedDateFilter.length === 0 ||
-        (message.calendarDates ?? []).some((calendarDate) => selectedDateFilter.includes(calendarDate.date)))
+        (message.calendarDates ?? []).some((calendarDate) => selectedDateFilter.includes(calendarDate.date))) &&
+      (selectedContextFilter.length === 0 ||
+        selectedContextFilter.some((ctxId) => (message.contextIds ?? []).includes(ctxId)))
     ),
-    [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter]
+    [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter, selectedContextFilter]
   )
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -1273,6 +1355,8 @@ export default function Home() {
           initialProjectId={composeInitialProjectId}
           initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
           availableTags={availableTags}
+          contexts={appContexts}
+          onCreateContext={handleCreateContext}
         />
       )}
 
@@ -1300,12 +1384,39 @@ export default function Home() {
               importedContacts={importedContacts}
               availableTags={availableTags}
               customCategories={customCategories}
-              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter }}
+              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter, contextIds: selectedContextFilter }}
               recentUserMessages={recentUserMessages}
+              contexts={appContexts}
+              onCreateContext={handleCreateContext}
             />
           )}
         </>
       )}
+
+      {!showScreenSkeleton && activeScreen === "contexts" && (
+        <ContextsScreen
+          className={entranceClass}
+          contexts={appContexts}
+          onBack={handleContextsBack}
+          onContextSelect={goToContextDetail}
+          onCreateContext={handleCreateContext}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "context-detail" && selectedContextId && (() => {
+        const ctx = appContexts.find((c) => c.id === selectedContextId)
+        if (!ctx) return null
+        return (
+          <ContextDetailScreen
+            className={entranceClass}
+            context={ctx}
+            currentUserId={currentUser?.id ?? ""}
+            onBack={() => navigateTo("contexts")}
+            onUpdate={handleUpdateContext}
+            onDelete={handleDeleteContext}
+          />
+        )
+      })()}
 
       {!showScreenSkeleton && (activeScreen === "stream" ||
         (activeScreen === "compose" && composeMode === "sheet") ||
@@ -1318,12 +1429,13 @@ export default function Home() {
             selectedPeopleFilter={selectedPeopleFilter}
             selectedTagFilter={selectedTagFilter}
             selectedDateFilter={selectedDateFilter}
+            selectedContextFilter={selectedContextFilter}
             onPeopleFilterChange={setSelectedPeopleFilter}
             onTagFilterChange={setSelectedTagFilter}
             onDateFilterChange={setSelectedDateFilter}
+            onContextFilterChange={setSelectedContextFilter}
             onCompose={goToCompose}
             onMessageClick={handleMessageClick}
-            onNewProject={handleCreateProject}
             onProfile={goToProfile}
             onPeople={goToPeopleFromStream}
             onDeleteMessage={handleDeleteMessage}
@@ -1339,12 +1451,15 @@ export default function Home() {
             onFavoriteProject={handleFavoriteProject}
             onProjects={goToProjectsFromStream}
             onCalendar={goToCalendar}
+            onContexts={goToContextsFromStream}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}
+            onCreateContext={handleCreateContext}
             activeUsers={activeUsers}
             availableTags={availableTags}
             importedContacts={importedContacts}
+            contexts={appContexts}
             customCategories={customCategories}
             onCreateCategory={handleCreateCategory}
           />
@@ -1370,6 +1485,8 @@ export default function Home() {
                   initialProjectId={composeInitialProjectId}
                   initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
                   availableTags={availableTags}
+                  contexts={appContexts}
+                  onCreateContext={handleCreateContext}
                 />
               </div>
             )}
@@ -1385,8 +1502,10 @@ export default function Home() {
               importedContacts={importedContacts}
               availableTags={availableTags}
               customCategories={customCategories}
-              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter }}
+              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter, contextIds: selectedContextFilter }}
               recentUserMessages={recentUserMessages}
+              contexts={appContexts}
+              onCreateContext={handleCreateContext}
             />
           )}
         </>

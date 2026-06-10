@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Hash,
   Plus,
   Search,
   Tag,
@@ -22,6 +23,7 @@ import {
   type ImportedContact,
   type Tag as MessageTag,
   type CategoryItem,
+  type AppContext,
   getContactFromList,
   formatTime,
   getMessagePeopleIds,
@@ -36,11 +38,12 @@ import {
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { CreateProjectModal } from "@/components/create-project-modal"
+import { CreateContextModal } from "@/components/create-context-modal"
 import { CategoryIcon, getCategoryDotClass } from "@/components/category-icon"
 
 interface TagSheetProps {
   message: Message
-  onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[], calendarDates?: string[]) => void
+  onApply: (peopleIds: string[], tagIds: string[], importedContactIds: string[], calendarDates?: string[], contextIds?: string[]) => void
   onClose: () => void
   projects: Project[]
   onCreateProject: (name: string, memberIds?: string[], category?: string) => Promise<Project>
@@ -48,8 +51,10 @@ interface TagSheetProps {
   importedContacts?: ImportedContact[]
   availableTags?: MessageTag[]
   customCategories?: CategoryItem[]
-  activeStreamFilters?: { peopleIds: string[]; tagIds: string[] }
+  activeStreamFilters?: { peopleIds: string[]; tagIds: string[]; contextIds?: string[] }
   recentUserMessages?: Message[]
+  contexts?: AppContext[]
+  onCreateContext?: (name: string, description?: string) => Promise<AppContext>
 }
 
 type SheetView =
@@ -58,6 +63,7 @@ type SheetView =
   | { type: "tags" }
   | { type: "category"; categoryId: string; title: string }
   | { type: "dates" }
+  | { type: "contexts" }
 
 type TagGroup = { id: string; name: string; order: number; tags: MessageTag[] }
 
@@ -73,6 +79,8 @@ export function TagSheet({
   customCategories = [],
   activeStreamFilters,
   recentUserMessages = [],
+  contexts = [],
+  onCreateContext,
 }: TagSheetProps) {
   const allTags = availableTags ?? getAvailableTags(projects)
   const tags = allTags.filter((tag) => tag.id !== systemTypeTagId("none"))
@@ -86,8 +94,12 @@ export function TagSheet({
   const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(
     (message.calendarDates ?? []).map((d) => d.date).filter(Boolean)
   )
+  const [selectedContextIds, setSelectedContextIds] = useState<string[]>(
+    (message.contextIds ?? []).filter(Boolean)
+  )
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showCreateTagModal, setShowCreateTagModal] = useState(false)
+  const [showCreateContextModal, setShowCreateContextModal] = useState(false)
 
   const contact = getContactFromList(message.senderId, contacts) ?? {
     id: message.senderId,
@@ -104,11 +116,14 @@ export function TagSheet({
       (!q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
   )
   const filteredTags = tags.filter((tag) => !q || tag.name.toLowerCase().includes(q))
+  const filteredContexts = contexts.filter((c) =>
+    !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
+  )
   const tagGroups = useMemo(() => groupTagsByCategory(tags, customCategories), [tags, customCategories])
   const filteredTagGroups = useMemo(() => groupTagsByCategory(filteredTags, customCategories), [filteredTags, customCategories])
 
   const selectedPeopleCount = selectedParticipants.length + selectedImported.length
-  const selectedContextCount = selectedPeopleCount + selectedTags.length + selectedCalendarDates.length
+  const selectedContextCount = selectedPeopleCount + selectedTags.length + selectedCalendarDates.length + selectedContextIds.length
   const selectedTagObjects = selectedTags.map((id) => tags.find((tag) => tag.id === id)).filter(Boolean) as MessageTag[]
   const summaryItems = buildSummaryItems({
     contacts,
@@ -123,20 +138,21 @@ export function TagSheet({
     onDate: (date) => setSelectedCalendarDates((prev) => prev.filter((item) => item !== date)),
   })
   const suggestedItems = buildSmartSuggestions({
-    contacts,
-    importedContacts,
     tags,
-    selectedParticipants,
-    selectedImported,
+    contexts,
+    customCategories,
     selectedTags,
     selectedCalendarDates,
+    selectedContextIds,
     activeStreamFilters,
     recentUserMessages,
     messageText: message.text,
-    onPerson: toggleParticipant,
-    onImported: toggleImported,
+    messageTimestamp: message.timestamp,
     onTag: toggleTag,
-    onDate: () => setShowDatePicker(true),
+    onContext: toggleContext,
+    onDate: (date) => {
+      setSelectedCalendarDates((prev) => prev.includes(date) ? prev : [...prev, date])
+    },
   })
 
   function toggleParticipant(id: string) {
@@ -160,9 +176,13 @@ export function TagSheet({
     }
   }
 
+  function toggleContext(id: string) {
+    setSelectedContextIds((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])
+  }
+
   function handleApply() {
     haptic.success()
-    onApply(selectedParticipants, selectedTags, selectedImported, selectedCalendarDates)
+    onApply(selectedParticipants, selectedTags, selectedImported, selectedCalendarDates, selectedContextIds)
   }
 
   function handleBack() {
@@ -181,7 +201,9 @@ export function TagSheet({
         ? "People"
         : view.type === "dates"
           ? "Dates"
-          : "Tags"
+          : view.type === "contexts"
+            ? "Contexts"
+            : "Tags"
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center">
@@ -229,10 +251,13 @@ export function TagSheet({
             filteredContacts={filteredContacts}
             filteredImported={filteredImported}
             filteredTagGroups={filteredTagGroups}
+            filteredContexts={filteredContexts}
             selectedParticipants={selectedParticipants}
             selectedImported={selectedImported}
             selectedTags={selectedTags}
             selectedCalendarDates={selectedCalendarDates}
+            selectedContextIds={selectedContextIds}
+            contexts={contexts}
             summaryItems={summaryItems}
             suggestedItems={suggestedItems}
             selectedPeopleCount={selectedPeopleCount}
@@ -240,10 +265,12 @@ export function TagSheet({
             onToggleParticipant={toggleParticipant}
             onToggleImported={toggleImported}
             onToggleTag={toggleTag}
+            onToggleContext={toggleContext}
             onRemoveDate={(date) => setSelectedCalendarDates((prev) => prev.filter((item) => item !== date))}
             onOpenPeople={() => setView({ type: "people" })}
             onOpenTags={() => setView({ type: "tags" })}
             onOpenDates={() => setView({ type: "dates" })}
+            onOpenContexts={() => setView({ type: "contexts" })}
             onOpenDatePicker={() => setShowDatePicker(true)}
           />
         )}
@@ -286,6 +313,15 @@ export function TagSheet({
             onRemoveDate={(date) => setSelectedCalendarDates((prev) => prev.filter((item) => item !== date))}
           />
         )}
+
+        {view.type === "contexts" && (
+          <ContextsDetailView
+            contexts={contexts}
+            selectedContextIds={selectedContextIds}
+            onToggleContext={toggleContext}
+            onCreateContext={onCreateContext ? () => setShowCreateContextModal(true) : undefined}
+          />
+        )}
         </div>
 
         <div className="shrink-0 bg-[#0d1c35]/95 backdrop-blur-xl px-4 pt-3 pb-2 border-t border-white/8 safe-area-pb">
@@ -326,6 +362,17 @@ export function TagSheet({
           }}
         />
       )}
+
+      {showCreateContextModal && onCreateContext && (
+        <CreateContextModal
+          onClose={() => setShowCreateContextModal(false)}
+          onSubmit={async (name, description) => {
+            const ctx = await onCreateContext(name, description || undefined)
+            setSelectedContextIds((prev) => prev.includes(ctx.id) ? prev : [...prev, ctx.id])
+            setTimeout(() => setShowCreateContextModal(false), 900)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -339,10 +386,13 @@ function MainContextView({
   filteredContacts,
   filteredImported,
   filteredTagGroups,
+  filteredContexts,
   selectedParticipants,
   selectedImported,
   selectedTags,
   selectedCalendarDates,
+  selectedContextIds,
+  contexts,
   summaryItems,
   suggestedItems,
   selectedPeopleCount,
@@ -350,10 +400,12 @@ function MainContextView({
   onToggleParticipant,
   onToggleImported,
   onToggleTag,
+  onToggleContext,
   onRemoveDate,
   onOpenPeople,
   onOpenTags,
   onOpenDates,
+  onOpenContexts,
   onOpenDatePicker,
 }: {
   message: Message
@@ -364,10 +416,13 @@ function MainContextView({
   filteredContacts: Contact[]
   filteredImported: ImportedContact[]
   filteredTagGroups: TagGroup[]
+  filteredContexts: AppContext[]
   selectedParticipants: string[]
   selectedImported: string[]
   selectedTags: string[]
   selectedCalendarDates: string[]
+  selectedContextIds: string[]
+  contexts: AppContext[]
   summaryItems: SummaryItem[]
   suggestedItems: SuggestedItem[]
   selectedPeopleCount: number
@@ -375,10 +430,12 @@ function MainContextView({
   onToggleParticipant: (id: string) => void
   onToggleImported: (id: string) => void
   onToggleTag: (id: string) => void
+  onToggleContext: (id: string) => void
   onRemoveDate: (date: string) => void
   onOpenPeople: () => void
   onOpenTags: () => void
   onOpenDates: () => void
+  onOpenContexts: () => void
   onOpenDatePicker: () => void
 }) {
   return (
@@ -393,7 +450,7 @@ function MainContextView({
       </div>
 
       <div className="px-4 pb-3">
-        <SearchInput value={query} onChange={onQueryChange} placeholder="Search people, tags, dates..." />
+        <SearchInput value={query} onChange={onQueryChange} placeholder="Search people, tags, contexts..." />
       </div>
 
       {isSearching ? (
@@ -401,12 +458,15 @@ function MainContextView({
           filteredContacts={filteredContacts}
           filteredImported={filteredImported}
           filteredTagGroups={filteredTagGroups}
+          filteredContexts={filteredContexts}
           selectedParticipants={selectedParticipants}
           selectedImported={selectedImported}
           selectedTags={selectedTags}
+          selectedContextIds={selectedContextIds}
           onToggleParticipant={onToggleParticipant}
           onToggleImported={onToggleImported}
           onToggleTag={onToggleTag}
+          onToggleContext={onToggleContext}
           onOpenDatePicker={onOpenDatePicker}
         />
       ) : (
@@ -432,7 +492,9 @@ function MainContextView({
                     key={item.id}
                     type="button"
                     onClick={item.onClick}
-                    className="rounded-xl border border-white/10 bg-white/[0.04] px-1.5 py-2.5 text-center active:scale-[0.98] active:bg-white/8"
+                    title={item.detail}
+                    aria-label={`${item.label}, ${item.detail}`}
+                    className="rounded-xl border border-white/10 bg-white/[0.04] px-1.5 py-2.5 text-center transition-colors active:scale-[0.98] active:bg-white/8"
                   >
                     <span className={cn("mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-full", item.iconBg)}>
                       {item.icon}
@@ -470,6 +532,13 @@ function MainContextView({
                 detail={selectedCalendarDates.length > 0 ? `${selectedCalendarDates.length} selected` : "None"}
                 onClick={onOpenDates}
               />
+              <OrganizeRow
+                icon={<Hash className="w-4 h-4" />}
+                iconClassName="bg-emerald-400/16 text-emerald-400"
+                label="Contexts"
+                detail={selectedContextIds.length > 0 ? `${selectedContextIds.length} selected` : "None"}
+                onClick={onOpenContexts}
+              />
             </div>
           </section>
         </>
@@ -482,26 +551,32 @@ function SearchResultsView({
   filteredContacts,
   filteredImported,
   filteredTagGroups,
+  filteredContexts,
   selectedParticipants,
   selectedImported,
   selectedTags,
+  selectedContextIds,
   onToggleParticipant,
   onToggleImported,
   onToggleTag,
+  onToggleContext,
   onOpenDatePicker,
 }: {
   filteredContacts: Contact[]
   filteredImported: ImportedContact[]
   filteredTagGroups: TagGroup[]
+  filteredContexts: AppContext[]
   selectedParticipants: string[]
   selectedImported: string[]
   selectedTags: string[]
+  selectedContextIds: string[]
   onToggleParticipant: (id: string) => void
   onToggleImported: (id: string) => void
   onToggleTag: (id: string) => void
+  onToggleContext: (id: string) => void
   onOpenDatePicker: () => void
 }) {
-  const hasResults = filteredContacts.length > 0 || filteredImported.length > 0 || filteredTagGroups.length > 0
+  const hasResults = filteredContacts.length > 0 || filteredImported.length > 0 || filteredTagGroups.length > 0 || filteredContexts.length > 0
   return (
     <div className="px-4 pb-4">
       <SectionTitle>Results</SectionTitle>
@@ -538,6 +613,16 @@ function SearchResultsView({
             />
           ))
         )}
+        {filteredContexts.map((ctx) => (
+          <SearchResultRow
+            key={ctx.id}
+            selected={selectedContextIds.includes(ctx.id)}
+            icon={<Hash className="w-4 h-4 text-emerald-400" />}
+            label={ctx.name}
+            typeLabel="Context"
+            onClick={() => onToggleContext(ctx.id)}
+          />
+        ))}
         <SearchResultRow
           selected={false}
           icon={<CalendarDays className="w-4 h-4 text-sky-400" />}
@@ -546,7 +631,7 @@ function SearchResultsView({
           onClick={onOpenDatePicker}
         />
         {!hasResults && (
-          <p className="px-1 py-3 text-xs text-muted-foreground">No people or tags found.</p>
+          <p className="px-1 py-3 text-xs text-muted-foreground">No results found.</p>
         )}
       </div>
     </div>
@@ -741,6 +826,63 @@ function DatesDetailView({
   )
 }
 
+function ContextsDetailView({
+  contexts,
+  selectedContextIds,
+  onToggleContext,
+  onCreateContext,
+}: {
+  contexts: AppContext[]
+  selectedContextIds: string[]
+  onToggleContext: (id: string) => void
+  onCreateContext?: () => void
+}) {
+  return (
+    <div className="px-4 pb-4">
+      <div className="flex flex-col gap-2">
+        {contexts.map((ctx) => {
+          const selected = selectedContextIds.includes(ctx.id)
+          return (
+            <button
+              key={ctx.id}
+              type="button"
+              onClick={() => onToggleContext(ctx.id)}
+              className={cn(
+                "flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors active:scale-[0.99]",
+                selected
+                  ? "border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300"
+                  : "border-white/10 bg-white/[0.035] text-foreground/85"
+              )}
+            >
+              <Hash className={cn("w-4 h-4 shrink-0", selected ? "text-emerald-400" : "text-muted-foreground/50")} />
+              <div className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold truncate">{ctx.name}</span>
+                {ctx.description && (
+                  <span className="block text-xs text-muted-foreground/60 truncate">{ctx.description}</span>
+                )}
+              </div>
+              {selected && <Check className="w-4 h-4 text-emerald-400 shrink-0" />}
+            </button>
+          )
+        })}
+        {contexts.length === 0 && (
+          <p className="text-xs text-muted-foreground/40 text-center py-4">No contexts available</p>
+        )}
+        {onCreateContext && (
+          <button
+            type="button"
+            onClick={onCreateContext}
+            className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2.5 text-left text-emerald-400 active:bg-white/8"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="text-sm font-semibold">Create context</span>
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 type SummaryItem = {
   id: string
   label: string
@@ -752,8 +894,11 @@ type SummaryItem = {
 }
 
 type SuggestedItem = {
+  kind: "tag" | "context" | "date"
   id: string
   label: string
+  detail: string
+  score: number
   icon: React.ReactNode
   iconBg: string
   onClick: () => void
@@ -1135,167 +1280,396 @@ function buildSummaryItems({
 }
 
 function buildSmartSuggestions({
-  contacts,
-  importedContacts,
   tags,
-  selectedParticipants,
-  selectedImported,
+  contexts,
+  customCategories,
   selectedTags,
   selectedCalendarDates,
+  selectedContextIds,
   activeStreamFilters,
   recentUserMessages,
   messageText,
-  onPerson,
-  onImported,
+  messageTimestamp,
   onTag,
+  onContext,
   onDate,
 }: {
-  contacts: Contact[]
-  importedContacts: ImportedContact[]
   tags: MessageTag[]
-  selectedParticipants: string[]
-  selectedImported: string[]
+  contexts: AppContext[]
+  customCategories: CategoryItem[]
   selectedTags: string[]
   selectedCalendarDates: string[]
-  activeStreamFilters?: { peopleIds: string[]; tagIds: string[] }
+  selectedContextIds: string[]
+  activeStreamFilters?: { peopleIds: string[]; tagIds: string[]; contextIds?: string[] }
   recentUserMessages: Message[]
   messageText: string
-  onPerson: (id: string) => void
-  onImported: (id: string) => void
+  messageTimestamp: Date
   onTag: (id: string) => void
-  onDate: () => void
+  onContext: (id: string) => void
+  onDate: (date: string) => void
 }): SuggestedItem[] {
   const MAX = 4
-  const seen = new Set<string>()
-  const items: SuggestedItem[] = []
+  const text = normalizeSuggestionText(messageText)
+  const textTokens = tokenizeSuggestionText(messageText)
+  const activeTagIds = new Set(activeStreamFilters?.tagIds ?? [])
+  const activeContextIds = new Set(activeStreamFilters?.contextIds ?? [])
+  const tagStats = buildRecentAssociationStats(recentUserMessages, "tag")
+  const contextStats = buildRecentAssociationStats(recentUserMessages, "context")
+  const candidates: SuggestedItem[] = []
 
-  function pushPerson(c: Contact) {
-    if (seen.has(`p:${c.id}`)) return
-    seen.add(`p:${c.id}`)
-    items.push({
-      id: `person:${c.id}`,
-      label: c.name.split(" ")[0],
-      icon: <AvatarMini initials={c.initials} color={c.color} />,
-      iconBg: "bg-transparent",
-      onClick: () => onPerson(c.id),
-    })
-  }
+  for (const tag of tags) {
+    if (selectedTags.includes(tag.id) || tag.id === systemTypeTagId("none")) continue
 
-  function pushImported(c: ImportedContact) {
-    if (seen.has(`pi:${c.id}`)) return
-    seen.add(`pi:${c.id}`)
-    items.push({
-      id: `imported:${c.id}`,
-      label: c.name.split(" ")[0],
-      icon: <AvatarMini initials={(c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"} color="bg-white/10" muted />,
-      iconBg: "bg-transparent",
-      onClick: () => onImported(c.id),
-    })
-  }
+    const systemType = parseSystemTypeTagId(tag.id)
+    const categoryId = normalizeTagCategoryId(tag.category)
+    const categoryLabel = getCategoryLabel(categoryId, customCategories)
+    const stats = tagStats.get(tag.id)
+    const textScore = scoreTextEvidence(text, textTokens, [
+      tag.name,
+      categoryLabel,
+      ...getTagSemanticAliases(tag, categoryId, systemType),
+    ])
+    const score =
+      textScore +
+      (activeTagIds.has(tag.id) ? 90 : 0) +
+      scoreRecentStats(stats, messageTimestamp) +
+      Math.min((tag.usageCount ?? 0) * 2, 26) +
+      (tag.isFavorited ? 24 : 0) +
+      scoreRecency(tag.lastUsedAt ?? null, messageTimestamp) +
+      scoreSelectedTagCooccurrence(tag.id, selectedTags, recentUserMessages)
 
-  function pushTag(t: MessageTag) {
-    if (seen.has(`t:${t.id}`)) return
-    seen.add(`t:${t.id}`)
-    items.push({
-      id: `tag:${t.id}`,
-      label: t.name,
-      icon: <span className={cn("h-4 w-4 rounded-full", tagDotClass(t))} />,
+    if (score < 24) continue
+    candidates.push({
+      kind: "tag",
+      id: `tag:${tag.id}`,
+      label: tag.name,
+      detail: systemType ? "Tag / Status" : `Tag / ${categoryLabel}`,
+      score,
+      icon: <span className={cn("h-4 w-4 rounded-full", tagDotClass(tag))} />,
       iconBg: "bg-white/5",
-      onClick: () => onTag(t.id),
+      onClick: () => onTag(tag.id),
     })
   }
 
-  function pushDate() {
-    if (seen.has("date:add")) return
-    seen.add("date:add")
-    items.push({
-      id: "date:add",
-      label: selectedCalendarDates.length > 0 ? "Dates" : "Add date",
-      icon: <CalendarDays className="w-4 h-4 text-sky-400" />,
+  for (const ctx of contexts) {
+    if (selectedContextIds.includes(ctx.id)) continue
+
+    const stats = contextStats.get(ctx.id)
+    const fieldValues = ctx.fields.flatMap((field) => [field.label, field.value])
+    const textScore = scoreTextEvidence(text, textTokens, [
+      ctx.name,
+      ctx.description ?? "",
+      ...fieldValues,
+    ])
+    const score =
+      textScore +
+      (activeContextIds.has(ctx.id) ? 96 : 0) +
+      scoreRecentStats(stats, messageTimestamp) +
+      scoreContextCooccurrence(ctx.id, selectedTags, recentUserMessages) +
+      scoreRecency(ctx.updatedAt, messageTimestamp, 12)
+
+    if (score < 28) continue
+    candidates.push({
+      kind: "context",
+      id: `context:${ctx.id}`,
+      label: ctx.name,
+      detail: "Context",
+      score,
+      icon: <Hash className="h-4 w-4 text-emerald-400" />,
+      iconBg: "bg-emerald-400/10",
+      onClick: () => onContext(ctx.id),
+    })
+  }
+
+  for (const dateHit of extractExplicitDateSuggestions(messageText, messageTimestamp)) {
+    if (selectedCalendarDates.includes(dateHit.date)) continue
+    candidates.push({
+      kind: "date",
+      id: `date:${dateHit.date}`,
+      label: formatDateShort(dateHit.date),
+      detail: `Date / ${dateHit.detail}`,
+      score: dateHit.score,
+      icon: <CalendarDays className="h-4 w-4 text-sky-400" />,
       iconBg: "bg-sky-400/10",
-      onClick: onDate,
+      onClick: () => onDate(dateHit.date),
     })
   }
 
-  // ── Source 1: Active stream filters ──────────────────────────────────────
-  for (const pid of activeStreamFilters?.peopleIds ?? []) {
-    if (items.length >= MAX) break
-    if (selectedParticipants.includes(pid)) continue
-    const c = contacts.find((c) => c.id === pid)
-    if (c) pushPerson(c)
-  }
-  for (const tid of activeStreamFilters?.tagIds ?? []) {
-    if (items.length >= MAX) break
-    if (selectedTags.includes(tid)) continue
-    const t = tags.find((t) => t.id === tid)
-    if (t) pushTag(t)
+  const bestById = new Map<string, SuggestedItem>()
+  for (const item of candidates) {
+    const current = bestById.get(item.id)
+    if (!current || item.score > current.score) bestById.set(item.id, item)
   }
 
-  // ── Source 2: Top recent people by frequency ──────────────────────────────
-  const tagFreq: Record<string, number> = {}
-  const peopleFreq: Record<string, number> = {}
-  for (const msg of recentUserMessages) {
-    for (const tid of msg.tagIds ?? []) tagFreq[tid] = (tagFreq[tid] ?? 0) + 1
-    for (const pid of [...(msg.peopleIds ?? []), ...(msg.recipientIds ?? [])])
-      peopleFreq[pid] = (peopleFreq[pid] ?? 0) + 1
-  }
-  const sortedPeopleIds = Object.entries(peopleFreq).sort((a, b) => b[1] - a[1]).map(([id]) => id)
-  const sortedTagIds = Object.entries(tagFreq).sort((a, b) => b[1] - a[1]).map(([id]) => id)
+  return [...bestById.values()]
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+    .slice(0, MAX)
+}
 
-  for (const pid of sortedPeopleIds) {
-    if (items.length >= MAX) break
-    if (selectedParticipants.includes(pid) || seen.has(`p:${pid}`)) continue
-    const c = contacts.find((c) => c.id === pid)
-    if (c) pushPerson(c)
-  }
+type RecentAssociationStats = { count: number; last: number }
 
-  // ── Source 3: Keyword heuristics on message text ──────────────────────────
-  if (items.length < MAX) {
-    const text = messageText.toLowerCase()
-    const hintMap: Array<[RegExp, string]> = [
-      [/mañana|tomorrow|next.?week|later|deadline|follow.?up|schedule/i, "timedate"],
-      [/done|progress|advance|completed|finished/i, "progress"],
-      [/problem|issue|bug|blocked|error|crash|broken/i, "problem"],
-      [/decision|decided|approved|resolved/i, "decision"],
-      [/feedback|review|check|revisit/i, "feedback"],
-      [/daily|report|update|standup/i, "report"],
-      [/task|todo|pending|assign/i, "task"],
-    ]
-    for (const [regex, hint] of hintMap) {
-      if (items.length >= MAX) break
-      if (!regex.test(text)) continue
-      if (hint === "timedate") {
-        pushDate()
-        continue
-      }
-      const matched =
-        tags.find((t) => parseSystemTypeTagId(t.id) === hint && !selectedTags.includes(t.id) && !seen.has(`t:${t.id}`)) ??
-        tags.find((t) => t.category === hint && !selectedTags.includes(t.id) && !seen.has(`t:${t.id}`))
-      if (matched) pushTag(matched)
+function buildRecentAssociationStats(messages: Message[], kind: "tag" | "context"): Map<string, RecentAssociationStats> {
+  const stats = new Map<string, RecentAssociationStats>()
+  for (const message of messages) {
+    const ids = kind === "tag" ? getMessageTagIds(message) : (message.contextIds ?? [])
+    const time = (message.updatedAt ?? message.createdAt ?? message.timestamp).getTime()
+    for (const id of ids) {
+      const current = stats.get(id) ?? { count: 0, last: 0 }
+      stats.set(id, { count: current.count + 1, last: Math.max(current.last, time) })
     }
   }
+  return stats
+}
 
-  // ── Source 4: Top recent tags by frequency ────────────────────────────────
-  for (const tid of sortedTagIds) {
-    if (items.length >= MAX) break
-    if (selectedTags.includes(tid) || seen.has(`t:${tid}`)) continue
-    const t = tags.find((t) => t.id === tid)
-    if (t) pushTag(t)
+function normalizeTagCategoryId(categoryId: string): string {
+  if (categoryId === "systemType") return "status"
+  if (categoryId === "timedate") return "date"
+  return categoryId || "custom"
+}
+
+function normalizeSuggestionText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+function tokenizeSuggestionText(value: string): Set<string> {
+  const stopWords = new Set([
+    "the", "and", "for", "with", "this", "that", "you", "your", "from",
+    "una", "uno", "para", "con", "que", "del", "las", "los", "por", "este", "esta",
+  ])
+  return new Set(
+    normalizeSuggestionText(value)
+      .split(" ")
+      .filter((token) => token.length > 1 && !stopWords.has(token))
+  )
+}
+
+function scoreTextEvidence(text: string, textTokens: Set<string>, rawPhrases: string[]): number {
+  if (!text) return 0
+  let score = 0
+  for (const rawPhrase of rawPhrases) {
+    const phrase = normalizeSuggestionText(rawPhrase)
+    if (!phrase) continue
+    const phraseTokens = phrase.split(" ").filter(Boolean)
+    if (` ${text} ` === ` ${phrase} `) score = Math.max(score, 120)
+    else if (` ${text} `.includes(` ${phrase} `)) score = Math.max(score, phraseTokens.length > 1 ? 88 : 66)
+    else {
+      const matched = phraseTokens.filter((token) => textTokens.has(token)).length
+      if (matched > 0) {
+        const ratio = matched / phraseTokens.length
+        score = Math.max(score, Math.round(24 + ratio * 36 + Math.min(matched, 3) * 5))
+      }
+    }
+  }
+  return score
+}
+
+function getTagSemanticAliases(
+  tag: MessageTag,
+  categoryId: string,
+  systemType: ReturnType<typeof parseSystemTypeTagId>
+): string[] {
+  const aliases: string[] = []
+  if (systemType === "progress") aliases.push("progress", "avance", "update", "actualizacion", "done", "completed", "finished")
+  if (systemType === "problem") aliases.push("problem", "issue", "bug", "blocked", "bloqueado", "error", "crash", "broken")
+  if (systemType === "decision") aliases.push("decision", "decided", "approved", "resolved", "aprobado", "decidido")
+  if (systemType === "feedback") aliases.push("feedback", "review", "revision", "check", "comment", "notes")
+  if (categoryId === "task") aliases.push("task", "todo", "to do", "pending", "pendiente", "accion", "action")
+  if (categoryId === "date") aliases.push("date", "fecha", "calendar", "calendario")
+  if (categoryId === "report") aliases.push("report", "daily", "weekly", "standup", "analytics", "reporte", "informe")
+  if (categoryId === "custom") aliases.push(tag.name)
+  return aliases
+}
+
+function scoreRecentStats(stats: RecentAssociationStats | undefined, baseDate: Date): number {
+  if (!stats) return 0
+  return Math.min(stats.count * 14, 54) + scoreTimestampRecency(stats.last, baseDate, 22)
+}
+
+function scoreRecency(date: Date | null | undefined, baseDate: Date, max = 18): number {
+  if (!date) return 0
+  return scoreTimestampRecency(date.getTime(), baseDate, max)
+}
+
+function scoreTimestampRecency(time: number, baseDate: Date, max: number): number {
+  if (!time) return 0
+  const ageDays = Math.max(0, (baseDate.getTime() - time) / 86400000)
+  if (ageDays <= 1) return max
+  if (ageDays <= 7) return Math.round(max * 0.75)
+  if (ageDays <= 30) return Math.round(max * 0.45)
+  if (ageDays <= 90) return Math.round(max * 0.2)
+  return 0
+}
+
+function scoreSelectedTagCooccurrence(tagId: string, selectedTags: string[], messages: Message[]): number {
+  if (selectedTags.length === 0) return 0
+  let matches = 0
+  for (const message of messages) {
+    const ids = getMessageTagIds(message)
+    if (ids.includes(tagId) && selectedTags.some((selected) => ids.includes(selected))) matches += 1
+  }
+  return Math.min(matches * 16, 44)
+}
+
+function scoreContextCooccurrence(contextId: string, selectedTags: string[], messages: Message[]): number {
+  if (selectedTags.length === 0) return 0
+  let matches = 0
+  for (const message of messages) {
+    const contextIds = message.contextIds ?? []
+    if (!contextIds.includes(contextId)) continue
+    const tagIds = getMessageTagIds(message)
+    if (selectedTags.some((selected) => tagIds.includes(selected))) matches += 1
+  }
+  return Math.min(matches * 18, 48)
+}
+
+type DateSuggestionHit = {
+  date: string
+  detail: string
+  score: number
+}
+
+function extractExplicitDateSuggestions(text: string, baseDate: Date): DateSuggestionHit[] {
+  const hits = new Map<string, DateSuggestionHit>()
+
+  function add(date: Date, detail: string, score: number) {
+    const iso = toDateInputValue(date)
+    const current = hits.get(iso)
+    if (!current || score > current.score) hits.set(iso, { date: iso, detail, score })
   }
 
-  // Fallback: date chip
-  if (items.length < MAX) pushDate()
-
-  // Fallback: any unselected tag
-  for (const t of tags) {
-    if (items.length >= MAX) break
-    if (selectedTags.includes(t.id) || seen.has(`t:${t.id}`)) continue
-    pushTag(t)
+  const isoRegex = /\b((?:19|20)\d{2})-(0?[1-9]|1[0-2])-([0-2]?\d|3[01])\b/g
+  for (const match of text.matchAll(isoRegex)) {
+    const date = buildValidDate(Number(match[1]), Number(match[2]), Number(match[3]))
+    if (date) add(date, "Exact date", 150)
   }
 
-  // Hide rule: need ≥ 2 candidates
-  if (items.length < 2) return []
-  return items.slice(0, MAX)
+  const numericRegex = /\b([0-2]?\d|3[01])[/.](0?[1-9]|1[0-2])(?:[/.]((?:19|20)?\d{2}))?\b/g
+  for (const match of text.matchAll(numericRegex)) {
+    const day = Number(match[1])
+    const month = Number(match[2])
+    const year = normalizeMatchedYear(match[3], baseDate)
+    const date = buildValidDate(year, month, day)
+    if (date) add(rollForwardIfYearMissing(date, baseDate, !match[3]), "Exact date", 146)
+  }
+
+  const englishMonthRegex = /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec)\s+([0-2]?\d|3[01])(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\b/gi
+  for (const match of text.matchAll(englishMonthRegex)) {
+    const month = MONTH_NAME_TO_INDEX[normalizeSuggestionText(match[1])]
+    const day = Number(match[2])
+    const year = match[3] ? Number(match[3]) : baseDate.getFullYear()
+    const date = buildValidDate(year, month, day)
+    if (date) add(rollForwardIfYearMissing(date, baseDate, !match[3]), "Exact date", 146)
+  }
+
+  const englishDayMonthRegex = /\b([0-2]?\d|3[01])(?:st|nd|rd|th)?\s+(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec)(?:,?\s+((?:19|20)\d{2}))?\b/gi
+  for (const match of text.matchAll(englishDayMonthRegex)) {
+    const day = Number(match[1])
+    const month = MONTH_NAME_TO_INDEX[normalizeSuggestionText(match[2])]
+    const year = match[3] ? Number(match[3]) : baseDate.getFullYear()
+    const date = buildValidDate(year, month, day)
+    if (date) add(rollForwardIfYearMissing(date, baseDate, !match[3]), "Exact date", 144)
+  }
+
+  const spanishMonthRegex = /\b([0-2]?\d|3[01])\s+(?:de\s+)?(enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|setiembre|sep|sept|octubre|oct|noviembre|nov|diciembre|dic)(?:\s+(?:de\s+)?((?:19|20)\d{2}))?\b/gi
+  for (const match of text.matchAll(spanishMonthRegex)) {
+    const day = Number(match[1])
+    const month = MONTH_NAME_TO_INDEX[normalizeSuggestionText(match[2])]
+    const year = match[3] ? Number(match[3]) : baseDate.getFullYear()
+    const date = buildValidDate(year, month, day)
+    if (date) add(rollForwardIfYearMissing(date, baseDate, !match[3]), "Exact date", 144)
+  }
+
+  if (/\b(tomorrow|manana)\b/i.test(normalizeSuggestionText(text))) {
+    const tomorrow = startOfLocalDay(baseDate)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    add(tomorrow, "Tomorrow", 132)
+  }
+
+  const normalizedText = normalizeSuggestionText(text)
+  for (const weekday of WEEKDAY_ALIASES) {
+    const regex = new RegExp(`\\b(?:next\\s+|proximo\\s+|proxima\\s+)?(?:${weekday.alias})\\b`, "i")
+    const match = normalizedText.match(regex)
+    if (!match) continue
+    const nextDate = nextWeekdayDate(baseDate, weekday.day, /^\s*(next|proximo|proxima)\b/i.test(match[0]))
+    add(nextDate, capitalizeFirst(weekday.label), 128)
+  }
+
+  return [...hits.values()].sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
+}
+
+const MONTH_NAME_TO_INDEX: Record<string, number> = {
+  january: 1, jan: 1, enero: 1, ene: 1,
+  february: 2, feb: 2, febrero: 2,
+  march: 3, mar: 3, marzo: 3,
+  april: 4, apr: 4, abril: 4, abr: 4,
+  may: 5, mayo: 5,
+  june: 6, jun: 6, junio: 6,
+  july: 7, jul: 7, julio: 7,
+  august: 8, aug: 8, agosto: 8, ago: 8,
+  september: 9, sep: 9, sept: 9, septiembre: 9, setiembre: 9,
+  october: 10, oct: 10, octubre: 10,
+  november: 11, nov: 11, noviembre: 11,
+  december: 12, dec: 12, diciembre: 12, dic: 12,
+}
+
+const WEEKDAY_ALIASES = [
+  { alias: "sunday|domingo", day: 0, label: "Sunday" },
+  { alias: "monday|lunes", day: 1, label: "Monday" },
+  { alias: "tuesday|martes", day: 2, label: "Tuesday" },
+  { alias: "wednesday|miercoles", day: 3, label: "Wednesday" },
+  { alias: "thursday|jueves", day: 4, label: "Thursday" },
+  { alias: "friday|viernes", day: 5, label: "Friday" },
+  { alias: "saturday|sabado", day: 6, label: "Saturday" },
+]
+
+function normalizeMatchedYear(value: string | undefined, baseDate: Date): number {
+  if (!value) return baseDate.getFullYear()
+  const year = Number(value)
+  if (value.length === 2) return year >= 70 ? 1900 + year : 2000 + year
+  return year
+}
+
+function buildValidDate(year: number, month: number, day: number): Date | null {
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date
+}
+
+function rollForwardIfYearMissing(date: Date, baseDate: Date, yearMissing: boolean): Date {
+  if (!yearMissing) return date
+  const base = startOfLocalDay(baseDate)
+  const next = new Date(date)
+  if (next.getTime() < base.getTime()) next.setFullYear(next.getFullYear() + 1)
+  return next
+}
+
+function nextWeekdayDate(baseDate: Date, targetDay: number, explicitNext: boolean): Date {
+  const date = startOfLocalDay(baseDate)
+  let delta = (targetDay - date.getDay() + 7) % 7
+  if (explicitNext && delta === 0) delta = 7
+  date.setDate(date.getDate() + delta)
+  return date
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function capitalizeFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function tagDotClass(tag: MessageTag): string {

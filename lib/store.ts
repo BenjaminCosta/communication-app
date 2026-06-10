@@ -143,6 +143,21 @@ export interface Tag {
   lastUsedAt?: Date | null
 }
 
+export interface ContextField {
+  label: string
+  value: string
+}
+
+export interface AppContext {
+  id: string
+  name: string
+  description?: string
+  fields: ContextField[]
+  createdBy: string  // Firebase UID
+  createdAt: Date
+  updatedAt: Date
+}
+
 /**
  * A date entry attached to a message for calendar display.
  * A message can have multiple dates (e.g. repeating deadlines).
@@ -196,6 +211,7 @@ export interface Message {
   imageBlurHash?: string
   imageUploadedAt?: Date
   calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
+  contextIds?: string[]           // IDs from /contexts collection — business context (never affects visibility)
   replyToId?: string              // ID of the message being replied to
   replyPreview?: ReplyPreview     // denormalized preview of the original message
 }
@@ -210,6 +226,7 @@ export interface MessageDraft {
   type: MessageType
   imageFile?: File | null
   calendarDates?: string[]    // "YYYY-MM-DD" strings; page.tsx wraps to CalendarDate[]
+  contextIds?: string[]       // IDs from /contexts collection
   replyToId?: string
   replyPreview?: ReplyPreview
 }

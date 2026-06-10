@@ -1,0 +1,180 @@
+"use client"
+
+import { useState } from "react"
+import { ArrowLeft, Hash, Plus, Search, X } from "lucide-react"
+import { cn } from "@/lib/utils"
+import type { AppContext } from "@/lib/store"
+import { CreateContextModal } from "@/components/create-context-modal"
+
+interface ContextsScreenProps {
+  contexts: AppContext[]
+  onBack: () => void
+  onContextSelect: (id: string) => void
+  onCreateContext: (name: string, description?: string) => Promise<AppContext>
+  className?: string
+}
+
+export function ContextsScreen({
+  contexts,
+  onBack,
+  onContextSelect,
+  onCreateContext,
+  className,
+}: ContextsScreenProps) {
+  const [query, setQuery] = useState("")
+  const [creating, setCreating] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? contexts.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.description ?? "").toLowerCase().includes(q)
+      )
+    : [...contexts].sort((a, b) => a.name.localeCompare(b.name))
+
+  const exactMatch = contexts.some((c) => c.name.toLowerCase() === q)
+  const showCreate = q.length > 0 && !exactMatch
+
+  const handleCreate = async () => {
+    if (!query.trim() || creating) return
+    setCreating(true)
+    try {
+      await onCreateContext(query.trim())
+      setQuery("")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className={cn("flex-1 flex flex-col stream-glass-screen overflow-hidden", className)}>
+      {/* Header */}
+      <div className="flex-shrink-0 border-b border-white/10 animate-slide-down">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
+          >
+            <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <h1 className="text-base font-bold tracking-tight flex-1">Contexts</h1>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="w-8 h-8 rounded-full bg-emerald-400/15 border border-emerald-400/25 flex items-center justify-center active:scale-95 hover:bg-emerald-400/20 transition-all duration-150"
+          >
+            <Plus className="w-3.5 h-3.5 text-emerald-400" />
+          </button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="max-w-2xl mx-auto w-full px-4 md:px-6 pt-4 pb-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search or create context..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && showCreate) handleCreate() }}
+            autoFocus
+            className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm placeholder:text-muted-foreground/60 outline-none focus:border-emerald-400/40 focus:bg-white/8 transition-all"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto scrollbar-hide">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 pb-10">
+
+          {/* Create suggestion */}
+          {showCreate && (
+            <div className="mb-4">
+              <button
+                onClick={handleCreate}
+                disabled={creating}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-dashed border-emerald-400/35 bg-emerald-400/8 hover:bg-emerald-400/12 active:scale-[0.99] transition-all disabled:opacity-50"
+              >
+                <div className="w-8 h-8 rounded-xl border border-emerald-400/30 bg-emerald-400/15 flex items-center justify-center shrink-0">
+                  <Plus className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-left">
+                  <span className="text-sm font-semibold text-emerald-300">
+                    {creating ? "Creating…" : `Create "${query.trim()}"`}
+                  </span>
+                  <p className="text-xs text-muted-foreground/60 mt-0.5">New global context</p>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Context list */}
+          {filtered.length === 0 && !showCreate ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                <Hash className="w-5 h-5 text-muted-foreground/50" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground/70">
+                  {q ? "No contexts found" : "No contexts yet"}
+                </p>
+                <p className="text-xs text-muted-foreground/50 mt-1">
+                  {q
+                    ? "Try a different search or create a new one above"
+                    : "Type above to search or create your first context"}
+                </p>
+              </div>
+            </div>
+          ) : filtered.length > 0 ? (
+            <div className="rounded-2xl bg-card border border-white/10 overflow-hidden divide-y divide-white/8">
+              {filtered.map((ctx) => (
+                <button
+                  key={ctx.id}
+                  onClick={() => onContextSelect(ctx.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 active:bg-white/8 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-xl border border-emerald-400/25 bg-emerald-400/10 flex items-center justify-center shrink-0">
+                    <Hash className="w-3.5 h-3.5 text-emerald-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold truncate block">{ctx.name}</span>
+                    {ctx.description && (
+                      <span className="text-xs text-muted-foreground/60 truncate block">
+                        {ctx.description}
+                      </span>
+                    )}
+                    {ctx.fields.length > 0 && (
+                      <span className="text-xs text-muted-foreground/40">
+                        {ctx.fields.length} field{ctx.fields.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {showCreateModal && (
+        <CreateContextModal
+          onClose={() => setShowCreateModal(false)}
+          onSubmit={async (name, description) => {
+            await onCreateContext(name, description || undefined)
+            setTimeout(() => setShowCreateModal(false), 900)
+          }}
+        />
+      )}
+    </div>
+  )
+}

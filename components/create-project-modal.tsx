@@ -21,9 +21,13 @@ export function CreateProjectModal({ onClose, onSubmit, contacts: _contacts, cus
   const [categorySearch, setCategorySearch] = useState("")
   const [showCategoryPicker, setShowCategoryPicker] = useState(false)
 
+  const _sysNames = new Set(SYSTEM_CATEGORIES.map(s => s.name.toLowerCase()).concat(["custom","type"]))
   const allCategories: CategoryItem[] = [
     ...SYSTEM_CATEGORIES.filter(c => c.id !== "date"),
-    ...customCategories.filter(c => !SYSTEM_CATEGORIES.some(s => s.id === c.id)),
+    ...customCategories.filter(c =>
+      !SYSTEM_CATEGORIES.some(s => s.id === c.id) &&
+      !_sysNames.has(c.name.trim().toLowerCase())
+    ),
   ]
 
   const handleCreate = () => {

@@ -1,24 +1,35 @@
 "use client"
 
 import { useState } from "react"
-import { X, Tag, FolderPlus, ArrowRight, Check } from "lucide-react"
+import { X, Tag, FolderPlus, Hash, ArrowRight, Check } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { SYSTEM_CATEGORIES } from "@/lib/store"
 
 interface UniversalAddModalProps {
   onClose: () => void
   onChooseTag: () => void
   onCreateCategory: (name: string) => Promise<void> | void
+  onChooseContext?: () => void
 }
 
-export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory }: UniversalAddModalProps) {
+export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory, onChooseContext }: UniversalAddModalProps) {
   const [mode, setMode] = useState<"choose" | "category">("choose")
   const [catName, setCatName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const RESERVED = new Set([
+    ...SYSTEM_CATEGORIES.map(c => c.name.toLowerCase()),
+    "custom", "type", "unassigned",
+  ])
+
   const handleCreateCategory = async () => {
     if (!catName.trim()) return
+    if (RESERVED.has(catName.trim().toLowerCase())) {
+      setError(`"${catName.trim()}" is a system category. Choose a different name.`)
+      return
+    }
     setIsCreating(true)
     setError(null)
     try {
@@ -99,6 +110,22 @@ export function UniversalAddModal({ onClose, onChooseTag, onCreateCategory }: Un
                 </div>
                 <ArrowRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-foreground/60 transition-colors" />
               </button>
+
+              {onChooseContext && (
+                <button
+                  onClick={() => { onChooseContext(); onClose() }}
+                  className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-emerald-400/8 hover:border-emerald-400/25 active:scale-[0.98] transition-all text-left group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-emerald-400/15 border border-emerald-400/25 flex items-center justify-center flex-shrink-0">
+                    <Hash className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground">Context</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Global business context</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-emerald-400/60 transition-colors" />
+                </button>
+              )}
             </div>
           </div>
         )}

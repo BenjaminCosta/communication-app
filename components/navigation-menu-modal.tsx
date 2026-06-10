@@ -1,9 +1,9 @@
 "use client"
 
-import { CalendarDays, LayoutGrid, MessageSquare, Tag, Users, X } from "lucide-react"
+import { CalendarDays, Hash, Tag, Users, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type NavTarget = "stream" | "people" | "projects" | "calendar"
+type NavTarget = "stream" | "people" | "projects" | "calendar" | "contexts"
 
 interface NavigationMenuModalProps {
   onClose: () => void
@@ -22,14 +22,14 @@ const NAV_ITEMS: {
   dotClass: string       // active indicator dot color
 }[] = [
   {
-    id: "stream",
-    icon: <MessageSquare className="w-4.5 h-4.5" />,
-    title: "Stream",
-    description: "Your message feed",
-    iconClass: "text-blue-200 bg-blue-400/18 border-blue-200/35",
-    glowClass: "hover:border-blue-200/35 hover:bg-blue-400/12",
-    activeClass: "border-blue-200/50 bg-blue-400/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(37,99,235,0.22)]",
-    dotClass: "bg-blue-300",
+    id: "contexts",
+    icon: <Hash className="w-4.5 h-4.5" />,
+    title: "Contexts",
+    description: "Business context",
+    iconClass: "text-emerald-100 bg-emerald-400/18 border-emerald-200/35",
+    glowClass: "hover:border-emerald-200/35 hover:bg-emerald-400/12",
+    activeClass: "border-emerald-200/50 bg-emerald-400/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_38px_rgba(52,211,153,0.18)]",
+    dotClass: "bg-emerald-300",
   },
   {
     id: "people",

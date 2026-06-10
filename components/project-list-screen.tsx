@@ -138,7 +138,9 @@ export function ProjectListScreen({
       cats.push({ id: catId, label: config.label })
     }
     for (const c of customCategories) {
-      if (!cats.some(cat => cat.id === c.id)) {
+      // Skip if id or name (case-insensitive) already exists as a system category
+      const nameLower = c.name.trim().toLowerCase()
+      if (!cats.some(cat => cat.id === c.id || cat.label.toLowerCase() === nameLower)) {
         cats.push({ id: c.id, label: c.name })
       }
     }

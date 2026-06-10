@@ -10,6 +10,7 @@ import {
   type Project,
   type CategoryItem,
   type Tag as MessageTag,
+  type AppContext,
   formatTime,
   systemTypeTagId,
   getCategoryLabel,
@@ -23,13 +24,15 @@ interface GlobalSearchSheetProps {
   projects?: Project[]
   customCategories?: CategoryItem[]
   availableTags?: MessageTag[]
+  contexts?: AppContext[]
   currentUserId?: string
   onMessageClick?: (message: Message) => void
   onPersonFilterClick?: (personId: string) => void
   onTagFilterClick?: (tagId: string) => void
+  onContextFilterClick?: (contextId: string) => void
 }
 
-type ResultSection = "messages" | "people" | "tags" | "dates"
+type ResultSection = "messages" | "people" | "tags" | "dates" | "contexts"
 
 const SECTION_META: Record<ResultSection, {
   label: string
@@ -71,6 +74,14 @@ const SECTION_META: Record<ResultSection, {
     iconBg: "bg-sky-400/12 border-sky-400/20",
     activeBg: "active:bg-sky-400/10",
   },
+  contexts: {
+    label: "Contexts",
+    icon: <Hash className="w-3.5 h-3.5" />,
+    color: "text-emerald-400",
+    sectionBg: "bg-emerald-400/[0.07]",
+    iconBg: "bg-emerald-400/12 border-emerald-400/20",
+    activeBg: "active:bg-emerald-400/10",
+  },
 }
 
 export function GlobalSearchSheet({
@@ -81,9 +92,11 @@ export function GlobalSearchSheet({
   projects: _projects = [],
   customCategories = [],
   availableTags = [],
+  contexts = [],
   onMessageClick,
   onPersonFilterClick,
   onTagFilterClick,
+  onContextFilterClick,
 }: GlobalSearchSheetProps) {
   const [query, setQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
@@ -165,8 +178,24 @@ export function GlobalSearchSheet({
         })
     : []
 
-  const hasResults = messageResults.length > 0 || peopleResults.length > 0 || tagResults.length > 0 || dateResults.length > 0
-  const resultSections: ResultSection[] = ["messages", "people", "tags", "dates"]
+  const contextResults: SearchResult[] = hasQuery
+    ? contexts
+        .filter((c) =>
+          c.name.toLowerCase().includes(trimmed) ||
+          (c.description ?? "").toLowerCase().includes(trimmed) ||
+          c.fields.some((f) => f.label.toLowerCase().includes(trimmed) || f.value.toLowerCase().includes(trimmed))
+        )
+        .slice(0, 5)
+        .map((c) => ({
+          id: c.id,
+          primary: c.name,
+          secondary: c.description || (c.fields.length > 0 ? `${c.fields.length} field${c.fields.length !== 1 ? "s" : ""}` : "Context"),
+          onClick: () => { onContextFilterClick?.(c.id); onClose() },
+        }))
+    : []
+
+  const hasResults = messageResults.length > 0 || peopleResults.length > 0 || tagResults.length > 0 || dateResults.length > 0 || contextResults.length > 0
+  const resultSections: ResultSection[] = ["messages", "people", "tags", "dates", "contexts"]
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col animate-fade-in">
@@ -195,7 +224,7 @@ export function GlobalSearchSheet({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search messages, people, tags, dates..."
+            placeholder="Search messages, people, tags, contexts..."
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-white/25 outline-none"
           />
           {hasQuery && (
@@ -224,7 +253,7 @@ export function GlobalSearchSheet({
               </div>
               <p className="text-sm font-semibold text-white/50">Search everything</p>
               <p className="text-xs text-white/30 text-center leading-relaxed">
-                Messages, people, tags, and calendar dates
+                Messages, people, tags, dates and contexts
               </p>
               {/* Scope hints */}
               <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
@@ -250,6 +279,7 @@ export function GlobalSearchSheet({
               <SearchResultSection section="people" results={peopleResults} />
               <SearchResultSection section="tags" results={tagResults} />
               <SearchResultSection section="dates" results={dateResults} />
+              <SearchResultSection section="contexts" results={contextResults} />
               {!hasResults && (
                 <div className="flex flex-col items-center justify-center gap-2 py-10 px-8 animate-fade-up">
                   <Hash className="w-5 h-5 text-white/20" />
