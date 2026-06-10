@@ -6,8 +6,9 @@
  * Requires GOOGLE_APPLICATION_CREDENTIALS pointing to a service account JSON.
  *
  * Rules:
- *   visibleToUserIds = author + direct recipients + members of associated project-tags
- *   If no tags and no recipients → visibleToUserIds = [authorId] (private/unassigned)
+ *   visibleToUserIds = author + direct recipients (recipientIds) only.
+ *   Tag/project membership no longer grants visibility (tagVisibilityV1 migration).
+ *   If no recipients → visibleToUserIds = [authorId] (private/unassigned)
  *
  * Safety:
  *   - Never removes existing fields (participants, recipientIds, tagIds, etc.)
@@ -28,11 +29,6 @@ if (!SA_PATH) {
 }
 
 const DRY_RUN = process.env.DRY_RUN === "true"
-const PROJECT_TAG_PREFIX = "project:"
-
-function parseProjectTagId(tagId) {
-  return tagId.startsWith(PROJECT_TAG_PREFIX) ? tagId.slice(PROJECT_TAG_PREFIX.length) : null
-}
 
 const serviceAccount = JSON.parse(readFileSync(SA_PATH, "utf8"))
 initializeApp({ credential: cert(serviceAccount) })
@@ -46,15 +42,6 @@ async function migrate() {
   console.log(`  Project:  ${serviceAccount.project_id}`)
   console.log(`  Mode:     ${DRY_RUN ? "DRY RUN (no writes)" : "LIVE — will write to Firestore"}`)
   console.log("")
-
-  // Load all projects → map projectId → memberIds
-  const projectsSnap = await db.collection("projects").get()
-  const projectMembers = new Map()
-  projectsSnap.docs.forEach((d) => {
-    const data = d.data()
-    projectMembers.set(d.id, Array.isArray(data.members) ? data.members.filter(Boolean) : [])
-  })
-  console.log(`  Projects loaded: ${projectsSnap.size}`)
 
   // Load all messages
   const messagesSnap = await db.collection("messages").get()
@@ -76,30 +63,11 @@ async function migrate() {
     }
 
     const recipientIds = Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : []
-    const tagIds = Array.isArray(data.tagIds) ? data.tagIds.filter(Boolean) : []
 
-    // Legacy project fields (in addition to tagIds)
-    const legacyProjectIds = [
-      ...(Array.isArray(data.projectIds) ? data.projectIds : []),
-      data.projectId ?? null,
-      data.project_id ?? null,
-    ].filter(Boolean)
-
-    // Compute visibleToUserIds
+    // Compute visibleToUserIds: author + explicit recipients only.
+    // Tag/project membership no longer grants visibility (tagVisibilityV1 migration).
     const visible = new Set([authorId])
     recipientIds.forEach((id) => visible.add(id))
-    tagIds.forEach((tagId) => {
-      const projectId = parseProjectTagId(tagId)
-      if (projectId) {
-        const members = projectMembers.get(projectId) ?? []
-        members.forEach((id) => visible.add(id))
-      }
-    })
-    // Legacy projectId/projectIds fields
-    legacyProjectIds.forEach((projectId) => {
-      const members = projectMembers.get(projectId) ?? []
-      members.forEach((id) => visible.add(id))
-    })
 
     const visibleToUserIds = [...visible]
 

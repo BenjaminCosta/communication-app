@@ -21,7 +21,15 @@
     "emulator:test-calendar": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-calendar.mjs",
     "migrate:tags": "node scripts/normalize-tags-v1.mjs",
     "backfill:image-dims": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs",
-    "backfill:image-dims:dry": "DRY_RUN=1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs"
+    "backfill:image-dims:dry": "DRY_RUN=1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs",
+    "inspect:tag-visibility": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/inspect-tag-visibility.mjs",
+    "inspect:tag-visibility:prod": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/inspect-tag-visibility.mjs",
+    "backfill:recipients:dry": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
+    "backfill:recipients": "DRY_RUN=false FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
+    "backfill:recipients:dry:prod": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-explicit-recipients.mjs",
+    "backfill:recipients:prod": "DRY_RUN=false CONFIRM_PROD_MIGRATION=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-explicit-recipients.mjs",
+    "backfill:recipients:verify": "VERIFY=true FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
+    "backfill:recipients:verify:prod": "VERIFY=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-explicit-recipients.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

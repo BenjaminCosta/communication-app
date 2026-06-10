@@ -6,8 +6,9 @@
  * NEVER runs against production — requires FIRESTORE_EMULATOR_HOST to be set.
  *
  * Logic:
- *   visibleToUserIds = author + direct recipients + members of all associated tags/projects
- *   If no tags and no recipients → visibleToUserIds = [authorId] (private/unassigned)
+ *   visibleToUserIds = author + direct recipients (recipientIds) only.
+ *   Tag/project membership no longer grants visibility (tagVisibilityV1 migration).
+ *   If no recipients → visibleToUserIds = [authorId] (private/unassigned)
  *
  * Safety:
  *   - Read-only check against emulator guard variable
@@ -36,12 +37,6 @@ if (!emulatorHost) {
   process.exit(1)
 }
 
-const PROJECT_TAG_PREFIX = "project:"
-
-function parseProjectTagId(tagId) {
-  return tagId.startsWith(PROJECT_TAG_PREFIX) ? tagId.slice(PROJECT_TAG_PREFIX.length) : null
-}
-
 // ── Connect to emulator ──────────────────────────────────────────────────────
 
 const app = initializeApp({ projectId: "svc-comms" })
@@ -57,15 +52,6 @@ async function migrate() {
   console.log("══════════════════════════════════════════════")
   console.log(`  Emulator: ${emulatorHost}`)
   console.log("")
-
-  // Load all projects → map projectId → memberIds
-  const projectsSnap = await db.collection("projects").get()
-  const projectMembers = new Map()
-  projectsSnap.docs.forEach((d) => {
-    const data = d.data()
-    projectMembers.set(d.id, Array.isArray(data.members) ? data.members.filter(Boolean) : [])
-  })
-  console.log(`Loaded ${projectsSnap.size} projects`)
 
   // Load all messages
   const messagesSnap = await db.collection("messages").get()
@@ -87,35 +73,11 @@ async function migrate() {
     }
 
     const recipientIds = Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : []
-    const tagIds = Array.isArray(data.tagIds) ? data.tagIds.filter(Boolean) : []
 
-    // Legacy project fields (in addition to tagIds)
-    const legacyProjectIds = [
-      ...(Array.isArray(data.projectIds) ? data.projectIds : []),
-      data.projectId ?? null,
-      data.project_id ?? null,
-    ].filter(Boolean)
-
-    // ── Compute visibleToUserIds ─────────────────────────────────────────────
+    // ── Compute visibleToUserIds: author + explicit recipients only ───────────
+    // Tag/project membership no longer grants visibility (tagVisibilityV1 migration).
     const visible = new Set([authorId])
-
-    // Direct recipients
     recipientIds.forEach((id) => visible.add(id))
-
-    // Project-tag members: tagIds like "project:xxx"
-    tagIds.forEach((tagId) => {
-      const projectId = parseProjectTagId(tagId)
-      if (projectId) {
-        const members = projectMembers.get(projectId) ?? []
-        members.forEach((id) => visible.add(id))
-      }
-    })
-
-    // Legacy: members from projectId / projectIds fields
-    legacyProjectIds.forEach((projectId) => {
-      const members = projectMembers.get(projectId) ?? []
-      members.forEach((id) => visible.add(id))
-    })
 
     const visibleToUserIds = [...visible]
 

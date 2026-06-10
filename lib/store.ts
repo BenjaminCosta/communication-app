@@ -435,24 +435,19 @@ export function sortTagsByActivity(tags: Tag[], messages: Message[]): Tag[] {
 
 /**
  * Compute visibleToUserIds from first-principles.
- * Rule: author + direct recipients + members of all project-tags associated.
+ * Rule: author + explicit recipients only.
+ * Tags and project membership do NOT grant visibility.
  * If nothing → [authorId] only (private/unassigned message).
+ *
+ * Migration note: tag-member visibility was removed in tagVisibilityV1.
+ * All implicit recipients were backfilled into recipientIds before this change.
  */
 export function computeVisibleToUserIds(
   authorId: string,
-  recipientIds: string[],
-  tagIds: string[],
-  projects: Project[]
+  recipientIds: string[]
 ): string[] {
   const visible = new Set<string>([authorId].filter(Boolean))
   recipientIds.filter(Boolean).forEach((id) => visible.add(id))
-  tagIds.forEach((tagId) => {
-    const projectId = parseProjectTagId(tagId)
-    if (projectId) {
-      const project = projects.find((p) => p.id === projectId)
-      project?.members.filter(Boolean).forEach((id) => visible.add(id))
-    }
-  })
   return [...visible]
 }
 

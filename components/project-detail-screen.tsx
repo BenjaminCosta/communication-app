@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { ArrowLeft, UserPlus, Star, Trash2, Tag, Copy } from "lucide-react"
+import { ArrowLeft, Star, Trash2, Tag, Copy } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import {
   type Project,
@@ -15,7 +15,6 @@ import {
   MESSAGE_TYPE_CONFIG,
   projectTagId,
 } from "@/lib/store"
-import { AddMembersModal } from "@/components/add-members-modal"
 import { MessageInputBar } from "@/components/message-input-bar"
 import { MessageImage } from "@/components/message-image"
 
@@ -25,7 +24,6 @@ interface ProjectDetailScreenProps {
   project: Project
   messages: Message[]
   onBack: () => void
-  onUpdateMembers: (projectId: string, memberIds: string[]) => void
   onMessageClick: (message: Message) => void
   onDeleteMessage: (id: string) => void
   onFavoriteMessage: (id: string) => void
@@ -42,7 +40,6 @@ export function ProjectDetailScreen({
   project,
   messages,
   onBack,
-  onUpdateMembers,
   onMessageClick,
   onDeleteMessage,
   onFavoriteMessage,
@@ -54,7 +51,6 @@ export function ProjectDetailScreen({
   currentUserId,
   currentUser,
 }: ProjectDetailScreenProps) {
-  const [showMembers, setShowMembers] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<string | null>(null)
   const [quickText, setQuickText] = useState("")
@@ -102,10 +98,6 @@ export function ProjectDetailScreen({
     .filter((m) => messageHasProject(m, project.id))
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
-  const memberContacts = project.members
-    .map((id) => allContacts.find((c) => c.id === id))
-    .filter(Boolean) as Contact[]
-
   const selectedMsg = selectedMsgId ? projectMessages.find((m) => m.id === selectedMsgId) : null
 
   return (
@@ -123,69 +115,6 @@ export function ProjectDetailScreen({
             <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", project.color)} />
             <h1 className="text-base font-bold tracking-tight truncate">{project.name}</h1>
           </div>
-          <button
-            onClick={() => setShowMembers(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-muted-foreground text-xs font-semibold active:scale-95 hover:bg-white/8 transition-all duration-150"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            People
-          </button>
-        </div>
-      </div>
-
-      {/* Members strip */}
-      <div className="flex-shrink-0 border-b border-white/5">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 py-3">
-          {memberContacts.length === 0 ? (
-            <button
-              onClick={() => setShowMembers(true)}
-              className="flex items-center gap-2 text-xs text-muted-foreground/50 active:opacity-70 transition-opacity"
-            >
-              <div className="w-7 h-7 rounded-full border border-dashed border-white/20 flex items-center justify-center">
-                <UserPlus className="w-3.5 h-3.5" />
-              </div>
-              <span>Add people to this tag</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex -space-x-2">
-                {memberContacts.slice(0, 5).map((contact) => (
-                  <div
-                    key={contact.id}
-                    title={contact.name}
-                    className={cn(
-                      "w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white shrink-0",
-                      contact.color
-                    )}
-                  >
-                    {contact.initials}
-                  </div>
-                ))}
-                {memberContacts.length > 5 && (
-                  <div className="w-7 h-7 rounded-full border-2 border-background bg-white/10 flex items-center justify-center text-[10px] font-bold text-muted-foreground">
-                    +{memberContacts.length - 5}
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[11px] font-semibold text-foreground/80 leading-tight">
-                  {memberContacts.length === 1
-                    ? memberContacts[0].name
-                    : memberContacts.slice(0, 2).map(c => c.name.split(" ")[0]).join(", ") +
-                      (memberContacts.length > 2 ? ` +${memberContacts.length - 2}` : "")}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {memberContacts.length} {memberContacts.length !== 1 ? "people" : "person"}
-                </span>
-              </div>
-              <button
-                onClick={() => setShowMembers(true)}
-                className="ml-auto text-[11px] text-primary/70 font-semibold active:opacity-70 transition-opacity"
-              >
-                Edit
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -322,19 +251,6 @@ export function ProjectDetailScreen({
           </div>
         )}
       </div>
-
-      {/* Add Members modal */}
-      {showMembers && (
-        <AddMembersModal
-          contacts={contacts}
-          currentMembers={project.members}
-          onSave={(ids) => {
-            onUpdateMembers(project.id, ids)
-            setShowMembers(false)
-          }}
-          onClose={() => setShowMembers(false)}
-        />
-      )}
 
     </div>
   )

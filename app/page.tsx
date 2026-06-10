@@ -530,12 +530,6 @@ export default function Home() {
     [firebaseUser, showToast]
   )
 
-  const handleUpdateProjectMembers = useCallback(
-    async (projectId: string, memberIds: string[]) => {
-      await updateDoc(doc(db, "projects", projectId), { members: memberIds })
-    },
-    []
-  )
 
   const handleDeleteProject = useCallback(
     async (id: string) => {
@@ -547,12 +541,10 @@ export default function Home() {
       affected.forEach((m) => {
         const remaining = getMessageProjectIds(m).filter((projectId) => projectId !== id)
         const remainingTagIds = getMessageTagIds(m).filter((tagId) => tagId !== projectTagId(id))
-        // Recompute visibility without the deleted project's members
+        // Recompute visibility: author + explicit recipients only
         const visibleToUserIds = computeVisibleToUserIds(
           m.authorId ?? m.senderId,
-          m.recipientIds ?? [],
-          remainingTagIds,
-          projects
+          m.recipientIds ?? []
         )
         batch.update(doc(db, "messages", m.id), {
           projectIds: remaining,
@@ -630,8 +622,7 @@ export default function Home() {
         }),
       ])]
       const peopleIds = [...new Set([...(draft.peopleIds ?? draft.contactIds)].filter(Boolean))]
-      const projectMembers = projectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
-      const participants = [...new Set([firebaseUser.uid, ...peopleIds, ...projectMembers])]
+      const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
       const imageMeta: Record<string, unknown> = {}
 
       if (draft.imageFile) {
@@ -693,9 +684,7 @@ export default function Home() {
 
       const visibleToUserIds = computeVisibleToUserIds(
         firebaseUser.uid,
-        peopleIds,
-        tagIds,
-        projects
+        peopleIds
       )
 
       // Build calendarDates from draft date strings
@@ -794,24 +783,20 @@ export default function Home() {
       const type = getLegacyTypeFromTagIds(tagIds, "none")
       const projectIds = getLegacyProjectIdsFromTagIds(tagIds, [])
       const selectedProjectIds = [...new Set(projectIds.filter(Boolean))]
-      const projectMembers = selectedProjectIds.flatMap((projectId) => projects.find((p) => p.id === projectId)?.members ?? [])
       // NEVER shrink participants — tag edits only ADD access, never revoke it.
-      // Existing participants keep access; new project members and people tags are added.
+      // Existing participants keep access; new people are added.
       const mergedParticipants = [...new Set([
         ...selectedMessage.participants,  // preserve all existing access
         selectedMessage.senderId,         // always include sender
         firebaseUser!.uid,                // always include the person editing
         ...peopleIds,
-        ...projectMembers,
       ])]
 
-      // Compute visibleToUserIds fresh from the new tags + recipients
+      // Compute visibleToUserIds from author + explicit recipients only
       const authorId = selectedMessage.authorId ?? selectedMessage.senderId
       const visibleToUserIds = computeVisibleToUserIds(
         authorId,
-        peopleIds,
-        tagIds,
-        projects
+        peopleIds
       )
 
       // Build calendarDates update — only overwrite if caller passed the array
@@ -858,13 +843,11 @@ export default function Home() {
       const remainingTagIds = message && projectId
         ? getMessageTagIds(message).filter((tagId) => tagId !== projectTagId(projectId))
         : []
-      // Recompute visibility: author + direct recipients + remaining tag members
+      // Recompute visibility: author + explicit recipients only
       const visibleToUserIds = message
         ? computeVisibleToUserIds(
             message.authorId ?? message.senderId,
-            message.recipientIds ?? [],
-            remainingTagIds,
-            projects
+            message.recipientIds ?? []
           )
         : undefined
       await updateDoc(doc(db, "messages", messageId), {
@@ -1064,9 +1047,8 @@ export default function Home() {
         ...incomingTagIds,
         ...getMessageTagIds({ tagIds: undefined, type: legacyType, projectId: projectIds[0] ?? null, projectIds, project_id: null }),
       ])]
-      const projectMembers = projectIds.flatMap((pid) => projects.find((p) => p.id === pid)?.members ?? [])
-      const participants = [...new Set([firebaseUser.uid, ...peopleIds, ...projectMembers])]
-      const visibleToUserIds = computeVisibleToUserIds(firebaseUser.uid, peopleIds, tagIds, projects)
+      const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
+      const visibleToUserIds = computeVisibleToUserIds(firebaseUser.uid, peopleIds)
       const calendarDateObj = {
         id: `cd-${Date.now()}-0-${Math.random().toString(36).slice(2, 6)}`,
         date,
@@ -1252,7 +1234,6 @@ export default function Home() {
           onDeleteProject={handleDeleteProject}
           onFavoriteProject={handleFavoriteProject}
           onRenameProject={handleRenameProject}
-          onUpdateMembers={handleUpdateProjectMembers}
           customCategories={customCategories}
           onCreateCategory={handleCreateCategory}
         />
@@ -1270,7 +1251,6 @@ export default function Home() {
             currentUserId={currentUser?.id ?? ""}
             currentUser={currentUser}
             onBack={goToProjects}
-            onUpdateMembers={handleUpdateProjectMembers}
             onMessageClick={handleMessageClick}
             onDeleteMessage={handleDeleteMessage}
             onFavoriteMessage={handleFavoriteMessage}

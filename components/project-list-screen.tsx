@@ -4,10 +4,9 @@ import { useState, useMemo } from "react"
 import {
   ArrowLeft, Plus, FolderOpen, Trash2, Pencil, X, Check,
   ChevronRight, Search, Folder,
-  MoreHorizontal, Lock, Info, Users, Archive,
+  MoreHorizontal, Lock, Info, Archive,
 } from "lucide-react"
 import { UniversalAddModal } from "@/components/universal-add-modal"
-import { AddMembersModal } from "@/components/add-members-modal"
 import { ToastNotification } from "@/components/toast-notification"
 import { CategoryDot, CategoryIcon } from "@/components/category-icon"
 import { cn } from "@/lib/utils"
@@ -39,7 +38,6 @@ type ActionSheetState =
   | { type: "none" }
   | { type: "tagAction"; projectId: string }
   | { type: "moveToCategory"; projectId: string }
-  | { type: "managePeople"; projectId: string }
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +50,6 @@ interface ProjectListScreenProps {
   onDeleteProject: (id: string) => void
   onFavoriteProject: (id: string) => void
   onRenameProject: (id: string, name: string, category?: TagCategory) => void
-  onUpdateMembers?: (projectId: string, memberIds: string[]) => void
   customCategories?: CategoryItem[]
   onCreateCategory?: (name: string) => Promise<void> | void
   className?: string
@@ -63,14 +60,6 @@ interface ProjectListScreenProps {
 
 function isSystemLocked(categoryId: string): boolean {
   return categoryId === "status" || categoryId === "systemType"
-}
-
-function getPeopleLabel(project: Project, contacts: Contact[]): string {
-  if (project.members.length === 0) return "No people"
-  if (project.members.length === 1) {
-    return contacts.find(c => c.id === project.members[0])?.name ?? "1 person"
-  }
-  return `${project.members.length} people`
 }
 
 // ── Tag Row (shared between search results and category detail) ───────────────
@@ -89,7 +78,6 @@ function TagRow({
       <CategoryDot categoryId={project.tagCategory ?? "custom"} />
       <button className="flex-1 min-w-0 text-left" onClick={onSelect}>
         <p className="text-sm font-semibold text-foreground truncate">{project.name}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{getPeopleLabel(project, contacts)}</p>
       </button>
       {msgCount > 0 && (
         <span className="flex-shrink-0 text-[10px] font-bold font-mono text-muted-foreground bg-white/5 border border-white/10 rounded-full px-2 py-0.5">
@@ -110,7 +98,7 @@ function TagRow({
 
 export function ProjectListScreen({
   projects, messages, onBack, onProjectSelect, onCreateProject,
-  onDeleteProject, onFavoriteProject, onRenameProject, onUpdateMembers,
+  onDeleteProject, onFavoriteProject, onRenameProject,
   customCategories = [], onCreateCategory, className, contacts,
 }: ProjectListScreenProps) {
   // View state
@@ -311,7 +299,6 @@ export function ProjectListScreen({
                       >
                         <CategoryDot categoryId={p.tagCategory ?? "custom"} className="h-7 w-7 rounded-full" />
                         <p className="text-xs font-semibold text-foreground truncate max-w-[72px]">{p.name}</p>
-                        <p className="text-[10px] text-muted-foreground">{getPeopleLabel(p, contacts)}</p>
                       </button>
                     ))}
                   </div>
@@ -541,7 +528,6 @@ export function ProjectListScreen({
           <CategoryDot categoryId={actionProject.tagCategory ?? "custom"} className="h-7 w-7 rounded-full" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{actionProject.name}</p>
-            <p className="text-[11px] text-muted-foreground">{getPeopleLabel(actionProject, contacts)}</p>
           </div>
         </div>
 
@@ -582,17 +568,6 @@ export function ProjectListScreen({
             </button>
             <div className="h-px bg-white/8 mx-5" />
 
-            {/* Manage people */}
-            <button
-              onClick={() => setActionSheet({ type: "managePeople", projectId: actionProject.id })}
-              className="flex items-center gap-4 w-full px-5 py-3.5 text-left active:bg-white/5 transition-colors"
-            >
-              <span className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center flex-shrink-0">
-                <Users className="w-4 h-4 text-foreground/70" />
-              </span>
-              <span className="text-sm font-semibold text-foreground">Manage people</span>
-            </button>
-            <div className="h-px bg-white/8 mx-5" />
 
             {/* Archive */}
             <button
@@ -650,17 +625,6 @@ export function ProjectListScreen({
     />
   ) : null
 
-  // ── Manage People Sheet ───────────────────────────────────────────────────
-
-  const managePeopleSheet = actionSheet.type === "managePeople" && actionProject ? (
-    <AddMembersModal
-      contacts={contacts}
-      currentMembers={actionProject.members}
-      onSave={(ids) => { onUpdateMembers?.(actionProject.id, ids); clearActionSheet() }}
-      onClose={clearActionSheet}
-    />
-  ) : null
-
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -670,7 +634,6 @@ export function ProjectListScreen({
       {/* Bottom sheets */}
       {tagActionSheet}
       {moveToCategorySheet}
-      {managePeopleSheet}
 
       {/* Universal Add modal */}
       {showUniversalAdd && (
