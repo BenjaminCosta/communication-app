@@ -28,6 +28,7 @@ import {
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { auth, db, storage } from "@/lib/firebase"
+import { registerFCMToken, onForegroundMessage, type NotificationPreference } from "@/lib/fcm"
 import { compressImageFile, validateImageFile } from "@/lib/image-upload"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
@@ -266,6 +267,9 @@ export default function Home() {
   const [showScreenSkeleton, setShowScreenSkeleton] = useState(false)
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Notification preference (read from Firestore, updated by user)
+  const [notifPreference, setNotifPreference] = useState<NotificationPreference>("instant")
+
   // Toast state
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastKeyRef = useRef(0)
@@ -323,6 +327,10 @@ export default function Home() {
         })
         // Ensure email is always persisted so other users can see it
         await setDoc(doc(db, "users", user.uid), { email: user.email ?? "" }, { merge: true })
+        // Register FCM token if notification permission was already granted
+        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+          registerFCMToken(user.uid).catch(() => {})
+        }
         navigateTo("compose")
       } else {
         setFirebaseUser(null)
@@ -360,6 +368,12 @@ export default function Home() {
       // Update currentUser profile from Firestore
       const me = all.find((u) => u.id === firebaseUser.uid)
       if (me) setCurrentUser(me)
+      // Read notification preference from raw doc
+      const meDoc = snap.docs.find((d) => d.id === firebaseUser.uid)
+      if (meDoc) {
+        const pref = meDoc.data().notificationPreference
+        setNotifPreference(pref === "muted" ? "muted" : "instant")
+      }
     }, () => {})
 
     // 2. All projects (tags are global — visible to any authenticated user)
@@ -483,6 +497,15 @@ export default function Home() {
       document.removeEventListener("visibilitychange", onVisibility)
     }
   }, [firebaseUser])
+
+  // ── Foreground FCM messages → in-app toast ────────────────────────────────
+  useEffect(() => {
+    if (!firebaseUser) return
+    const unsub = onForegroundMessage((title, body) => {
+      showToast(`${title}: ${body}`)
+    })
+    return unsub
+  }, [firebaseUser, showToast])
 
   // ── Second listener: project-tagged messages (covers members not in participants) ──
   useEffect(() => {
@@ -1270,7 +1293,13 @@ export default function Home() {
       )}
 
       {!showScreenSkeleton && activeScreen === "notifications" && (
-        <NotificationsScreen className={entranceClass} onBack={handleNotificationsBack} />
+        <NotificationsScreen
+          className={entranceClass}
+          onBack={handleNotificationsBack}
+          userId={firebaseUser?.uid ?? ""}
+          notificationPreference={notifPreference}
+          onPreferenceChange={setNotifPreference}
+        />
       )}
 
       {!showScreenSkeleton && activeScreen === "admin" && currentUser?.isAdmin && (
