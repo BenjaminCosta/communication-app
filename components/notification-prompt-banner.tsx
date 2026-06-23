@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Bell, X } from "lucide-react"
+import { requestNotificationPermission } from "@/lib/fcm"
 
 const SNOOZE_KEY = "svc_notif_prompt_snoozed_until"
 
@@ -14,7 +15,7 @@ function isSnoozed(): boolean {
   }
 }
 
-function snooze(days = 7) {
+function snooze(days: number) {
   try {
     localStorage.setItem(SNOOZE_KEY, String(Date.now() + days * 86_400_000))
   } catch {}
@@ -37,37 +38,64 @@ function detectBannerType(): BannerType | null {
   return null
 }
 
+function hide(setVisible: (v: boolean) => void, setType: (t: null) => void) {
+  setVisible(false)
+  setTimeout(() => setType(null), 300)
+}
+
 export function NotificationPromptBanner({
+  userId,
   onNavigateToNotifications,
 }: {
+  userId: string
   onNavigateToNotifications: () => void
 }) {
   const [type, setType] = useState<BannerType | null>(null)
   const [visible, setVisible] = useState(false)
+  const [requesting, setRequesting] = useState(false)
 
   useEffect(() => {
     if (isSnoozed()) return
     const detected = detectBannerType()
     if (!detected) return
     setType(detected)
-    // Slight delay so the stream is fully mounted first
     const t = setTimeout(() => setVisible(true), 800)
     return () => clearTimeout(t)
   }, [])
 
   const handleDismiss = () => {
-    setVisible(false)
     snooze(7)
-    // Remove from DOM after animation
-    setTimeout(() => setType(null), 300)
+    hide(setVisible, setType)
+  }
+
+  // "Enable" button: request permission directly — no double-click needed.
+  // On grant  → snooze 365 days (effectively permanent) + hide.
+  // On deny   → navigate to screen showing how to unblock + snooze 30 days.
+  // On ios    → navigate to install guide.
+  const handleCTA = async () => {
+    if (type === "ios-install") {
+      onNavigateToNotifications()
+      return
+    }
+    setRequesting(true)
+    const result = await requestNotificationPermission(userId)
+    setRequesting(false)
+
+    if (result === "granted") {
+      snooze(365)
+      hide(setVisible, setType)
+    } else if (result === "denied") {
+      snooze(30)
+      hide(setVisible, setType)
+      onNavigateToNotifications()
+    }
+    // "default" = dialog dismissed without choosing → do nothing, let them decide later
   }
 
   if (!type) return null
 
   return (
-    <div
-      className="fixed bottom-20 left-4 right-4 z-30 flex justify-center pointer-events-none"
-    >
+    <div className="fixed bottom-20 left-4 right-4 z-30 flex justify-center pointer-events-none">
       <div
         className={`w-full max-w-lg pointer-events-auto transition-all duration-300 ease-out ${
           visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
@@ -97,10 +125,11 @@ export function NotificationPromptBanner({
           </div>
 
           <button
-            onClick={onNavigateToNotifications}
-            className="shrink-0 px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-white text-xs font-semibold active:scale-95 transition-all duration-150"
+            onClick={handleCTA}
+            disabled={requesting}
+            className="shrink-0 px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-white text-xs font-semibold active:scale-95 transition-all duration-150 disabled:opacity-60"
           >
-            {type === "ios-install" ? "How" : "Enable"}
+            {requesting ? "…" : type === "ios-install" ? "How" : "Enable"}
           </button>
 
           <button

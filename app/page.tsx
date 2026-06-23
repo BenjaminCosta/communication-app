@@ -1476,7 +1476,10 @@ export default function Home() {
           />
           {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
           {activeScreen === "stream" && firebaseUser && (
-            <NotificationPromptBanner onNavigateToNotifications={goToNotificationsFromStream} />
+            <NotificationPromptBanner
+              userId={firebaseUser.uid}
+              onNavigateToNotifications={goToNotificationsFromStream}
+            />
           )}
 
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}

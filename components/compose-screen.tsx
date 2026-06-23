@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, MessageCircle, Hash, Plus } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -39,7 +39,7 @@ interface ComposeScreenProps {
   onCreateContext?: (name: string) => Promise<AppContext>
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [] }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
@@ -63,8 +63,6 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   const [showDatePicker, setShowDatePicker] = useState(false)
   // Contexts
   const [selectedContextIds, setSelectedContextIds] = useState<string[]>([])
-  const [contextSearch, setContextSearch] = useState("")
-  const [creatingContext, setCreatingContext] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -222,7 +220,17 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         .filter((tag) => tag.name.toLowerCase().includes(searchQuery))
         .slice(0, 6)
     : []
-  const hasSearchResults = searchQuery.length > 0 && (searchPeople.length > 0 || searchTags.length > 0 || searchImported.length > 0)
+  const searchContexts = searchQuery
+    ? contexts
+        .filter((ctx) => ctx.name.toLowerCase().includes(searchQuery))
+        .slice(0, 4)
+    : []
+  const hasSearchResults = searchQuery.length > 0 && (
+    searchPeople.length > 0 ||
+    searchTags.length > 0 ||
+    searchImported.length > 0 ||
+    searchContexts.length > 0
+  )
 
   const handleFirstFocus = () => {
     if (!firstFocusRef.current) return
@@ -254,7 +262,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         />
       )}
       {/* Header */}
-      <div className="glass-panel shrink-0 px-4 app-topbar flex items-center justify-between border-b">
+      <div className="glass-panel shrink-0 px-3 app-topbar flex items-center justify-between border-b">
         <h1 className="text-base font-bold">
           New <span className="text-blue-300">Message</span>
         </h1>
@@ -266,12 +274,12 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-4 scrollbar-hide scroll-smooth">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5 p-3 scrollbar-hide scroll-smooth">
         <div className="relative">
           <SearchInput
             value={globalSearch}
             onChange={setGlobalSearch}
-            placeholder="Search people or tags"
+            placeholder="Search people, tags or contexts"
           />
           {searchQuery && (
             <div className="glass-panel absolute left-0 right-0 top-[calc(100%-6px)] z-20 rounded-2xl border p-2 animate-fade-up">
@@ -324,31 +332,43 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                       }}
                     />
                   ))}
+                  {searchContexts.map((ctx) => (
+                    <SearchResultButton
+                      key={ctx.id}
+                      label={ctx.name}
+                      typeLabel="Context"
+                      selected={selectedContextIds.includes(ctx.id)}
+                      icon={<Hash className="w-4 h-4 text-emerald-400" />}
+                      onClick={() => {
+                        setSelectedContextIds((prev) =>
+                          prev.includes(ctx.id) ? prev.filter((id) => id !== ctx.id) : [...prev, ctx.id]
+                        )
+                        setGlobalSearch("")
+                      }}
+                    />
+                  ))}
                 </div>
               ) : (
-                <p className="px-2 py-3 text-xs text-muted-foreground">No people or tags found.</p>
+                <p className="px-2 py-3 text-xs text-muted-foreground">No people, tags or contexts found.</p>
               )}
             </div>
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-3 py-1">
-          <div className="glass-panel w-16 h-16 rounded-full border flex items-center justify-center animate-float">
-            <MessageCircle className="w-7 h-7 text-muted-foreground/70" />
-          </div>
-          <span className="text-sm text-muted-foreground font-light">
+        <div className="flex flex-col items-center py-0.5">
+          <span className="text-xs text-muted-foreground font-light">
             {"What's on your mind?"}
           </span>
         </div>
 
-        <div className="glass-message border rounded-2xl p-4 min-h-[150px] flex flex-col">
+        <div className="glass-message border rounded-2xl p-3 min-h-[124px] flex flex-col">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onFocus={handleFirstFocus}
-            className="flex-1 min-h-28 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
-            placeholder={"Type your message...\n\nContext is optional.\nSend first, tag later."}
+            className="flex-1 min-h-24 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
+            placeholder="Type your message..."
           />
           {imagePreview && (
             <div className="relative mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-[0_14px_34px_rgba(0,0,0,0.18)]">
@@ -376,7 +396,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         )}
 
         {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0 || selectedCalendarDates.length > 0 || selectedContextIds.length > 0) && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
             {selectedPeople.map((contact) => (
               <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
                 <User className="w-3 h-3" />
@@ -425,91 +445,38 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         )}
 
         {activeAssociation && (
-          <div className="glass-panel rounded-3xl border p-3 animate-fade-up">
+          <div className="glass-panel rounded-2xl border p-2.5 animate-fade-up">
             {activeAssociation === "context" ? (
-              <div className="flex flex-col gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" />
-                  <input
-                    autoFocus
-                    value={contextSearch}
-                    onChange={(e) => setContextSearch(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        const q = contextSearch.trim()
-                        if (!q || creatingContext) return
-                        const exact = contexts.find((c) => c.name.toLowerCase() === q.toLowerCase())
-                        if (exact) {
-                          if (!selectedContextIds.includes(exact.id)) setSelectedContextIds((p) => [...p, exact.id])
-                          setContextSearch("")
-                        } else if (onCreateContext) {
-                          setCreatingContext(true)
-                          try {
-                            const created = await onCreateContext(q)
-                            setSelectedContextIds((p) => [...p, created.id])
-                            setContextSearch("")
-                          } finally { setCreatingContext(false) }
-                        }
-                      }
-                    }}
-                    placeholder="Search or create context…"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-sm outline-none focus:border-emerald-400/40 transition-colors placeholder:text-muted-foreground/50"
-                  />
-                </div>
-                <div className="max-h-44 overflow-y-auto scrollbar-hide flex flex-col gap-0.5">
-                  {(() => {
-                    const q = contextSearch.trim().toLowerCase()
-                    const filtered = q
-                      ? contexts.filter((c) => c.name.toLowerCase().includes(q))
-                      : contexts
-                    const showCreate = q.length > 0 && !contexts.some((c) => c.name.toLowerCase() === q)
+              <div className="max-h-56 overflow-y-auto scrollbar-hide">
+                <div className="flex flex-wrap gap-2">
+                  {contexts.map((ctx) => {
+                    const selected = selectedContextIds.includes(ctx.id)
                     return (
-                      <>
-                        {filtered.map((ctx) => (
-                          <button
-                            key={ctx.id}
-                            onClick={() => {
-                              setSelectedContextIds((p) => p.includes(ctx.id) ? p.filter((x) => x !== ctx.id) : [...p, ctx.id])
-                              setContextSearch("")
-                            }}
-                            className={cn(
-                              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-left transition-all active:scale-[0.98]",
-                              selectedContextIds.includes(ctx.id) ? "bg-emerald-400/15 border border-emerald-400/30 text-emerald-300" : "hover:bg-white/5 text-foreground/80"
-                            )}
-                          >
-                            <Hash className="w-3 h-3 shrink-0 text-emerald-400" />
-                            <span className="flex-1 truncate">{ctx.name}</span>
-                            {selectedContextIds.includes(ctx.id) && <Check className="w-3 h-3 shrink-0" />}
-                          </button>
-                        ))}
-                        {showCreate && onCreateContext && (
-                          <button
-                            disabled={creatingContext}
-                            onClick={async () => {
-                              if (creatingContext) return
-                              setCreatingContext(true)
-                              try {
-                                const created = await onCreateContext(contextSearch.trim())
-                                setSelectedContextIds((p) => [...p, created.id])
-                                setContextSearch("")
-                              } finally { setCreatingContext(false) }
-                            }}
-                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-left border border-dashed border-emerald-400/30 bg-emerald-400/8 hover:bg-emerald-400/12 text-emerald-300 active:scale-[0.98] transition-all disabled:opacity-50"
-                          >
-                            <Plus className="w-3 h-3 shrink-0" />
-                            {creatingContext ? "Creating…" : `Create "${contextSearch.trim()}"`}
-                          </button>
+                      <button
+                        key={ctx.id}
+                        onClick={() => {
+                          setSelectedContextIds((p) => selected ? p.filter((x) => x !== ctx.id) : [...p, ctx.id])
+                        }}
+                        className={cn(
+                          "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-xs font-semibold transition-all active:scale-[0.98]",
+                          selected
+                            ? "border-emerald-400/30 bg-emerald-400/15 text-emerald-300"
+                            : "glass-menu-item text-foreground/90 active:bg-white/8"
                         )}
-                        {filtered.length === 0 && !showCreate && (
-                          <p className="px-3 py-4 text-xs text-center text-muted-foreground/50">No contexts yet. Type to create one.</p>
-                        )}
-                      </>
+                      >
+                        <Hash className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                        <span className="min-w-0 flex-1 truncate">{ctx.name}</span>
+                        {selected && <Check className="w-4 h-4 shrink-0" />}
+                      </button>
                     )
-                  })()}
+                  })}
+                  {contexts.length === 0 && (
+                    <p className="w-full px-2 py-8 text-center text-xs text-muted-foreground">No contexts available yet.</p>
+                  )}
                 </div>
               </div>
             ) : activeAssociation === "who" ? (
-              <div className="max-h-52 overflow-y-auto scrollbar-hide">
+              <div className="max-h-56 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-wrap gap-2">
                   {contacts.map((contact) => (
                     <PersonCard
@@ -538,11 +505,11 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                               : "glass-pill text-white/75"
                           )}
                         >
-                          <span className="w-5 h-5 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-[9px] font-bold text-white/50">
+                          <span className="w-[18px] h-[18px] rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-[8px] font-bold text-white/50">
                             {(c.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?"}
                           </span>
                           {c.name}
-                          {selectedImportedContacts.includes(c.id) && <Check className="w-3 h-3" />}
+                          {selectedImportedContacts.includes(c.id) && <Check className="w-3 h-3 shrink-0" />}
                         </button>
                       ))}
                     </div>
@@ -550,7 +517,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 )}
               </div>
             ) : (
-              <div className="max-h-52 overflow-y-auto pr-1 scrollbar-hide">
+              <div className="max-h-56 overflow-y-auto pr-1 scrollbar-hide">
                 <div className="grid grid-cols-2 gap-2">
                   {displayTags.map((tag, index) => (
                     <TagCard
@@ -747,17 +714,17 @@ function PersonCard({
     <button
       onClick={onClick}
       className={cn(
-        "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-2 rounded-2xl border px-3 py-2.5 text-left transition-all active:scale-[0.98]",
+        "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-1.5 rounded-xl border px-2.5 py-2 text-left transition-all active:scale-[0.98]",
         selected
           ? "glass-pill-active"
           : "glass-menu-item text-foreground/90 active:bg-white/8"
       )}
     >
-      <span className={cn("w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0", contact.color)}>
+      <span className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0", contact.color)}>
         {contact.initials}
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs font-bold">{contact.name}</span>
-      {selected && <Check className="w-4 h-4 shrink-0" />}
+      <span className="min-w-0 flex-1 truncate text-[11px] font-bold">{contact.name}</span>
+      {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
     </button>
   )
 }
