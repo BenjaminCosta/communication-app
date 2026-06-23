@@ -4,14 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Check, Clock, Plus, Search, X } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
-import { getCategoryDotClass } from "@/components/category-icon"
 import {
   type Contact,
   type ImportedContact,
   type Message,
   type Project,
   type Tag as MessageTag,
-  CATEGORY_CONFIG,
   getAvailableTags,
   getMessageTagIds,
   getMessagePeopleIds,
@@ -61,7 +59,7 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  return getCategoryDotClass(tag.category)
+  return "bg-violet-500"
 }
 
 // ── CalendarScreen ──────────────────────────────────────────────────────────
@@ -475,11 +473,6 @@ function CalendarComposeSheet({
                   <span className={cn("text-sm font-semibold flex-1 text-left", selected ? isUnassigned ? "text-feedback" : "text-primary" : "text-foreground/90")}>
                     {tag.name}
                   </span>
-                  {tag.category !== "systemType" && (
-                    <span className="text-[10px] font-bold uppercase tracking-[1.2px] text-muted-foreground/40 font-mono shrink-0">
-                      {CATEGORY_CONFIG[tag.category]?.label ?? "Custom"}
-                    </span>
-                  )}
                   {selected && <Check className={cn("w-4 h-4 shrink-0", isUnassigned ? "text-feedback" : "text-primary")} />}
                 </button>
               )
@@ -528,9 +521,9 @@ function CalendarMessageCard({
       if (!projectId) return null
       const proj = projects.find(p => p.id === projectId)
       if (!proj) return null
-      return { name: proj.name, dotClass: getCategoryDotClass(proj.tagCategory ?? "custom"), category: proj.tagCategory }
+      return { name: proj.name, dotClass: "bg-violet-500" }
     })
-    .filter(Boolean) as { name: string; dotClass: string; category?: string }[]
+    .filter(Boolean) as { name: string; dotClass: string }[]
 
   const typeTagId = tagIds.find(id => !!parseSystemTypeTagId(id))
   const typeTag = typeTagId ? parseSystemTypeTagId(typeTagId) : null
@@ -563,11 +556,6 @@ function CalendarMessageCard({
             <span key={i} className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/60 bg-white/5 border border-white/10 rounded-full px-2 py-0.5">
               <span className={cn("w-1.5 h-1.5 rounded-full", tag.dotClass)} />
               {tag.name}
-              {tag.category && tag.category !== "project" && tag.category !== "custom" && (
-                <span className="text-muted-foreground/35 font-mono uppercase tracking-widest text-[8px]">
-                  {CATEGORY_CONFIG[tag.category as keyof typeof CATEGORY_CONFIG]?.label}
-                </span>
-              )}
             </span>
           ))}
         </div>

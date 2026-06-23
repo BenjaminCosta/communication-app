@@ -553,8 +553,8 @@ export default function Home() {
       nextColorIndex.current += 1
       const id = generateProjectId()
       const members = firebaseUser ? [...new Set([firebaseUser.uid, ...memberIds])] : memberIds
-      // Use user-selected category; fallback: "project" if multiple members, else "custom"
-      const tagCategory = category ?? (members.length > 1 ? "project" : "custom")
+      // Categories are legacy metadata only; new tags default to a flat custom tag.
+      const tagCategory = category ?? "custom"
       const newProject: Project = {
         id,
         name: name.trim(),
@@ -569,21 +569,6 @@ export default function Home() {
     },
     [firebaseUser, showToast]
   )
-
-  const handleCreateCategory = useCallback(
-    async (name: string) => {
-      if (!firebaseUser || !name.trim()) return
-      await addDoc(collection(db, "categories"), {
-        name: name.trim(),
-        createdBy: firebaseUser.uid,
-        createdAt: serverTimestamp(),
-        isTimeBased: false,
-      })
-      showToast(`Category "${name.trim()}" created`, undefined, 2000)
-    },
-    [firebaseUser, showToast]
-  )
-
 
   const handleDeleteProject = useCallback(
     async (id: string) => {
@@ -1346,8 +1331,6 @@ export default function Home() {
           onDeleteProject={handleDeleteProject}
           onFavoriteProject={handleFavoriteProject}
           onRenameProject={handleRenameProject}
-          customCategories={customCategories}
-          onCreateCategory={handleCreateCategory}
         />
       )}
 
@@ -1490,8 +1473,6 @@ export default function Home() {
             availableTags={availableTags}
             importedContacts={importedContacts}
             contexts={appContexts}
-            customCategories={customCategories}
-            onCreateCategory={handleCreateCategory}
           />
           {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
           {activeScreen === "stream" && firebaseUser && (

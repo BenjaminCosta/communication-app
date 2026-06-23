@@ -15,7 +15,6 @@ import {
   type TagCategory,
   type AppContext,
   MESSAGE_TYPE_CONFIG,
-  CATEGORY_CONFIG,
   parseProjectTagId,
   parseSystemTypeTagId,
   projectTagId,
@@ -23,7 +22,6 @@ import {
   isCategoryTimeBased,
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
-import { getCategoryDotClass } from "@/components/category-icon"
 
 interface ComposeScreenProps {
   onCancel: () => void
@@ -317,7 +315,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                     <SearchResultButton
                       key={tag.id}
                       label={tag.name}
-                      typeLabel={tag.category !== "systemType" ? CATEGORY_CONFIG[tag.category]?.label ?? "Tag" : "Tag"}
+                      typeLabel="Tag"
                       selected={selectedTagIds.includes(tag.id)}
                       icon={<span className={cn("w-2.5 h-2.5 rounded-full", tagDotClass(tag))} />}
                       onClick={() => {
@@ -837,11 +835,6 @@ function TagCard({
         <span className={cn("h-2 w-2 shrink-0 rounded-full", tagDotClass(tag))} />
         <span className="min-w-0 flex-1">
           <span className="line-clamp-1 text-xs font-bold leading-snug">{tag.name}</span>
-          {tag.category !== "systemType" && (
-            <span className="block text-[9px] font-semibold uppercase tracking-[1.2px] text-muted-foreground/50 leading-none mt-0.5">
-              {CATEGORY_CONFIG[tag.category]?.label ?? "Custom"}
-            </span>
-          )}
         </span>
         {selected && <Check className="h-4 w-4 shrink-0" />}
       </span>
@@ -854,7 +847,7 @@ function tagDotClass(tag: MessageTag): string {
   if (tag.systemType === "problem") return "bg-problem"
   if (tag.systemType === "feedback") return "bg-feedback"
   if (tag.systemType === "decision") return "bg-decision"
-  return getCategoryDotClass(tag.category)
+  return "bg-violet-500"
 }
 
 function formatDateChip(dateStr: string): string {

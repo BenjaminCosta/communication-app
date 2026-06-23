@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   CalendarDays,
   Check,
-  ChevronDown,
   ChevronRight,
   Hash,
   Plus,
@@ -33,13 +32,11 @@ import {
   parseSystemTypeTagId,
   systemTypeTagId,
   isCategoryTimeBased,
-  SYSTEM_CATEGORIES,
   getCategoryLabel,
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { CreateProjectModal } from "@/components/create-project-modal"
 import { CreateContextModal } from "@/components/create-context-modal"
-import { CategoryIcon, getCategoryDotClass } from "@/components/category-icon"
 
 interface TagSheetProps {
   message: Message
@@ -61,11 +58,8 @@ type SheetView =
   | { type: "main" }
   | { type: "people" }
   | { type: "tags" }
-  | { type: "category"; categoryId: string; title: string }
   | { type: "dates" }
   | { type: "contexts" }
-
-type TagGroup = { id: string; name: string; order: number; tags: MessageTag[] }
 
 export function TagSheet({
   message,
@@ -119,8 +113,8 @@ export function TagSheet({
   const filteredContexts = contexts.filter((c) =>
     !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
   )
-  const tagGroups = useMemo(() => groupTagsByCategory(tags, customCategories), [tags, customCategories])
-  const filteredTagGroups = useMemo(() => groupTagsByCategory(filteredTags, customCategories), [filteredTags, customCategories])
+  const sortedTags = useMemo(() => sortTagList(tags), [tags])
+  const sortedFilteredTags = useMemo(() => sortTagList(filteredTags), [filteredTags])
 
   const selectedPeopleCount = selectedParticipants.length + selectedImported.length
   const selectedContextCount = selectedPeopleCount + selectedTags.length + selectedCalendarDates.length + selectedContextIds.length
@@ -186,18 +180,12 @@ export function TagSheet({
   }
 
   function handleBack() {
-    if (view.type === "category") {
-      setView({ type: "tags" })
-      return
-    }
     setView({ type: "main" })
   }
 
   const title = view.type === "main"
     ? (selectedContextCount > 0 ? "Edit Message" : "Add Context")
-    : view.type === "category"
-      ? view.title
-      : view.type === "people"
+    : view.type === "people"
         ? "People"
         : view.type === "dates"
           ? "Dates"
@@ -250,7 +238,7 @@ export function TagSheet({
             isSearching={q.length > 0}
             filteredContacts={filteredContacts}
             filteredImported={filteredImported}
-            filteredTagGroups={filteredTagGroups}
+            filteredTags={sortedFilteredTags}
             filteredContexts={filteredContexts}
             selectedParticipants={selectedParticipants}
             selectedImported={selectedImported}
@@ -289,20 +277,11 @@ export function TagSheet({
         )}
 
         {view.type === "tags" && (
-          <TagsCategoryView
-            groups={tagGroups}
-            selectedTags={selectedTags}
-            selectedCalendarDates={selectedCalendarDates}
-            onOpenCategory={(group) => setView({ type: "category", categoryId: group.id, title: group.name })}
-            onCreateTag={() => setShowCreateTagModal(true)}
-          />
-        )}
-
-        {view.type === "category" && (
-          <TagCategoryDetailView
-            group={tagGroups.find((group) => group.id === view.categoryId)}
+          <TagsListView
+            tags={sortedTags}
             selectedTags={selectedTags}
             onToggleTag={toggleTag}
+            onCreateTag={() => setShowCreateTagModal(true)}
           />
         )}
 
@@ -349,7 +328,6 @@ export function TagSheet({
       {showCreateTagModal && (
         <CreateProjectModal
           contacts={contacts}
-          customCategories={customCategories}
           onClose={() => setShowCreateTagModal(false)}
           onSubmit={async (name, memberIds, category) => {
             setShowCreateTagModal(false)
@@ -385,7 +363,7 @@ function MainContextView({
   isSearching,
   filteredContacts,
   filteredImported,
-  filteredTagGroups,
+  filteredTags,
   filteredContexts,
   selectedParticipants,
   selectedImported,
@@ -415,7 +393,7 @@ function MainContextView({
   isSearching: boolean
   filteredContacts: Contact[]
   filteredImported: ImportedContact[]
-  filteredTagGroups: TagGroup[]
+  filteredTags: MessageTag[]
   filteredContexts: AppContext[]
   selectedParticipants: string[]
   selectedImported: string[]
@@ -457,7 +435,7 @@ function MainContextView({
         <SearchResultsView
           filteredContacts={filteredContacts}
           filteredImported={filteredImported}
-          filteredTagGroups={filteredTagGroups}
+          filteredTags={filteredTags}
           filteredContexts={filteredContexts}
           selectedParticipants={selectedParticipants}
           selectedImported={selectedImported}
@@ -550,7 +528,7 @@ function MainContextView({
 function SearchResultsView({
   filteredContacts,
   filteredImported,
-  filteredTagGroups,
+  filteredTags,
   filteredContexts,
   selectedParticipants,
   selectedImported,
@@ -564,7 +542,7 @@ function SearchResultsView({
 }: {
   filteredContacts: Contact[]
   filteredImported: ImportedContact[]
-  filteredTagGroups: TagGroup[]
+  filteredTags: MessageTag[]
   filteredContexts: AppContext[]
   selectedParticipants: string[]
   selectedImported: string[]
@@ -576,7 +554,7 @@ function SearchResultsView({
   onToggleContext: (id: string) => void
   onOpenDatePicker: () => void
 }) {
-  const hasResults = filteredContacts.length > 0 || filteredImported.length > 0 || filteredTagGroups.length > 0 || filteredContexts.length > 0
+  const hasResults = filteredContacts.length > 0 || filteredImported.length > 0 || filteredTags.length > 0 || filteredContexts.length > 0
   return (
     <div className="px-4 pb-4">
       <SectionTitle>Results</SectionTitle>
@@ -601,18 +579,16 @@ function SearchResultsView({
             onClick={() => onToggleImported(contact.id)}
           />
         ))}
-        {filteredTagGroups.flatMap((group) =>
-          group.tags.map((tag) => (
-            <SearchResultRow
-              key={tag.id}
-              selected={selectedTags.includes(tag.id)}
-              icon={<span className={cn("h-2.5 w-2.5 rounded-full", tagDotClass(tag))} />}
-              label={tag.name}
-              typeLabel={group.name}
-              onClick={() => onToggleTag(tag.id)}
-            />
-          ))
-        )}
+        {filteredTags.map((tag) => (
+          <SearchResultRow
+            key={tag.id}
+            selected={selectedTags.includes(tag.id)}
+            icon={<span className={cn("h-2.5 w-2.5 rounded-full", tagDotClass(tag))} />}
+            label={tag.name}
+            typeLabel="Tag"
+            onClick={() => onToggleTag(tag.id)}
+          />
+        ))}
         {filteredContexts.map((ctx) => (
           <SearchResultRow
             key={ctx.id}
@@ -686,43 +662,52 @@ function PeopleDetailView({
   )
 }
 
-function TagsCategoryView({
-  groups,
+function TagsListView({
+  tags,
   selectedTags,
-  selectedCalendarDates,
-  onOpenCategory,
+  onToggleTag,
   onCreateTag,
 }: {
-  groups: TagGroup[]
+  tags: MessageTag[]
   selectedTags: string[]
-  selectedCalendarDates: string[]
-  onOpenCategory: (group: TagGroup) => void
+  onToggleTag: (id: string) => void
   onCreateTag: () => void
 }) {
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
-  const visibleGroups = q
-    ? groups.filter((group) =>
-        group.name.toLowerCase().includes(q) ||
-        group.tags.some((tag) => tag.name.toLowerCase().includes(q))
-      )
-    : groups
+  const visibleTags = q ? tags.filter((tag) => tag.name.toLowerCase().includes(q)) : tags
 
   return (
     <div className="px-4 pb-4">
       <SearchInput value={query} onChange={setQuery} placeholder="Search tags..." />
       <div className="mt-3 flex flex-col gap-2">
-        {visibleGroups.map((group) => (
-          <CategoryRow
-            key={group.id}
-            group={group}
-            selectedTags={selectedTags}
-            selectedCalendarDates={selectedCalendarDates}
-            onClick={() => onOpenCategory(group)}
-          />
-        ))}
-        {visibleGroups.length === 0 && (
-          <p className="px-1 py-3 text-xs text-muted-foreground">No categories found.</p>
+        {visibleTags.map((tag) => {
+          const selected = selectedTags.includes(tag.id)
+          return (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => onToggleTag(tag.id)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors",
+                selected
+                  ? "border-primary/25 bg-primary/12 text-primary"
+                  : "border-white/10 bg-white/[0.04] text-foreground/90 active:bg-white/8"
+              )}
+            >
+              <span className={cn("h-3 w-3 shrink-0 rounded-full", tagDotClass(tag))} />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold">{tag.name}</span>
+              <span className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-full border",
+                selected ? "border-primary bg-primary text-white" : "border-white/20"
+              )}>
+                {selected && <Check className="h-3.5 w-3.5" />}
+              </span>
+            </button>
+          )
+        })}
+        {visibleTags.length === 0 && (
+          <p className="px-1 py-3 text-xs text-muted-foreground">No tags found.</p>
         )}
         <button
           type="button"
@@ -732,57 +717,6 @@ function TagsCategoryView({
           <Plus className="w-4 h-4" />
           <span className="text-sm font-semibold">Create tag</span>
         </button>
-      </div>
-    </div>
-  )
-}
-
-function TagCategoryDetailView({
-  group,
-  selectedTags,
-  onToggleTag,
-}: {
-  group?: TagGroup
-  selectedTags: string[]
-  onToggleTag: (id: string) => void
-}) {
-  if (!group) {
-    return <p className="px-4 py-6 text-xs text-muted-foreground">No tags found.</p>
-  }
-  return (
-    <div className="px-4 pb-4">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-white/10 px-3 py-2">
-          <CategoryIcon categoryId={group.id} />
-          <span className="text-sm font-semibold text-foreground">{group.name}</span>
-          <span className="ml-auto text-xs text-muted-foreground">{selectedTags.filter((id) => group.tags.some((tag) => tag.id === id)).length} selected</span>
-          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <div className="p-1">
-          {group.tags.map((tag) => {
-            const selected = selectedTags.includes(tag.id)
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => onToggleTag(tag.id)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
-                  selected ? "bg-primary/15 text-primary" : "text-foreground/90 active:bg-white/5"
-                )}
-              >
-                <span className={cn("h-3 w-3 rounded-full", tagDotClass(tag))} />
-                <span className="flex-1 text-sm font-semibold">{tag.name}</span>
-                <span className={cn(
-                  "h-5 w-5 rounded-full border flex items-center justify-center",
-                  selected ? "border-primary bg-primary text-white" : "border-white/20"
-                )}>
-                  {selected && <Check className="w-3.5 h-3.5" />}
-                </span>
-              </button>
-            )
-          })}
-        </div>
       </div>
     </div>
   )
@@ -1132,84 +1066,16 @@ function AvatarMini({ initials, color, muted }: { initials: string; color: strin
   )
 }
 
-function CategoryRow({
-  group,
-  selectedTags,
-  selectedCalendarDates,
-  onClick,
-}: {
-  group: TagGroup
-  selectedTags: string[]
-  selectedCalendarDates: string[]
-  onClick: () => void
-}) {
-  const selected = group.tags.filter((tag) => selectedTags.includes(tag.id))
-  const detail = selected.length > 0
-    ? selected.slice(0, 2).map((tag) => tag.name).join(", ") + (selected.length > 2 ? `, +${selected.length - 2}` : "")
-    : (group.id === "timedate" || group.id === "date") && selectedCalendarDates.length > 0
-      ? `${selectedCalendarDates.length} date${selectedCalendarDates.length !== 1 ? "s" : ""}`
-      : "None"
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left active:bg-white/8"
-    >
-      <CategoryIcon categoryId={group.id} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground">{group.name}</span>
-        <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-      </span>
-      <span className="text-xs font-semibold text-muted-foreground">{selected.length} selected</span>
-      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-    </button>
-  )
-}
-
-function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[]): TagGroup[] {
-  const categoryMap = new Map<string, TagGroup>()
-  const orderedCategories = [
-    ...SYSTEM_CATEGORIES,
-    ...customCategories,
-  ]
-
-  orderedCategories.forEach((category, index) => {
-    categoryMap.set(category.id, {
-      id: category.id,
-      name: category.name,
-      order: index,
-      tags: [],
-    })
+function sortTagList(tags: MessageTag[]): MessageTag[] {
+  return [...tags].sort((a, b) => {
+    const aSystem = !!parseSystemTypeTagId(a.id)
+    const bSystem = !!parseSystemTypeTagId(b.id)
+    if (aSystem !== bSystem) return aSystem ? -1 : 1
+    if (!!a.isFavorited !== !!b.isFavorited) return a.isFavorited ? -1 : 1
+    const activityDiff = (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0)
+    if (activityDiff !== 0) return activityDiff
+    return a.name.localeCompare(b.name)
   })
-
-  tags.forEach((tag) => {
-    // Normalize legacy/system aliases so the UI never renders duplicate category rows.
-    const rawCategory = tag.category || "custom"
-    const categoryId = rawCategory === "timedate"
-      ? "date"
-      : rawCategory === "systemType"
-        ? "status"
-        : rawCategory
-    if (!categoryMap.has(categoryId)) {
-      categoryMap.set(categoryId, {
-        id: categoryId,
-        name: getCategoryLabel(categoryId, customCategories),
-        order: 100,
-        tags: [],
-      })
-    }
-    categoryMap.get(categoryId)?.tags.push(tag)
-  })
-
-  return Array.from(categoryMap.values())
-    .filter((group) =>
-      group.tags.length > 0 ||
-      group.id === "status" ||
-      group.id === "custom" ||
-      customCategories.some((category) => category.id === group.id)
-    )
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
 }
 
 function buildSummaryItems({
@@ -1322,11 +1188,10 @@ function buildSmartSuggestions({
 
     const systemType = parseSystemTypeTagId(tag.id)
     const categoryId = normalizeTagCategoryId(tag.category)
-    const categoryLabel = getCategoryLabel(categoryId, customCategories)
     const stats = tagStats.get(tag.id)
     const textScore = scoreTextEvidence(text, textTokens, [
       tag.name,
-      categoryLabel,
+      getCategoryLabel(categoryId, customCategories),
       ...getTagSemanticAliases(tag, categoryId, systemType),
     ])
     const score =
@@ -1343,7 +1208,7 @@ function buildSmartSuggestions({
       kind: "tag",
       id: `tag:${tag.id}`,
       label: tag.name,
-      detail: systemType ? "Tag / Status" : `Tag / ${categoryLabel}`,
+      detail: "Tag",
       score,
       icon: <span className={cn("h-4 w-4 rounded-full", tagDotClass(tag))} />,
       iconBg: "bg-white/5",
@@ -1678,7 +1543,7 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  return getCategoryDotClass(tag.category)
+  return "bg-violet-500"
 }
 
 function formatDateShort(dateStr: string): string {

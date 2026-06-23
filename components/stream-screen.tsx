@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronDown, ChevronRight, Plus, CornerDownLeft, Hash } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronRight, Plus, CornerDownLeft, Hash } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -13,7 +13,6 @@ import {
   type Tag as MessageTag,
   type ImportedContact,
   type TagCategory,
-  type CategoryItem,
   type AppContext,
   getContactFromList,
   formatTime,
@@ -23,8 +22,6 @@ import {
   parseSystemTypeTagId,
   projectTagId,
   systemTypeTagId,
-  getCategoryLabel,
-  SYSTEM_CATEGORIES,
   type ReplyPreview,
 } from "@/lib/store"
 import { CreateProjectModal } from "@/components/create-project-modal"
@@ -36,7 +33,6 @@ import { useSwipeToReply } from "@/hooks/use-swipe-to-reply"
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { NavigationMenuModal } from "@/components/navigation-menu-modal"
 import { GlobalSearchSheet } from "@/components/global-search-sheet"
-import { CategoryIcon, getCategoryDotClass } from "@/components/category-icon"
 import { MessageImage } from "@/components/message-image"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
@@ -103,8 +99,6 @@ interface StreamScreenProps {
   activeUsers: Contact[]
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
-  customCategories?: CategoryItem[]
-  onCreateCategory?: (name: string) => Promise<void> | void
 }
 
 export function StreamScreen({
@@ -145,8 +139,6 @@ export function StreamScreen({
   activeUsers,
   availableTags,
   importedContacts,
-  customCategories = [],
-  onCreateCategory,
 }: StreamScreenProps) {
   const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
@@ -640,10 +632,24 @@ export function StreamScreen({
                     onImageOpen={(url, name) => setViewerImage({ url, name })}
                     onProjectTagTap={(projectId) => setProjectTagCtx({ projectId, messageId: msg.id })}
                     onReply={(msg) => {
+                      if (replyingTo?.id === msg.id) {
+                        setReplyingTo(null)
+                        return
+                      }
+                      const isFirstReply = replyingTo === null
                       setReplyingTo(msg)
-                      setQuickRecipients(msg.recipientIds ?? msg.peopleIds ?? [])
-                      setQuickProjects(msg.projectIds ?? (msg.projectId ? [msg.projectId] : []))
-                      setQuickCalendarDates((msg.calendarDates ?? []).map((d) => d.date))
+                      if (isFirstReply) {
+                        // Recipients: sender of original msg (if not me) + original recipients (excluding me)
+                        const originalRecipients = (msg.recipientIds ?? msg.peopleIds ?? []).filter((id) => id !== currentUserId)
+                        const replyRecipients = [...new Set([
+                          ...(msg.senderId !== currentUserId ? [msg.senderId] : []),
+                          ...originalRecipients,
+                        ])]
+                        setQuickRecipients(replyRecipients)
+                        setQuickProjects(msg.projectIds ?? (msg.projectId ? [msg.projectId] : []))
+                        setQuickCalendarDates((msg.calendarDates ?? []).map((d) => d.date))
+                        setQuickContextIds(msg.contextIds ?? [])
+                      }
                     }}
                     onReplyQuoteTap={(msgId) => scrollToAndHighlight(msgId)}
                   />
@@ -706,6 +712,13 @@ export function StreamScreen({
             onRemoveRecipient={(id) => setQuickRecipients((prev) => prev.filter((uid) => uid !== id))}
             onRemoveProject={(id) => setQuickProjects((prev) => prev.filter((projectId) => projectId !== id))}
             onRemoveCalendarDate={(date) => setQuickCalendarDates((prev) => prev.filter((item) => item !== date))}
+            contextIds={quickContextIds}
+            contexts={contexts}
+            onRemoveContext={(id) => setQuickContextIds((prev) => prev.filter((cid) => cid !== id))}
+            onChipTapRecipients={() => { setQuickSheetMode("who"); setShowQuickSheet(true) }}
+            onChipTapTags={() => { setQuickSheetMode("tag"); setShowQuickSheet(true) }}
+            onChipTapDates={() => { setQuickSheetMode("date"); setShowQuickSheet(true) }}
+            onChipTapContexts={() => { setQuickSheetMode("context"); setShowQuickSheet(true) }}
             onClearType={() => setQuickType("none")}
             onClearImage={clearQuickImage}
             onSend={handleQuickSend}
@@ -916,7 +929,6 @@ export function StreamScreen({
       {showTagFilterSheet && (
         <TagFilterSheet
           tags={availableTags}
-          customCategories={customCategories}
           selectedTags={selectedTagFilter}
           onChange={(ids) => {
             onTagFilterChange(ids)
@@ -980,7 +992,6 @@ export function StreamScreen({
           onToggleRecipient={toggleQuickRecipient}
           onToggleImportedRecipient={toggleQuickImportedRecipient}
           tags={availableTags}
-          customCategories={customCategories}
           onToggleTag={toggleQuickTag}
           onCalendarDatesChange={setQuickCalendarDates}
           onToggleContext={toggleQuickContext}
@@ -993,7 +1004,6 @@ export function StreamScreen({
       {showCreateQuickProject && (
         <CreateProjectModal
           contacts={contacts}
-          customCategories={customCategories}
           onClose={() => setShowCreateQuickProject(false)}
           onSubmit={async (name, memberIds, category) => {
             const project = await onCreateProject(name, memberIds, category)
@@ -1007,7 +1017,6 @@ export function StreamScreen({
         <UniversalAddModal
           onClose={() => setShowUniversalAdd(false)}
           onChooseTag={() => { setShowUniversalAdd(false); setShowCreateQuickProject(true) }}
-          onCreateCategory={(name) => onCreateCategory?.(name)}
           onChooseContext={() => {
             setShowUniversalAdd(false)
             if (onCreateContext) setShowCreateQuickContext(true)
@@ -1056,7 +1065,6 @@ export function StreamScreen({
           contacts={contacts}
           importedContacts={importedContacts}
           projects={projects}
-          customCategories={customCategories}
           availableTags={availableTags}
           contexts={contexts}
           currentUserId={currentUserId}
@@ -1153,7 +1161,6 @@ function QuickContextSheet({
   onToggleRecipient,
   onToggleImportedRecipient,
   tags,
-  customCategories,
   onToggleTag,
   onCalendarDatesChange,
   onToggleContext,
@@ -1173,7 +1180,6 @@ function QuickContextSheet({
   onToggleRecipient: (id: string) => void
   onToggleImportedRecipient: (id: string) => void
   tags: MessageTag[]
-  customCategories: CategoryItem[]
   onToggleTag: (id: string) => void
   onCalendarDatesChange: (dates: string[]) => void
   onToggleContext: (id: string) => void
@@ -1183,7 +1189,6 @@ function QuickContextSheet({
 }) {
   const [query, setQuery] = useState("")
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const q = query.trim().toLowerCase()
   const selectableTags = tags.filter((tag) => tag.id !== systemTypeTagId("none"))
@@ -1197,15 +1202,11 @@ function QuickContextSheet({
   const filteredTags = selectableTags.filter((tag) =>
     !q || tag.name.toLowerCase().includes(q)
   )
-  const tagGroups = groupTagsByCategory(filteredTags, customCategories)
   const filteredContexts = contexts.filter((c) =>
     !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
   )
   const selectedCount = selectedRecipients.length + selectedImportedRecipients.length + selectedTags.length + selectedCalendarDates.length + selectedContextIds.length
   const showSearchResults = q.length > 0
-
-  const toggleCategory = (categoryId: string) =>
-    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }))
 
   const handleCreateFromSearch = () => {
     onCreateProject()
@@ -1274,61 +1275,30 @@ function QuickContextSheet({
   )
 
   const renderTags = (compact = false) => (
-    <div className={cn("flex flex-col", compact ? "gap-2.5 pb-1" : "gap-3 pb-1")}>
-      {tagGroups.map((group) => {
-        const expanded = showSearchResults || (expandedCategories[group.id] ?? false)
-        const selectedInGroup = group.tags.filter((tag) => selectedTags.includes(tag.id)).length
+    <div className={cn("flex flex-col", compact ? "gap-0.5 pb-1" : "gap-1 pb-1")}>
+      {filteredTags.map((tag) => {
+        const selected = selectedTags.includes(tag.id)
+        const isUnassigned = tag.id === systemTypeTagId("none")
         return (
-          <div key={group.id} className="shrink-0 rounded-xl border border-white/10 bg-white/[0.035] overflow-hidden">
-            <button
-              type="button"
-              onClick={() => toggleCategory(group.id)}
-              className={cn(
-                "flex w-full items-center gap-2 text-left active:bg-white/5",
-                compact ? "min-h-10 px-3 py-2" : "min-h-11 px-3 py-2.5"
-              )}
-            >
-              <CategoryIcon categoryId={group.id} />
-              <span className="min-w-0 flex-1 text-xs font-bold uppercase tracking-[1.4px] text-foreground/80">
-                {group.name}
-              </span>
-              <span className={cn(
-                "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                selectedInGroup > 0
-                  ? "bg-primary/15 text-primary"
-                  : "bg-white/5 text-muted-foreground/60"
-              )}>
-                {selectedInGroup > 0 ? `${selectedInGroup} selected` : group.tags.length}
-              </span>
-              {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-            </button>
-            {expanded && (
-              <div className="border-t border-white/10 p-1">
-                {group.tags.map((tag) => {
-                  const selected = selectedTags.includes(tag.id)
-                  const isUnassigned = tag.id === systemTypeTagId("none")
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() => onToggleTag(tag.id)}
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
-                        selected ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary" : "active:bg-white/5 text-foreground/90"
-                      )}
-                    >
-                      <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{tag.name}</span>
-                      {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current shrink-0" />}
-                      {selected && <Check className={cn("w-4 h-4 shrink-0", isUnassigned ? "text-feedback" : "text-primary")} />}
-                    </button>
-                  )
-                })}
-              </div>
+          <button
+            key={tag.id}
+            onClick={() => onToggleTag(tag.id)}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors",
+              compact ? "py-2" : "py-2.5",
+              selected
+                ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
+                : "active:bg-white/5 text-foreground/90"
             )}
-          </div>
+          >
+            <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{tag.name}</span>
+            {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current shrink-0" />}
+            {selected && <Check className={cn("w-4 h-4 shrink-0", isUnassigned ? "text-feedback" : "text-primary")} />}
+          </button>
         )
       })}
-      {tagGroups.length === 0 && (
+      {filteredTags.length === 0 && (
         <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
           <p className="text-xs text-muted-foreground">No tags found.</p>
           {q && (
@@ -1428,63 +1398,128 @@ function QuickContextSheet({
             {selectedCount > 0 ? (
               <div className="mb-2 -mx-1 overflow-x-auto px-1 pb-1 scrollbar-hide">
                 <div className="flex gap-1.5">
-                  {selectedRecipients.map((id) => {
-                    const contact = contacts.find((item) => item.id === id)
-                    if (!contact) return null
+                  {/* People */}
+                  {(() => {
+                    const allPeople = [
+                      ...selectedRecipients.map(id => ({ type: "reg" as const, id })),
+                      ...selectedImportedRecipients.map(id => ({ type: "imp" as const, id })),
+                    ]
+                    if (allPeople.length === 0) return null
+                    const first = allPeople[0]
+                    const extra = allPeople.length - 1
+                    const regContact = first.type === "reg" ? contacts.find(c => c.id === first.id) : null
+                    const impContact = first.type === "imp" ? importedContacts.find(c => c.id === first.id) : null
                     return (
-                      <button key={id} onClick={() => onToggleRecipient(id)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-feedback/25 bg-feedback/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap">
-                        <span className={cn("flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white", contact.color)}>
-                          {contact.initials}
+                      <>
+                        {regContact && (
+                          <button onClick={() => setMode("who")} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 text-[11px] font-semibold text-white whitespace-nowrap active:scale-[0.98] transition-transform">
+                            <span className={cn("flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white shrink-0", regContact.color)}>{regContact.initials}</span>
+                            {regContact.name.split(" ")[0]}
+                            {extra > 0 && <span className="ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border border-amber-400/25 bg-amber-400/14 px-2 font-mono text-xs font-bold text-amber-300">+{extra}</span>}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); onToggleRecipient(first.id) }}
+                              className="rounded-full text-white/55 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </span>
+                          </button>
+                        )}
+                        {impContact && (
+                          <button onClick={() => setMode("who")} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 text-[11px] font-semibold text-white whitespace-nowrap active:scale-[0.98] transition-transform">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-[8px] font-bold text-white shrink-0">{(impContact.name.match(/\b\w/g) ?? []).slice(0,2).join("").toUpperCase() || "?"}</span>
+                            {impContact.name.split(" ")[0]}
+                            {extra > 0 && <span className="ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border border-amber-400/25 bg-amber-400/14 px-2 font-mono text-xs font-bold text-amber-300">+{extra}</span>}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); onToggleImportedRecipient(first.id) }}
+                              className="rounded-full text-white/55 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </span>
+                          </button>
+                        )}
+                      </>
+                    )
+                  })()}
+
+                  {/* Tags */}
+                  {(() => {
+                    if (selectedTags.length === 0) return null
+                    const firstTag = selectableTags.find(t => t.id === selectedTags[0])
+                    const extra = selectedTags.length - 1
+                    return (
+                      <>
+                        {firstTag && (
+                          <button onClick={() => setMode("tag")} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-violet-400/25 bg-violet-400/10 px-2.5 text-[11px] font-semibold text-white whitespace-nowrap active:scale-[0.98] transition-transform">
+                            <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(firstTag))} />
+                            {firstTag.name}
+                            {extra > 0 && <span className="ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border border-violet-400/25 bg-violet-400/14 px-2 font-mono text-xs font-bold text-violet-300">+{extra}</span>}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); onToggleTag(selectedTags[0]) }}
+                              className="rounded-full text-white/55 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </span>
+                          </button>
+                        )}
+                      </>
+                    )
+                  })()}
+
+                  {/* Dates */}
+                  {(() => {
+                    if (selectedCalendarDates.length === 0) return null
+                    const extra = selectedCalendarDates.length - 1
+                    return (
+                      <button
+                        onClick={() => setMode("date")}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-sky-400/25 bg-sky-400/10 px-2.5 text-[11px] font-semibold text-white whitespace-nowrap active:scale-[0.98] transition-transform"
+                      >
+                        <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" />
+                        {formatCalDate(selectedCalendarDates[0])}
+                        {extra > 0 && <span className="ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border border-sky-400/25 bg-sky-400/14 px-2 font-mono text-xs font-bold text-sky-300">+{extra}</span>}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); onCalendarDatesChange(selectedCalendarDates.filter((_, i) => i !== 0)) }}
+                          className="rounded-full text-white/55 hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
                         </span>
-                        {contact.name.split(" ")[0]}
-                        <X className="w-3 h-3" />
                       </button>
                     )
-                  })}
-                  {selectedImportedRecipients.map((id) => {
-                    const contact = importedContacts.find((item) => item.id === id)
-                    if (!contact) return null
+                  })()}
+
+                  {/* Contexts */}
+                  {(() => {
+                    if (selectedContextIds.length === 0) return null
+                    const firstCtx = contexts.find(c => c.id === selectedContextIds[0])
+                    const extra = selectedContextIds.length - 1
                     return (
-                      <button key={id} onClick={() => onToggleImportedRecipient(id)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-feedback/25 bg-feedback/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap">
-                        <User className="w-3 h-3 text-feedback" />
-                        {contact.name.split(" ")[0]}
-                        <X className="w-3 h-3" />
-                      </button>
+                      <>
+                        {firstCtx && (
+                          <button onClick={() => setMode("context")} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 text-[11px] font-semibold text-white whitespace-nowrap active:scale-[0.98] transition-transform">
+                            <Hash className="w-3 h-3 text-emerald-400 shrink-0" />
+                            {firstCtx.name}
+                            {extra > 0 && <span className="ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/14 px-2 font-mono text-xs font-bold text-emerald-300">+{extra}</span>}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); onToggleContext(selectedContextIds[0]) }}
+                              className="rounded-full text-white/55 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </span>
+                          </button>
+                        )}
+                      </>
                     )
-                  })}
-                  {selectedTags.map((tagId) => {
-                    const tag = selectableTags.find((item) => item.id === tagId)
-                    if (!tag) return null
-                    return (
-                      <button key={tagId} onClick={() => onToggleTag(tagId)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap">
-                        <span className={cn("w-2 h-2 rounded-full", tagDotClass(tag))} />
-                        {tag.name}
-                        <X className="w-3 h-3" />
-                      </button>
-                    )
-                  })}
-                  {selectedCalendarDates.map((date) => (
-                    <button
-                      key={date}
-                      onClick={() => onCalendarDatesChange(selectedCalendarDates.filter((item) => item !== date))}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-sky-400/25 bg-sky-400/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap"
-                    >
-                      <CalendarDays className="w-3 h-3 text-sky-400" />
-                      {formatCalDate(date)}
-                      <X className="w-3 h-3" />
-                    </button>
-                  ))}
-                  {selectedContextIds.map((ctxId) => {
-                    const ctx = contexts.find((c) => c.id === ctxId)
-                    if (!ctx) return null
-                    return (
-                      <button key={ctxId} onClick={() => onToggleContext(ctxId)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 text-[11px] font-semibold text-foreground/85 whitespace-nowrap">
-                        <Hash className="w-3 h-3 text-emerald-400" />
-                        {ctx.name}
-                        <X className="w-3 h-3" />
-                      </button>
-                    )
-                  })}
+                  })()}
                 </div>
               </div>
             ) : (
@@ -1509,7 +1544,7 @@ function QuickContextSheet({
                     {renderPeople(true)}
                   </div>
                 )}
-                {tagGroups.length > 0 && (
+                {filteredTags.length > 0 && (
                   <div>
                     <SectionMiniTitle>Tags</SectionMiniTitle>
                     {renderTags(true)}
@@ -1521,7 +1556,7 @@ function QuickContextSheet({
                     {renderContexts(true)}
                   </div>
                 )}
-                {filteredContacts.length === 0 && unregisteredContacts.length === 0 && tagGroups.length === 0 && filteredContexts.length === 0 && (
+                {filteredContacts.length === 0 && unregisteredContacts.length === 0 && filteredTags.length === 0 && filteredContexts.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
                     <p className="text-xs text-muted-foreground">Nothing matched "{query.trim()}".</p>
                     <button
@@ -1544,7 +1579,7 @@ function QuickContextSheet({
                       {renderPeople(true)}
                     </div>
                     <div>
-                      <SectionMiniTitle>Tags by category</SectionMiniTitle>
+                      <SectionMiniTitle>Tags</SectionMiniTitle>
                       {renderTags(true)}
                     </div>
                     {contexts.length > 0 && (
@@ -1631,52 +1666,6 @@ function SectionMiniTitle({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   )
-}
-
-function groupTagsByCategory(tags: MessageTag[], customCategories: CategoryItem[]) {
-  const categoryMap = new Map<string, { id: string; name: string; order: number; tags: MessageTag[] }>()
-
-  // "systemType" and "status" are both labelled "Status" — merge them under "status"
-  // so Progress/Decision/Feedback/Problem and any user project tags in "status" appear together
-  const MERGE_TO_STATUS = new Set(["systemType", "status"])
-
-  const orderedCategories = [
-    { id: "status", name: "Status" },   // unified Status group (index 0 = first)
-    ...SYSTEM_CATEGORIES.filter(c => c.id !== "status"),  // remaining system cats
-    ...customCategories.filter(c =>
-      !SYSTEM_CATEGORIES.some(s => s.id === c.id) &&
-      c.name.trim().toLowerCase() !== "status"
-    ),
-  ]
-
-  orderedCategories.forEach((category, index) => {
-    categoryMap.set(category.id, {
-      id: category.id,
-      name: category.name,
-      order: index,
-      tags: [],
-    })
-  })
-
-  tags.forEach((tag) => {
-    // Redirect systemType tags → unified "status" group
-    const rawCategoryId = tag.category || "custom"
-    const categoryId = MERGE_TO_STATUS.has(rawCategoryId) ? "status" : rawCategoryId
-
-    if (!categoryMap.has(categoryId)) {
-      categoryMap.set(categoryId, {
-        id: categoryId,
-        name: getCategoryLabel(categoryId, customCategories),
-        order: 100,
-        tags: [],
-      })
-    }
-    categoryMap.get(categoryId)?.tags.push(tag)
-  })
-
-  return Array.from(categoryMap.values())
-    .filter((group) => group.tags.length > 0)
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
 }
 
 function ProjectSearchSheet({
@@ -1964,19 +1953,16 @@ function PeopleFilterSheet({
 
 function TagFilterSheet({
   tags,
-  customCategories,
   selectedTags,
   onChange,
   onClose,
 }: {
   tags: MessageTag[]
-  customCategories: CategoryItem[]
   selectedTags: string[]
   onChange: (ids: string[]) => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState("")
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const queryText = query.trim().toLowerCase()
   const unassignedTag = tags.find(t => t.id === systemTypeTagId("none"))
@@ -1984,17 +1970,12 @@ function TagFilterSheet({
     .filter((tag) => {
       if (tag.id === systemTypeTagId("none")) return false  // shown separately as top pill
       if (!queryText) return true
-      const categoryId = tag.category || "custom"
-      const categoryLabel = getCategoryLabel(categoryId, customCategories)
-      return tag.name.toLowerCase().includes(queryText) || categoryLabel.toLowerCase().includes(queryText)
+      return tag.name.toLowerCase().includes(queryText)
     })
-  const tagGroups = groupTagsByCategory(filtered, customCategories)
   const selectedTagObjects = tags.filter((tag) => selectedTags.includes(tag.id))
   const toggle = (id: string) => {
     onChange(selectedTags.includes(id) ? selectedTags.filter((item) => item !== id) : [...selectedTags, id])
   }
-  const toggleCategory = (categoryId: string) =>
-    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }))
 
   return (
     <>
@@ -2007,7 +1988,7 @@ function TagFilterSheet({
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
         </div>
         <SheetHeader title="Filter Tags" onClose={onClose} />
-        <SheetSearchInput value={query} onChange={setQuery} placeholder="Search tags or categories" />
+        <SheetSearchInput value={query} onChange={setQuery} placeholder="Search tags" />
         <div className="mb-3 flex shrink-0 items-center gap-2">
           <button
             type="button"
@@ -2063,14 +2044,14 @@ function TagFilterSheet({
         </div>
         <div className="mb-2 flex shrink-0 items-center justify-between px-1">
           <p className="text-[10px] font-bold uppercase tracking-[1.6px] text-muted-foreground/65 font-mono">
-            Categories
+            Tags
           </p>
           <span className="text-[10px] font-semibold text-muted-foreground/55">
-            {tagGroups.length} categories
+            {filtered.length} tag{filtered.length !== 1 ? "s" : ""}
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-hide">
-          <div className="flex flex-col gap-2.5 pb-2">
+          <div className="flex flex-col gap-1 pb-2">
             <button
               onClick={() => onChange([])}
               className={cn(
@@ -2086,67 +2067,31 @@ function TagFilterSheet({
               <span className="text-sm font-semibold flex-1">All Tags</span>
               {selectedTags.length === 0 && <Check className="w-4 h-4 text-primary" />}
             </button>
-            {tagGroups.map((group) => {
-              const expanded = queryText.length > 0 || (expandedCategories[group.id] ?? false)
-              const selectedInGroup = group.tags.filter((tag) => selectedTags.includes(tag.id)).length
+            {filtered.map((tag) => {
+              const selected = selectedTags.includes(tag.id)
+              const isUnassigned = tag.id === systemTypeTagId("none")
               return (
-                <div key={group.id} className="shrink-0 rounded-xl border border-white/10 bg-white/[0.035] overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => toggleCategory(group.id)}
-                    className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left active:bg-white/5"
-                  >
-                    <CategoryIcon categoryId={group.id} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-bold uppercase tracking-[1.4px] text-foreground/80 font-mono">
-                        {group.name}
-                      </p>
-                      {selectedInGroup > 0 && (
-                        <p className="mt-0.5 truncate text-[10px] font-semibold text-primary/80">
-                          {selectedInGroup} selected
-                        </p>
-                      )}
-                    </div>
-                    <span className={cn(
-                      "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                      selectedInGroup > 0 ? "bg-primary/15 text-primary" : "bg-white/5 text-muted-foreground/60"
-                    )}>
-                      {selectedInGroup > 0 ? selectedInGroup : group.tags.length}
-                    </span>
-                    {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                  </button>
-                  {expanded && (
-                    <div className="max-h-56 overflow-y-auto border-t border-white/10 p-1 scrollbar-hide">
-                      {group.tags.map((tag) => {
-                        const selected = selectedTags.includes(tag.id)
-                        const isUnassigned = tag.id === systemTypeTagId("none")
-                        return (
-                          <button
-                            key={tag.id}
-                            onClick={() => toggle(tag.id)}
-                            className={cn(
-                              "flex w-full items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
-                              selected
-                                ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
-                                : "active:bg-white/5 text-foreground/90"
-                            )}
-                          >
-                            {isUnassigned ? (
-                              <span className="w-4 h-4 rounded-full bg-feedback/[0.07] border border-feedback/10 flex items-center justify-center shrink-0">
-                                <CircleSlash className="w-2.5 h-2.5 text-feedback/70" />
-                              </span>
-                            ) : (
-                              <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
-                            )}
-                            <span className="text-sm font-semibold flex-1 truncate">{tag.name}</span>
-                            {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current" />}
-                            {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
-                          </button>
-                        )
-                      })}
-                    </div>
+                <button
+                  key={tag.id}
+                  onClick={() => toggle(tag.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                    selected
+                      ? isUnassigned ? "bg-feedback/15 text-feedback" : "bg-primary/15 text-primary"
+                      : "active:bg-white/5 text-foreground/90"
                   )}
-                </div>
+                >
+                  {isUnassigned ? (
+                    <span className="w-4 h-4 rounded-full bg-feedback/[0.07] border border-feedback/10 flex items-center justify-center shrink-0">
+                      <CircleSlash className="w-2.5 h-2.5 text-feedback/70" />
+                    </span>
+                  ) : (
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", tagDotClass(tag))} />
+                  )}
+                  <span className="text-sm font-semibold flex-1 truncate">{tag.name}</span>
+                  {tag.isFavorited && <Star className="w-3.5 h-3.5 text-feedback fill-current" />}
+                  {selected && <Check className={cn("w-4 h-4", isUnassigned ? "text-feedback" : "text-primary")} />}
+                </button>
               )
             })}
             {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No tags found.</p>}
@@ -2255,13 +2200,13 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
   )
 }
 
-function tagDotClass(tag: MessageTag): string {
+function tagDotClass(tag: { id: string; systemType?: MessageType }): string {
   const systemType = parseSystemTypeTagId(tag.id)
   if (systemType === "progress") return "bg-progress"
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  return getCategoryDotClass(tag.category)
+  return "bg-violet-500"
 }
 
 function messageTypeChipClass(type: MessageType): string {
@@ -2786,13 +2731,16 @@ function MessageBubble({
                     if (tag.projectId) onProjectTagTap?.(tag.projectId)
                   }}
                   className={cn(
-                    "text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono active:bg-primary/20 transition-colors no-callout backdrop-blur-md",
+                    "inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono transition-colors no-callout backdrop-blur-md",
                     tag.systemType
                       ? messageTypeChipClass(tag.systemType)
-                      : "bg-primary/12 text-blue-300 border-primary/30"
+                      : "bg-violet-500/12 text-violet-300 border-violet-400/30 active:bg-violet-500/20"
                   )}
                 >
                   {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback mr-0.5 -mt-px" />}
+                  <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border border-current/20 bg-white/5">
+                    <span className={cn("h-1.5 w-1.5 rounded-full", tagDotClass(tag))} />
+                  </span>
                   {tag.name}
                 </button>
               )

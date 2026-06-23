@@ -8,12 +8,10 @@ import {
   type ImportedContact,
   type Message,
   type Project,
-  type CategoryItem,
   type Tag as MessageTag,
   type AppContext,
   formatTime,
   systemTypeTagId,
-  getCategoryLabel,
 } from "@/lib/store"
 
 interface GlobalSearchSheetProps {
@@ -22,7 +20,6 @@ interface GlobalSearchSheetProps {
   contacts?: Contact[]
   importedContacts?: ImportedContact[]
   projects?: Project[]
-  customCategories?: CategoryItem[]
   availableTags?: MessageTag[]
   contexts?: AppContext[]
   currentUserId?: string
@@ -59,7 +56,7 @@ const SECTION_META: Record<ResultSection, {
     activeBg: "active:bg-amber-400/10",
   },
   tags: {
-    label: "Projects / Tags",
+    label: "Tags",
     icon: <LayoutGrid className="w-3.5 h-3.5" />,
     color: "text-primary",
     sectionBg: "bg-primary/[0.07]",
@@ -90,7 +87,6 @@ export function GlobalSearchSheet({
   contacts = [],
   importedContacts: _importedContacts = [],
   projects: _projects = [],
-  customCategories = [],
   availableTags = [],
   contexts = [],
   onMessageClick,
@@ -152,7 +148,7 @@ export function GlobalSearchSheet({
         .map((t) => ({
           id: t.id,
           primary: t.name,
-          secondary: getCategoryLabel(t.category, customCategories),
+          secondary: "Tag",
           onClick: () => { onTagFilterClick?.(t.id); onClose() },
         }))
     : []

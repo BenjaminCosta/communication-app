@@ -1,13 +1,14 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { Plus, Send, X } from "lucide-react"
+import { Plus, Send, X, Tag, Hash, CalendarDays } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   type Contact,
   type MessageType,
   type Project,
   type ImportedContact,
+  type AppContext,
   MESSAGE_TYPE_CONFIG,
 } from "@/lib/store"
 
@@ -19,6 +20,8 @@ interface MessageInputBarProps {
   recipients: string[]
   projectIds: string[]
   calendarDates?: string[]
+  contextIds?: string[]
+  contexts?: AppContext[]
   type: MessageType
   imageFile: File | null
   imagePreview: string | null
@@ -33,6 +36,11 @@ interface MessageInputBarProps {
   onRemoveRecipient: (id: string) => void
   onRemoveProject: (id: string) => void
   onRemoveCalendarDate?: (date: string) => void
+  onRemoveContext?: (id: string) => void
+  onChipTapRecipients?: () => void
+  onChipTapTags?: () => void
+  onChipTapDates?: () => void
+  onChipTapContexts?: () => void
   onClearType: () => void
   onClearImage: () => void
   onSend: () => void
@@ -47,6 +55,8 @@ export function MessageInputBar({
   recipients,
   projectIds,
   calendarDates = [],
+  contextIds = [],
+  contexts = [],
   type,
   imageFile,
   imagePreview,
@@ -61,13 +71,25 @@ export function MessageInputBar({
   onRemoveRecipient,
   onRemoveProject,
   onRemoveCalendarDate,
+  onRemoveContext,
+  onChipTapRecipients,
+  onChipTapTags,
+  onChipTapDates,
+  onChipTapContexts,
   onClearType,
   onClearImage,
   onSend,
   showProjectChips = true,
 }: MessageInputBarProps) {
   const visibleProjectIds = showProjectChips ? projectIds : []
-  const hasContext = recipients.length > 0 || importedRecipients.length > 0 || visibleProjectIds.length > 0 || calendarDates.length > 0 || type !== "none" || !!imageFile
+  const totalRecipients = recipients.length + importedRecipients.length
+  const hasContext =
+    totalRecipients > 0 ||
+    visibleProjectIds.length > 0 ||
+    calendarDates.length > 0 ||
+    contextIds.length > 0 ||
+    type !== "none" ||
+    !!imageFile
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -102,47 +124,68 @@ export function MessageInputBar({
 
       {hasContext && (
         <div className="mx-auto mb-2 max-w-2xl flex gap-1.5 overflow-x-auto scrollbar-hide">
-          {recipients.map((id) => {
-            const contact = contacts.find((c) => c.id === id)
-            if (!contact) return null
+
+          {/* First person — avatar + name + X */}
+          {totalRecipients > 0 && (() => {
+            const firstIsReg = recipients.length > 0
+            const firstId = firstIsReg ? recipients[0] : importedRecipients[0]
+            const c = firstIsReg ? contacts.find((x) => x.id === firstId) : null
+            const ic = !firstIsReg ? importedContacts.find((x) => x.id === firstId) : null
+            if (!c && !ic) return null
+            const name = (c ?? ic)!.name.split(" ")[0]
+            const initials = c ? c.initials : ((ic!.name.match(/\b\w/g) ?? []).slice(0, 2).join("").toUpperCase() || "?")
+            const color = c ? c.color : "bg-white/10"
+            const onRemove = firstIsReg ? () => onRemoveRecipient(firstId) : () => onRemoveImportedRecipient?.(firstId)
             return (
-              <ContextChip key={id} onRemove={() => onRemoveRecipient(id)}>
-                To: {contact.name.split(" ")[0]}
-              </ContextChip>
+              <Chip tone="people" onRemove={onRemove} onTap={onChipTapRecipients} extraCount={totalRecipients - 1}>
+                <MiniAvatar initials={initials} color={color} />
+                {name}
+              </Chip>
             )
-          })}
-          {importedRecipients.map((id) => {
-            const ic = importedContacts.find((c) => c.id === id)
-            if (!ic) return null
-            return (
-              <ContextChip key={`ic-${id}`} onRemove={() => onRemoveImportedRecipient?.(id)}>
-                To: {ic.name.split(" ")[0]}
-              </ContextChip>
-            )
-          })}
+          })()}
+
+          {/* Type chip */}
           {type !== "none" && (
-            <ContextChip onRemove={onClearType}>
+            <Chip tone="type" onRemove={onClearType} onTap={onChipTapTags}>
               {MESSAGE_TYPE_CONFIG[type].label}
-            </ContextChip>
+            </Chip>
           )}
-          {visibleProjectIds.map((id) => {
-            const project = projects.find((p) => p.id === id)
-            if (!project) return null
+
+          {/* First tag — icon + name + X */}
+          {visibleProjectIds.length > 0 && (() => {
+            const p = projects.find((x) => x.id === visibleProjectIds[0])
+            if (!p) return null
             return (
-              <ContextChip key={id} onRemove={() => onRemoveProject(id)}>
-                {project.name}
-              </ContextChip>
+              <Chip tone="tag" onRemove={() => onRemoveProject(visibleProjectIds[0])} onTap={onChipTapTags} extraCount={visibleProjectIds.length - 1}>
+                <Tag className="w-3 h-3 shrink-0 text-violet-300" />
+                {p.name}
+              </Chip>
             )
-          })}
+          })()}
+
+          {/* Calendar dates — always individual */}
           {calendarDates.map((date) => (
-            <ContextChip key={date} tone="date" onRemove={() => onRemoveCalendarDate?.(date)}>
+            <Chip key={date} tone="date" onRemove={() => onRemoveCalendarDate?.(date)} onTap={onChipTapDates}>
+              <CalendarDays className="w-3 h-3 shrink-0 text-sky-300" />
               {formatDateChip(date)}
-            </ContextChip>
+            </Chip>
           ))}
+
+          {/* First context — hash + name + X */}
+          {contextIds.length > 0 && (() => {
+            const ctx = contexts.find((c) => c.id === contextIds[0])
+            if (!ctx) return null
+            return (
+              <Chip tone="context" onRemove={() => onRemoveContext?.(contextIds[0])} onTap={onChipTapContexts} extraCount={contextIds.length - 1}>
+                <Hash className="w-3 h-3 shrink-0 text-emerald-300" />
+                {ctx.name}
+              </Chip>
+            )
+          })()}
+
+          {/* Image */}
           {imageFile && (
-            <ContextChip onRemove={onClearImage}>
-              {imageFile.name}
-            </ContextChip>
+            <Chip tone="type" onRemove={onClearImage} onTap={onOpenSheet}>{imageFile.name}</Chip>
           )}
         </div>
       )}
@@ -204,18 +247,73 @@ export function MessageInputBar({
   )
 }
 
-function ContextChip({ children, onRemove, tone = "primary" }: { children: React.ReactNode; onRemove: () => void; tone?: "primary" | "date" }) {
+type ChipTone = "people" | "tag" | "context" | "date" | "type"
+
+const CHIP_BORDER_BG: Record<ChipTone, string> = {
+  people:  "border-amber-400/30  bg-amber-400/12",
+  tag:     "border-violet-400/30 bg-violet-400/12",
+  context: "border-emerald-400/30 bg-emerald-400/12",
+  date:    "border-sky-400/30    bg-sky-400/12",
+  type:    "border-primary/30   bg-primary/12",
+}
+
+const CHIP_COUNT_CLASS: Record<ChipTone, string> = {
+  people:  "border-amber-400/25  bg-amber-400/14  text-amber-300",
+  tag:     "border-violet-400/25 bg-violet-400/14 text-violet-300",
+  context: "border-emerald-400/25 bg-emerald-400/14 text-emerald-300",
+  date:    "border-sky-400/25    bg-sky-400/14    text-sky-300",
+  type:    "border-primary/25     bg-primary/14     text-primary",
+}
+
+function Chip({
+  children,
+  onRemove,
+  onTap,
+  extraCount = 0,
+  tone = "type",
+}: {
+  children: React.ReactNode
+  onRemove: () => void
+  onTap?: () => void
+  extraCount?: number
+  tone?: ChipTone
+}) {
   return (
-    <span className={cn(
-      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap backdrop-blur-md",
-      tone === "date"
-        ? "border-sky-400/30 bg-sky-400/12 text-sky-300"
-        : "border-primary/30 bg-primary/12 text-blue-300"
-    )}>
-      <span className="max-w-32 truncate">{children}</span>
-      <button type="button" onClick={onRemove} className="rounded-full active:scale-90">
+    <button
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap backdrop-blur-md text-white transition-transform active:scale-[0.98]",
+        CHIP_BORDER_BG[tone],
+      )}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onTap?.() }}
+    >
+      <span className="flex items-center gap-1 max-w-28 truncate">{children}</span>
+      {extraCount > 0 && (
+        <span className={cn(
+          "ml-0.5 inline-flex h-6 min-w-8 items-center justify-center rounded-full border px-2 font-mono text-xs font-bold",
+          CHIP_COUNT_CLASS[tone]
+        )}>
+          +{extraCount}
+        </span>
+      )}
+      <span
+        role="button"
+        tabIndex={0}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        className="rounded-full active:scale-90 text-white/55 hover:text-white transition-colors"
+      >
         <X className="w-3 h-3" />
-      </button>
+      </span>
+    </button>
+  )
+}
+
+function MiniAvatar({ initials, color }: { initials: string; color: string }) {
+  return (
+    <span className={cn("flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white shrink-0", color)}>
+      {initials}
     </span>
   )
 }
