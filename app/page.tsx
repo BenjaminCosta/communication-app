@@ -47,6 +47,7 @@ import { CalendarScreen } from "@/components/calendar-screen"
 import { ContextsScreen } from "@/components/contexts-screen"
 import { ContextDetailScreen } from "@/components/context-detail-screen"
 import { ToastNotification } from "@/components/toast-notification"
+import { NotificationPromptBanner } from "@/components/notification-prompt-banner"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
 import {
   type Message,
@@ -1492,6 +1493,11 @@ export default function Home() {
             customCategories={customCategories}
             onCreateCategory={handleCreateCategory}
           />
+          {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
+          {activeScreen === "stream" && firebaseUser && (
+            <NotificationPromptBanner onNavigateToNotifications={goToNotificationsFromStream} />
+          )}
+
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}
           <div
             className={`fixed inset-0 z-40 flex flex-col justify-end md:items-center md:justify-center transition-opacity duration-200 ${activeScreen === "compose" && composeMode === "sheet" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}

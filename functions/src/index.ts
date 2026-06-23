@@ -1,9 +1,93 @@
 import { initializeApp } from "firebase-admin/app"
-import { getFirestore, FieldValue } from "firebase-admin/firestore"
+import { getFirestore, FieldValue, Firestore } from "firebase-admin/firestore"
 import { getMessaging } from "firebase-admin/messaging"
 import * as functionsV1 from "firebase-functions/v1"
 
 initializeApp()
+
+/**
+ * Shared helper: sends FCM push notifications to `recipientIds` (excluding `senderId`).
+ * Respects notificationPreference; cleans up stale tokens automatically.
+ */
+async function sendNotificationsToUsers(
+  db: Firestore,
+  recipientIds: string[],
+  senderId: string,
+  messageId: string,
+  body: string
+): Promise<void> {
+  const toNotify = recipientIds.filter((uid) => uid !== senderId)
+  if (toNotify.length === 0) return
+
+  // Fetch sender name + all recipient docs in parallel
+  const [senderSnap, ...userSnaps] = await Promise.all([
+    db.collection("users").doc(senderId).get(),
+    ...toNotify.map((uid) => db.collection("users").doc(uid).get()),
+  ])
+  const senderName: string = senderSnap.data()?.name ?? "Someone"
+
+  const tokens: string[] = []
+  const tokenToUid = new Map<string, string>()
+
+  userSnaps.forEach((snap, i) => {
+    const userData = snap.data()
+    if (!userData) return
+    const pref: string = userData.notificationPreference ?? "instant"
+    if (pref === "muted") return
+    const fcmTokens: string[] = Array.isArray(userData.fcmTokens) ? userData.fcmTokens : []
+    for (const token of fcmTokens) {
+      tokens.push(token)
+      tokenToUid.set(token, toNotify[i])
+    }
+  })
+
+  if (tokens.length === 0) return
+
+  const result = await getMessaging().sendEachForMulticast({
+    tokens,
+    notification: {
+      title: senderName,
+      body,
+    },
+    webpush: {
+      notification: {
+        icon: "https://svc-comms.web.app/icon-192x192.png",
+        badge: "https://svc-comms.web.app/icon-192x192.png",
+      },
+      fcmOptions: { link: "/" },
+    },
+    data: { messageId },
+  })
+
+  functionsV1.logger.info(
+    `[FCM] msg=${messageId} sent=${result.successCount} failed=${result.failureCount}`
+  )
+
+  // Clean up stale / expired tokens
+  const staleTokens = result.responses
+    .map((r, i) => ({ r, token: tokens[i] }))
+    .filter(
+      ({ r }) =>
+        !r.success &&
+        (r.error?.code === "messaging/invalid-registration-token" ||
+          r.error?.code === "messaging/registration-token-not-registered")
+    )
+    .map(({ token }) => token)
+
+  if (staleTokens.length > 0) {
+    const batch = db.batch()
+    for (const token of staleTokens) {
+      const uid = tokenToUid.get(token)
+      if (uid) {
+        batch.update(db.collection("users").doc(uid), {
+          fcmTokens: FieldValue.arrayRemove(token),
+        })
+      }
+    }
+    await batch.commit()
+    functionsV1.logger.info(`[FCM] Removed ${staleTokens.length} stale token(s)`)
+  }
+}
 
 /**
  * Triggered whenever a new user document is created in /users/{uid}.
@@ -58,11 +142,8 @@ export const autoLinkOnRegister = functionsV1.firestore
   })
 
 /**
- * Triggered whenever a new message is created in /messages/{messageId}.
- * Sends FCM push notifications to all users in visibleToUserIds except the sender.
- * Respects each user's notificationPreference ("instant" | "muted").
- * Notification title is the sender's display name; body is generic (no message content).
- * Cleans up invalid/expired FCM tokens automatically.
+ * Triggered on new message creation.
+ * Notifies all users in visibleToUserIds except the sender.
  */
 export const onMessageCreated = functionsV1.firestore
   .document("messages/{messageId}")
@@ -75,87 +156,48 @@ export const onMessageCreated = functionsV1.firestore
 
     if (!senderId || visibleToUserIds.length === 0) return
 
-    // Notify everyone in visibleToUserIds except the author
-    const recipientIds = visibleToUserIds.filter((uid) => uid !== senderId)
-    if (recipientIds.length === 0) return
-
-    const db = getFirestore()
-
-    // Fetch sender's display name
-    const senderSnap = await db.collection("users").doc(senderId).get()
-    const senderName: string = senderSnap.data()?.name ?? "Someone"
-
-    // Collect valid FCM tokens, skipping muted users
-    // tokenToUid lets us remove invalid tokens afterwards
-    const tokens: string[] = []
-    const tokenToUid = new Map<string, string>()
-
-    await Promise.all(
-      recipientIds.map(async (uid) => {
-        const userSnap = await db.collection("users").doc(uid).get()
-        const userData = userSnap.data()
-        if (!userData) return
-
-        const pref: string = userData.notificationPreference ?? "instant"
-        if (pref === "muted") return
-
-        const fcmTokens: string[] = Array.isArray(userData.fcmTokens) ? userData.fcmTokens : []
-        for (const token of fcmTokens) {
-          tokens.push(token)
-          tokenToUid.set(token, uid)
-        }
-      })
+    await sendNotificationsToUsers(
+      getFirestore(),
+      visibleToUserIds,
+      senderId,
+      context.params.messageId,
+      "New message"
     )
+  })
 
-    if (tokens.length === 0) return
+/**
+ * Triggered on message update.
+ * Detects UIDs newly added to visibleToUserIds (e.g. via tag or direct recipient)
+ * and sends them a notification. Only fires when visibleToUserIds actually changes.
+ */
+export const onMessageUpdated = functionsV1.firestore
+  .document("messages/{messageId}")
+  .onUpdate(async (change, context) => {
+    const before: string[] = Array.isArray(change.before.data().visibleToUserIds)
+      ? change.before.data().visibleToUserIds
+      : []
+    const after: string[] = Array.isArray(change.after.data().visibleToUserIds)
+      ? change.after.data().visibleToUserIds
+      : []
 
-    // Send — title = sender name, body = generic (no message content exposed)
-    const result = await getMessaging().sendEachForMulticast({
-      tokens,
-      notification: {
-        title: senderName,
-        body: "Sent you a message",
-      },
-      webpush: {
-        notification: {
-          icon : "https://svc-comms.web.app/icon-192x192.png",
-          badge: "https://svc-comms.web.app/icon-192x192.png",
-        },
-        fcmOptions: { link: "/" },
-      },
-      data: {
-        messageId: context.params.messageId,
-      },
-    })
+    // Only proceed if visibleToUserIds actually grew
+    const beforeSet = new Set(before)
+    const newlyAdded = after.filter((uid) => !beforeSet.has(uid))
+    if (newlyAdded.length === 0) return
+
+    const senderId: string =
+      change.after.data().senderId ?? change.after.data().authorId ?? ""
+    if (!senderId) return
 
     functionsV1.logger.info(
-      `[onMessageCreated] msg=${context.params.messageId} sent=${result.successCount} failed=${result.failureCount}`
+      `[onMessageUpdated] msg=${context.params.messageId} newlyAdded=${newlyAdded.join(",")}`
     )
 
-    // Clean up stale / invalid tokens
-    const staleTokens = result.responses
-      .map((r, i) => ({ r, token: tokens[i] }))
-      .filter(
-        ({ r }) =>
-          !r.success &&
-          (r.error?.code === "messaging/invalid-registration-token" ||
-            r.error?.code === "messaging/registration-token-not-registered")
-      )
-      .map(({ token }) => token)
-
-    if (staleTokens.length > 0) {
-      const batch = db.batch()
-      for (const token of staleTokens) {
-        const uid = tokenToUid.get(token)
-        if (uid) {
-          batch.update(db.collection("users").doc(uid), {
-            fcmTokens: FieldValue.arrayRemove(token),
-          })
-        }
-      }
-      await batch.commit()
-      functionsV1.logger.info(
-        `[onMessageCreated] Removed ${staleTokens.length} stale token(s)`
-      )
-    }
+    await sendNotificationsToUsers(
+      getFirestore(),
+      newlyAdded,
+      senderId,
+      context.params.messageId,
+      "New message"
+    )
   })
