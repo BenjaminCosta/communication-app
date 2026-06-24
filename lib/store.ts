@@ -91,6 +91,7 @@ export interface Contact {
   id: string   // Firebase UID
   name: string
   email?: string
+  emailNormalized?: string
   initials: string
   color: string
   lastSeen?: Date | null
@@ -107,10 +108,12 @@ export interface ImportedContact {
   ownerUserId: string                 // Firebase UID of the user who imported this contact
   name: string
   email?: string
+  emailNormalized?: string
   phone?: string
   source: ImportedContactSource
   tags: string[]                      // Freeform string labels, e.g. "client", "vendor"
   linkedUserId?: string | null        // Firebase UID once the contact registers
+  linkedAt?: Date | null
   status: ImportedContactStatus
   visibility?: ImportedContactVisibility  // "private" (default) | "global"
   createdAt: Date
@@ -499,4 +502,8 @@ export function deriveInitials(name: string): string {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
   }
   return name.slice(0, 2).toUpperCase()
+}
+
+export function normalizeEmail(email?: string | null): string {
+  return (email ?? "").trim().toLowerCase()
 }

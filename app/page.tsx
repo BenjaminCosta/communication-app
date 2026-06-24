@@ -4,10 +4,15 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  type AuthCredential,
+  GoogleAuthProvider,
+  linkWithCredential,
   onAuthStateChanged,
+  signInWithPopup,
   signOut,
   type User,
 } from "firebase/auth"
+import { FirebaseError } from "firebase/app"
 import {
   collection,
   doc,
@@ -19,6 +24,7 @@ import {
   onSnapshot,
   query,
   where,
+  getDoc,
   getDocs,
   serverTimestamp,
   Timestamp,
@@ -74,6 +80,7 @@ import {
   projectTagId,
   sortTagsByActivity,
   computeVisibleToUserIds,
+  normalizeEmail,
   type CategoryItem,
 } from "@/lib/store"
 
@@ -195,10 +202,20 @@ function sanitizeStorageName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 90) || "image"
 }
 
+function resolveLinkedImportedContactUserIds(importedContactIds: string[], importedContacts: ImportedContact[]): string[] {
+  if (importedContactIds.length === 0) return []
+  const contactsById = new Map(importedContacts.map((contact) => [contact.id, contact]))
+  return importedContactIds
+    .map((id) => contactsById.get(id)?.linkedUserId)
+    .filter((id): id is string => !!id)
+}
+
 export default function Home() {
   // ── Auth ──────────────────────────────────────────────────────────────
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
   const [currentUser, setCurrentUser] = useState<Contact | null>(null)
+  const [pendingGoogleLinkEmail, setPendingGoogleLinkEmail] = useState<string | null>(null)
+  const pendingGoogleCredentialRef = useRef<AuthCredential | null>(null)
 
   // ── Firestore data ────────────────────────────────────────────────────
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -326,8 +343,20 @@ export default function Home() {
           color: getUserAvatarColor(user.uid),
           email: user.email ?? undefined,
         })
-        // Ensure email is always persisted so other users can see it
-        await setDoc(doc(db, "users", user.uid), { email: user.email ?? "" }, { merge: true })
+        const userRef = doc(db, "users", user.uid)
+        const existingUserSnap = await getDoc(userRef)
+        const existingUser = existingUserSnap.exists() ? existingUserSnap.data() : {}
+        const emailNormalized = normalizeEmail(user.email)
+        await setDoc(userRef, {
+          id: user.uid,
+          email: user.email ?? "",
+          emailNormalized,
+          emailVerified: user.emailVerified === true,
+          authProviderIds: user.providerData.map((provider) => provider.providerId),
+          ...(!existingUser.name ? { name } : {}),
+          ...(!existingUser.initials ? { initials } : {}),
+          ...(!existingUser.color ? { color: getUserAvatarColor(user.uid) } : {}),
+        }, { merge: true })
         // Register FCM token if notification permission was already granted
         if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
           registerFCMToken(user.uid).catch(() => {})
@@ -359,6 +388,7 @@ export default function Home() {
           id: data.id ?? d.id,
           name: data.name,
           email: data.email ?? undefined,
+          emailNormalized: data.emailNormalized ?? undefined,
           initials: data.initials,
           color: data.color ?? getUserAvatarColor(d.id),
           lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
@@ -434,10 +464,12 @@ export default function Home() {
           ownerUserId: data.ownerUserId,
           name: data.name,
           email: data.email ?? undefined,
+          emailNormalized: data.emailNormalized ?? undefined,
           phone: data.phone ?? undefined,
           source: data.source ?? "manual",
           tags: Array.isArray(data.tags) ? data.tags : [],
           linkedUserId: data.linkedUserId ?? null,
+          linkedAt: data.linkedAt instanceof Timestamp ? data.linkedAt.toDate() : null,
           status: data.status ?? "not_registered",
           visibility: data.visibility ?? "private",
           createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
@@ -527,8 +559,61 @@ export default function Home() {
 
   // ── Auth handlers ─────────────────────────────────────────────────────
   const handleLogin = useCallback(async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password)
+    const cred = await signInWithEmailAndPassword(auth, email, password)
+    const pendingGoogleCredential = pendingGoogleCredentialRef.current
+    if (pendingGoogleCredential) {
+      const signedInEmail = normalizeEmail(cred.user.email)
+      const pendingEmail = normalizeEmail(pendingGoogleLinkEmail)
+      if (pendingEmail && signedInEmail !== pendingEmail) {
+        await signOut(auth)
+        throw new Error("Sign in with the account that matches the Google email.")
+      }
+
+      try {
+        const linked = await linkWithCredential(cred.user, pendingGoogleCredential)
+        await linked.user.reload()
+        await setDoc(doc(db, "users", linked.user.uid), {
+          email: linked.user.email ?? "",
+          emailNormalized: normalizeEmail(linked.user.email),
+          emailVerified: linked.user.emailVerified === true,
+          authProviderIds: linked.user.providerData.map((provider) => provider.providerId),
+        }, { merge: true })
+        pendingGoogleCredentialRef.current = null
+        setPendingGoogleLinkEmail(null)
+        showToast("Google sign-in linked ✓", undefined, 2500)
+      } catch (error) {
+        const code = error instanceof FirebaseError ? error.code : ""
+        if (code === "auth/provider-already-linked" || code === "auth/credential-already-in-use") {
+          pendingGoogleCredentialRef.current = null
+          setPendingGoogleLinkEmail(null)
+          return
+        }
+        throw error
+      }
+    }
     // onAuthStateChanged will handle navigation
+  }, [pendingGoogleLinkEmail, showToast])
+
+  const handleGoogleSignIn = useCallback(async () => {
+    const provider = new GoogleAuthProvider()
+    provider.setCustomParameters({ prompt: "select_account" })
+    try {
+      await signInWithPopup(auth, provider)
+      pendingGoogleCredentialRef.current = null
+      setPendingGoogleLinkEmail(null)
+    } catch (error) {
+      if (error instanceof FirebaseError && error.code === "auth/account-exists-with-different-credential") {
+        const pendingCredential = GoogleAuthProvider.credentialFromError(error)
+        const email = typeof error.customData?.email === "string" ? error.customData.email : ""
+        if (pendingCredential && email) {
+          pendingGoogleCredentialRef.current = pendingCredential
+          setPendingGoogleLinkEmail(email)
+          throw new Error("This Google email already has an account. Sign in with your password once to link Google.")
+        }
+      }
+      throw error
+    }
+    // onAuthStateChanged will persist /users and handle navigation
   }, [])
 
   const handleRegister = useCallback(async (name: string, email: string, password: string) => {
@@ -536,8 +621,13 @@ export default function Home() {
     const uid = cred.user.uid
     const initials = deriveInitials(name)
     const color = getUserAvatarColor(uid)
-    const userDoc: Contact = { id: uid, name, email, initials, color }
-    await setDoc(doc(db, "users", uid), userDoc)
+    const emailNormalized = normalizeEmail(email)
+    const userDoc: Contact = { id: uid, name, email: emailNormalized, emailNormalized, initials, color }
+    await setDoc(doc(db, "users", uid), {
+      ...userDoc,
+      emailVerified: cred.user.emailVerified === true,
+      authProviderIds: cred.user.providerData.map((provider) => provider.providerId),
+    })
     // onAuthStateChanged will handle navigation
   }, [])
 
@@ -647,6 +737,7 @@ export default function Home() {
     async (draft: MessageDraft) => {
       const text = draft.text.trim()
       if ((!text && !draft.imageFile) || !firebaseUser) { navigateTo("stream"); return }
+      const importedContactIds = draft.importedContactIds ?? []
       const incomingTagIds = draft.tagIds ?? []
       const projectIds = getLegacyProjectIdsFromTagIds(incomingTagIds, draft.projectIds).filter(Boolean)
       const legacyType = getLegacyTypeFromTagIds(incomingTagIds, draft.type)
@@ -660,7 +751,10 @@ export default function Home() {
           project_id: null,
         }),
       ])]
-      const peopleIds = [...new Set([...(draft.peopleIds ?? draft.contactIds)].filter(Boolean))]
+      const peopleIds = [...new Set([
+        ...(draft.peopleIds ?? draft.contactIds),
+        ...resolveLinkedImportedContactUserIds(importedContactIds, importedContacts),
+      ].filter(Boolean))]
       const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
       const imageMeta: Record<string, unknown> = {}
 
@@ -749,13 +843,16 @@ export default function Home() {
         content: text,
         text,
         type: legacyType,
-        contactIds: draft.importedContactIds ?? [],
+        contactIds: importedContactIds,
         contextIds: draft.contextIds ?? [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         timestamp: serverTimestamp(),
         isFavorited: false,
-        ...(calendarDateObjects.length > 0 ? { calendarDates: calendarDateObjects } : {}),
+        ...(calendarDateObjects.length > 0 ? {
+          calendarDates: calendarDateObjects,
+          calendarDateStrings: calendarDateObjects.map((d) => d.date),
+        } : {}),
         ...(draft.replyToId ? { replyToId: draft.replyToId, replyPreview: draft.replyPreview } : {}),
         ...imageMeta,
       }
@@ -763,7 +860,7 @@ export default function Home() {
       setCalendarInitialDate(null)
       navigateTo("stream")
     },
-    [firebaseUser, projects, navigateTo, showToast]
+    [firebaseUser, importedContacts, projects, navigateTo, showToast]
   )
 
   const handleDeleteMessage = useCallback(
@@ -819,6 +916,10 @@ export default function Home() {
       if (!selectedMessageId) return
       const selectedMessage = messages.find((m) => m.id === selectedMessageId)
       if (!selectedMessage) return
+      const resolvedPeopleIds = [...new Set([
+        ...peopleIds,
+        ...resolveLinkedImportedContactUserIds(importedContactIds, importedContacts),
+      ].filter(Boolean))]
       // Always include all project members so they receive the message
       const type = getLegacyTypeFromTagIds(tagIds, "none")
       const projectIds = getLegacyProjectIdsFromTagIds(tagIds, [])
@@ -829,14 +930,14 @@ export default function Home() {
         ...selectedMessage.participants,  // preserve all existing access
         selectedMessage.senderId,         // always include sender
         firebaseUser!.uid,                // always include the person editing
-        ...peopleIds,
+        ...resolvedPeopleIds,
       ])]
 
       // Compute visibleToUserIds from author + explicit recipients only
       const authorId = selectedMessage.authorId ?? selectedMessage.senderId
       const visibleToUserIds = computeVisibleToUserIds(
         authorId,
-        peopleIds
+        resolvedPeopleIds
       )
 
       // Build calendarDates update — only overwrite if caller passed the array
@@ -853,8 +954,8 @@ export default function Home() {
 
       await updateDoc(doc(db, "messages", selectedMessageId), {
         type,
-        recipientIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
-        peopleIds: peopleIds.filter((id) => id !== selectedMessage.senderId),
+        recipientIds: resolvedPeopleIds.filter((id) => id !== selectedMessage.senderId),
+        peopleIds: resolvedPeopleIds.filter((id) => id !== selectedMessage.senderId),
         projectIds: selectedProjectIds,
         projectId: selectedProjectIds[0] ?? null,
         tagIds,
@@ -862,7 +963,10 @@ export default function Home() {
         visibleToUserIds,
         contactIds: importedContactIds,
         ...(contextIds !== undefined ? { contextIds } : {}),
-        ...(newCalendarDates !== undefined ? { calendarDates: newCalendarDates } : {}),
+        ...(newCalendarDates !== undefined ? {
+          calendarDates: newCalendarDates,
+          calendarDateStrings: newCalendarDates.map((d) => d.date),
+        } : {}),
         updatedAt: serverTimestamp(),
       })
       setSelectedMessageId(null)
@@ -872,7 +976,7 @@ export default function Home() {
       if (selectedProjectIds.length) parts.push(selectedProjectIds.length === 1 ? "tag" : "tags")
       showToast(parts.length ? `Tagged: ${parts.join(", ")} ✓` : "Context saved ✓", undefined, 2000)
     },
-    [selectedMessageId, projects, messages, navigateTo, showToast]
+    [selectedMessageId, importedContacts, projects, messages, navigateTo, showToast]
   )
 
   const handleRemoveProjectTag = useCallback(
@@ -910,6 +1014,7 @@ export default function Home() {
       const batch = writeBatch(db)
       newContacts.forEach((c) => {
         const ref = doc(collection(db, "contacts"))
+        const emailNormalized = normalizeEmail(c.email)
         batch.set(ref, {
           ownerUserId: c.ownerUserId,
           name: c.name,
@@ -919,7 +1024,7 @@ export default function Home() {
           status: c.status,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          ...(c.email != null && { email: c.email }),
+          ...(emailNormalized && { email: emailNormalized, emailNormalized }),
           ...(c.phone != null && { phone: c.phone }),
         })
       })
@@ -990,7 +1095,9 @@ export default function Home() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fields: Record<string, any> = { updatedAt: serverTimestamp() }
       if ("email" in updates) {
-        fields.email = updates.email?.trim() ? updates.email.trim() : deleteField()
+        const emailNormalized = normalizeEmail(updates.email)
+        fields.email = emailNormalized || deleteField()
+        fields.emailNormalized = emailNormalized || deleteField()
       }
       if ("phone" in updates) {
         fields.phone = updates.phone?.trim() ? updates.phone.trim() : deleteField()
@@ -1130,14 +1237,18 @@ export default function Home() {
   const handleSendFromCalendar = useCallback(
     async (text: string, date: string, peopleIds: string[] = [], incomingTagIds: string[] = [], importedContactIds: string[] = []) => {
       if (!firebaseUser) return
+      const resolvedPeopleIds = [...new Set([
+        ...peopleIds,
+        ...resolveLinkedImportedContactUserIds(importedContactIds, importedContacts),
+      ].filter(Boolean))]
       const projectIds = getLegacyProjectIdsFromTagIds(incomingTagIds, []).filter(Boolean)
       const legacyType = getLegacyTypeFromTagIds(incomingTagIds, "none")
       const tagIds = [...new Set([
         ...incomingTagIds,
         ...getMessageTagIds({ tagIds: undefined, type: legacyType, projectId: projectIds[0] ?? null, projectIds, project_id: null }),
       ])]
-      const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
-      const visibleToUserIds = computeVisibleToUserIds(firebaseUser.uid, peopleIds)
+      const participants = [...new Set([firebaseUser.uid, ...resolvedPeopleIds])]
+      const visibleToUserIds = computeVisibleToUserIds(firebaseUser.uid, resolvedPeopleIds)
       const calendarDateObj = {
         id: `cd-${Date.now()}-0-${Math.random().toString(36).slice(2, 6)}`,
         date,
@@ -1147,8 +1258,8 @@ export default function Home() {
       await addDoc(collection(db, "messages"), {
         authorId: firebaseUser.uid,
         senderId: firebaseUser.uid,
-        recipientIds: peopleIds,
-        peopleIds,
+        recipientIds: resolvedPeopleIds,
+        peopleIds: resolvedPeopleIds,
         participants,
         visibleToUserIds,
         projectIds,
@@ -1163,9 +1274,10 @@ export default function Home() {
         timestamp: serverTimestamp(),
         isFavorited: false,
         calendarDates: [calendarDateObj],
+        calendarDateStrings: [date],
       })
     },
-    [firebaseUser, projects]
+    [firebaseUser, importedContacts, projects]
   )
 
   const handleCopyMessage = useCallback((text: string) => {
@@ -1251,11 +1363,16 @@ export default function Home() {
       {showScreenSkeleton && activeScreen !== "loading" && <AppScreenSkeleton />}
 
       {!showScreenSkeleton && activeScreen === "login" && (
-        <LoginScreen onLogin={handleLogin} onGoRegister={() => navigateTo("register")} />
+        <LoginScreen
+          onLogin={handleLogin}
+          onGoogleSignIn={handleGoogleSignIn}
+          googleLinkEmail={pendingGoogleLinkEmail}
+          onGoRegister={() => navigateTo("register")}
+        />
       )}
 
       {!showScreenSkeleton && activeScreen === "register" && (
-        <RegisterScreen onRegister={handleRegister} onGoLogin={() => navigateTo("login")} />
+        <RegisterScreen onRegister={handleRegister} onGoogleSignIn={handleGoogleSignIn} onGoLogin={() => navigateTo("login")} />
       )}
 
       {!showScreenSkeleton && activeScreen === "profile" && (
@@ -1501,6 +1618,7 @@ export default function Home() {
                   projects={projects}
                   onCreateProject={handleCreateProject}
                   contacts={contacts}
+                  importedContacts={importedContacts}
                   initialProjectId={composeInitialProjectId}
                   initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
                   availableTags={availableTags}

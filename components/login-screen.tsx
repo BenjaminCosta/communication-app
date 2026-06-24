@@ -1,12 +1,14 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import { Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<void>
+  onGoogleSignIn: () => Promise<void>
+  googleLinkEmail?: string | null
   onGoRegister: () => void
 }
 
@@ -14,18 +16,27 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
-export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onGoogleSignIn, googleLinkEmail, onGoRegister }: LoginScreenProps) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [touched, setTouched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const validEmail = isValidEmail(email)
   const showEmailError = touched && email.length > 0 && !validEmail
   const canSubmit = validEmail && password.length >= 6
+
+  useEffect(() => {
+    if (googleLinkEmail) {
+      setEmail(googleLinkEmail)
+      setTouched(false)
+      setError(null)
+    }
+  }, [googleLinkEmail])
 
   const handleContinue = async () => {
     setTouched(true)
@@ -39,6 +50,19 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
       setError(friendlyAuthError(msg))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleGoogle = async () => {
+    setGoogleLoading(true)
+    setError(null)
+    try {
+      await onGoogleSignIn()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google sign in failed"
+      setError(friendlyAuthError(msg))
+    } finally {
+      setGoogleLoading(false)
     }
   }
 
@@ -94,6 +118,12 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
 
         {/* Form */}
         <div className="px-6 flex flex-col gap-3 animate-fade-up delay-300">
+
+          {googleLinkEmail && (
+            <div className="rounded-xl border border-primary/25 bg-primary/10 px-3 py-2.5 text-[11px] leading-relaxed text-primary/90">
+              This Google email already has an account. Sign in with your current password once to link Google.
+            </div>
+          )}
 
           {/* Email */}
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider font-mono px-1">
@@ -184,6 +214,17 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
             )}
           </button>
 
+          <button
+            onClick={handleGoogle}
+            disabled={googleLoading || loading}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-white/12 bg-white px-4 py-3.5 text-sm font-semibold text-gray-900 shadow-[0_6px_24px_rgba(255,255,255,0.08)] transition-all duration-200 hover:scale-[1.01] active:scale-[0.97] disabled:opacity-60 disabled:hover:scale-100"
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 text-[13px] font-bold text-blue-600">
+              G
+            </span>
+            {googleLoading ? "Signing in..." : "Continue with Google"}
+          </button>
+
           {/* Register link */}
           <p className="text-center text-xs text-muted-foreground mt-1">
             No account yet?{" "}
@@ -211,6 +252,10 @@ export function LoginScreen({ onLogin, onGoRegister }: LoginScreenProps) {
 }
 
 function friendlyAuthError(msg: string): string {
+  if (msg.includes("popup-closed-by-user") || msg.includes("cancelled-popup-request"))
+    return "Google sign in was cancelled."
+  if (msg.includes("popup-blocked"))
+    return "Popup was blocked. Allow popups and try again."
   if (msg.includes("user-not-found") || msg.includes("wrong-password") || msg.includes("invalid-credential"))
     return "Invalid email or password."
   if (msg.includes("too-many-requests"))

@@ -2709,90 +2709,54 @@ function MessageBubble({
                 Scheduled
               </span>
             )}
-            {/* None-type tag → Unassigned (only if no recipients/dates) */}
-            {messageTags.filter(t => t.systemType === "none").length > 0 && !hasDirectRecipients && !hasCalendarDates && (
-              <Fragment>
-                <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
-                <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
-                  Unassigned
-                </span>
-              </Fragment>
-            )}
-            {/* System type tags (non-none) — always show individually */}
-            {messageTags.filter(t => t.systemType && t.systemType !== "none").map(tag => (
-              <button
-                key={tag.id}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation() }}
-                className={cn("inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono transition-colors no-callout backdrop-blur-md", messageTypeChipClass(tag.systemType!))}
-              >
-                <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border border-current/20 bg-white/5">
-                  <span className={cn("h-1.5 w-1.5 rounded-full", tagDotClass(tag))} />
-                </span>
-                {tag.name}
-              </button>
-            ))}
-            {/* Project tags: first chip with +N badge inside when 2+ */}
-            {(() => {
-              const pt = messageTags.filter(t => !t.systemType)
-              if (pt.length === 0) return null
-              const first = pt[0]
-              const extra = pt.length - 1
+            {messageTags.map((tag) => {
+              if (tag.systemType === "none") {
+                if (hasDirectRecipients || hasCalendarDates) return null
+                return (
+                  <Fragment key={tag.id}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
+                    <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
+                      Unassigned
+                    </span>
+                  </Fragment>
+                )
+              }
               return (
                 <button
+                  key={tag.id}
                   onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); if (first.projectId) onProjectTagTap?.(first.projectId) }}
-                  className="inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono transition-colors no-callout backdrop-blur-md bg-violet-500/12 text-violet-300 border-violet-400/30 active:bg-violet-500/20 max-w-[140px]"
-                >
-                  {first.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback shrink-0 mr-0.5 -mt-px" />}
-                  <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border border-current/20 bg-white/5">
-                    <span className={cn("h-1.5 w-1.5 rounded-full", tagDotClass(first))} />
-                  </span>
-                  <span className="truncate">{first.name}</span>
-                  {extra > 0 && (
-                    <span className="ml-0.5 shrink-0 inline-flex items-center justify-center rounded-full border border-violet-400/25 bg-violet-400/15 px-1.5 py-px text-[9px] font-bold text-white">
-                      +{extra}
-                    </span>
+                  onClick={(e) => { e.stopPropagation(); if (tag.projectId) onProjectTagTap?.(tag.projectId) }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-wide border rounded-full px-2 py-0.5 font-mono transition-colors no-callout backdrop-blur-md max-w-[140px]",
+                    tag.systemType
+                      ? messageTypeChipClass(tag.systemType)
+                      : "bg-primary/10 border-primary/25 text-violet-300 active:bg-primary/18"
                   )}
+                >
+                  {tag.isFavorited && <Star className="inline w-2 h-2 fill-current text-feedback shrink-0 mr-0.5 -mt-px" />}
+                  <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border border-current/20 bg-white/5">
+                    <span className={cn("h-1.5 w-1.5 rounded-full", tagDotClass(tag))} />
+                  </span>
+                  <span className="truncate">{tag.name}</span>
                 </button>
               )
-            })()}
-            {/* Calendar dates: first chip with +N badge inside when 2+ */}
-            {(() => {
-              const dates = message.calendarDates ?? []
-              if (dates.length === 0) return null
-              const extra = dates.length - 1
+            })}
+            {(message.calendarDates ?? []).map(cd => (
+              <span key={cd.id ?? cd.date} className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
+                <CalendarDays className="w-2.5 h-2.5 shrink-0" />
+                {formatCalDate(cd.date)}
+              </span>
+            ))}
+            {(message.contextIds ?? []).map((id) => {
+              const ctx = contexts.find((c) => c.id === id)
+              if (!ctx) return null
               return (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-300 bg-sky-400/12 border border-sky-400/30 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md">
-                  <CalendarDays className="w-2.5 h-2.5 shrink-0" />
-                  {formatCalDate(dates[0].date)}
-                  {extra > 0 && (
-                    <span className="ml-0.5 shrink-0 inline-flex items-center justify-center rounded-full border border-sky-400/25 bg-sky-400/15 px-1.5 py-px text-[9px] font-bold text-white">
-                      +{extra}
-                    </span>
-                  )}
-                </span>
-              )
-            })()}
-            {/* Contexts: first chip with +N badge inside when 2+ */}
-            {(() => {
-              const ctxIds = message.contextIds ?? []
-              if (ctxIds.length === 0) return null
-              const firstCtx = contexts.find((c) => c.id === ctxIds[0])
-              if (!firstCtx) return null
-              const extra = ctxIds.length - 1
-              return (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-300 bg-emerald-400/10 border border-emerald-400/25 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md max-w-[140px]">
+                <span key={id} className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-300 bg-emerald-400/10 border border-emerald-400/25 rounded-full px-2 py-0.5 font-mono no-callout backdrop-blur-md max-w-[140px]">
                   <Hash className="w-2.5 h-2.5 shrink-0" />
-                  <span className="truncate">{firstCtx.name}</span>
-                  {extra > 0 && (
-                    <span className="ml-0.5 shrink-0 inline-flex items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/15 px-1.5 py-px text-[9px] font-bold text-white">
-                      +{extra}
-                    </span>
-                  )}
+                  <span className="truncate">{ctx.name}</span>
                 </span>
               )
-            })()}
+            })}
             {/* Direct recipients indicator — subtle yellow people icon */}
             {hasDirectRecipients && (
               <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">

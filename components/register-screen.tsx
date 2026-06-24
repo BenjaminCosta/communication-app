@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 
 interface RegisterScreenProps {
   onRegister: (name: string, email: string, password: string) => Promise<void>
+  onGoogleSignIn: () => Promise<void>
   onGoLogin: () => void
 }
 
@@ -14,7 +15,7 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 }
 
-export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
+export function RegisterScreen({ onRegister, onGoogleSignIn, onGoLogin }: RegisterScreenProps) {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -23,6 +24,7 @@ export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [touched, setTouched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const validEmail = isValidEmail(email)
@@ -46,6 +48,19 @@ export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
       setError(friendlyAuthError(msg))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleGoogle = async () => {
+    setGoogleLoading(true)
+    setError(null)
+    try {
+      await onGoogleSignIn()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google sign in failed"
+      setError(friendlyAuthError(msg))
+    } finally {
+      setGoogleLoading(false)
     }
   }
 
@@ -235,6 +250,17 @@ export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
             )}
           </button>
 
+          <button
+            onClick={handleGoogle}
+            disabled={googleLoading || loading}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-white/12 bg-white px-4 py-3.5 text-sm font-semibold text-gray-900 shadow-[0_6px_24px_rgba(255,255,255,0.08)] transition-all duration-200 hover:scale-[1.01] active:scale-[0.97] disabled:opacity-60 disabled:hover:scale-100"
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 text-[13px] font-bold text-blue-600">
+              G
+            </span>
+            {googleLoading ? "Signing in..." : "Continue with Google"}
+          </button>
+
           {/* Login link */}
           <p className="text-center text-xs text-muted-foreground mt-1">
             Already have an account?{" "}
@@ -254,6 +280,10 @@ export function RegisterScreen({ onRegister, onGoLogin }: RegisterScreenProps) {
 }
 
 function friendlyAuthError(msg: string): string {
+  if (msg.includes("popup-closed-by-user") || msg.includes("cancelled-popup-request"))
+    return "Google sign in was cancelled."
+  if (msg.includes("popup-blocked"))
+    return "Popup was blocked. Allow popups and try again."
   if (msg.includes("email-already-in-use"))
     return "An account with this email already exists."
   if (msg.includes("weak-password"))

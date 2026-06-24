@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from "react"
 import { X, RefreshCw, CheckSquare, Square, Search, AlertCircle, Plus, Trash2, Upload, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Contact, type ImportedContact, type ImportedContactSource, deriveInitials } from "@/lib/store"
+import { type Contact, type ImportedContact, type ImportedContactSource, deriveInitials, normalizeEmail } from "@/lib/store"
 
 // ── Google People API types ────────────────────────────────────────────
 
@@ -48,19 +48,20 @@ function personToContact(
   const name = person.names?.[0]?.displayName?.trim()
   if (!name) return null
 
-  const email = person.emailAddresses?.[0]?.value?.trim().toLowerCase() || undefined
+  const email = normalizeEmail(person.emailAddresses?.[0]?.value) || undefined
   const phone = (person.phoneNumbers?.[0]?.canonicalForm ?? person.phoneNumbers?.[0]?.value?.trim()) || undefined
 
   // Detect if already imported (dedup by email or resource name)
-  if (email && existingImported.some((c) => c.email?.toLowerCase() === email)) return null
+  if (email && existingImported.some((c) => normalizeEmail(c.emailNormalized ?? c.email) === email)) return null
 
   // Check if linked to a registered user
-  const linkedUser = email ? registeredUsers.find((u) => u.email?.toLowerCase() === email) : undefined
+  const linkedUser = email ? registeredUsers.find((u) => normalizeEmail(u.emailNormalized ?? u.email) === email) : undefined
 
   return {
     ownerUserId,
     name,
     email,
+    emailNormalized: email,
     phone,
     source: "google" as const,
     tags: [],
@@ -174,12 +175,14 @@ export function ImportContactsModal({
     setSaving(true)
     try {
       const contacts: Omit<ImportedContact, "id">[] = []
+      const seenEmails = new Set(existingImported.map((c) => normalizeEmail(c.emailNormalized ?? c.email)).filter(Boolean))
       for (const e of validCsvEntries) {
-        const email = e.email.trim().toLowerCase() || undefined
+        const email = normalizeEmail(e.email) || undefined
         const phone = e.phone.trim() || undefined
-        const linkedUser = email ? registeredUsers.find((u) => u.email?.toLowerCase() === email) : undefined
-        const isDup = email ? existingImported.some((c) => c.email?.toLowerCase() === email) : false
+        const linkedUser = email ? registeredUsers.find((u) => normalizeEmail(u.emailNormalized ?? u.email) === email) : undefined
+        const isDup = email ? seenEmails.has(email) : false
         if (isDup) continue
+        if (email) seenEmails.add(email)
         const contact: Omit<ImportedContact, "id"> = {
           ownerUserId: currentUserId,
           name: e.name.trim(),
@@ -190,6 +193,7 @@ export function ImportContactsModal({
           createdAt: new Date(),
           updatedAt: new Date(),
           ...(email && { email }),
+          ...(email && { emailNormalized: email }),
           ...(phone && { phone }),
         }
         contacts.push(contact)
@@ -326,13 +330,18 @@ export function ImportContactsModal({
     if (validManualEntries.length === 0) return
     setSaving(true)
     try {
-      const contacts: Omit<ImportedContact, "id">[] = validManualEntries.map((e) => {
-        const email = e.email.trim().toLowerCase() || undefined
-        const linkedUser = email ? registeredUsers.find((u) => u.email?.toLowerCase() === email) : undefined
-        return {
+      const seenEmails = new Set(existingImported.map((c) => normalizeEmail(c.emailNormalized ?? c.email)).filter(Boolean))
+      const contacts: Omit<ImportedContact, "id">[] = []
+      validManualEntries.forEach((e) => {
+        const email = normalizeEmail(e.email) || undefined
+        if (email && seenEmails.has(email)) return
+        if (email) seenEmails.add(email)
+        const linkedUser = email ? registeredUsers.find((u) => normalizeEmail(u.emailNormalized ?? u.email) === email) : undefined
+        contacts.push({
           ownerUserId: currentUserId,
           name: e.name.trim(),
           email,
+          ...(email && { emailNormalized: email }),
           phone: e.phone.trim() || undefined,
           source: "manual" as const,
           tags: [],
@@ -340,7 +349,7 @@ export function ImportContactsModal({
           status: linkedUser ? ("registered" as const) : ("not_registered" as const),
           createdAt: new Date(),
           updatedAt: new Date(),
-        }
+        })
       })
       await onImported(contacts)
     } finally {
