@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash, Plus, Loader2 } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -39,10 +39,12 @@ interface ComposeScreenProps {
   onCreateContext?: (name: string) => Promise<AppContext>
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [] }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
+  const associationPanelRef = useRef<HTMLDivElement>(null)
+  const optionBarRef = useRef<HTMLDivElement>(null)
   const [text, setText] = useState("")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedImportedContacts, setSelectedImportedContacts] = useState<string[]>([])
@@ -58,6 +60,11 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
   const [isSent, setIsSent] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
   const [activeAssociation, setActiveAssociation] = useState<"who" | "tag" | "context" | null>(null)
+  const [quickCreateKind, setQuickCreateKind] = useState<"tag" | "context" | null>(null)
+  const [quickCreateName, setQuickCreateName] = useState("")
+  const [isQuickCreating, setIsQuickCreating] = useState(false)
+  const [quickCreateError, setQuickCreateError] = useState<string | null>(null)
+  const [associationPanelMaxHeight, setAssociationPanelMaxHeight] = useState<number | null>(null)
   // Calendar dates: "YYYY-MM-DD" strings
   const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(initialCalendarDates ?? [])
   const [showDatePicker, setShowDatePicker] = useState(false)
@@ -69,6 +76,49 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
       if (imagePreview) URL.revokeObjectURL(imagePreview)
     }
   }, [imagePreview])
+
+  useEffect(() => {
+    if (!activeAssociation) {
+      setAssociationPanelMaxHeight(null)
+      return
+    }
+
+    let frame = 0
+    const updatePanelHeight = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const panel = associationPanelRef.current
+        const optionBar = optionBarRef.current
+        if (!panel || !optionBar) return
+        const panelTop = panel.getBoundingClientRect().top
+        const optionTop = optionBar.getBoundingClientRect().top
+        const available = Math.floor(optionTop - panelTop - 12)
+        setAssociationPanelMaxHeight(Math.max(180, Math.min(available, 520)))
+      })
+    }
+
+    updatePanelHeight()
+    window.addEventListener("resize", updatePanelHeight)
+    window.visualViewport?.addEventListener("resize", updatePanelHeight)
+    window.visualViewport?.addEventListener("scroll", updatePanelHeight)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("resize", updatePanelHeight)
+      window.visualViewport?.removeEventListener("resize", updatePanelHeight)
+      window.visualViewport?.removeEventListener("scroll", updatePanelHeight)
+    }
+  }, [
+    activeAssociation,
+    quickCreateKind,
+    selectedContacts.length,
+    selectedImportedContacts.length,
+    selectedProjects.length,
+    selectedCalendarDates.length,
+    selectedContextIds.length,
+    imagePreview,
+    sendError,
+  ])
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -135,6 +185,44 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           setShowDatePicker(true)
         }
       }
+    }
+  }
+
+  const startQuickCreate = (kind: "tag" | "context") => {
+    setActiveAssociation(kind)
+    setQuickCreateKind((current) => current === kind ? null : kind)
+    setQuickCreateName(globalSearch.trim())
+    setQuickCreateError(null)
+  }
+
+  const cancelQuickCreate = () => {
+    setQuickCreateKind(null)
+    setQuickCreateName("")
+    setQuickCreateError(null)
+  }
+
+  const handleQuickCreate = async () => {
+    const name = quickCreateName.trim()
+    if (!name || !quickCreateKind || isQuickCreating) return
+    setIsQuickCreating(true)
+    setQuickCreateError(null)
+    try {
+      if (quickCreateKind === "tag") {
+        const project = await onCreateProject(name, [], "custom")
+        setSelectedProjects((prev) => prev.includes(project.id) ? prev : [...prev, project.id])
+      } else if (onCreateContext) {
+        const context = await onCreateContext(name)
+        setSelectedContextIds((prev) => prev.includes(context.id) ? prev : [...prev, context.id])
+      } else {
+        throw new Error("Context creation is not available here.")
+      }
+      haptic.success()
+      setGlobalSearch("")
+      cancelQuickCreate()
+    } catch {
+      setQuickCreateError(`Could not create ${quickCreateKind}. Please try again.`)
+    } finally {
+      setIsQuickCreating(false)
     }
   }
 
@@ -355,19 +443,19 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
           )}
         </div>
 
-        <div className="flex flex-col items-center py-0.5">
-          <span className="text-xs text-muted-foreground font-light">
+        <div className="-mt-0.5 flex flex-col items-center">
+          <span className="text-[11px] text-muted-foreground/85 font-light leading-none">
             {"What's on your mind?"}
           </span>
         </div>
 
-        <div className="glass-message border rounded-2xl p-3 min-h-[124px] flex flex-col">
+        <div className="glass-message border rounded-2xl p-3 min-h-[112px] flex flex-col">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onFocus={handleFirstFocus}
-            className="flex-1 min-h-24 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
+            className="flex-1 min-h-20 bg-transparent border-none outline-none resize-none text-sm font-light text-foreground/90 leading-relaxed placeholder:text-muted-foreground"
             placeholder="Type your message..."
           />
           {imagePreview && (
@@ -396,58 +484,83 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         )}
 
         {(selectedPeople.length > 0 || selectedImportedPeople.length > 0 || selectedTags.length > 0 || selectedCalendarDates.length > 0 || selectedContextIds.length > 0) && (
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
-            {selectedPeople.map((contact) => (
-              <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
-                <User className="w-3 h-3" />
-                {contact.name}
-              </SelectedChip>
-            ))}
-            {selectedImportedPeople.map((c) => (
-              <SelectedChip key={c.id} onRemove={() => toggleImportedContact(c.id)}>
-                <User className="w-3 h-3 opacity-50" />
-                <span className="opacity-70">{c.name}</span>
-              </SelectedChip>
-            ))}
-            {selectedTags.map((tag) => (
-              <SelectedChip key={tag.id} onRemove={() => toggleTag(tag.id)}>
-                <Tag className="w-3 h-3" />
-                {tag.name}
-              </SelectedChip>
-            ))}
-            {selectedCalendarDates.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowDatePicker(true)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/35 bg-sky-400/14 px-2.5 py-1 text-[11px] font-semibold text-sky-300 active:scale-[0.98] transition-transform backdrop-blur-md"
-              >
-                <CalendarDays className="w-3 h-3" />
-                {selectedCalendarDates.length === 1
-                  ? formatDateChip(selectedCalendarDates[0])
-                  : `${selectedCalendarDates.length} dates`}
-                <X
-                  className="w-3 h-3 ml-0.5"
-                  onClick={(e) => { e.stopPropagation(); setSelectedCalendarDates([]) }}
-                />
-              </button>
-            )}
-            {selectedContextIds.map((id) => {
-              const ctx = contexts.find((c) => c.id === id)
-              if (!ctx) return null
-              return (
-                <SelectedChip key={id} onRemove={() => setSelectedContextIds((prev) => prev.filter((x) => x !== id))}>
-                  <Hash className="w-3 h-3" />
-                  {ctx.name}
+          <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
+            <div className="flex min-h-8 gap-1.5 overflow-x-auto scrollbar-hide">
+              {selectedPeople.map((contact) => (
+                <SelectedChip key={contact.id} onRemove={() => toggleContact(contact.id)}>
+                  <User className="w-3 h-3" />
+                  {contact.name}
                 </SelectedChip>
-              )
-            })}
+              ))}
+              {selectedImportedPeople.map((c) => (
+                <SelectedChip key={c.id} onRemove={() => toggleImportedContact(c.id)}>
+                  <User className="w-3 h-3 opacity-50" />
+                  <span className="opacity-70">{c.name}</span>
+                </SelectedChip>
+              ))}
+              {selectedTags.map((tag) => (
+                <SelectedChip key={tag.id} onRemove={() => toggleTag(tag.id)}>
+                  <Tag className="w-3 h-3" />
+                  {tag.name}
+                </SelectedChip>
+              ))}
+              {selectedCalendarDates.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDatePicker(true)}
+                  className="inline-flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-full border border-sky-400/35 bg-sky-400/14 px-2.5 text-[11px] font-semibold text-sky-300 active:scale-[0.98] transition-transform backdrop-blur-md"
+                >
+                  <CalendarDays className="w-3 h-3 shrink-0" />
+                  <span className="truncate">
+                    {selectedCalendarDates.length === 1
+                      ? formatDateChip(selectedCalendarDates[0])
+                      : `${selectedCalendarDates.length} dates`}
+                  </span>
+                  <X
+                    className="w-3 h-3 ml-0.5 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); setSelectedCalendarDates([]) }}
+                  />
+                </button>
+              )}
+              {selectedContextIds.map((id) => {
+                const ctx = contexts.find((c) => c.id === id)
+                if (!ctx) return null
+                return (
+                  <SelectedChip key={id} onRemove={() => setSelectedContextIds((prev) => prev.filter((x) => x !== id))}>
+                    <Hash className="w-3 h-3" />
+                    {ctx.name}
+                  </SelectedChip>
+                )
+              })}
+            </div>
           </div>
         )}
 
         {activeAssociation && (
-          <div className="glass-panel rounded-2xl border p-2.5 animate-fade-up">
+          <div
+            ref={associationPanelRef}
+            className="glass-panel rounded-2xl border p-2.5 animate-fade-up overflow-hidden"
+            style={associationPanelMaxHeight ? { maxHeight: associationPanelMaxHeight } : undefined}
+          >
             {activeAssociation === "context" ? (
-              <div className="max-h-56 overflow-y-auto scrollbar-hide">
+              <div className="max-h-full overflow-y-auto overscroll-contain pr-1 scrollbar-hide">
+                <AssociationPanelHeader
+                  title="Contexts"
+                  actionLabel="New"
+                  active={quickCreateKind === "context"}
+                  onAction={() => startQuickCreate("context")}
+                />
+                {quickCreateKind === "context" && (
+                  <QuickCreateForm
+                    kind="context"
+                    value={quickCreateName}
+                    loading={isQuickCreating}
+                    error={quickCreateError}
+                    onChange={setQuickCreateName}
+                    onSubmit={handleQuickCreate}
+                    onCancel={cancelQuickCreate}
+                  />
+                )}
                 <div className="flex flex-wrap gap-2">
                   {contexts.map((ctx) => {
                     const selected = selectedContextIds.includes(ctx.id)
@@ -476,7 +589,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 </div>
               </div>
             ) : activeAssociation === "who" ? (
-              <div className="max-h-56 overflow-y-auto scrollbar-hide">
+              <div className="max-h-full overflow-y-auto overscroll-contain pr-1 scrollbar-hide">
                 <div className="flex flex-wrap gap-2">
                   {contacts.map((contact) => (
                     <PersonCard
@@ -517,7 +630,24 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
                 )}
               </div>
             ) : (
-              <div className="max-h-56 overflow-y-auto pr-1 scrollbar-hide">
+              <div className="max-h-full overflow-y-auto overscroll-contain pr-1 scrollbar-hide">
+                <AssociationPanelHeader
+                  title="Tags"
+                  actionLabel="New"
+                  active={quickCreateKind === "tag"}
+                  onAction={() => startQuickCreate("tag")}
+                />
+                {quickCreateKind === "tag" && (
+                  <QuickCreateForm
+                    kind="tag"
+                    value={quickCreateName}
+                    loading={isQuickCreating}
+                    error={quickCreateError}
+                    onChange={setQuickCreateName}
+                    onSubmit={handleQuickCreate}
+                    onCancel={cancelQuickCreate}
+                  />
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {displayTags.map((tag, index) => (
                     <TagCard
@@ -546,7 +676,7 @@ export function ComposeScreen({ onCancel, onSend, projects, mode = "sheet", cont
         />
       </div>
 
-      <div className="glass-compose flex-shrink-0 px-4 py-3">
+      <div ref={optionBarRef} className="glass-compose flex-shrink-0 px-4 py-3">
         <div className="flex gap-2 flex-wrap">
           <OptionChip
             icon={<User className="w-3.5 h-3.5" />}
@@ -764,12 +894,113 @@ function SearchResultButton({
 
 function SelectedChip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/30 bg-primary/14 px-2.5 py-1 text-[11px] font-semibold text-blue-300 backdrop-blur-md">
-      <span className="inline-flex min-w-0 items-center gap-1 truncate">{children}</span>
+    <span className="inline-flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/14 px-2.5 text-[11px] font-semibold text-blue-300 backdrop-blur-md">
+      <span className="inline-flex min-w-0 items-center gap-1 truncate leading-none">{children}</span>
       <button type="button" onClick={onRemove} className="shrink-0 rounded-full active:scale-90">
         <X className="w-3 h-3" />
       </button>
     </span>
+  )
+}
+
+function AssociationPanelHeader({
+  title,
+  actionLabel,
+  active,
+  onAction,
+}: {
+  title: string
+  actionLabel: string
+  active?: boolean
+  onAction: () => void
+}) {
+  return (
+    <div className="mb-2 flex items-center justify-between gap-3 px-1">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-[1.7px] text-muted-foreground/70">{title}</p>
+      <button
+        type="button"
+        onClick={onAction}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-bold transition-all active:scale-[0.98]",
+          active
+            ? "border-primary/35 bg-primary/18 text-blue-200"
+            : "border-white/10 bg-white/5 text-white/75 active:bg-white/8"
+        )}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        {actionLabel}
+      </button>
+    </div>
+  )
+}
+
+function QuickCreateForm({
+  kind,
+  value,
+  loading,
+  error,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  kind: "tag" | "context"
+  value: string
+  loading: boolean
+  error: string | null
+  onChange: (value: string) => void
+  onSubmit: () => void
+  onCancel: () => void
+}) {
+  const isContext = kind === "context"
+  const trimmed = value.trim()
+
+  return (
+    <div className="mb-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2 animate-fade-up">
+      <div className="flex items-center gap-2">
+        <span className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
+          isContext ? "border-emerald-400/20 bg-emerald-400/10" : "border-violet-400/20 bg-violet-400/10"
+        )}>
+          {isContext ? <Hash className="h-4 w-4 text-emerald-300" /> : <Tag className="h-4 w-4 text-violet-300" />}
+        </span>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && trimmed) onSubmit()
+            if (e.key === "Escape") onCancel()
+          }}
+          autoFocus
+          placeholder={isContext ? "Context name" : "Tag name"}
+          className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-foreground outline-none placeholder:text-muted-foreground/45"
+        />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 active:bg-white/8"
+          aria-label="Cancel"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!trimmed || loading}
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all",
+            trimmed && !loading
+              ? isContext
+                ? "bg-emerald-500 text-white shadow-[0_6px_18px_rgba(52,211,153,0.25)] active:scale-[0.96]"
+                : "bg-primary text-white shadow-[0_6px_18px_rgba(37,99,235,0.28)] active:scale-[0.96]"
+              : "bg-white/5 text-muted-foreground/35"
+          )}
+          aria-label={isContext ? "Create context" : "Create tag"}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        </button>
+      </div>
+      {error && <p className="mt-2 px-1 text-[11px] font-semibold text-destructive">{error}</p>}
+    </div>
   )
 }
 
