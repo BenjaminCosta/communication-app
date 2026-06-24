@@ -126,10 +126,13 @@ export function TagSheet({
     selectedImported,
     selectedTagObjects,
     selectedCalendarDates,
+    selectedContextIds,
+    allContexts: contexts,
     onParticipant: toggleParticipant,
     onImported: toggleImported,
     onTag: toggleTag,
     onDate: (date) => setSelectedCalendarDates((prev) => prev.filter((item) => item !== date)),
+    onContext: toggleContext,
   })
   const suggestedItems = buildSmartSuggestions({
     tags,
@@ -458,6 +461,7 @@ function MainContextView({
               onOpenPeople={onOpenPeople}
               onOpenTags={onOpenTags}
               onOpenDates={onOpenDates}
+              onOpenContexts={onOpenContexts}
             />
           </section>
 
@@ -820,7 +824,7 @@ function ContextsDetailView({
 type SummaryItem = {
   id: string
   label: string
-  kind: "person" | "tag" | "date"
+  kind: "person" | "tag" | "date" | "context"
   tone?: "primary" | "date"
   icon?: React.ReactNode
   avatar?: React.ReactNode
@@ -875,6 +879,7 @@ function CompactContextSummary({
   onOpenPeople,
   onOpenTags,
   onOpenDates,
+  onOpenContexts,
 }: {
   items: SummaryItem[]
   count: number
@@ -882,6 +887,7 @@ function CompactContextSummary({
   onOpenPeople: () => void
   onOpenTags: () => void
   onOpenDates: () => void
+  onOpenContexts: () => void
 }) {
   if (count === 0) {
     return (
@@ -894,6 +900,7 @@ function CompactContextSummary({
   const people = items.filter((item) => item.kind === "person")
   const tags = items.filter((item) => item.kind === "tag")
   const dates = items.filter((item) => item.kind === "date")
+  const contexts = items.filter((item) => item.kind === "context")
 
   return (
     <div className="-mx-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -925,6 +932,15 @@ function CompactContextSummary({
             onRemoveDate={onRemoveDate}
           />
         )}
+        {contexts.length > 0 && (
+          <SummaryGroupPill
+            tone="contexts"
+            icon={<Hash className="w-3.5 h-3.5" />}
+            items={contexts}
+            onOpen={onOpenContexts}
+            onRemoveDate={onRemoveDate}
+          />
+        )}
       </div>
     </div>
   )
@@ -937,7 +953,7 @@ function SummaryGroupPill({
   onOpen,
   onRemoveDate,
 }: {
-  tone: "people" | "tags" | "dates"
+  tone: "people" | "tags" | "dates" | "contexts"
   icon: React.ReactNode
   items: SummaryItem[]
   onOpen: () => void
@@ -953,6 +969,11 @@ function SummaryGroupPill({
       shell: "border-primary/25 bg-primary/10",
       icon: "bg-primary/15 text-primary",
       more: "border-primary/20 bg-primary/15 text-primary",
+    },
+    contexts: {
+      shell: "border-emerald-400/25 bg-emerald-400/10",
+      icon: "bg-emerald-400/15 text-emerald-400",
+      more: "border-emerald-400/20 bg-emerald-400/15 text-emerald-300",
     },
     dates: {
       shell: "border-sky-400/25 bg-sky-400/10",
@@ -1085,10 +1106,13 @@ function buildSummaryItems({
   selectedImported,
   selectedTagObjects,
   selectedCalendarDates,
+  selectedContextIds,
+  allContexts,
   onParticipant,
   onImported,
   onTag,
   onDate,
+  onContext,
 }: {
   contacts: Contact[]
   importedContacts: ImportedContact[]
@@ -1096,10 +1120,13 @@ function buildSummaryItems({
   selectedImported: string[]
   selectedTagObjects: MessageTag[]
   selectedCalendarDates: string[]
+  selectedContextIds: string[]
+  allContexts: AppContext[]
   onParticipant: (id: string) => void
   onImported: (id: string) => void
   onTag: (id: string) => void
   onDate: (date: string) => void
+  onContext: (id: string) => void
 }): SummaryItem[] {
   const people = selectedParticipants.map((id) => {
     const person = contacts.find((contact) => contact.id === id)
@@ -1142,7 +1169,19 @@ function buildSummaryItems({
     onRemove: () => onDate(date),
   }))
 
-  return [...people, ...imported, ...tagItems, ...dateItems]
+  const contextItems = selectedContextIds.map((id) => {
+    const ctx = allContexts.find((c) => c.id === id)
+    if (!ctx) return null
+    return {
+      id: `context:${id}`,
+      label: ctx.name,
+      kind: "context" as const,
+      icon: <Hash className="w-3 h-3" />,
+      onRemove: () => onContext(id),
+    }
+  }).filter(Boolean) as SummaryItem[]
+
+  return [...people, ...imported, ...tagItems, ...dateItems, ...contextItems]
 }
 
 function buildSmartSuggestions({

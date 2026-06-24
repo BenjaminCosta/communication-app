@@ -334,19 +334,27 @@ export default function Home() {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setFirebaseUser(user)
-        const name = user.displayName || deriveNameFromEmail(user.email ?? "")
-        const initials = deriveInitials(name)
+        const userRef = doc(db, "users", user.uid)
+        const existingUserSnap = await getDoc(userRef)
+        const existingUser = existingUserSnap.exists() ? existingUserSnap.data() : {}
+        const name = typeof existingUser.name === "string" && existingUser.name.trim()
+          ? existingUser.name
+          : (user.displayName || deriveNameFromEmail(user.email ?? ""))
+        const initials = typeof existingUser.initials === "string" && existingUser.initials.trim()
+          ? existingUser.initials
+          : deriveInitials(name)
+        const color = typeof existingUser.color === "string" && existingUser.color.trim()
+          ? existingUser.color
+          : getUserAvatarColor(user.uid)
+        const emailNormalized = normalizeEmail(user.email)
         setCurrentUser({
           id: user.uid,
           name,
           initials,
-          color: getUserAvatarColor(user.uid),
+          color,
           email: user.email ?? undefined,
+          emailNormalized,
         })
-        const userRef = doc(db, "users", user.uid)
-        const existingUserSnap = await getDoc(userRef)
-        const existingUser = existingUserSnap.exists() ? existingUserSnap.data() : {}
-        const emailNormalized = normalizeEmail(user.email)
         await setDoc(userRef, {
           id: user.uid,
           email: user.email ?? "",
@@ -355,7 +363,7 @@ export default function Home() {
           authProviderIds: user.providerData.map((provider) => provider.providerId),
           ...(!existingUser.name ? { name } : {}),
           ...(!existingUser.initials ? { initials } : {}),
-          ...(!existingUser.color ? { color: getUserAvatarColor(user.uid) } : {}),
+          ...(!existingUser.color ? { color } : {}),
         }, { merge: true })
         // Register FCM token if notification permission was already granted
         if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {

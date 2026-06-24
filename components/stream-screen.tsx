@@ -1692,7 +1692,7 @@ function ProjectSearchSheet({
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 h-[60dvh] glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-50 h-[76dvh] glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
       >
         <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
@@ -1875,7 +1875,7 @@ function PeopleFilterSheet({
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 h-[60dvh] glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-50 h-[76dvh] glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
       >
         <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
@@ -1982,7 +1982,7 @@ function TagFilterSheet({
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 flex h-[60dvh] flex-col glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 z-50 flex h-[76dvh] flex-col glass-modal border-t border-white/10 rounded-t-3xl px-4 pt-3 pb-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
       >
         <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
@@ -2125,7 +2125,7 @@ function ContextFilterSheet({
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         style={dragStyle}
-        className="fixed bottom-0 left-0 right-0 z-50 h-[60dvh] glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-50 h-[76dvh] glass-modal border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-200 flex flex-col"
       >
         <div {...swipeHandlers} className="-mx-4 -mt-3 shrink-0 pt-3 pb-4 touch-none cursor-grab active:cursor-grabbing">
           <div className="w-10 h-1 bg-white/15 rounded-full mx-auto" />
