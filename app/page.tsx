@@ -264,6 +264,9 @@ export default function Home() {
   const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
   const [appContexts, setAppContexts] = useState<AppContext[]>([])
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
+  // Loading flags — false until first snapshot arrives (prevents empty-state flash)
+  const [contactsLoaded, setContactsLoaded] = useState(false)
+  const [contextsLoaded, setContextsLoaded] = useState(false)
 
   const importedContacts = useMemo(() => {
     const byId = new Map<string, ImportedContact>()
@@ -424,6 +427,9 @@ export default function Home() {
         setProjects([])
         setOwnedImportedContacts([])
         setGlobalImportedContacts([])
+        setContactsLoaded(false)
+        setContextsLoaded(false)
+        setAppContexts([])
         navigateTo("login")
       }
     })
@@ -522,8 +528,10 @@ export default function Home() {
     )
     const globalImportedContactsUnsub = onSnapshot(globalContactsQuery, (snap) => {
       setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
+      setContactsLoaded(true)
     }, () => {
       setGlobalImportedContacts([])
+      setContactsLoaded(true)
     })
 
     // 6. Contexts — global, no filter needed
@@ -544,8 +552,10 @@ export default function Home() {
           sourceDatabaseFile: data.sourceDatabaseFile ?? undefined,
         } as AppContext
       }))
+      setContextsLoaded(true)
     }, () => {
       setAppContexts([])
+      setContextsLoaded(true)
     })
 
     return () => {
@@ -1504,6 +1514,7 @@ export default function Home() {
           importedContacts={importedContacts}
           registeredUsers={[currentUser, ...contacts]}
           messages={messages}
+          isLoading={!contactsLoaded}
           onBack={handlePeopleBack}
           onSaveImportedContacts={handleSaveImportedContacts}
           onInviteContact={handleInviteContact}
@@ -1566,6 +1577,8 @@ export default function Home() {
           availableTags={availableTags}
           contexts={appContexts}
           onCreateContext={handleCreateContext}
+          isContactsLoading={!contactsLoaded}
+          isContextsLoading={!contextsLoaded}
         />
       )}
 
@@ -1607,6 +1620,7 @@ export default function Home() {
           className={entranceClass}
           contexts={appContexts}
           messages={messages}
+          isLoading={!contextsLoaded}
           onBack={handleContextsBack}
           onContextSelect={goToContextDetail}
           onCreateContext={handleCreateContext}
@@ -1704,6 +1718,8 @@ export default function Home() {
                   availableTags={availableTags}
                   contexts={appContexts}
                   onCreateContext={handleCreateContext}
+                  isContactsLoading={!contactsLoaded}
+                  isContextsLoading={!contextsLoaded}
                 />
               </div>
             )}

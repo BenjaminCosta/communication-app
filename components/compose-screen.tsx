@@ -38,9 +38,14 @@ interface ComposeScreenProps {
   availableTags?: MessageTag[]
   contexts?: AppContext[]
   onCreateContext?: (name: string) => Promise<AppContext>
+  isContactsLoading?: boolean
+  isContextsLoading?: boolean
 }
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext }: ComposeScreenProps) {
+// Max items shown in browse panels before requiring search
+const MAX_PANEL_ITEMS = 30
+
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext, isContactsLoading = false, isContextsLoading = false }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
@@ -292,34 +297,42 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     .map((id) => displayTags.find((tag) => tag.id === id))
     .filter(Boolean) as MessageTag[]
 
-  const searchQuery = globalSearch.trim().toLowerCase()
-  const searchPeople = searchQuery
-    ? contacts
-        .filter((contact) => contact.name.toLowerCase().includes(searchQuery))
-        .slice(0, 4)
-    : []
-  const searchImported = searchQuery
-    ? importedContacts
-        .filter((c) => c.status === "not_registered" &&
-          (c.name.toLowerCase().includes(searchQuery) || (c.email ?? "").toLowerCase().includes(searchQuery)))
-        .slice(0, 3)
-    : []
-  const searchTags = searchQuery
-    ? displayTags
-        .filter((tag) => tag.name.toLowerCase().includes(searchQuery))
-        .slice(0, 6)
-    : []
-  const searchContexts = searchQuery
-    ? contexts
-        .filter((ctx) => ctx.name.toLowerCase().includes(searchQuery))
-        .slice(0, 4)
-    : []
+  const searchQuery = useMemo(() => globalSearch.trim().toLowerCase(), [globalSearch])
+  const searchPeople = useMemo(() =>
+    searchQuery ? contacts.filter((c) => c.name.toLowerCase().includes(searchQuery)).slice(0, 4) : [],
+    [contacts, searchQuery]
+  )
+  const searchImported = useMemo(() =>
+    searchQuery
+      ? importedContacts
+          .filter((c) => c.status === "not_registered" &&
+            (c.name.toLowerCase().includes(searchQuery) || (c.email ?? "").toLowerCase().includes(searchQuery)))
+          .slice(0, 3)
+      : [],
+    [importedContacts, searchQuery]
+  )
+  const searchTags = useMemo(() =>
+    searchQuery ? displayTags.filter((t) => t.name.toLowerCase().includes(searchQuery)).slice(0, 6) : [],
+    [displayTags, searchQuery]
+  )
+  const searchContexts = useMemo(() =>
+    searchQuery ? contexts.filter((ctx) => ctx.name.toLowerCase().includes(searchQuery)).slice(0, 4) : [],
+    [contexts, searchQuery]
+  )
   const hasSearchResults = searchQuery.length > 0 && (
     searchPeople.length > 0 ||
     searchTags.length > 0 ||
     searchImported.length > 0 ||
     searchContexts.length > 0
   )
+
+  // Sliced lists for browse panels — avoids rendering thousands of DOM nodes at once
+  const notRegisteredContacts = useMemo(
+    () => importedContacts.filter((c) => c.status === "not_registered"),
+    [importedContacts]
+  )
+  const panelImported = useMemo(() => notRegisteredContacts.slice(0, MAX_PANEL_ITEMS), [notRegisteredContacts])
+  const panelContexts = useMemo(() => contexts.slice(0, MAX_PANEL_ITEMS), [contexts])
 
   const handleFirstFocus = () => {
     if (!firstFocusRef.current) return
@@ -562,32 +575,45 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                     onCancel={cancelQuickCreate}
                   />
                 )}
-                <div className="flex flex-wrap gap-2">
-                  {contexts.map((ctx) => {
-                    const selected = selectedContextIds.includes(ctx.id)
-                    return (
-                      <button
-                        key={ctx.id}
-                        onClick={() => {
-                          setSelectedContextIds((p) => selected ? p.filter((x) => x !== ctx.id) : [...p, ctx.id])
-                        }}
-                        className={cn(
-                          "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-xs font-semibold transition-all active:scale-[0.98]",
-                          selected
-                            ? "border-emerald-400/30 bg-emerald-400/15 text-emerald-300"
-                            : "glass-menu-item text-foreground/90 active:bg-white/8"
-                        )}
-                      >
-                        <Hash className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                        <span className="min-w-0 flex-1 truncate">{ctx.name}</span>
-                        {selected && <Check className="w-4 h-4 shrink-0" />}
-                      </button>
-                    )
-                  })}
-                  {contexts.length === 0 && (
-                    <p className="w-full px-2 py-8 text-center text-xs text-muted-foreground">No contexts available yet.</p>
-                  )}
-                </div>
+                {isContextsLoading ? (
+                  <div className="flex flex-wrap gap-2">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex min-w-[calc(50%-0.25rem)] flex-1 h-10 rounded-2xl border border-white/8 bg-white/5 animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {panelContexts.map((ctx) => {
+                      const selected = selectedContextIds.includes(ctx.id)
+                      return (
+                        <button
+                          key={ctx.id}
+                          onClick={() => {
+                            setSelectedContextIds((p) => selected ? p.filter((x) => x !== ctx.id) : [...p, ctx.id])
+                          }}
+                          className={cn(
+                            "flex min-w-[calc(50%-0.25rem)] flex-1 items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-xs font-semibold transition-all active:scale-[0.98]",
+                            selected
+                              ? "border-emerald-400/30 bg-emerald-400/15 text-emerald-300"
+                              : "glass-menu-item text-foreground/90 active:bg-white/8"
+                          )}
+                        >
+                          <Hash className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                          <span className="min-w-0 flex-1 truncate">{ctx.name}</span>
+                          {selected && <Check className="w-4 h-4 shrink-0" />}
+                        </button>
+                      )
+                    })}
+                    {contexts.length === 0 && (
+                      <p className="w-full px-2 py-8 text-center text-xs text-muted-foreground">No contexts available yet.</p>
+                    )}
+                    {contexts.length > MAX_PANEL_ITEMS && (
+                      <p className="w-full px-2 py-2 text-center text-[10px] text-muted-foreground/50">
+                        Showing {MAX_PANEL_ITEMS} of {contexts.length} — search above to find more
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : activeAssociation === "who" ? (
               <div className="max-h-full overflow-y-auto overscroll-contain pr-1 scrollbar-hide">
@@ -600,15 +626,24 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                       onClick={() => toggleContact(contact.id)}
                     />
                   ))}
-                  {contacts.length === 0 && importedContacts.filter(c => c.status === "not_registered").length === 0 && (
+                  {contacts.length === 0 && notRegisteredContacts.length === 0 && !isContactsLoading && (
                     <p className="px-2 py-8 text-center text-xs text-muted-foreground">No people yet. Add or import contacts so they can be used as recipients.</p>
                   )}
                 </div>
-                {importedContacts.filter(c => c.status === "not_registered").length > 0 && (
+                {isContactsLoading ? (
                   <>
                     <p className="px-1 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Not registered</p>
                     <div className="flex flex-wrap gap-2">
-                      {importedContacts.filter(c => c.status === "not_registered").map((c) => (
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/8 bg-white/5 animate-pulse h-8 w-32" />
+                      ))}
+                    </div>
+                  </>
+                ) : notRegisteredContacts.length > 0 && (
+                  <>
+                    <p className="px-1 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Not registered</p>
+                    <div className="flex flex-wrap gap-2">
+                      {panelImported.map((c) => (
                         <button
                           key={c.id}
                           onClick={() => toggleImportedContact(c.id)}
@@ -627,6 +662,11 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                         </button>
                       ))}
                     </div>
+                    {notRegisteredContacts.length > MAX_PANEL_ITEMS && (
+                      <p className="px-2 pt-2 pb-1 text-center text-[10px] text-muted-foreground/50">
+                        Showing {MAX_PANEL_ITEMS} of {notRegisteredContacts.length} — search above to find more
+                      </p>
+                    )}
                   </>
                 )}
               </div>
