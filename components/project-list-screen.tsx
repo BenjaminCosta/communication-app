@@ -233,13 +233,18 @@ export function ProjectListScreen({
               <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5 animate-float">
                 <FolderOpen className="h-7 w-7 text-muted-foreground/40" />
               </div>
-              <p className="text-sm text-muted-foreground">No tags yet</p>
+              <div className="text-center">
+                <p className="text-sm font-medium text-muted-foreground">No tags yet</p>
+                <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-[220px] mx-auto leading-relaxed">
+                  Tags help organize messages by type, like Task or Follow Up.
+                </p>
+              </div>
               <button onClick={() => setShowCreateTag(true)} className="text-xs font-semibold text-primary active:opacity-70">
                 Create your first tag
               </button>
             </div>
           ) : filteredProjects.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No tags found</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">No results found. Try a different search.</p>
           ) : (
             <div className="flex flex-col gap-5">
               {!query.trim() && (

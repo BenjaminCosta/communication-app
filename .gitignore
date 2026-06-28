@@ -33,6 +33,16 @@ tsconfig.tsbuildinfo
 # Backups
 backups/
 
+# Local import files / data dumps
+*.vcf
+*.vcard
+*.xlsx
+*.xls
+*.csv
+*.tsv
+imports/
+import-data/
+
 # Firebase / Google service account secrets
 svc-comms-firebase-adminsdk*.json
 svc-comms-firebase-adminsdk-*.json

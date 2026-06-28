@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash, Plus, Loader2 } from "lucide-react"
+import { HelpTooltip } from "@/components/help-tooltip"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
@@ -437,7 +438,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                   ))}
                 </div>
               ) : (
-                <p className="px-2 py-3 text-xs text-muted-foreground">No people, tags or contexts found.</p>
+                <p className="px-2 py-3 text-xs text-muted-foreground">No results found. Try a different search.</p>
               )}
             </div>
           )}
@@ -600,7 +601,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                     />
                   ))}
                   {contacts.length === 0 && importedContacts.filter(c => c.status === "not_registered").length === 0 && (
-                    <p className="px-2 py-8 text-center text-xs text-muted-foreground">No people available yet.</p>
+                    <p className="px-2 py-8 text-center text-xs text-muted-foreground">No people yet. Add or import contacts so they can be used as recipients.</p>
                   )}
                 </div>
                 {importedContacts.filter(c => c.status === "not_registered").length > 0 && (
@@ -659,7 +660,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                     />
                   ))}
                   {displayTags.length === 0 && (
-                    <p className="col-span-2 px-2 py-8 text-center text-xs text-muted-foreground">No tags available yet.</p>
+                    <p className="col-span-2 px-2 py-8 text-center text-xs text-muted-foreground">No tags yet. Tags help organize messages by type, like Task or Follow Up.</p>
                   )}
                 </div>
               </div>
@@ -682,6 +683,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             icon={<User className="w-3.5 h-3.5" />}
             active={activeAssociation === "who" || selectedContacts.length > 0 || selectedImportedContacts.length > 0}
             onClick={() => setActiveAssociation((current) => current === "who" ? null : "who")}
+            hint="Recipients are the people who can see this message."
           >
             {(selectedContacts.length + selectedImportedContacts.length) > 0 ? `${selectedContacts.length + selectedImportedContacts.length} Who` : "+ Who"}
           </OptionChip>
@@ -689,6 +691,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             icon={<Tag className="w-3.5 h-3.5" />}
             active={activeAssociation === "tag" || selectedTagIds.length > 0}
             onClick={() => setActiveAssociation((current) => current === "tag" ? null : "tag")}
+            hint="Tags help classify messages, like Task, Follow Up, Question, or Important."
           >
             {selectedTagIds.length > 0 ? `${selectedTagIds.length} Tags` : "Tag"}
           </OptionChip>
@@ -696,6 +699,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             icon={<ImageIcon className="w-3.5 h-3.5" />}
             active={!!imageFile}
             onClick={() => fileInputRef.current?.click()}
+            hint="Attach a photo to give more context to the message."
           >
             {imageFile ? imageFile.name : "Image"}
           </OptionChip>
@@ -703,6 +707,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             icon={<CalendarDays className="w-3.5 h-3.5" />}
             active={selectedCalendarDates.length > 0}
             onClick={() => setShowDatePicker(true)}
+            hint="Add a date when this message needs follow-up, action, or attention."
           >
             {selectedCalendarDates.length > 0
               ? selectedCalendarDates.length === 1
@@ -714,6 +719,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
             icon={<Hash className="w-3.5 h-3.5" />}
             active={activeAssociation === "context" || selectedContextIds.length > 0}
             onClick={() => setActiveAssociation((current) => current === "context" ? null : "context")}
+            hint="Contexts show what a message is related to, like a project, company, topic, or workflow."
           >
             {selectedContextIds.length > 0 ? `${selectedContextIds.length} Context${selectedContextIds.length !== 1 ? "s" : ""}` : "Context"}
           </OptionChip>
@@ -781,25 +787,36 @@ function OptionChip({
   icon,
   active,
   onClick,
+  hint,
 }: {
   children: React.ReactNode
   icon?: React.ReactNode
   active?: boolean
   onClick?: () => void
+  hint?: string
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "text-xs font-semibold px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition-all active:scale-[0.98]",
-        active
-          ? "glass-pill-active"
-          : "glass-pill border-dashed text-white/75 hover:text-blue-200"
+    <span className="relative inline-flex items-center">
+      <button
+        onClick={onClick}
+        className={cn(
+          "min-h-8 text-xs font-semibold pl-3 pr-8 py-1.5 rounded-full border flex items-center gap-1.5 transition-all active:scale-[0.98]",
+          active
+            ? "glass-pill-active"
+            : "glass-pill border-dashed text-white/75 hover:text-blue-200"
+        )}
+      >
+        {icon}
+        <span className="max-w-[120px] truncate">{children}</span>
+      </button>
+      {hint && (
+        <HelpTooltip
+          text={hint}
+          tone="chip"
+          className="absolute right-2 top-1/2 -translate-y-1/2"
+        />
       )}
-    >
-      {icon}
-      <span className="max-w-[120px] truncate">{children}</span>
-    </button>
+    </span>
   )
 }
 

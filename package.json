@@ -31,7 +31,12 @@
     "backfill:recipients:verify": "VERIFY=true FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
     "backfill:recipients:verify:prod": "VERIFY=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-explicit-recipients.mjs",
     "backfill:calendar-date-strings": "node scripts/backfill-calendar-date-strings.mjs --prod",
-    "backfill:calendar-date-strings:dry": "node scripts/backfill-calendar-date-strings.mjs --prod --dry-run"
+    "backfill:calendar-date-strings:dry": "node scripts/backfill-calendar-date-strings.mjs --prod --dry-run",
+    "import:vcf:dry": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-vcf-contacts.mjs jfhContacts.vcf",
+    "import:vcf": "DRY_RUN=false CONFIRM_IMPORT=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-vcf-contacts.mjs jfhContacts.vcf",
+    "import:database:dry": "OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
+    "import:database": "DRY_RUN=false CONFIRM_IMPORT=true OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
+    "test:vcf-import": "node --test scripts/vcf-import.test.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

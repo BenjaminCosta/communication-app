@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { ArrowLeft, Hash, Plus, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { AppContext } from "@/lib/store"
+import type { AppContext, Message } from "@/lib/store"
 import { CreateContextModal } from "@/components/create-context-modal"
+import { buildContextActivityStats, compareBySearchScore, scoreContextSearch } from "@/lib/smart-search"
 
 interface ContextsScreenProps {
   contexts: AppContext[]
+  messages: Message[]
   onBack: () => void
   onContextSelect: (id: string) => void
   onCreateContext: (name: string, description?: string) => Promise<AppContext>
@@ -16,6 +18,7 @@ interface ContextsScreenProps {
 
 export function ContextsScreen({
   contexts,
+  messages,
   onBack,
   onContextSelect,
   onCreateContext,
@@ -26,13 +29,22 @@ export function ContextsScreen({
   const [showCreateModal, setShowCreateModal] = useState(false)
 
   const q = query.trim().toLowerCase()
-  const filtered = q
-    ? contexts.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          (c.description ?? "").toLowerCase().includes(q)
-      )
-    : [...contexts].sort((a, b) => a.name.localeCompare(b.name))
+  const contextActivity = useMemo(() => buildContextActivityStats(messages), [messages])
+  const filtered = useMemo(() => {
+    return contexts
+      .map((ctx) => {
+        const activity = contextActivity.get(ctx.id)
+        return {
+          item: ctx,
+          score: scoreContextSearch(ctx, query, activity),
+          label: ctx.name,
+          activity,
+        }
+      })
+      .filter((entry) => !q || entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [contextActivity, contexts, q, query])
 
   const exactMatch = contexts.some((c) => c.name.toLowerCase() === q)
   const showCreate = q.length > 0 && !exactMatch
@@ -130,8 +142,8 @@ export function ContextsScreen({
                 </p>
                 <p className="text-xs text-muted-foreground/50 mt-1">
                   {q
-                    ? "Try a different search or create a new one above"
-                    : "Type above to search or create your first context"}
+                    ? "No results found. Try a different search or clear some filters."
+                    : "Contexts help connect messages to a project, company, or topic."}
                 </p>
               </div>
             </div>

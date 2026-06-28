@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Bell, Shield, FolderOpen, Users, ChevronRight, Activity } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ProfileScreenProps {
@@ -14,15 +14,13 @@ interface ProfileScreenProps {
   onBack: () => void
   onSignOut: () => void
   onNotifications: () => void
-  onPrivacy: () => void
-  onProjects: () => void
-  onPeople: () => void
   isAdmin?: boolean
   onAdmin?: () => void
+  onHelp?: () => void
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onPrivacy, onProjects, onPeople, isAdmin, onAdmin, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
     <div className={`flex-1 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
@@ -70,10 +68,8 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
-        <SettingsRow icon={<FolderOpen className="w-4 h-4" />} label="Tags" onClick={onProjects} />
-        <SettingsRow icon={<Users className="w-4 h-4" />} label="People" onClick={onPeople} />
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
-        <SettingsRow icon={<Shield className="w-4 h-4" />} label="Privacy & Security" onClick={onPrivacy} />
+        <SettingsRow icon={<HelpCircle className="w-4 h-4" />} label="How it works" onClick={onHelp} />
         {isAdmin && onAdmin && (
           <SettingsRow
             icon={<Activity className="w-4 h-4 text-primary" />}

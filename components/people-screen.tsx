@@ -3,7 +3,13 @@
 import { useState, useMemo } from "react"
 import { ArrowLeft, UserPlus, Mail, Phone, Trash2, ChevronDown, ChevronUp, X, Check, Users, Pencil, Globe, Lock } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Contact, type ImportedContact, deriveInitials } from "@/lib/store"
+import { type Contact, type ImportedContact, type Message, deriveInitials } from "@/lib/store"
+import {
+  buildPeopleActivityStats,
+  compareBySearchScore,
+  scoreImportedContactSearch,
+  scoreRegisteredPersonSearch,
+} from "@/lib/smart-search"
 import { ImportContactsModal } from "@/components/import-contacts-modal"
 import { MakeGlobalModal } from "@/components/make-global-modal"
 
@@ -33,6 +39,7 @@ interface PeopleScreenProps {
   currentUser: Contact
   importedContacts: ImportedContact[]
   registeredUsers: Contact[]
+  messages: Message[]
   onBack: () => void
   onSaveImportedContacts: (contacts: Omit<ImportedContact, "id">[]) => Promise<void>
   onInviteContact: (contact: ImportedContact) => void
@@ -49,6 +56,7 @@ export function PeopleScreen({
   currentUser,
   importedContacts,
   registeredUsers,
+  messages,
   onBack,
   onSaveImportedContacts,
   onInviteContact,
@@ -75,21 +83,39 @@ export function PeopleScreen({
   }, [currentUser, contacts])
 
   const lq = query.trim().toLowerCase()
+  const peopleActivity = useMemo(() => buildPeopleActivityStats(messages), [messages])
 
-  const filteredRegistered = lq
-    ? allRegistered.filter(
-        (c) => c.name.toLowerCase().includes(lq) || (c.email ?? "").toLowerCase().includes(lq)
-      )
-    : allRegistered
+  const filteredRegistered = useMemo(() => {
+    return allRegistered
+      .map((person) => {
+        const activity = peopleActivity.get(person.id)
+        return {
+          item: person,
+          score: scoreRegisteredPersonSearch(person, query, activity),
+          label: person.name,
+          activity,
+        }
+      })
+      .filter((entry) => !lq || entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [allRegistered, lq, peopleActivity, query])
 
-  const filteredImported = lq
-    ? importedContacts.filter(
-        (c) =>
-          c.name.toLowerCase().includes(lq) ||
-          (c.email ?? "").toLowerCase().includes(lq) ||
-          (c.phone ?? "").toLowerCase().includes(lq)
-      )
-    : importedContacts
+  const filteredImported = useMemo(() => {
+    return importedContacts
+      .map((contact) => {
+        const activity = peopleActivity.get(contact.id)
+        return {
+          item: contact,
+          score: scoreImportedContactSearch(contact, query, activity),
+          label: contact.name,
+          activity,
+        }
+      })
+      .filter((entry) => !lq || entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [importedContacts, lq, peopleActivity, query])
 
   const now = Date.now()
   const cutoff = 90_000
@@ -209,8 +235,8 @@ export function PeopleScreen({
                   <UserPlus className="w-5 h-5 text-muted-foreground/50" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground/70">No imported contacts yet</p>
-                  <p className="text-xs text-muted-foreground/50 mt-1">Import from Google Contacts to get started</p>
+                  <p className="text-sm font-semibold text-foreground/70">No people yet</p>
+                  <p className="text-xs text-muted-foreground/50 mt-1">Add or import contacts so they can be used as recipients.</p>
                 </div>
                 <button
                   onClick={() => setShowImportModal(true)}
@@ -220,7 +246,7 @@ export function PeopleScreen({
                 </button>
               </div>
             ) : filteredImported.length === 0 ? (
-              <p className="text-xs text-muted-foreground/50 py-4 text-center">No contacts match your search.</p>
+              <p className="text-xs text-muted-foreground/50 py-4 text-center">No results found. Try a different search.</p>
             ) : (
               <div className="rounded-2xl bg-card border border-white/10 overflow-hidden divide-y divide-white/8">
                 {filteredImported.map((contact) => (
@@ -307,8 +333,10 @@ function ImportedContactRow({
   const linkedUser = contact.linkedUserId
     ? registeredUsers.find((u) => u.id === contact.linkedUserId)
     : null
+  const canEditContact = contact.ownerUserId === currentUserId
 
   const handleAddTag = async () => {
+    if (!canEditContact) return
     const trimmed = newTag.trim()
     if (!trimmed) return
     setAddingTag(true)
@@ -322,6 +350,7 @@ function ImportedContactRow({
   }
 
   const startEditField = (field: "email" | "phone") => {
+    if (!canEditContact) return
     setEditField(field)
     setEditValue(field === "email" ? (contact.email ?? "") : (contact.phone ?? ""))
   }
@@ -344,10 +373,12 @@ function ImportedContactRow({
   }
 
   const clearField = async (field: "email" | "phone") => {
+    if (!canEditContact) return
     await onUpdateContact({ [field]: null })
   }
 
   const startEditTag = (tag: string) => {
+    if (!canEditContact) return
     setEditingTag(tag)
     setEditTagValue(tag)
   }
@@ -358,7 +389,7 @@ function ImportedContactRow({
   }
 
   const saveEditTag = async () => {
-    if (!editingTag || savingTag) return
+    if (!canEditContact || !editingTag || savingTag) return
     const newVal = editTagValue.trim()
     if (!newVal || newVal === editingTag) {
       cancelEditTag()
@@ -439,7 +470,7 @@ function ImportedContactRow({
                   Invite
                 </button>
               )}
-              {!expanded && (
+              {canEditContact && !expanded && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }}
                   className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 transition-all hover:bg-destructive/10 hover:border-destructive/25"
@@ -473,7 +504,7 @@ function ImportedContactRow({
                   <span className="text-[10px] text-muted-foreground/40 shrink-0">registered</span>
                 </div>
               ) : null
-            ) : editField === "email" ? (
+            ) : canEditContact && editField === "email" ? (
               <div className="flex items-center gap-2">
                 <Mail className="w-3 h-3 shrink-0 text-muted-foreground/50" />
                 <input
@@ -505,20 +536,24 @@ function ImportedContactRow({
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Mail className="w-3 h-3 shrink-0" />
                 <span className="truncate flex-1">{contact.email}</span>
-                <button
-                  onClick={() => startEditField("email")}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
-                >
-                  <Pencil className="w-2.5 h-2.5 text-muted-foreground/50" />
-                </button>
-                <button
-                  onClick={() => clearField("email")}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors"
-                >
-                  <X className="w-2.5 h-2.5 text-muted-foreground/40" />
-                </button>
+                {canEditContact && (
+                  <>
+                    <button
+                      onClick={() => startEditField("email")}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
+                    >
+                      <Pencil className="w-2.5 h-2.5 text-muted-foreground/50" />
+                    </button>
+                    <button
+                      onClick={() => clearField("email")}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5 text-muted-foreground/40" />
+                    </button>
+                  </>
+                )}
               </div>
-            ) : (
+            ) : canEditContact ? (
               <button
                 onClick={() => startEditField("email")}
                 className="flex items-center gap-2 text-xs text-primary/60 hover:text-primary transition-colors self-start"
@@ -526,10 +561,10 @@ function ImportedContactRow({
                 <Mail className="w-3 h-3" />
                 <span>+ Add email</span>
               </button>
-            )}
+            ) : null}
 
             {/* Phone */}
-            {editField === "phone" ? (
+            {canEditContact && editField === "phone" ? (
               <div className="flex items-center gap-2">
                 <Phone className="w-3 h-3 shrink-0 text-muted-foreground/50" />
                 <input
@@ -561,20 +596,24 @@ function ImportedContactRow({
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Phone className="w-3 h-3 shrink-0" />
                 <span className="flex-1">{contact.phone}</span>
-                <button
-                  onClick={() => startEditField("phone")}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
-                >
-                  <Pencil className="w-2.5 h-2.5 text-muted-foreground/50" />
-                </button>
-                <button
-                  onClick={() => clearField("phone")}
-                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors"
-                >
-                  <X className="w-2.5 h-2.5 text-muted-foreground/40" />
-                </button>
+                {canEditContact && (
+                  <>
+                    <button
+                      onClick={() => startEditField("phone")}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
+                    >
+                      <Pencil className="w-2.5 h-2.5 text-muted-foreground/50" />
+                    </button>
+                    <button
+                      onClick={() => clearField("phone")}
+                      className="w-5 h-5 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5 text-muted-foreground/40" />
+                    </button>
+                  </>
+                )}
               </div>
-            ) : (
+            ) : canEditContact ? (
               <button
                 onClick={() => startEditField("phone")}
                 className="flex items-center gap-2 text-xs text-primary/60 hover:text-primary transition-colors self-start"
@@ -582,7 +621,7 @@ function ImportedContactRow({
                 <Phone className="w-3 h-3" />
                 <span>+ Add phone</span>
               </button>
-            )}
+            ) : null}
 
             {linkedUser && (
               <div className="flex items-center gap-2 text-xs text-progress">
@@ -596,12 +635,14 @@ function ImportedContactRow({
           <div>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Labels</span>
-              <button
-                onClick={() => setShowTagInput((v) => !v)}
-                className="text-[10px] text-primary font-semibold ml-auto"
-              >
-                + Add
-              </button>
+              {canEditContact && (
+                <button
+                  onClick={() => setShowTagInput((v) => !v)}
+                  className="text-[10px] text-primary font-semibold ml-auto"
+                >
+                  + Add
+                </button>
+              )}
             </div>
             {contact.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -636,24 +677,28 @@ function ImportedContactRow({
                   ) : (
                     <div key={tag} className="flex items-center gap-1 bg-white/8 border border-white/12 rounded-full px-2 py-0.5">
                       <span className="text-xs text-foreground/80">{tag}</span>
-                      <button
-                        onClick={() => startEditTag(tag)}
-                        className="text-muted-foreground/30 hover:text-muted-foreground transition-colors ml-0.5"
-                      >
-                        <Pencil className="w-2 h-2" />
-                      </button>
-                      <button
-                        onClick={() => onRemoveTag(tag)}
-                        className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
+                      {canEditContact && (
+                        <>
+                          <button
+                            onClick={() => startEditTag(tag)}
+                            className="text-muted-foreground/30 hover:text-muted-foreground transition-colors ml-0.5"
+                          >
+                            <Pencil className="w-2 h-2" />
+                          </button>
+                          <button
+                            onClick={() => onRemoveTag(tag)}
+                            className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   )
                 )}
               </div>
             )}
-            {showTagInput && (
+            {canEditContact && showTagInput && (
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -679,7 +724,7 @@ function ImportedContactRow({
           </div>
 
           {/* Visibility — owner only */}
-          {contact.ownerUserId === currentUserId && (
+          {canEditContact ? (
             <div className="flex items-center justify-between py-0.5">
               <div className="flex items-center gap-2">
                 {contact.visibility === "global" ? (
@@ -712,9 +757,15 @@ function ImportedContactRow({
                 </button>
               )}
             </div>
-          )}
+          ) : contact.visibility === "global" ? (
+            <div className="flex items-center gap-2 py-0.5">
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-xs text-muted-foreground">Shared contact</span>
+            </div>
+          ) : null}
 
           {/* Delete (only visible when expanded) */}
+          {canEditContact && (
           <div className="flex justify-end pt-1">
             <button
               onClick={onDelete}
@@ -724,20 +775,23 @@ function ImportedContactRow({
               Remove contact
             </button>
           </div>
+          )}
         </div>
       )}
 
       {/* Make Global modal */}
-      <MakeGlobalModal
-        open={showGlobalModal}
-        contactName={contact.name}
-        onConfirm={async () => {
-          setShowGlobalModal(false)
-          setSettingVisibility(true)
-          try { await onSetVisibility("global") } finally { setSettingVisibility(false) }
-        }}
-        onCancel={() => setShowGlobalModal(false)}
-      />
+      {canEditContact && (
+        <MakeGlobalModal
+          open={showGlobalModal}
+          contactName={contact.name}
+          onConfirm={async () => {
+            setShowGlobalModal(false)
+            setSettingVisibility(true)
+            try { await onSetVisibility("global") } finally { setSettingVisibility(false) }
+          }}
+          onCancel={() => setShowGlobalModal(false)}
+        />
+      )}
     </div>
   )
 }

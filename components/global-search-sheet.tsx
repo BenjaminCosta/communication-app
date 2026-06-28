@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, Hash, LayoutGrid, MessageSquare, Search, Users, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -13,6 +13,15 @@ import {
   formatTime,
   systemTypeTagId,
 } from "@/lib/store"
+import {
+  buildContextActivityStats,
+  buildPeopleActivityStats,
+  compareBySearchScore,
+  normalizeSearchText,
+  scoreContextSearch,
+  scoreImportedContactSearch,
+  scoreRegisteredPersonSearch,
+} from "@/lib/smart-search"
 
 interface GlobalSearchSheetProps {
   onClose: () => void
@@ -85,7 +94,7 @@ export function GlobalSearchSheet({
   onClose,
   messages = [],
   contacts = [],
-  importedContacts: _importedContacts = [],
+  importedContacts = [],
   projects: _projects = [],
   availableTags = [],
   contexts = [],
@@ -112,14 +121,16 @@ export function GlobalSearchSheet({
     return () => window.removeEventListener("keydown", handler)
   }, [onClose])
 
-  const trimmed = query.trim().toLowerCase()
+  const trimmed = normalizeSearchText(query)
   const hasQuery = trimmed.length > 0
+  const peopleActivity = useMemo(() => buildPeopleActivityStats(messages), [messages])
+  const contextActivity = useMemo(() => buildContextActivityStats(messages), [messages])
 
   // ── Search computations (client-side, real-time) ──────────────────────────
 
   const messageResults: SearchResult[] = hasQuery
     ? messages
-        .filter((m) => m.text.toLowerCase().includes(trimmed))
+        .filter((m) => normalizeSearchText(m.text).includes(trimmed))
         .slice(0, 5)
         .map((m) => ({
           id: m.id,
@@ -130,20 +141,44 @@ export function GlobalSearchSheet({
     : []
 
   const peopleResults: SearchResult[] = hasQuery
-    ? contacts
-        .filter((c) => c.name.toLowerCase().includes(trimmed))
+    ? [
+        ...contacts.map((person) => {
+          const activity = peopleActivity.get(person.id)
+          return {
+            item: person,
+            score: scoreRegisteredPersonSearch(person, query, activity),
+            label: person.name,
+            activity,
+            kind: "Person" as const,
+            id: person.id,
+          }
+        }),
+        ...importedContacts.map((contact) => {
+          const activity = peopleActivity.get(contact.id)
+          return {
+            item: contact,
+            score: scoreImportedContactSearch(contact, query, activity),
+            label: contact.name,
+            activity,
+            kind: contact.company ? contact.company : "Contact",
+            id: contact.id,
+          }
+        }),
+      ]
+        .filter((entry) => entry.score > 0)
+        .sort(compareBySearchScore)
         .slice(0, 5)
-        .map((c) => ({
-          id: c.id,
-          primary: c.name,
-          secondary: "Person",
-          onClick: () => { onPersonFilterClick?.(c.id); onClose() },
+        .map((entry) => ({
+          id: entry.id,
+          primary: entry.label,
+          secondary: entry.kind,
+          onClick: () => { onPersonFilterClick?.(entry.id); onClose() },
         }))
     : []
 
   const tagResults: SearchResult[] = hasQuery
     ? availableTags
-        .filter((t) => t.name.toLowerCase().includes(trimmed) && t.id !== systemTypeTagId("none"))
+        .filter((t) => normalizeSearchText(t.name).includes(trimmed) && t.id !== systemTypeTagId("none"))
         .slice(0, 5)
         .map((t) => ({
           id: t.id,
@@ -157,13 +192,13 @@ export function GlobalSearchSheet({
     ? messages
         .filter((m) =>
           (m.calendarDates ?? []).some((cd) =>
-            fmtDate(cd.date).toLowerCase().includes(trimmed) || cd.date.includes(trimmed)
+            normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
           )
         )
         .slice(0, 5)
         .map((m) => {
           const matched = (m.calendarDates ?? []).find((cd) =>
-            fmtDate(cd.date).toLowerCase().includes(trimmed) || cd.date.includes(trimmed)
+            normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
           )
           return {
             id: `${m.id}:${matched?.date ?? ""}`,
@@ -176,17 +211,23 @@ export function GlobalSearchSheet({
 
   const contextResults: SearchResult[] = hasQuery
     ? contexts
-        .filter((c) =>
-          c.name.toLowerCase().includes(trimmed) ||
-          (c.description ?? "").toLowerCase().includes(trimmed) ||
-          c.fields.some((f) => f.label.toLowerCase().includes(trimmed) || f.value.toLowerCase().includes(trimmed))
-        )
+        .map((ctx) => {
+          const activity = contextActivity.get(ctx.id)
+          return {
+            item: ctx,
+            score: scoreContextSearch(ctx, query, activity),
+            label: ctx.name,
+            activity,
+          }
+        })
+        .filter((entry) => entry.score > 0)
+        .sort(compareBySearchScore)
         .slice(0, 5)
-        .map((c) => ({
-          id: c.id,
-          primary: c.name,
-          secondary: c.description || (c.fields.length > 0 ? `${c.fields.length} field${c.fields.length !== 1 ? "s" : ""}` : "Context"),
-          onClick: () => { onContextFilterClick?.(c.id); onClose() },
+        .map((entry) => ({
+          id: entry.item.id,
+          primary: entry.item.name,
+          secondary: entry.item.description || (entry.item.fields.length > 0 ? `${entry.item.fields.length} field${entry.item.fields.length !== 1 ? "s" : ""}` : "Context"),
+          onClick: () => { onContextFilterClick?.(entry.item.id); onClose() },
         }))
     : []
 

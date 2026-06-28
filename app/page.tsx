@@ -46,12 +46,12 @@ import { ProfileScreen } from "@/components/profile-screen"
 import { ProjectListScreen } from "@/components/project-list-screen"
 import { ProjectDetailScreen } from "@/components/project-detail-screen"
 import { NotificationsScreen } from "@/components/notifications-screen"
-import { PrivacySecurityScreen } from "@/components/privacy-security-screen"
 import { PeopleScreen } from "@/components/people-screen"
 import { AdminScreen } from "@/components/admin-screen"
 import { CalendarScreen } from "@/components/calendar-screen"
 import { ContextsScreen } from "@/components/contexts-screen"
 import { ContextDetailScreen } from "@/components/context-detail-screen"
+import { HelpScreen } from "@/components/help-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { NotificationPromptBanner } from "@/components/notification-prompt-banner"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
@@ -93,7 +93,6 @@ type Screen =
   | "tag"
   | "profile"
   | "notifications"
-  | "privacy"
   | "projects"
   | "project-detail"
   | "people"
@@ -101,6 +100,7 @@ type Screen =
   | "calendar"
   | "contexts"
   | "context-detail"
+  | "help"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -113,10 +113,10 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   profile: 3,
   calendar: 3,
   notifications: 4,
-  privacy: 4,
   projects: 4,
   people: 4,
   admin: 4,
+  help: 4,
   "project-detail": 5,
   contexts: 4,
   "context-detail": 5,
@@ -210,6 +210,42 @@ function resolveLinkedImportedContactUserIds(importedContactIds: string[], impor
     .filter((id): id is string => !!id)
 }
 
+function mapImportedContactDoc(id: string, data: Record<string, any>): ImportedContact {
+  return {
+    id,
+    ownerUserId: data.ownerUserId,
+    name: data.name,
+    email: data.email ?? undefined,
+    emailNormalized: data.emailNormalized ?? undefined,
+    phone: data.phone ?? undefined,
+    phoneNormalized: data.phoneNormalized ?? undefined,
+    source: data.source ?? "manual",
+    tags: Array.isArray(data.tags) ? data.tags : [],
+    emails: Array.isArray(data.emails) ? data.emails : undefined,
+    phones: Array.isArray(data.phones) ? data.phones : undefined,
+    emailNormalizedCandidates: Array.isArray(data.emailNormalizedCandidates) ? data.emailNormalizedCandidates : undefined,
+    company: data.company ?? undefined,
+    companies: Array.isArray(data.companies) ? data.companies : undefined,
+    role: data.role ?? undefined,
+    roles: Array.isArray(data.roles) ? data.roles : undefined,
+    notes: data.notes ?? undefined,
+    addresses: Array.isArray(data.addresses) ? data.addresses : undefined,
+    urls: Array.isArray(data.urls) ? data.urls : undefined,
+    importBatchId: data.importBatchId ?? undefined,
+    sourceSheet: data.sourceSheet ?? undefined,
+    sourceRecordId: data.sourceRecordId ?? undefined,
+    sourceDatabaseFile: data.sourceDatabaseFile ?? undefined,
+    sourceCompanyId: data.sourceCompanyId ?? undefined,
+    sourcePositionId: data.sourcePositionId ?? undefined,
+    linkedUserId: data.linkedUserId ?? null,
+    linkedAt: data.linkedAt instanceof Timestamp ? data.linkedAt.toDate() : null,
+    status: data.status ?? "not_registered",
+    visibility: data.visibility ?? "private",
+    createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
+    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+  } as ImportedContact
+}
+
 export default function Home() {
   // ── Auth ──────────────────────────────────────────────────────────────
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
@@ -224,9 +260,18 @@ export default function Home() {
   const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
-  const [importedContacts, setImportedContacts] = useState<ImportedContact[]>([])
+  const [ownedImportedContacts, setOwnedImportedContacts] = useState<ImportedContact[]>([])
+  const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
   const [appContexts, setAppContexts] = useState<AppContext[]>([])
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
+
+  const importedContacts = useMemo(() => {
+    const byId = new Map<string, ImportedContact>()
+    ;[...globalImportedContacts, ...ownedImportedContacts].forEach((contact) => {
+      byId.set(contact.id, contact)
+    })
+    return [...byId.values()]
+  }, [globalImportedContacts, ownedImportedContacts])
 
   // Merged feed: union of all message sources, deduped by ID.
   // participantMessages = legacy query (array-contains participants)
@@ -377,7 +422,8 @@ export default function Home() {
         setParticipantMessages([])
         setProjectMessages([])
         setProjects([])
-        setImportedContacts([])
+        setOwnedImportedContacts([])
+        setGlobalImportedContacts([])
         navigateTo("login")
       }
     })
@@ -459,33 +505,25 @@ export default function Home() {
       setVisibleMessages([])
     })
 
-    // 5. Imported contacts — strictly private, owner-only
-    const contactsQuery = query(
+    // 5. Imported contacts — own private contacts plus shared global contacts
+    const ownedContactsQuery = query(
       collection(db, "contacts"),
       where("ownerUserId", "==", firebaseUser.uid)
     )
-    const importedContactsUnsub = onSnapshot(contactsQuery, (snap) => {
-      setImportedContacts(snap.docs.map((d) => {
-        const data = d.data()
-        return {
-          id: d.id,
-          ownerUserId: data.ownerUserId,
-          name: data.name,
-          email: data.email ?? undefined,
-          emailNormalized: data.emailNormalized ?? undefined,
-          phone: data.phone ?? undefined,
-          source: data.source ?? "manual",
-          tags: Array.isArray(data.tags) ? data.tags : [],
-          linkedUserId: data.linkedUserId ?? null,
-          linkedAt: data.linkedAt instanceof Timestamp ? data.linkedAt.toDate() : null,
-          status: data.status ?? "not_registered",
-          visibility: data.visibility ?? "private",
-          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
-          updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
-        } as ImportedContact
-      }))
+    const ownedImportedContactsUnsub = onSnapshot(ownedContactsQuery, (snap) => {
+      setOwnedImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
     }, () => {
-      setImportedContacts([])
+      setOwnedImportedContacts([])
+    })
+
+    const globalContactsQuery = query(
+      collection(db, "contacts"),
+      where("visibility", "==", "global")
+    )
+    const globalImportedContactsUnsub = onSnapshot(globalContactsQuery, (snap) => {
+      setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
+    }, () => {
+      setGlobalImportedContacts([])
     })
 
     // 6. Contexts — global, no filter needed
@@ -500,6 +538,10 @@ export default function Home() {
           createdBy: data.createdBy ?? "",
           createdAt: toDate(data.createdAt),
           updatedAt: toDate(data.updatedAt),
+          importBatchId: data.importBatchId ?? undefined,
+          sourceSheet: data.sourceSheet ?? undefined,
+          sourceRecordId: data.sourceRecordId ?? undefined,
+          sourceDatabaseFile: data.sourceDatabaseFile ?? undefined,
         } as AppContext
       }))
     }, () => {
@@ -512,7 +554,8 @@ export default function Home() {
       categoriesUnsub()
       messagesUnsub()
       visibleUnsub()
-      importedContactsUnsub()
+      ownedImportedContactsUnsub()
+      globalImportedContactsUnsub()
       contextsUnsub()
     }
   }, [firebaseUser, listenerKey])
@@ -1023,6 +1066,13 @@ export default function Home() {
       newContacts.forEach((c) => {
         const ref = doc(collection(db, "contacts"))
         const emailNormalized = normalizeEmail(c.email)
+        const emailNormalizedCandidates = [
+          ...new Set([
+            emailNormalized,
+            ...(c.emailNormalizedCandidates ?? []),
+            ...(c.emails ?? []).flatMap((point) => [point.normalized, normalizeEmail(point.value)]),
+          ].filter(Boolean)),
+        ]
         batch.set(ref, {
           ownerUserId: c.ownerUserId,
           name: c.name,
@@ -1030,10 +1080,23 @@ export default function Home() {
           tags: c.tags,
           linkedUserId: c.linkedUserId,
           status: c.status,
+          visibility: c.visibility ?? "private",
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           ...(emailNormalized && { email: emailNormalized, emailNormalized }),
           ...(c.phone != null && { phone: c.phone }),
+          ...(c.phoneNormalized && { phoneNormalized: c.phoneNormalized }),
+          ...(c.emails && c.emails.length > 0 && { emails: c.emails }),
+          ...(c.phones && c.phones.length > 0 && { phones: c.phones }),
+          ...(emailNormalizedCandidates.length > 0 && { emailNormalizedCandidates }),
+          ...(c.company && { company: c.company }),
+          ...(c.companies && c.companies.length > 0 && { companies: c.companies }),
+          ...(c.role && { role: c.role }),
+          ...(c.roles && c.roles.length > 0 && { roles: c.roles }),
+          ...(c.notes && { notes: c.notes }),
+          ...(c.addresses && c.addresses.length > 0 && { addresses: c.addresses }),
+          ...(c.urls && c.urls.length > 0 && { urls: c.urls }),
+          ...(c.importBatchId && { importBatchId: c.importBatchId }),
         })
       })
       await batch.commit()
@@ -1106,9 +1169,18 @@ export default function Home() {
         const emailNormalized = normalizeEmail(updates.email)
         fields.email = emailNormalized || deleteField()
         fields.emailNormalized = emailNormalized || deleteField()
+        fields.emailNormalizedCandidates = emailNormalized ? [emailNormalized] : deleteField()
+        fields.emails = emailNormalized ? [{
+          label: "email",
+          value: emailNormalized,
+          normalized: emailNormalized,
+          isPrimary: true,
+        }] : deleteField()
       }
       if ("phone" in updates) {
         fields.phone = updates.phone?.trim() ? updates.phone.trim() : deleteField()
+        const phoneNormalized = updates.phone?.replace(/\D/g, "")
+        fields.phoneNormalized = phoneNormalized ? (phoneNormalized.length === 11 && phoneNormalized.startsWith("1") ? phoneNormalized.slice(1) : phoneNormalized) : deleteField()
       }
       await updateDoc(doc(db, "contacts", contactId), fields)
     },
@@ -1157,7 +1229,6 @@ export default function Home() {
   const handleNotificationsBack = useCallback(() => {
     navigateTo(notificationsReturnRef.current)
   }, [navigateTo])
-  const goToPrivacy = useCallback(() => navigateTo("privacy"), [navigateTo])
   const goToPeople = useCallback(() => navigateTo("people"), [navigateTo])
   const peopleReturnRef = useRef<Screen>("profile")
   const goToPeopleFromStream = useCallback(() => {
@@ -1168,6 +1239,7 @@ export default function Home() {
     navigateTo(peopleReturnRef.current)
   }, [navigateTo])
   const goToAdmin = useCallback(() => navigateTo("admin"), [navigateTo])
+  const goToHelp = useCallback(() => navigateTo("help"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -1395,11 +1467,9 @@ export default function Home() {
           onBack={goToStream}
           onSignOut={handleSignOut}
           onNotifications={goToNotificationsFromProfile}
-          onPrivacy={goToPrivacy}
-          onProjects={goToProjects}
-          onPeople={goToPeople}
           isAdmin={currentUser?.isAdmin === true}
           onAdmin={goToAdmin}
+          onHelp={goToHelp}
         />
       )}
 
@@ -1422,8 +1492,8 @@ export default function Home() {
         />
       )}
 
-      {!showScreenSkeleton && activeScreen === "privacy" && (
-        <PrivacySecurityScreen className={entranceClass} onBack={goToProfile} />
+      {!showScreenSkeleton && activeScreen === "help" && (
+        <HelpScreen className={entranceClass} onBack={goToProfile} />
       )}
 
       {!showScreenSkeleton && activeScreen === "people" && currentUser && (
@@ -1433,6 +1503,7 @@ export default function Home() {
           currentUser={currentUser}
           importedContacts={importedContacts}
           registeredUsers={[currentUser, ...contacts]}
+          messages={messages}
           onBack={handlePeopleBack}
           onSaveImportedContacts={handleSaveImportedContacts}
           onInviteContact={handleInviteContact}
@@ -1535,6 +1606,7 @@ export default function Home() {
         <ContextsScreen
           className={entranceClass}
           contexts={appContexts}
+          messages={messages}
           onBack={handleContextsBack}
           onContextSelect={goToContextDetail}
           onCreateContext={handleCreateContext}

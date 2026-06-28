@@ -34,6 +34,14 @@ import { DatePickerModal } from "@/components/date-picker-modal"
 import { NavigationMenuModal } from "@/components/navigation-menu-modal"
 import { GlobalSearchSheet } from "@/components/global-search-sheet"
 import { MessageImage } from "@/components/message-image"
+import {
+  buildContextActivityStats,
+  buildPeopleActivityStats,
+  compareBySearchScore,
+  scoreContextSearch,
+  scoreImportedContactSearch,
+  scoreRegisteredPersonSearch,
+} from "@/lib/smart-search"
 
 const typeStyles = MESSAGE_TYPE_CONFIG
 
@@ -515,11 +523,13 @@ export function StreamScreen({
             active={selectedPeopleFilter.length > 0}
             tone="people"
             icon={<Users className="w-3.5 h-3.5" />}
+            guideTarget="stream-people-filter"
             onClick={() => setShowPeopleFilterSheet(true)}
           >
             People{selectedPeopleFilter.length > 0 ? ` (${selectedPeopleFilter.length})` : ""}
           </FilterChip>
           <button
+            data-guide="stream-tags-filter"
             onClick={() => setShowTagFilterSheet(true)}
             className={cn(
               "h-9 min-w-[118px] flex-1 rounded-full border px-3 transition-all duration-150 flex items-center gap-2 justify-start active:scale-[0.98]",
@@ -592,12 +602,16 @@ export function StreamScreen({
           {showFeedSkeleton ? (
             <StreamFeedSkeleton />
           ) : sortedMessages.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-16 px-6">
               <div className="glass-panel w-16 h-16 rounded-full border flex items-center justify-center animate-float">
                 <MessageCircle className="w-7 h-7 text-muted-foreground/50" />
               </div>
-              <p className="text-sm text-muted-foreground">Nothing sent yet</p>
-              <p className="text-xs text-muted-foreground/50">Use the message bar to send your first message</p>
+              <div className="text-center">
+                <p className="text-sm font-medium text-muted-foreground">No messages yet</p>
+                <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-[240px] mx-auto leading-relaxed">
+                  Start by creating a message and choosing who should see it.
+                </p>
+              </div>
             </div>
           ) : (
             sortedMessages.map((msg, index) => {
@@ -917,6 +931,7 @@ export function StreamScreen({
         <PeopleFilterSheet
           contacts={contacts}
           importedContacts={importedContacts}
+          messages={messages}
           currentUserId={currentUserId}
           userInitials={userInitials}
           userColor={userColor}
@@ -941,6 +956,7 @@ export function StreamScreen({
       {showContextFilterSheet && (
         <ContextFilterSheet
           contexts={contexts}
+          messages={messages}
           selectedContexts={selectedContextFilter}
           onChange={onContextFilterChange}
           onClose={() => setShowContextFilterSheet(false)}
@@ -996,6 +1012,7 @@ export function StreamScreen({
           onCalendarDatesChange={setQuickCalendarDates}
           onToggleContext={toggleQuickContext}
           contexts={contexts}
+          messages={messages}
           onCreateProject={() => { setShowQuickSheet(false); setShowUniversalAdd(true) }}
           onClose={() => setShowQuickSheet(false)}
         />
@@ -1165,6 +1182,7 @@ function QuickContextSheet({
   onCalendarDatesChange,
   onToggleContext,
   contexts,
+  messages,
   onCreateProject,
   onClose,
 }: {
@@ -1184,6 +1202,7 @@ function QuickContextSheet({
   onCalendarDatesChange: (dates: string[]) => void
   onToggleContext: (id: string) => void
   contexts: AppContext[]
+  messages: Message[]
   onCreateProject: () => void
   onClose: () => void
 }) {
@@ -1191,20 +1210,52 @@ function QuickContextSheet({
   const [showDatePicker, setShowDatePicker] = useState(false)
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const q = query.trim().toLowerCase()
+  const peopleActivity = useMemo(() => buildPeopleActivityStats(messages), [messages])
+  const contextActivity = useMemo(() => buildContextActivityStats(messages), [messages])
   const selectableTags = tags.filter((tag) => tag.id !== systemTypeTagId("none"))
-  const filteredContacts = contacts.filter((contact) =>
-    !q || contact.name.toLowerCase().includes(q)
-  )
-  const unregisteredContacts = importedContacts.filter(
-    (c) => c.status === "not_registered" &&
-      (!q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
-  )
+  const filteredContacts = useMemo(() => contacts
+    .map((contact) => {
+      const activity = peopleActivity.get(contact.id)
+      return {
+        item: contact,
+        score: scoreRegisteredPersonSearch(contact, query, activity),
+        label: contact.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [contacts, peopleActivity, q, query])
+  const unregisteredContacts = useMemo(() => importedContacts
+    .filter((contact) => contact.status === "not_registered")
+    .map((contact) => {
+      const activity = peopleActivity.get(contact.id)
+      return {
+        item: contact,
+        score: scoreImportedContactSearch(contact, query, activity),
+        label: contact.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [importedContacts, peopleActivity, q, query])
   const filteredTags = selectableTags.filter((tag) =>
     !q || tag.name.toLowerCase().includes(q)
   )
-  const filteredContexts = contexts.filter((c) =>
-    !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
-  )
+  const filteredContexts = useMemo(() => contexts
+    .map((ctx) => {
+      const activity = contextActivity.get(ctx.id)
+      return {
+        item: ctx,
+        score: scoreContextSearch(ctx, query, activity),
+        label: ctx.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [contextActivity, contexts, q, query])
   const selectedCount = selectedRecipients.length + selectedImportedRecipients.length + selectedTags.length + selectedCalendarDates.length + selectedContextIds.length
   const showSearchResults = q.length > 0
 
@@ -1269,7 +1320,7 @@ function QuickContextSheet({
         </>
       )}
       {filteredContacts.length === 0 && unregisteredContacts.length === 0 && (
-        <p className="px-1 py-3 text-xs text-muted-foreground">No people found.</p>
+        <p className="px-1 py-3 text-xs text-muted-foreground">No results found.</p>
       )}
     </div>
   )
@@ -1300,7 +1351,7 @@ function QuickContextSheet({
       })}
       {filteredTags.length === 0 && (
         <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] px-3 py-4">
-          <p className="text-xs text-muted-foreground">No tags found.</p>
+          <p className="text-xs text-muted-foreground">No results found.</p>
           {q && (
             <button
               type="button"
@@ -1374,7 +1425,7 @@ function QuickContextSheet({
         )
       })}
       {filteredContexts.length === 0 && (
-        <p className="px-1 py-3 text-xs text-muted-foreground">No contexts found.</p>
+        <p className="px-1 py-3 text-xs text-muted-foreground">No results found.</p>
       )}
     </div>
   )
@@ -1743,7 +1794,7 @@ function ProjectSearchSheet({
             )
           })}
           {projects.length === 0 && (
-            <p className="text-xs text-muted-foreground px-1 py-3">No tags found.</p>
+            <p className="text-xs text-muted-foreground px-1 py-3">No results found.</p>
           )}
           </div>
         </div>
@@ -1838,6 +1889,7 @@ function SheetSearchInput({
 function PeopleFilterSheet({
   contacts,
   importedContacts,
+  messages,
   currentUserId,
   userInitials,
   userColor,
@@ -1847,6 +1899,7 @@ function PeopleFilterSheet({
 }: {
   contacts: Contact[]
   importedContacts: ImportedContact[]
+  messages: Message[]
   currentUserId: string
   userInitials: string
   userColor: string
@@ -1856,16 +1909,40 @@ function PeopleFilterSheet({
 }) {
   const [query, setQuery] = useState("")
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
+  const peopleActivity = useMemo(() => buildPeopleActivityStats(messages), [messages])
   const people = [
     { id: currentUserId, name: "Me", initials: userInitials, color: userColor },
     ...contacts,
   ].filter((person) => person.id)
   const q = query.trim().toLowerCase()
-  const filtered = people.filter((person) => !q || person.name.toLowerCase().includes(q))
+  const filtered = useMemo(() => people
+    .map((person) => {
+      const activity = peopleActivity.get(person.id)
+      return {
+        item: person,
+        score: scoreRegisteredPersonSearch(person, query, activity),
+        label: person.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [people, peopleActivity, q, query])
   // Only show unregistered imported contacts
-  const unregistered = importedContacts
-    .filter((c) => c.status === "not_registered" && c.ownerUserId)
-    .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
+  const unregistered = useMemo(() => importedContacts
+    .filter((contact) => contact.status === "not_registered" && contact.ownerUserId)
+    .map((contact) => {
+      const activity = peopleActivity.get(contact.id)
+      return {
+        item: contact,
+        score: scoreImportedContactSearch(contact, query, activity),
+        label: contact.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [importedContacts, peopleActivity, q, query])
   const toggle = (id: string) => {
     onChange(selectedPeople.includes(id) ? selectedPeople.filter((item) => item !== id) : [...selectedPeople, id])
   }
@@ -1943,7 +2020,7 @@ function PeopleFilterSheet({
               })}
             </>
           )}
-          {filtered.length === 0 && unregistered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No people found.</p>}
+          {filtered.length === 0 && unregistered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No results found.</p>}
           </div>
         </div>
       </div>
@@ -2094,7 +2171,7 @@ function TagFilterSheet({
                 </button>
               )
             })}
-            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No tags found.</p>}
+            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No results found.</p>}
           </div>
         </div>
       </div>
@@ -2104,11 +2181,13 @@ function TagFilterSheet({
 
 function ContextFilterSheet({
   contexts,
+  messages,
   selectedContexts,
   onChange,
   onClose,
 }: {
   contexts: AppContext[]
+  messages: Message[]
   selectedContexts: string[]
   onChange: (ids: string[]) => void
   onClose: () => void
@@ -2116,7 +2195,20 @@ function ContextFilterSheet({
   const [query, setQuery] = useState("")
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const q = query.trim().toLowerCase()
-  const filtered = contexts.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q))
+  const contextActivity = useMemo(() => buildContextActivityStats(messages), [messages])
+  const filtered = useMemo(() => contexts
+    .map((ctx) => {
+      const activity = contextActivity.get(ctx.id)
+      return {
+        item: ctx,
+        score: scoreContextSearch(ctx, query, activity),
+        label: ctx.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [contextActivity, contexts, q, query])
   const toggle = (id: string) =>
     onChange(selectedContexts.includes(id) ? selectedContexts.filter((x) => x !== id) : [...selectedContexts, id])
 
@@ -2175,7 +2267,7 @@ function ContextFilterSheet({
                 </button>
               )
             })}
-            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No contexts found.</p>}
+            {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-3">No results found.</p>}
           </div>
         </div>
       </div>
@@ -2218,7 +2310,7 @@ function messageTypeChipClass(type: MessageType): string {
 }
 
 function FilterChip({
-  children, active, highlight, isFavorited, icon, tone, onClick, onLongPress,
+  children, active, highlight, isFavorited, icon, tone, onClick, onLongPress, guideTarget,
 }: {
   children: React.ReactNode
   active?: boolean
@@ -2228,6 +2320,7 @@ function FilterChip({
   tone?: "default" | "people"
   onClick?: () => void
   onLongPress?: () => void
+  guideTarget?: string
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didLongPress = useRef(false)
@@ -2251,6 +2344,7 @@ function FilterChip({
 
   return (
     <button
+      data-guide={guideTarget}
       onPointerDown={startPress}
       onPointerUp={cancelPress}
       onPointerLeave={cancelPress}

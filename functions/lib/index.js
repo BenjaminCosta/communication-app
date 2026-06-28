@@ -61,6 +61,7 @@ async function findMatchingImportedContactRefs(db, emailNormalized) {
     const snapshots = await Promise.all([
         db.collection("contacts").where("emailNormalized", "==", emailNormalized).get(),
         db.collection("contacts").where("email", "==", emailNormalized).get(),
+        db.collection("contacts").where("emailNormalizedCandidates", "array-contains", emailNormalized).get(),
     ]);
     snapshots.forEach((snap) => {
         snap.docs.forEach((doc) => refs.set(doc.ref.path, doc.ref));

@@ -190,7 +190,7 @@ export function MessageInputBar({
         </div>
       )}
 
-      <div className="mx-auto max-w-2xl flex items-end gap-2">
+      <div data-guide="stream-message-composer" className="mx-auto max-w-2xl flex items-end gap-2">
         <button
           type="button"
           onClick={onOpenSheet}

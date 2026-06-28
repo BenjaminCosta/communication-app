@@ -137,8 +137,12 @@ export function ProjectDetailScreen({
               <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-float">
                 <span className="text-2xl">💬</span>
               </div>
-              <p className="text-sm text-muted-foreground">No messages yet</p>
-              <p className="text-xs text-muted-foreground/50">Messages with this tag appear here</p>
+              <div className="text-center">
+                <p className="text-sm font-medium text-muted-foreground">No messages yet</p>
+                <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-56 mx-auto leading-relaxed">
+                  Messages with this tag will appear here. Use the input below to post one.
+                </p>
+              </div>
             </div>
           ) : (
             projectMessages.map((msg, i) => (

@@ -98,10 +98,30 @@ export interface Contact {
   isAdmin?: boolean
 }
 
-export type ImportedContactSource = "google" | "manual"
+export type ImportedContactSource = "google" | "manual" | "vcf" | "database"
 export type ImportedContactStatus = "not_registered" | "registered"
 
 export type ImportedContactVisibility = "private" | "global"
+
+export interface ImportedContactPoint {
+  label: string
+  value: string
+  normalized?: string
+  isPrimary?: boolean
+  isPreferred?: boolean
+}
+
+export interface ImportedContactAddress {
+  label: string
+  formatted: string
+  poBox?: string
+  extended?: string
+  street?: string
+  locality?: string
+  region?: string
+  postalCode?: string
+  country?: string
+}
 
 export interface ImportedContact {
   id: string                          // Firestore auto-ID
@@ -110,8 +130,25 @@ export interface ImportedContact {
   email?: string
   emailNormalized?: string
   phone?: string
+  phoneNormalized?: string
   source: ImportedContactSource
   tags: string[]                      // Freeform string labels, e.g. "client", "vendor"
+  emails?: ImportedContactPoint[]
+  phones?: ImportedContactPoint[]
+  emailNormalizedCandidates?: string[]
+  company?: string
+  companies?: string[]
+  role?: string
+  roles?: string[]
+  notes?: string
+  addresses?: ImportedContactAddress[]
+  urls?: ImportedContactPoint[]
+  importBatchId?: string
+  sourceSheet?: string
+  sourceRecordId?: string
+  sourceDatabaseFile?: string
+  sourceCompanyId?: string
+  sourcePositionId?: string
   linkedUserId?: string | null        // Firebase UID once the contact registers
   linkedAt?: Date | null
   status: ImportedContactStatus
@@ -159,6 +196,10 @@ export interface AppContext {
   createdBy: string  // Firebase UID
   createdAt: Date
   updatedAt: Date
+  importBatchId?: string
+  sourceSheet?: string
+  sourceRecordId?: string
+  sourceDatabaseFile?: string
 }
 
 /**

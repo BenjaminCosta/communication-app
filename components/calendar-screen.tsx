@@ -208,7 +208,12 @@ export function CalendarScreen({
                 <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                   <Clock className="w-6 h-6 text-muted-foreground/30" />
                 </div>
-                <p className="text-sm text-muted-foreground">Nothing scheduled</p>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-muted-foreground">Nothing scheduled</p>
+                  <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-52 mx-auto leading-relaxed">
+                    Add a date when a message needs follow-up, action, or attention.
+                  </p>
+                </div>
                 <button onClick={() => setShowComposeSheet(true)} className="text-xs text-primary font-semibold active:opacity-70">
                   Add an item →
                 </button>
@@ -477,7 +482,7 @@ function CalendarComposeSheet({
                 </button>
               )
             })}
-            {filteredTags.length === 0 && <p className="text-xs text-muted-foreground py-2 px-1">No tags found.</p>}
+            {filteredTags.length === 0 && <p className="text-xs text-muted-foreground py-2 px-1">No results found.</p>}
           </div>
         )}
 

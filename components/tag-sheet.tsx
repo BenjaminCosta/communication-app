@@ -37,6 +37,14 @@ import {
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { CreateProjectModal } from "@/components/create-project-modal"
 import { CreateContextModal } from "@/components/create-context-modal"
+import {
+  buildContextActivityStats,
+  buildPeopleActivityStats,
+  compareBySearchScore,
+  scoreContextSearch,
+  scoreImportedContactSearch,
+  scoreRegisteredPersonSearch,
+} from "@/lib/smart-search"
 
 interface TagSheetProps {
   message: Message
@@ -103,16 +111,52 @@ export function TagSheet({
   }
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onClose)
   const q = query.trim().toLowerCase()
+  const peopleActivity = useMemo(() => buildPeopleActivityStats(recentUserMessages), [recentUserMessages])
+  const contextActivity = useMemo(() => buildContextActivityStats(recentUserMessages), [recentUserMessages])
 
-  const filteredContacts = contacts.filter((c) => !q || c.name.toLowerCase().includes(q))
-  const filteredImported = importedContacts.filter(
-    (c) => c.status === "not_registered" &&
-      (!q || c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
-  )
+  const filteredContacts = useMemo(() => contacts
+    .map((person) => {
+      const activity = peopleActivity.get(person.id)
+      return {
+        item: person,
+        score: scoreRegisteredPersonSearch(person, query, activity),
+        label: person.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [contacts, peopleActivity, q, query])
+
+  const filteredImported = useMemo(() => importedContacts
+    .filter((contact) => contact.status === "not_registered")
+    .map((contact) => {
+      const activity = peopleActivity.get(contact.id)
+      return {
+        item: contact,
+        score: scoreImportedContactSearch(contact, query, activity),
+        label: contact.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [importedContacts, peopleActivity, q, query])
+
   const filteredTags = tags.filter((tag) => !q || tag.name.toLowerCase().includes(q))
-  const filteredContexts = contexts.filter((c) =>
-    !q || c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
-  )
+  const filteredContexts = useMemo(() => contexts
+    .map((ctx) => {
+      const activity = contextActivity.get(ctx.id)
+      return {
+        item: ctx,
+        score: scoreContextSearch(ctx, query, activity),
+        label: ctx.name,
+        activity,
+      }
+    })
+    .filter((entry) => !q || entry.score > 0)
+    .sort(compareBySearchScore)
+    .map((entry) => entry.item), [contextActivity, contexts, q, query])
   const sortedTags = useMemo(() => sortTagList(tags), [tags])
   const sortedFilteredTags = useMemo(() => sortTagList(filteredTags), [filteredTags])
 
@@ -474,7 +518,6 @@ function MainContextView({
                     key={item.id}
                     type="button"
                     onClick={item.onClick}
-                    title={item.detail}
                     aria-label={`${item.label}, ${item.detail}`}
                     className="rounded-xl border border-white/10 bg-white/[0.04] px-1.5 py-2.5 text-center transition-colors active:scale-[0.98] active:bg-white/8"
                   >
@@ -711,7 +754,7 @@ function TagsListView({
           )
         })}
         {visibleTags.length === 0 && (
-          <p className="px-1 py-3 text-xs text-muted-foreground">No tags found.</p>
+          <p className="px-1 py-3 text-xs text-muted-foreground">No results found.</p>
         )}
         <button
           type="button"
@@ -1031,7 +1074,7 @@ function OrganizeRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left active:bg-white/8"
+      className="flex w-full min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left active:bg-white/8"
     >
       <span className={cn("flex h-8 w-8 items-center justify-center rounded-full", iconClassName)}>
         {icon}
