@@ -121,115 +121,120 @@ export function GlobalSearchSheet({
     return () => window.removeEventListener("keydown", handler)
   }, [onClose])
 
-  const trimmed = normalizeSearchText(query)
+  const trimmed = useMemo(() => normalizeSearchText(query), [query])
   const hasQuery = trimmed.length > 0
   const peopleActivity = useMemo(() => buildPeopleActivityStats(messages), [messages])
   const contextActivity = useMemo(() => buildContextActivityStats(messages), [messages])
 
-  // ── Search computations (client-side, real-time) ──────────────────────────
+  // ── Search computations (memoized — avoids scoring 4,760+ items on every render) ──
 
-  const messageResults: SearchResult[] = hasQuery
-    ? messages
-        .filter((m) => normalizeSearchText(m.text).includes(trimmed))
-        .slice(0, 5)
-        .map((m) => ({
-          id: m.id,
-          primary: m.text.length > 80 ? m.text.slice(0, 80) + "…" : m.text,
-          secondary: formatTime(m.timestamp),
-          onClick: () => { onMessageClick?.(m); onClose() },
-        }))
-    : []
+  const messageResults = useMemo<SearchResult[]>(() => {
+    if (!hasQuery) return []
+    return messages
+      .filter((m) => normalizeSearchText(m.text).includes(trimmed))
+      .slice(0, 5)
+      .map((m) => ({
+        id: m.id,
+        primary: m.text.length > 80 ? m.text.slice(0, 80) + "…" : m.text,
+        secondary: formatTime(m.timestamp),
+        onClick: () => { onMessageClick?.(m); onClose() },
+      }))
+  }, [hasQuery, trimmed, messages, onMessageClick, onClose])
 
-  const peopleResults: SearchResult[] = hasQuery
-    ? [
-        ...contacts.map((person) => {
-          const activity = peopleActivity.get(person.id)
-          return {
-            item: person,
-            score: scoreRegisteredPersonSearch(person, query, activity),
-            label: person.name,
-            activity,
-            kind: "Person" as const,
-            id: person.id,
-          }
-        }),
-        ...importedContacts.map((contact) => {
-          const activity = peopleActivity.get(contact.id)
-          return {
-            item: contact,
-            score: scoreImportedContactSearch(contact, query, activity),
-            label: contact.name,
-            activity,
-            kind: contact.company ? contact.company : "Contact",
-            id: contact.id,
-          }
-        }),
-      ]
-        .filter((entry) => entry.score > 0)
-        .sort(compareBySearchScore)
-        .slice(0, 5)
-        .map((entry) => ({
-          id: entry.id,
-          primary: entry.label,
-          secondary: entry.kind,
-          onClick: () => { onPersonFilterClick?.(entry.id); onClose() },
-        }))
-    : []
+  const peopleResults = useMemo<SearchResult[]>(() => {
+    if (!hasQuery) return []
+    return [
+      ...contacts.map((person) => {
+        const activity = peopleActivity.get(person.id)
+        return {
+          item: person,
+          score: scoreRegisteredPersonSearch(person, query, activity),
+          label: person.name,
+          activity,
+          kind: "Person" as const,
+          id: person.id,
+        }
+      }),
+      ...importedContacts.map((contact) => {
+        const activity = peopleActivity.get(contact.id)
+        return {
+          item: contact,
+          score: scoreImportedContactSearch(contact, query, activity),
+          label: contact.name,
+          activity,
+          kind: contact.company ? contact.company : "Contact",
+          id: contact.id,
+        }
+      }),
+    ]
+      .filter((entry) => entry.score > 0)
+      .sort(compareBySearchScore)
+      .slice(0, 5)
+      .map((entry) => ({
+        id: entry.id,
+        primary: entry.label,
+        secondary: entry.kind,
+        onClick: () => { onPersonFilterClick?.(entry.id); onClose() },
+      }))
+  }, [hasQuery, query, contacts, importedContacts, peopleActivity, onPersonFilterClick, onClose])
 
-  const tagResults: SearchResult[] = hasQuery
-    ? availableTags
-        .filter((t) => normalizeSearchText(t.name).includes(trimmed) && t.id !== systemTypeTagId("none"))
-        .slice(0, 5)
-        .map((t) => ({
-          id: t.id,
-          primary: t.name,
-          secondary: "Tag",
-          onClick: () => { onTagFilterClick?.(t.id); onClose() },
-        }))
-    : []
+  const tagResults = useMemo<SearchResult[]>(() => {
+    if (!hasQuery) return []
+    return availableTags
+      .filter((t) => normalizeSearchText(t.name).includes(trimmed) && t.id !== systemTypeTagId("none"))
+      .slice(0, 5)
+      .map((t) => ({
+        id: t.id,
+        primary: t.name,
+        secondary: "Tag",
+        onClick: () => { onTagFilterClick?.(t.id); onClose() },
+      }))
+  }, [hasQuery, trimmed, availableTags, onTagFilterClick, onClose])
 
-  const dateResults: SearchResult[] = hasQuery
-    ? messages
-        .filter((m) =>
-          (m.calendarDates ?? []).some((cd) =>
-            normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
-          )
+  const dateResults = useMemo<SearchResult[]>(() => {
+    if (!hasQuery) return []
+    return messages
+      .filter((m) =>
+        (m.calendarDates ?? []).some((cd) =>
+          normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
         )
-        .slice(0, 5)
-        .map((m) => {
-          const matched = (m.calendarDates ?? []).find((cd) =>
-            normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
-          )
-          return {
-            id: `${m.id}:${matched?.date ?? ""}`,
-            primary: fmtDate(matched?.date ?? ""),
-            secondary: m.text.length > 60 ? m.text.slice(0, 60) + "…" : m.text,
-            onClick: () => { onMessageClick?.(m); onClose() },
-          }
-        })
-    : []
+      )
+      .slice(0, 5)
+      .map((m) => {
+        const matched = (m.calendarDates ?? []).find((cd) =>
+          normalizeSearchText(fmtDate(cd.date)).includes(trimmed) || cd.date.includes(trimmed)
+        )
+        return {
+          id: `${m.id}:${matched?.date ?? ""}`,
+          primary: fmtDate(matched?.date ?? ""),
+          secondary: m.text.length > 60 ? m.text.slice(0, 60) + "…" : m.text,
+          onClick: () => { onMessageClick?.(m); onClose() },
+        }
+      })
+  }, [hasQuery, trimmed, messages, onMessageClick, onClose])
 
-  const contextResults: SearchResult[] = hasQuery
-    ? contexts
-        .map((ctx) => {
-          const activity = contextActivity.get(ctx.id)
-          return {
-            item: ctx,
-            score: scoreContextSearch(ctx, query, activity),
-            label: ctx.name,
-            activity,
-          }
-        })
-        .filter((entry) => entry.score > 0)
-        .sort(compareBySearchScore)
-        .slice(0, 5)
-        .map((entry) => ({
-          id: entry.item.id,
-          primary: entry.item.name,
-          secondary: entry.item.description || (entry.item.fields.length > 0 ? `${entry.item.fields.length} field${entry.item.fields.length !== 1 ? "s" : ""}` : "Context"),
-          onClick: () => { onContextFilterClick?.(entry.item.id); onClose() },
-        }))
-    : []
+  const contextResults = useMemo<SearchResult[]>(() => {
+    if (!hasQuery) return []
+    return contexts
+      .map((ctx) => {
+        const activity = contextActivity.get(ctx.id)
+        return {
+          item: ctx,
+          score: scoreContextSearch(ctx, query, activity),
+          label: ctx.name,
+          activity,
+        }
+      })
+      .filter((entry) => entry.score > 0)
+      .sort(compareBySearchScore)
+      .slice(0, 5)
+      .map((entry) => ({
+        id: entry.item.id,
+        primary: entry.item.name,
+        secondary: entry.item.description || (entry.item.fields.length > 0 ? `${entry.item.fields.length} field${entry.item.fields.length !== 1 ? "s" : ""}` : "Context"),
+        onClick: () => { onContextFilterClick?.(entry.item.id); onClose() },
+      }))
+  }, [hasQuery, query, contexts, contextActivity, onContextFilterClick, onClose])
 
   const hasResults = messageResults.length > 0 || peopleResults.length > 0 || tagResults.length > 0 || dateResults.length > 0 || contextResults.length > 0
   const resultSections: ResultSection[] = ["messages", "people", "tags", "dates", "contexts"]

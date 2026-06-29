@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import {
   ArrowLeft,
   CalendarDays,
@@ -114,49 +114,50 @@ export function TagSheet({
   const peopleActivity = useMemo(() => buildPeopleActivityStats(recentUserMessages), [recentUserMessages])
   const contextActivity = useMemo(() => buildContextActivityStats(recentUserMessages), [recentUserMessages])
 
-  const filteredContacts = useMemo(() => contacts
-    .map((person) => {
-      const activity = peopleActivity.get(person.id)
-      return {
+  // Skip scoring/sorting when no query — avoids O(n×fields) on 4,760+ contacts
+  const filteredContacts = useMemo(() => {
+    if (!q) return contacts
+    return contacts
+      .map((person) => ({
         item: person,
-        score: scoreRegisteredPersonSearch(person, query, activity),
+        score: scoreRegisteredPersonSearch(person, query, peopleActivity.get(person.id)),
         label: person.name,
-        activity,
-      }
-    })
-    .filter((entry) => !q || entry.score > 0)
-    .sort(compareBySearchScore)
-    .map((entry) => entry.item), [contacts, peopleActivity, q, query])
+        activity: peopleActivity.get(person.id),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [contacts, peopleActivity, q, query])
 
-  const filteredImported = useMemo(() => importedContacts
-    .filter((contact) => contact.status === "not_registered")
-    .map((contact) => {
-      const activity = peopleActivity.get(contact.id)
-      return {
+  const filteredImported = useMemo(() => {
+    const notRegistered = importedContacts.filter((c) => c.status === "not_registered")
+    if (!q) return notRegistered
+    return notRegistered
+      .map((contact) => ({
         item: contact,
-        score: scoreImportedContactSearch(contact, query, activity),
+        score: scoreImportedContactSearch(contact, query, peopleActivity.get(contact.id)),
         label: contact.name,
-        activity,
-      }
-    })
-    .filter((entry) => !q || entry.score > 0)
-    .sort(compareBySearchScore)
-    .map((entry) => entry.item), [importedContacts, peopleActivity, q, query])
+        activity: peopleActivity.get(contact.id),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [importedContacts, peopleActivity, q, query])
 
   const filteredTags = tags.filter((tag) => !q || tag.name.toLowerCase().includes(q))
-  const filteredContexts = useMemo(() => contexts
-    .map((ctx) => {
-      const activity = contextActivity.get(ctx.id)
-      return {
+  const filteredContexts = useMemo(() => {
+    if (!q) return contexts
+    return contexts
+      .map((ctx) => ({
         item: ctx,
-        score: scoreContextSearch(ctx, query, activity),
+        score: scoreContextSearch(ctx, query, contextActivity.get(ctx.id)),
         label: ctx.name,
-        activity,
-      }
-    })
-    .filter((entry) => !q || entry.score > 0)
-    .sort(compareBySearchScore)
-    .map((entry) => entry.item), [contextActivity, contexts, q, query])
+        activity: contextActivity.get(ctx.id),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort(compareBySearchScore)
+      .map((entry) => entry.item)
+  }, [contextActivity, contexts, q, query])
   const sortedTags = useMemo(() => sortTagList(tags), [tags])
   const sortedFilteredTags = useMemo(() => sortTagList(filteredTags), [filteredTags])
 
@@ -680,6 +681,12 @@ function PeopleDetailView({
   onToggleParticipant: (id: string) => void
   onToggleImported: (id: string) => void
 }) {
+  const [visibleCount, setVisibleCount] = useState(50)
+  const q = query.trim().toLowerCase()
+  // When searching, parent already filtered to matches (few). When browsing, paginate.
+  useEffect(() => { setVisibleCount(50) }, [q])
+  const visibleImported = q ? importedContacts : importedContacts.slice(0, visibleCount)
+
   return (
     <div className="px-4 pb-4">
       <SearchInput value={query} onChange={onQueryChange} placeholder="Search people..." />
@@ -694,7 +701,7 @@ function PeopleDetailView({
             onClick={() => onToggleParticipant(contact.id)}
           />
         ))}
-        {importedContacts.map((contact) => (
+        {visibleImported.map((contact) => (
           <SearchResultRow
             key={contact.id}
             selected={selectedImported.includes(contact.id)}
@@ -704,6 +711,14 @@ function PeopleDetailView({
             onClick={() => onToggleImported(contact.id)}
           />
         ))}
+        {!q && importedContacts.length > visibleCount && (
+          <button
+            onClick={() => setVisibleCount((v) => v + 50)}
+            className="mt-1 w-full py-2 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"
+          >
+            Load 50 more · {importedContacts.length - visibleCount} remaining
+          </button>
+        )}
       </div>
     </div>
   )
@@ -818,10 +833,21 @@ function ContextsDetailView({
   onToggleContext: (id: string) => void
   onCreateContext?: () => void
 }) {
+  const [query, setQuery] = useState("")
+  const [visibleCount, setVisibleCount] = useState(50)
+  const q = query.trim().toLowerCase()
+  useEffect(() => { setVisibleCount(50) }, [q])
+
+  const filtered = q
+    ? contexts.filter((ctx) => ctx.name.toLowerCase().includes(q) || (ctx.description ?? "").toLowerCase().includes(q))
+    : contexts
+  const visible = q ? filtered : filtered.slice(0, visibleCount)
+
   return (
     <div className="px-4 pb-4">
-      <div className="flex flex-col gap-2">
-        {contexts.map((ctx) => {
+      <SearchInput value={query} onChange={setQuery} placeholder="Search contexts..." />
+      <div className="mt-3 flex flex-col gap-2">
+        {visible.map((ctx) => {
           const selected = selectedContextIds.includes(ctx.id)
           return (
             <button
@@ -846,8 +872,18 @@ function ContextsDetailView({
             </button>
           )
         })}
-        {contexts.length === 0 && (
-          <p className="text-xs text-muted-foreground/40 text-center py-4">No contexts available</p>
+        {filtered.length === 0 && (
+          <p className="text-xs text-muted-foreground/40 text-center py-4">
+            {q ? "No contexts found" : "No contexts available"}
+          </p>
+        )}
+        {!q && filtered.length > visibleCount && (
+          <button
+            onClick={() => setVisibleCount((v) => v + 50)}
+            className="w-full py-2 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"
+          >
+            Load 50 more · {filtered.length - visibleCount} remaining
+          </button>
         )}
         {onCreateContext && (
           <button
