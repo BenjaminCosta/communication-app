@@ -34,7 +34,7 @@ export function CreateProjectModal({
         aria-label="Close"
       />
 
-      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-spring-pop -translate-y-[5%]">
+      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl max-h-[90dvh] overflow-x-hidden overflow-y-auto scrollbar-hide animate-spring-pop -translate-y-[5%]">
         {isSuccess && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 glass-modal rounded-3xl animate-fade-in">
             <div className="animate-sent-pop">

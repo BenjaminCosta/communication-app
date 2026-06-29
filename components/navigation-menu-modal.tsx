@@ -81,7 +81,7 @@ export function NavigationMenuModal({ onClose, onNavigate, activeScreen }: Navig
       <div
         className={cn(
           "glass-menu-panel relative z-10 w-full max-w-[23.75rem]",
-          "rounded-3xl border overflow-hidden",
+          "rounded-3xl border max-h-[90dvh] overflow-x-hidden overflow-y-auto scrollbar-hide",
           "animate-spring-pop -translate-y-[6%]",
         )}
       >

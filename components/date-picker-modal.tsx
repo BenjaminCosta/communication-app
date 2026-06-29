@@ -86,7 +86,7 @@ export function DatePickerModal({
       />
 
       {/* Card */}
-      <div className="relative z-10 w-full sm:max-w-xs glass-modal rounded-t-3xl sm:rounded-3xl border border-white/10 shadow-2xl animate-spring-pop safe-area-pb overflow-hidden">
+      <div className="relative z-10 w-full sm:max-w-xs glass-modal rounded-t-3xl sm:rounded-3xl border border-white/10 shadow-2xl animate-spring-pop safe-area-pb max-h-[90dvh] overflow-x-hidden overflow-y-auto scrollbar-hide">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-0">
           <div>

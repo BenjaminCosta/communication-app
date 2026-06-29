@@ -23,7 +23,7 @@ interface ProfileScreenProps {
 export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   return (
-    <div className={`flex-1 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
+    <div className={`flex-1 min-h-0 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
       <div className="shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
@@ -37,8 +37,8 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
         </div>
       </div>
 
-      {/* Centered content */}
-      <div className="max-w-2xl mx-auto w-full flex flex-col flex-1">
+      {/* Centered content — scrolls when content exceeds viewport (e.g. Android zoom) */}
+      <div className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0 overflow-y-auto scrollbar-hide">
 
       {/* Avatar + Info */}
       <div className="flex flex-col items-center gap-3 pt-10 pb-8 px-6">

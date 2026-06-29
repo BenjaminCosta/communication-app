@@ -99,7 +99,11 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         const panelTop = panel.getBoundingClientRect().top
         const optionTop = optionBar.getBoundingClientRect().top
         const available = Math.floor(optionTop - panelTop - 12)
-        setAssociationPanelMaxHeight(Math.max(180, Math.min(available, 520)))
+        // Floor kept low (96) so under heavy Android zoom the panel never
+        // exceeds the visible space above the option bar — otherwise its
+        // bottom (and the chips inside) hides behind the bar and, due to the
+        // inner overscroll-contain, can't be scrolled into view.
+        setAssociationPanelMaxHeight(Math.max(96, Math.min(available, 520)))
       })
     }
 

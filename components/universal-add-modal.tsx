@@ -16,7 +16,7 @@ export function UniversalAddModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
       <button onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-label="Close" />
-      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl animate-spring-pop -translate-y-[5%]">
+      <div className="relative z-10 w-full max-w-sm glass-modal rounded-3xl border border-white/10 shadow-2xl max-h-[90dvh] overflow-x-hidden overflow-y-auto scrollbar-hide animate-spring-pop -translate-y-[5%]">
         <div className="flex items-center justify-between px-5 pt-5 pb-0">
           <div className="w-7" />
           <button
