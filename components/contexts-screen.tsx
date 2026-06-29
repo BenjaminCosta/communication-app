@@ -127,7 +127,7 @@ export function ContextsScreen({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         <div className="max-w-2xl mx-auto px-4 md:px-6 pb-10">
 
           {/* Create suggestion */}

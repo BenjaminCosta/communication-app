@@ -62,7 +62,7 @@ export function AddMembersModal({ currentMembers, onSave, onClose, contacts }: A
         </div>
 
         {/* Contact list */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-2">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide px-4 pb-2">
           {contacts.map((contact) => {
             const isSelected = selected.includes(contact.id)
             return (

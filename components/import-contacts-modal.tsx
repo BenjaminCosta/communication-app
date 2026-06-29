@@ -412,7 +412,7 @@ export function ImportContactsModal({
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
 
             {/* ── GOOGLE TAB ── */}
             {tab === "google" && (
