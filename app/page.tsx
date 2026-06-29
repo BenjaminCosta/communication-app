@@ -32,29 +32,31 @@ import {
   arrayRemove,
   deleteField,
 } from "firebase/firestore"
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
-import { auth, db, storage } from "@/lib/firebase"
+import { auth, db, getStorageLazy } from "@/lib/firebase"
 import { registerFCMToken, onForegroundMessage, type NotificationPreference } from "@/lib/fcm"
-import { compressImageFile, validateImageFile } from "@/lib/image-upload"
+// image-upload loaded lazily in handleSend (only when uploading images)
+import dynamic from "next/dynamic"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
+// Critical path — loaded immediately (login → compose → stream)
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
-import { TagSheet } from "@/components/tag-sheet"
 import { LoginScreen } from "@/components/login-screen"
-import { RegisterScreen } from "@/components/register-screen"
-import { ProfileScreen } from "@/components/profile-screen"
-import { ProjectListScreen } from "@/components/project-list-screen"
-import { ProjectDetailScreen } from "@/components/project-detail-screen"
-import { NotificationsScreen } from "@/components/notifications-screen"
-import { PeopleScreen } from "@/components/people-screen"
-import { AdminScreen } from "@/components/admin-screen"
-import { CalendarScreen } from "@/components/calendar-screen"
-import { ContextsScreen } from "@/components/contexts-screen"
-import { ContextDetailScreen } from "@/components/context-detail-screen"
-import { HelpScreen } from "@/components/help-screen"
-import { ToastNotification } from "@/components/toast-notification"
-import { NotificationPromptBanner } from "@/components/notification-prompt-banner"
 import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
+import { ToastNotification } from "@/components/toast-notification"
+// Secondary screens — lazy-loaded on demand (code splitting)
+const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
+const RegisterScreen = dynamic(() => import("@/components/register-screen").then((m) => ({ default: m.RegisterScreen })), { ssr: false })
+const ProfileScreen = dynamic(() => import("@/components/profile-screen").then((m) => ({ default: m.ProfileScreen })), { ssr: false })
+const ProjectListScreen = dynamic(() => import("@/components/project-list-screen").then((m) => ({ default: m.ProjectListScreen })), { ssr: false })
+const ProjectDetailScreen = dynamic(() => import("@/components/project-detail-screen").then((m) => ({ default: m.ProjectDetailScreen })), { ssr: false })
+const NotificationsScreen = dynamic(() => import("@/components/notifications-screen").then((m) => ({ default: m.NotificationsScreen })), { ssr: false })
+const PeopleScreen = dynamic(() => import("@/components/people-screen").then((m) => ({ default: m.PeopleScreen })), { ssr: false })
+const AdminScreen = dynamic(() => import("@/components/admin-screen").then((m) => ({ default: m.AdminScreen })), { ssr: false })
+const CalendarScreen = dynamic(() => import("@/components/calendar-screen").then((m) => ({ default: m.CalendarScreen })), { ssr: false })
+const ContextsScreen = dynamic(() => import("@/components/contexts-screen").then((m) => ({ default: m.ContextsScreen })), { ssr: false })
+const ContextDetailScreen = dynamic(() => import("@/components/context-detail-screen").then((m) => ({ default: m.ContextDetailScreen })), { ssr: false })
+const HelpScreen = dynamic(() => import("@/components/help-screen").then((m) => ({ default: m.HelpScreen })), { ssr: false })
+const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
   type MessageDraft,
@@ -380,45 +382,44 @@ export default function Home() {
 
   // ── Auth state listener ───────────────────────────────────────────────
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
         setFirebaseUser(user)
-        const userRef = doc(db, "users", user.uid)
-        const existingUserSnap = await getDoc(userRef)
-        const existingUser = existingUserSnap.exists() ? existingUserSnap.data() : {}
-        const name = typeof existingUser.name === "string" && existingUser.name.trim()
-          ? existingUser.name
-          : (user.displayName || deriveNameFromEmail(user.email ?? ""))
-        const initials = typeof existingUser.initials === "string" && existingUser.initials.trim()
-          ? existingUser.initials
-          : deriveInitials(name)
-        const color = typeof existingUser.color === "string" && existingUser.color.trim()
-          ? existingUser.color
-          : getUserAvatarColor(user.uid)
+        // Build preliminary currentUser from auth token (instant, no network)
+        // The users collection listener will overwrite with Firestore data once it arrives
+        const authName = user.displayName || deriveNameFromEmail(user.email ?? "")
+        const authInitials = deriveInitials(authName)
+        const authColor = getUserAvatarColor(user.uid)
         const emailNormalized = normalizeEmail(user.email)
         setCurrentUser({
           id: user.uid,
-          name,
-          initials,
-          color,
+          name: authName,
+          initials: authInitials,
+          color: authColor,
           email: user.email ?? undefined,
           emailNormalized,
         })
-        await setDoc(userRef, {
-          id: user.uid,
-          email: user.email ?? "",
-          emailNormalized,
-          emailVerified: user.emailVerified === true,
-          authProviderIds: user.providerData.map((provider) => provider.providerId),
-          ...(!existingUser.name ? { name } : {}),
-          ...(!existingUser.initials ? { initials } : {}),
-          ...(!existingUser.color ? { color } : {}),
-        }, { merge: true })
+        // Navigate immediately — don't block on Firestore
+        navigateTo("compose")
+        // Background: read existing user doc then merge-update (non-blocking)
+        const userRef = doc(db, "users", user.uid)
+        getDoc(userRef).then((snap) => {
+          const existing = snap.exists() ? snap.data() : {}
+          return setDoc(userRef, {
+            id: user.uid,
+            email: user.email ?? "",
+            emailNormalized,
+            emailVerified: user.emailVerified === true,
+            authProviderIds: user.providerData.map((p) => p.providerId),
+            ...(!existing.name ? { name: authName } : {}),
+            ...(!existing.initials ? { initials: authInitials } : {}),
+            ...(!existing.color ? { color: authColor } : {}),
+          }, { merge: true })
+        }).catch(() => {})
         // Register FCM token if notification permission was already granted
         if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
           registerFCMToken(user.uid).catch(() => {})
         }
-        navigateTo("compose")
       } else {
         setFirebaseUser(null)
         setCurrentUser(null)
@@ -831,16 +832,19 @@ export default function Home() {
       const imageMeta: Record<string, unknown> = {}
 
       if (draft.imageFile) {
+        const { validateImageFile, compressImageFile: compress } = await import("@/lib/image-upload")
         const validationError = validateImageFile(draft.imageFile)
         if (validationError) {
           showToast(validationError, undefined, 3500)
           throw new Error(validationError)
         }
         try {
-          const imageFile = await compressImageFile(draft.imageFile)
+          const imageFile = await compress(draft.imageFile)
           const safeName = sanitizeStorageName(imageFile.name)
           const imagePath = `message-images/${firebaseUser.uid}/${Date.now()}-${safeName}`
-          const imageRef = ref(storage, imagePath)
+          const { ref, uploadBytes, getDownloadURL } = await import("firebase/storage")
+          const storageInstance = await getStorageLazy()
+          const imageRef = ref(storageInstance, imagePath)
           await uploadBytes(imageRef, imageFile, { contentType: imageFile.type || "image/jpeg" })
           imageMeta.imageUrl = await getDownloadURL(imageRef)
           imageMeta.imagePath = imagePath
