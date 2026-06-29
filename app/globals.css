@@ -89,6 +89,11 @@
     height: 100%;
     min-height: 100%;
     overflow: hidden;
+    /* Prevent Android Chrome "font boosting" / text inflation, which auto-
+       enlarges text inside fixed + internally-scrolling layouts (our case)
+       and makes the installed PWA look excessively zoomed. Lock to 100%. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     /* Paints the document canvas (behind all content, including safe-area
        zones) with the app dark background. On iOS PWA this prevents a
        white/system flash and ensures any sub-pixel gap is dark. */
