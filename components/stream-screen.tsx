@@ -107,6 +107,7 @@ interface StreamScreenProps {
   activeUsers: Contact[]
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
+  isLoading?: boolean
 }
 
 export function StreamScreen({
@@ -147,6 +148,7 @@ export function StreamScreen({
   activeUsers,
   availableTags,
   importedContacts,
+  isLoading = false,
 }: StreamScreenProps) {
   const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
@@ -299,7 +301,7 @@ export function StreamScreen({
     const increased = messages.length > prevMessageCountRef.current
     prevMessageCountRef.current = messages.length
     if (!increased) return
-    const lastMessage = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).at(-1)
+    const lastMessage = messages.at(-1)
     if (isPinnedToBottom.current || lastMessage?.senderId === currentUserId) {
       if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
     }
@@ -446,9 +448,8 @@ export function StreamScreen({
     }
   }
 
-  const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
-  }, [messages])
+  // messages prop is already sorted chronologically from page.tsx
+  const sortedMessages = messages
   const selectedMsg = selectedMsgId ? messages.find((m) => m.id === selectedMsgId) : null
   const activeUserIds = useMemo(() => new Set(activeUsers.map((user) => user.id)), [activeUsers])
   const sortedProjects = useMemo(
@@ -599,7 +600,7 @@ export function StreamScreen({
           style={{ paddingBottom: `calc(env(safe-area-inset-bottom) + ${inputAreaHeight}px + 8px)` }}
           onClick={() => selectedMsgId && clearMsgSelection()}
         >
-          {showFeedSkeleton ? (
+          {showFeedSkeleton || (isLoading && sortedMessages.length === 0) ? (
             <StreamFeedSkeleton />
           ) : sortedMessages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-16 px-6">

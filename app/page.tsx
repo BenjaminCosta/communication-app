@@ -267,6 +267,7 @@ export default function Home() {
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [contextsLoaded, setContextsLoaded] = useState(false)
+  const [messagesLoaded, setMessagesLoaded] = useState(false)
 
   const importedContacts = useMemo(() => {
     const byId = new Map<string, ImportedContact>()
@@ -429,6 +430,7 @@ export default function Home() {
         setGlobalImportedContacts([])
         setContactsLoaded(false)
         setContextsLoaded(false)
+        setMessagesLoaded(false)
         setAppContexts([])
         navigateTo("login")
       }
@@ -439,6 +441,11 @@ export default function Home() {
   // ── Firestore listeners (only when authenticated) ──────────────────────
   useEffect(() => {
     if (!firebaseUser) return
+
+    // Reset loading flags so skeletons show while new snapshots arrive
+    setContactsLoaded(false)
+    setContextsLoaded(false)
+    setMessagesLoaded(false)
 
     // 1. All users (contacts = everyone except me)
     const usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
@@ -495,8 +502,10 @@ export default function Home() {
     )
     const messagesUnsub = onSnapshot(messagesQuery, (snap) => {
       setParticipantMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
+      setMessagesLoaded(true)
     }, () => {
       // Restart all listeners after a brief delay if a permission error occurs
+      setMessagesLoaded(true)
       setTimeout(() => setListenerKey((k) => k + 1), 3000)
     })
 
@@ -507,8 +516,10 @@ export default function Home() {
     )
     const visibleUnsub = onSnapshot(visibleQuery, (snap) => {
       setVisibleMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
+      setMessagesLoaded(true)
     }, () => {
       setVisibleMessages([])
+      setMessagesLoaded(true)
     })
 
     // 5. Imported contacts — own private contacts plus shared global contacts
@@ -1443,6 +1454,12 @@ export default function Home() {
     [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter, selectedContextFilter]
   )
 
+  const activeStreamFilters = useMemo(() => ({
+    peopleIds: selectedPeopleFilter,
+    tagIds: selectedTagFilter,
+    contextIds: selectedContextFilter,
+  }), [selectedPeopleFilter, selectedTagFilter, selectedContextFilter])
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="h-full w-full flex flex-col bg-background overflow-hidden relative">
@@ -1606,7 +1623,7 @@ export default function Home() {
               importedContacts={importedContacts}
               availableTags={availableTags}
               customCategories={customCategories}
-              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter, contextIds: selectedContextFilter }}
+              activeStreamFilters={activeStreamFilters}
               recentUserMessages={recentUserMessages}
               contexts={appContexts}
               onCreateContext={handleCreateContext}
@@ -1684,6 +1701,7 @@ export default function Home() {
             availableTags={availableTags}
             importedContacts={importedContacts}
             contexts={appContexts}
+            isLoading={!messagesLoaded}
           />
           {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
           {activeScreen === "stream" && firebaseUser && (
@@ -1735,7 +1753,7 @@ export default function Home() {
               importedContacts={importedContacts}
               availableTags={availableTags}
               customCategories={customCategories}
-              activeStreamFilters={{ peopleIds: selectedPeopleFilter, tagIds: selectedTagFilter, contextIds: selectedContextFilter }}
+              activeStreamFilters={activeStreamFilters}
               recentUserMessages={recentUserMessages}
               contexts={appContexts}
               onCreateContext={handleCreateContext}
