@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { ServiceWorkerRegister } from '@/components/ui/ServiceWorkerRegister'
+import { ViewportSync } from '@/components/ui/ViewportSync'
 import '@fontsource/sora/300.css'
 import '@fontsource/sora/400.css'
 import '@fontsource/sora/500.css'
@@ -47,7 +48,18 @@ export default function RootLayout({
             Measure it with a test element; if < 20px, override --sab to cover the nav bar. */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){if(!/android/i.test(navigator.userAgent))return;if(!window.matchMedia('(display-mode: standalone)').matches)return;var e=document.createElement('div');e.style.cssText='position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);width:0;pointer-events:none';document.documentElement.appendChild(e);var h=e.offsetHeight;document.documentElement.removeChild(e);if(h<20)document.documentElement.style.setProperty('--sab','48px');})();` }} />
       </head>
-      <body suppressHydrationWarning className="font-sans antialiased overflow-hidden no-select" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0 }}>
+      <body
+        suppressHydrationWarning
+        className="font-sans antialiased overflow-hidden no-select"
+        style={{
+          position: 'fixed',
+          top: 'var(--app-y, 0px)',
+          left: 'var(--app-x, 0px)',
+          width: 'var(--app-w, 100%)',
+          height: 'var(--app-h, 100%)',
+        }}
+      >
+        <ViewportSync />
         <ServiceWorkerRegister />
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

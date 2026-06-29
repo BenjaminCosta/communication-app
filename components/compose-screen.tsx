@@ -130,6 +130,17 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
     sendError,
   ])
 
+  // When an association panel (Who / Tag / Context) opens, scroll it into view
+  // so its options are visible even under heavy zoom, where it would otherwise
+  // open below the fold and behind the option bar.
+  useEffect(() => {
+    if (!activeAssociation) return
+    const id = requestAnimationFrame(() => {
+      associationPanelRef.current?.scrollIntoView({ block: "nearest" })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [activeAssociation])
+
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
