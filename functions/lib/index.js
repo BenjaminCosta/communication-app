@@ -398,30 +398,132 @@ function sanitizeUndefined(value) {
     }
     return value === undefined ? null : value;
 }
-/** Stamp a server updatedAt and strip undefined before writing an index doc. */
-function toIndexDoc(entry) {
-    return sanitizeUndefined({ ...entry, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+/** Read a source doc's updatedAt (Timestamp → Date), if present. */
+function sourceUpdatedAtOf(data) {
+    const u = data.updatedAt;
+    if (u && typeof u.toDate === "function")
+        return u.toDate();
+    return null;
 }
 /**
- * Best-effort person→company resolution for the incremental path: exact-name
- * match against a Company context. Full normalized resolution happens on a
- * bulk --rebuild; here we keep it cheap (one query) and fall back to null.
+ * Stamp server indexedAt/updatedAt + schemaVersion and strip undefined before
+ * writing an index doc. The built entry already carries sourceUpdatedAt.
  */
-async function resolveCompanyCompositeId(db, companyName) {
-    const name = typeof companyName === "string" ? companyName.trim() : "";
-    if (!name)
-        return null;
-    const snap = await db.collection("contexts").where("name", "==", name).limit(5).get();
-    for (const doc of snap.docs) {
-        if ((0, directory_core_1.classifyContext)({ id: doc.id, ...doc.data() }) === "company") {
-            return (0, directory_core_1.directoryId)("company", doc.id);
+function toIndexDoc(entry) {
+    return sanitizeUndefined({
+        ...entry,
+        indexedAt: firestore_1.FieldValue.serverTimestamp(),
+        updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        schemaVersion: directory_core_1.DIRECTORY_SCHEMA_VERSION,
+    });
+}
+/**
+ * Import suppression: while /directoryControl/importLock is active, incremental
+ * sync skips the expensive index writes so a bulk import doesn't trigger
+ * thousands of per-doc syncs. After the import, a controlled rebuild reindexes
+ * everything. One cheap read per invocation; contact/context writes are rare
+ * outside imports.
+ */
+async function isSyncSuppressed(db) {
+    try {
+        const snap = await db.doc("directoryControl/importLock").get();
+        if (!snap.exists)
+            return false;
+        const d = snap.data() ?? {};
+        if (d.active !== true)
+            return false;
+        const until = d.until && typeof d.until.toDate === "function"
+            ? d.until.toDate()
+            : null;
+        return !until || until.getTime() > Date.now();
+    }
+    catch {
+        return false;
+    }
+}
+/** Best-effort bump of the directoryMeta change marker (for client cache invalidation). */
+async function markDirectoryChanged(db) {
+    try {
+        await db.doc("directoryMeta/status").set({
+            schemaVersion: directory_core_1.DIRECTORY_SCHEMA_VERSION,
+            lastChangeAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    catch { /* non-fatal */ }
+}
+/**
+ * Stable-id-aware person→company resolver for the incremental path.
+ * Prefers sourceCompanyId (survives company renames), then exact company name.
+ * Returns the composite company id, or null.
+ */
+async function resolveCompanyIdForContact(db, contact) {
+    // 1. Stable link via sourceCompanyId → company context sharing that sourceRecordId.
+    const sourceCompanyId = typeof contact.sourceCompanyId === "string" ? contact.sourceCompanyId.trim() : "";
+    if (sourceCompanyId) {
+        const snap = await db.collection("contexts").where("sourceRecordId", "==", sourceCompanyId).limit(5).get();
+        for (const doc of snap.docs) {
+            if ((0, directory_core_1.classifyContext)({ id: doc.id, ...doc.data() }) === "company") {
+                return (0, directory_core_1.directoryId)("company", doc.id);
+            }
+        }
+    }
+    // 2. Exact company name match.
+    const name = typeof contact.company === "string" ? contact.company.trim() : "";
+    if (name) {
+        const snap = await db.collection("contexts").where("name", "==", name).limit(5).get();
+        for (const doc of snap.docs) {
+            if ((0, directory_core_1.classifyContext)({ id: doc.id, ...doc.data() }) === "company") {
+                return (0, directory_core_1.directoryId)("company", doc.id);
+            }
         }
     }
     return null;
 }
+/** Rebuild+write a single person index entry from its current source data. */
+async function reindexContact(db, id, data) {
+    const contact = { id, ...data };
+    const companyEntityId = await resolveCompanyIdForContact(db, contact);
+    const entry = (0, directory_core_1.buildContactIndexEntry)(contact, {
+        sourceUpdatedAt: sourceUpdatedAtOf(data),
+        resolveCompanyIdForPerson: (_p) => companyEntityId,
+    });
+    await db.collection("directoryIndex").doc((0, directory_core_1.directoryId)("person", id)).set(toIndexDoc(entry));
+}
+/**
+ * When a company context is created or renamed, re-relate people that reference
+ * it — by sourceCompanyId (stable) or by company name (old and new). Re-indexes
+ * each affected person so their companyEntityId resolves. Bounded to avoid
+ * runaway fan-out on very large companies.
+ */
+async function reRelatePeopleForCompany(db, companyCtxId, companyData, previousName) {
+    const refs = new Map();
+    const add = (snap) => snap.docs.forEach((d) => refs.set(d.id, d));
+    const sourceRecordId = typeof companyData.sourceRecordId === "string" ? companyData.sourceRecordId.trim() : "";
+    const currentName = typeof companyData.name === "string" ? companyData.name.trim() : "";
+    const names = [currentName, previousName].filter((n) => !!n && n.length > 0);
+    const queries = [];
+    if (sourceRecordId)
+        queries.push(db.collection("contacts").where("sourceCompanyId", "==", sourceRecordId).limit(500).get());
+    for (const n of [...new Set(names)]) {
+        queries.push(db.collection("contacts").where("company", "==", n).limit(500).get());
+    }
+    ;
+    (await Promise.all(queries)).forEach(add);
+    if (refs.size === 0)
+        return 0;
+    let count = 0;
+    // Reindex in bounded batches of parallel writes.
+    const docs = [...refs.values()];
+    for (let i = 0; i < docs.length; i += 50) {
+        await Promise.all(docs.slice(i, i + 50).map((d) => reindexContact(db, d.id, d.data())));
+        count += Math.min(50, docs.length - i);
+    }
+    functionsV1.logger.info(`[directorySync] company ${companyCtxId} re-related ${count} people (names=${names.join("|")})`);
+    return count;
+}
 /**
  * /contacts → /directoryIndex (always type "person", stable composite id).
- * create/update → upsert person__{id}; delete → remove it.
+ * create/update → upsert person__{id}; delete → remove it. Idempotent.
  */
 exports.syncDirectoryOnContactWrite = functionsV1.firestore
     .document("contacts/{contactId}")
@@ -431,25 +533,27 @@ exports.syncDirectoryOnContactWrite = functionsV1.firestore
     const ref = db.collection("directoryIndex").doc((0, directory_core_1.directoryId)("person", id));
     if (!change.after.exists) {
         await ref.delete();
+        await markDirectoryChanged(db);
         functionsV1.logger.info(`[directorySync] contact ${id} deleted → removed person__${id}`);
         return;
     }
+    if (await isSyncSuppressed(db)) {
+        functionsV1.logger.info(`[directorySync] contact ${id} skipped (import lock active)`);
+        return;
+    }
     const data = change.after.data() ?? {};
-    const companyEntityId = await resolveCompanyCompositeId(db, data.company);
-    const entry = (0, directory_core_1.buildContactIndexEntry)({ id, ...data }, {
-        resolveCompanyId: () => companyEntityId,
-    });
-    await ref.set(toIndexDoc(entry));
+    await reindexContact(db, id, data);
+    await markDirectoryChanged(db);
     functionsV1.logger.info(`[directorySync] contact ${id} → person__${id}`);
 });
 /**
  * /contexts → /directoryIndex (type company|job|other, chosen by classifyContext,
- * which honors an explicit directoryType field first).
+ * honoring an explicit directoryType field first).
  *
- * On every write we keep EXACTLY ONE entry for the source id: delete the two
- * non-matching type composite ids and upsert the matching one. This makes
- * type changes self-healing (old-type doc is removed) without needing the
- * before-state. On delete, all three context composite ids are removed.
+ * Keeps EXACTLY ONE entry per source id: deletes the two non-matching type
+ * composite ids and upserts the matching one, so type changes self-heal without
+ * needing the before-state. On delete, all three context composite ids are
+ * removed. On company create/rename, re-relates affected people.
  */
 exports.syncDirectoryOnContextWrite = functionsV1.firestore
     .document("contexts/{contextId}")
@@ -463,11 +567,34 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
         for (const cid of allIds)
             batch.delete(col.doc(cid));
         await batch.commit();
+        await markDirectoryChanged(db);
         functionsV1.logger.info(`[directorySync] context ${id} deleted → removed ${allIds.join(", ")}`);
         return;
     }
+    if (await isSyncSuppressed(db)) {
+        functionsV1.logger.info(`[directorySync] context ${id} skipped (import lock active)`);
+        return;
+    }
     const data = change.after.data() ?? {};
-    const entry = (0, directory_core_1.buildContextIndexEntry)({ id, ...data });
+    const before = change.before.exists ? (change.before.data() ?? {}) : null;
+    // Accumulate the previous name as a searchable alias on rename.
+    const currentName = typeof data.name === "string" ? data.name.trim() : "";
+    const previousName = before && typeof before.name === "string" ? before.name.trim() : null;
+    const renamed = !!previousName && (0, directory_core_1.normalizeName)(previousName) !== (0, directory_core_1.normalizeName)(currentName);
+    // Preserve aliases already accumulated on the existing index entry.
+    let extraAliases = [];
+    const priorEntrySnap = await col.doc((0, directory_core_1.directoryId)("company", id)).get();
+    if (priorEntrySnap.exists) {
+        const prior = priorEntrySnap.data() ?? {};
+        if (Array.isArray(prior.aliases))
+            extraAliases = prior.aliases.filter((a) => typeof a === "string");
+    }
+    if (renamed && previousName)
+        extraAliases = [...new Set([...extraAliases, previousName])];
+    const entry = (0, directory_core_1.buildContextIndexEntry)({ id, ...data }, {
+        sourceUpdatedAt: sourceUpdatedAtOf(data),
+        extraAliases: entry_isCompany(data) ? extraAliases : undefined,
+    });
     const batch = db.batch();
     for (const cid of allIds) {
         if (cid !== entry.id)
@@ -475,6 +602,18 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
     }
     batch.set(col.doc(entry.id), toIndexDoc(entry));
     await batch.commit();
+    // Company created or renamed → re-relate people referencing it.
+    if (entry.type === "company") {
+        const isNew = !before;
+        if (isNew || renamed) {
+            await reRelatePeopleForCompany(db, id, data, renamed ? previousName : null);
+        }
+    }
+    await markDirectoryChanged(db);
     functionsV1.logger.info(`[directorySync] context ${id} → ${entry.id} (type=${entry.type})`);
 });
+/** True when the raw context data classifies as a company (for alias handling). */
+function entry_isCompany(data) {
+    return (0, directory_core_1.classifyContext)({ id: "x", ...data }) === "company";
+}
 //# sourceMappingURL=index.js.map

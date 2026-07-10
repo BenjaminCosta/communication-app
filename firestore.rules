@@ -129,5 +129,17 @@ service cloud.firestore {
       allow read:  if request.auth != null;
       allow write: if false;
     }
+
+    // ── Directory metadata (schemaVersion, counts, lastChangeAt) ────────────
+    // Read-only signal clients use to invalidate their local MiniSearch cache.
+    match /directoryMeta/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── Directory control (import lock) — server/Admin SDK only ─────────────
+    match /directoryControl/{docId} {
+      allow read, write: if false;
+    }
   }
 }

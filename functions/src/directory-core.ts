@@ -22,6 +22,15 @@
 
 export type DirectoryType = "person" | "company" | "job" | "other"
 
+/**
+ * Bump when the index shape or normalizer logic changes. Rebuilds/functions
+ * compare this against the stored schemaVersion to decide whether to re-index.
+ *   1 — initial
+ *   2 — adds schemaVersion/sourceUpdatedAt/indexedAt, validation, stable-id
+ *       company resolution, alias accumulation
+ */
+export const DIRECTORY_SCHEMA_VERSION = 2
+
 // ── Self-contained input shapes (structurally satisfied by ImportedContact
 //    / AppContext from lib/store, and by raw Firestore document data). ─────
 
@@ -212,6 +221,14 @@ export interface DirectoryIndexEntry {
   sourceSheet: string | null
   sourceRecordId: string | null
   quality: DirectoryQualityFlags
+  // ── Versioning / consistency metadata ──
+  /** Bumped when the index shape or build logic changes → forces re-index. */
+  schemaVersion: number
+  /** updatedAt of the source /contacts|/contexts doc this was built from. */
+  sourceUpdatedAt: Date | null
+  /** When this index entry was (re)built. Used to detect staleness. */
+  indexedAt: Date
+  /** Back-compat alias of indexedAt (older consumers read updatedAt). */
   updatedAt: Date
 }
 
@@ -280,21 +297,26 @@ export function classifyContext(ctx: CoreContext): DirectoryType {
 // ── Normalizers ─────────────────────────────────────────────────────────
 
 export function normalizeContact(contact: CoreContact): DirectoryPerson {
+  // Drop spreadsheet-error / placeholder junk from contact points.
+  const rawEmails = contact.emails ?? (contact.email ? [{ label: "email", value: contact.email, normalized: contact.emailNormalized }] : [])
+  const rawPhones = contact.phones ?? (contact.phone ? [{ label: "phone", value: contact.phone, normalized: contact.phoneNormalized }] : [])
+  const emails = rawEmails.filter(e => !isInvalidValue(e?.value))
+  const phones = rawPhones.filter(p => !isInvalidValue(p?.value))
   return {
     type: "person",
     sourceCollection: "contacts",
     sourceId: contact.id,
     name: contact.name ?? "",
-    emails: contact.emails ?? (contact.email ? [{ label: "email", value: contact.email, normalized: contact.emailNormalized }] : []),
-    phones: contact.phones ?? (contact.phone ? [{ label: "phone", value: contact.phone, normalized: contact.phoneNormalized }] : []),
+    emails,
+    phones,
     addresses: contact.addresses ?? [],
-    urls: contact.urls ?? [],
-    company: contact.company ?? null,
-    companies: contact.companies ?? (contact.company ? [contact.company] : []),
-    role: contact.role ?? null,
-    roles: contact.roles ?? (contact.role ? [contact.role] : []),
+    urls: (contact.urls ?? []).filter(u => !isInvalidValue(u?.value)),
+    company: cleanValue(contact.company),
+    companies: (contact.companies ?? (contact.company ? [contact.company] : [])).filter(c => !isInvalidValue(c)),
+    role: cleanValue(contact.role),
+    roles: (contact.roles ?? (contact.role ? [contact.role] : [])).filter(r => !isInvalidValue(r)),
     tags: contact.tags ?? [],
-    notes: contact.notes ?? null,
+    notes: cleanValue(contact.notes),
     linkedUserId: contact.linkedUserId ?? null,
     source: contact.source ?? "unknown",
     sourceSheet: contact.sourceSheet ?? null,
@@ -312,11 +334,11 @@ export function normalizeCompanyContext(ctx: CoreContext): DirectoryCompany {
     sourceCollection: "contexts",
     sourceId: ctx.id,
     name: ctx.name ?? "",
-    description: ctx.description ?? null,
-    phone: getFieldValue(fields, "Phone"),
-    address: getFieldValue(fields, "Address"),
-    timezone: getFieldValue(fields, "Timezone"),
-    website: getFieldValue(fields, "Website"),
+    description: cleanValue(ctx.description),
+    phone: cleanValue(getFieldValue(fields, "Phone")),
+    address: cleanValue(getFieldValue(fields, "Address")),
+    timezone: cleanValue(getFieldValue(fields, "Timezone")),
+    website: cleanValue(getFieldValue(fields, "Website")),
     sourceSheet: ctx.sourceSheet ?? null,
     sourceRecordId: ctx.sourceRecordId ?? null,
     fields,
@@ -330,14 +352,14 @@ export function normalizeJobContext(ctx: CoreContext): DirectoryJob {
     sourceCollection: "contexts",
     sourceId: ctx.id,
     name: ctx.name ?? "",
-    description: ctx.description ?? null,
-    address: getFieldValue(fields, "Address"),
+    description: cleanValue(ctx.description),
+    address: cleanValue(getFieldValue(fields, "Address")),
     // The Jobs "Company" column holds a location string, not a company name.
-    location: getFieldValue(fields, "Company"),
+    location: cleanValue(getFieldValue(fields, "Company")),
     companyEntityId: null,
-    projectManager: getFieldValue(fields, "Project Manager"),
-    projectLead: getFieldValue(fields, "Project Lead"),
-    status: getFieldValue(fields, "Status"),
+    projectManager: cleanValue(getFieldValue(fields, "Project Manager")),
+    projectLead: cleanValue(getFieldValue(fields, "Project Lead")),
+    status: cleanValue(getFieldValue(fields, "Status")),
     estimatedStartDate: getFieldValue(fields, "Estimated Start Date"),
     confirmedStartDate: getFieldValue(fields, "Confirmed Start Date"),
     durationWeeks: getFieldValue(fields, "Duration in Weeks"),
@@ -373,8 +395,39 @@ export function normalizeContext(ctx: CoreContext): DirectoryEntry {
 
 export interface DirectoryBuildContext {
   now?: Date
+  /** updatedAt of the source doc — stored as sourceUpdatedAt for staleness checks. */
+  sourceUpdatedAt?: Date | null
+  /** Extra aliases to keep searchable (e.g. a company's previous names). */
+  extraAliases?: string[]
   /** Resolve a company display name to a composite company id, or null. */
   resolveCompanyId?: (companyName: string) => string | null
+  /**
+   * Stable-id-aware resolver (preferred): given the person, return the composite
+   * company id using sourceCompanyId first, then name. Falls back to
+   * resolveCompanyId when not provided.
+   */
+  resolveCompanyIdForPerson?: (person: DirectoryPerson) => string | null
+}
+
+/** Fields every build* function computes; meta is stamped by finalizeEntry. */
+type DirectoryIndexBase = Omit<
+  DirectoryIndexEntry,
+  "schemaVersion" | "sourceUpdatedAt" | "indexedAt" | "updatedAt"
+>
+
+/** Stamps versioning metadata and merges any extra aliases onto a built entry. */
+function finalizeEntry(base: DirectoryIndexBase, ctx: DirectoryBuildContext, now: Date): DirectoryIndexEntry {
+  const aliases = ctx.extraAliases && ctx.extraAliases.length
+    ? uniqueStrings([...base.aliases, ...ctx.extraAliases])
+    : base.aliases
+  return {
+    ...base,
+    aliases,
+    schemaVersion: DIRECTORY_SCHEMA_VERSION,
+    sourceUpdatedAt: ctx.sourceUpdatedAt ?? null,
+    indexedAt: now,
+    updatedAt: now,
+  }
 }
 
 export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildContext = {}): DirectoryIndexEntry {
@@ -383,7 +436,9 @@ export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildCon
   const primaryPhone = person.phones.find(p => p.isPrimary)?.value ?? person.phones[0]?.value ?? null
   const location = person.addresses[0]?.locality ?? extractLocality(person.addresses[0]?.formatted) ?? null
   const subtitle = [person.role, person.company].filter(Boolean).join(" @ ") || null
-  const companyEntityId = person.company ? (ctx.resolveCompanyId?.(person.company) ?? null) : null
+  const companyEntityId =
+    ctx.resolveCompanyIdForPerson?.(person) ??
+    (person.company ? (ctx.resolveCompanyId?.(person.company) ?? null) : null)
 
   const emailLocalParts = person.emails
     .map(e => (e.normalized ?? e.value)?.split("@")[0])
@@ -414,7 +469,7 @@ export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildCon
 
   const quality = personQuality(person, companyEntityId)
 
-  return {
+  return finalizeEntry({
     id: directoryId("person", person.sourceId),
     type: "person",
     sourceCollection: "contacts",
@@ -435,8 +490,7 @@ export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildCon
     sourceSheet: person.sourceSheet,
     sourceRecordId: person.sourceRecordId,
     quality,
-    updatedAt: now,
-  }
+  }, ctx, now)
 }
 
 export function buildCompanyIndex(company: DirectoryCompany, ctx: DirectoryBuildContext = {}): DirectoryIndexEntry {
@@ -455,7 +509,7 @@ export function buildCompanyIndex(company: DirectoryCompany, ctx: DirectoryBuild
   ])
   const quality = companyQuality(company)
 
-  return {
+  return finalizeEntry({
     id: directoryId("company", company.sourceId),
     type: "company",
     sourceCollection: "contexts",
@@ -476,8 +530,7 @@ export function buildCompanyIndex(company: DirectoryCompany, ctx: DirectoryBuild
     sourceSheet: company.sourceSheet,
     sourceRecordId: company.sourceRecordId,
     quality,
-    updatedAt: now,
-  }
+  }, ctx, now)
 }
 
 export function buildJobIndex(job: DirectoryJob, ctx: DirectoryBuildContext = {}): DirectoryIndexEntry {
@@ -497,7 +550,7 @@ export function buildJobIndex(job: DirectoryJob, ctx: DirectoryBuildContext = {}
   ])
   const quality = jobQuality(job)
 
-  return {
+  return finalizeEntry({
     id: directoryId("job", job.sourceId),
     type: "job",
     sourceCollection: "contexts",
@@ -518,8 +571,7 @@ export function buildJobIndex(job: DirectoryJob, ctx: DirectoryBuildContext = {}
     sourceSheet: job.sourceSheet,
     sourceRecordId: job.sourceRecordId,
     quality,
-    updatedAt: now,
-  }
+  }, ctx, now)
 }
 
 export function buildOtherIndex(other: DirectoryOther, ctx: DirectoryBuildContext = {}): DirectoryIndexEntry {
@@ -527,7 +579,7 @@ export function buildOtherIndex(other: DirectoryOther, ctx: DirectoryBuildContex
   const keywords = extractKeywords([other.name, other.description])
   const searchText = lowerJoin([other.name, other.description, ...other.fields.map(f => f.value)])
 
-  return {
+  return finalizeEntry({
     id: directoryId("other", other.sourceId),
     type: "other",
     sourceCollection: other.sourceCollection,
@@ -553,8 +605,7 @@ export function buildOtherIndex(other: DirectoryOther, ctx: DirectoryBuildContex
       isComplete: !!other.name.trim(),
       issues: other.name.trim() ? [] : ["Missing name"],
     },
-    updatedAt: now,
-  }
+  }, ctx, now)
 }
 
 export function buildDirectoryIndex(entry: DirectoryEntry, ctx: DirectoryBuildContext = {}): DirectoryIndexEntry {
@@ -691,6 +742,43 @@ export function projectMessageRelatedEntityIds(message: {
   for (const cid of message.contactIds ?? []) ids.add(directoryId("person", cid))
   for (const ctxId of message.contextIds ?? []) ids.add(directoryId(classifyContextId(ctxId), ctxId))
   return [...ids]
+}
+
+// ── Validation / sanitization ────────────────────────────────────────────
+// Imported spreadsheets carry spreadsheet error tokens (#ERROR!, #N/A, …) and
+// placeholder junk. These must never surface as a phone/email/search token.
+
+const INVALID_VALUE_RE = /^(#(error|n\/?a|ref|value|name|div\/0|num|null)!?|n\/?a|null|undefined|none|—|–|-|\.+)$/i
+
+/** True for empty/placeholder/spreadsheet-error values that should be dropped. */
+export function isInvalidValue(v?: string | null): boolean {
+  if (v == null) return true
+  const t = String(v).trim()
+  if (!t) return true
+  return INVALID_VALUE_RE.test(t)
+}
+
+/** Returns the trimmed value, or null if it is empty/invalid. */
+export function cleanValue(v?: string | null): string | null {
+  return isInvalidValue(v) ? null : String(v).trim()
+}
+
+/** Loose email check — rejects junk but tolerant of legitimate imported addresses. */
+export function isLikelyEmail(v?: string | null): boolean {
+  const t = cleanValue(v)
+  return !!t && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t)
+}
+
+/** Loose phone check — at least 7 digits after stripping formatting. */
+export function isLikelyPhone(v?: string | null): boolean {
+  const t = cleanValue(v)
+  return !!t && t.replace(/\D/g, "").length >= 7
+}
+
+/** Loose URL check. */
+export function isLikelyUrl(v?: string | null): boolean {
+  const t = cleanValue(v)
+  return !!t && /^(https?:\/\/)?[^\s.]+\.[^\s]{2,}/.test(t)
 }
 
 // ── Text helpers ─────────────────────────────────────────────────────────

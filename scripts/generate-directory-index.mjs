@@ -40,10 +40,17 @@ const MINISEARCH_CONFIG = {
 
 // ── Args ─────────────────────────────────────────────────────────────────
 
+const DIRECTORY_SCHEMA_VERSION = 2
+
+// Declared up top (const isn't hoisted) so the hoisted normalizer functions can
+// use it during top-level execution.
+const INVALID_VALUE_RE = /^(#(error|n\/?a|ref|value|name|div\/0|num|null)!?|n\/?a|null|undefined|none|—|–|-|\.+)$/i
+
 const argv = process.argv.slice(2)
-const modes = ["--dry-run", "--sample", "--write", "--rebuild"].filter((m) => argv.includes(m))
+const modes = ["--dry-run", "--sample", "--write", "--rebuild", "--repair", "--lock", "--unlock"].filter((m) => argv.includes(m))
 if (modes.length > 1) fail(`Choose exactly one mode. Got: ${modes.join(", ")}`)
 const mode = modes[0] ?? "--dry-run"
+const force = argv.includes("--force")
 const dumpArg = argv.find((a) => a.startsWith("--dump="))
 const dumpPath = dumpArg ? dumpArg.slice("--dump=".length) : null
 
@@ -56,6 +63,27 @@ const db = getFirestore(app)
 
 console.log(`Mode: ${mode}`)
 console.log("")
+
+// ── Import lock (suppresses incremental Cloud Function sync) ───────────────
+// Use around a bulk import: --lock, run the import, then --rebuild, then --unlock.
+
+if (mode === "--lock") {
+  const minutes = Number(process.env.LOCK_MINUTES ?? 30)
+  await db.doc("directoryControl/importLock").set({
+    active: true,
+    until: new Date(Date.now() + minutes * 60_000),
+    reason: process.env.LOCK_REASON ?? "bulk-import",
+    setAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
+  console.log(`Import lock ACTIVE for ${minutes} min — incremental Directory sync is suppressed.`)
+  process.exit(0)
+}
+
+if (mode === "--unlock") {
+  await db.doc("directoryControl/importLock").set({ active: false, clearedAt: FieldValue.serverTimestamp() }, { merge: true })
+  console.log("Import lock cleared — incremental Directory sync resumed.")
+  process.exit(0)
+}
 
 // ── Read source collections ─────────────────────────────────────────────
 
@@ -88,10 +116,22 @@ for (const ctx of companiesRaw) {
 }
 const resolveCompanyId = (name) => companyByName.get(normalizeName(name ?? "")) ?? null
 
-const personEntries = contacts.map((c) => buildPersonIndex(c, now, resolveCompanyId))
-const companyEntries = companiesRaw.map((c) => buildCompanyIndex(c, now))
-const jobEntries = jobsRaw.map((c) => buildJobIndex(c, now))
-const otherEntries = otherContextsRaw.map((c) => buildOtherIndex(c, now))
+// Stamp versioning metadata (mirrors lib/directory-core.ts finalizeEntry) so
+// bulk-built docs carry the same schemaVersion/sourceUpdatedAt/indexedAt as
+// Cloud-Function-built ones, enabling the rebuild guard below.
+const toDateOrNull = (v) => (v && typeof v.toDate === "function") ? v.toDate() : (v instanceof Date ? v : null)
+const stampMeta = (entry, raw) => ({
+  ...entry,
+  schemaVersion: DIRECTORY_SCHEMA_VERSION,
+  sourceUpdatedAt: toDateOrNull(raw.updatedAt),
+  indexedAt: now,
+  updatedAt: now,
+})
+
+const personEntries = contacts.map((c) => stampMeta(buildPersonIndex(c, now, resolveCompanyId), c))
+const companyEntries = companiesRaw.map((c) => stampMeta(buildCompanyIndex(c, now), c))
+const jobEntries = jobsRaw.map((c) => stampMeta(buildJobIndex(c, now), c))
+const otherEntries = otherContextsRaw.map((c) => stampMeta(buildOtherIndex(c, now), c))
 
 const allEntries = [...personEntries, ...companyEntries, ...jobEntries, ...otherEntries]
 
@@ -140,13 +180,99 @@ if (mode === "--dry-run") {
   process.exit(0)
 }
 
+// ── Audit + repair ─────────────────────────────────────────────────────────
+// Reconciles /directoryIndex against the sources: orphaned (index doc whose
+// source is gone / wrong-type duplicate), missing (source with no index), stale
+// (schemaVersion behind or source newer than indexed). Report-only unless --apply.
+if (mode === "--repair") {
+  console.log("Reconciling /directoryIndex against /contacts + /contexts...")
+  const expected = new Map(allEntries.map((e) => [e.id, e]))
+  const existing = new Map()
+  const snap = await db.collection("directoryIndex").get()
+  snap.docs.forEach((d) => existing.set(d.id, d.data()))
+
+  const orphaned = [...existing.keys()].filter((id) => !expected.has(id))
+  const missing = new Set([...expected.keys()].filter((id) => !existing.has(id)))
+  const stale = new Set()
+  for (const [id, e] of expected) {
+    const x = existing.get(id)
+    if (!x) continue
+    const schemaOld = (x.schemaVersion ?? 1) !== DIRECTORY_SCHEMA_VERSION
+    const es = e.sourceUpdatedAt ? e.sourceUpdatedAt.getTime() : 0
+    const ps = toDateOrNull(x.sourceUpdatedAt)?.getTime() ?? 0
+    if (schemaOld || es > ps) stale.add(id)
+  }
+
+  console.log("")
+  console.log("Repair report")
+  console.log("─────────────")
+  console.log(`  index docs:        ${existing.size}`)
+  console.log(`  expected docs:     ${expected.size}`)
+  console.log(`  orphaned (delete): ${orphaned.length}`)
+  console.log(`  missing  (create): ${missing.size}`)
+  console.log(`  stale    (rewrite):${stale.size}`)
+  if (orphaned.length) console.log(`  sample orphaned:   ${orphaned.slice(0, 5).join(", ")}`)
+
+  const apply = force || argv.includes("--apply")
+  if (apply) {
+    console.log("")
+    console.log("Applying repairs...")
+    const col = db.collection("directoryIndex")
+    for (let i = 0; i < orphaned.length; i += 400) {
+      const b = db.batch()
+      orphaned.slice(i, i + 400).forEach((id) => b.delete(col.doc(id)))
+      await b.commit()
+    }
+    const toFix = allEntries.filter((e) => missing.has(e.id) || stale.has(e.id))
+    await writeEntries(toFix)
+    await writeDirectoryMeta(counts)
+    console.log(`Repaired: -${orphaned.length} orphaned, +${missing.size} missing, ~${stale.size} stale.`)
+  } else {
+    console.log("")
+    console.log("Report only. Re-run with --apply to fix.")
+  }
+  process.exit(0)
+}
+
 if (mode === "--rebuild") {
   await deleteCollection("directoryIndex")
 }
 
-await writeEntries(allEntries)
+// ── Rebuild guard ─────────────────────────────────────────────────────────
+// In --write (not --rebuild, not --force), skip entries whose existing index
+// doc is already current: same schemaVersion AND its sourceUpdatedAt is >= the
+// source's updatedAt. This prevents a slow rebuild from clobbering fresher
+// incremental Cloud-Function writes. --rebuild and --force always write.
+let toWrite = allEntries
+let skipped = 0
+if (mode === "--write" && !force) {
+  console.log("Applying rebuild guard (skip up-to-date entries)...")
+  const existing = new Map()
+  const snap = await db.collection("directoryIndex").get()
+  snap.docs.forEach((d) => {
+    const x = d.data()
+    existing.set(d.id, {
+      schemaVersion: x.schemaVersion ?? 1,
+      sourceUpdatedAt: toDateOrNull(x.sourceUpdatedAt),
+    })
+  })
+  toWrite = allEntries.filter((e) => {
+    const prev = existing.get(e.id)
+    if (!prev) return true // missing → write
+    if (prev.schemaVersion !== DIRECTORY_SCHEMA_VERSION) return true // schema changed → write
+    const es = e.sourceUpdatedAt ? e.sourceUpdatedAt.getTime() : 0
+    const ps = prev.sourceUpdatedAt ? prev.sourceUpdatedAt.getTime() : 0
+    // Write only if the source is newer than what we indexed.
+    return es > ps
+  })
+  skipped = allEntries.length - toWrite.length
+  console.log(`  ${toWrite.length} to write, ${skipped} already up-to-date (skipped).`)
+}
+
+await writeEntries(toWrite)
+await writeDirectoryMeta(counts)
 console.log("")
-console.log(`Done. ${mode === "--rebuild" ? "Rebuilt" : "Upserted"} ${allEntries.length} /directoryIndex docs.`)
+console.log(`Done. ${mode === "--rebuild" ? "Rebuilt" : "Upserted"} ${toWrite.length} /directoryIndex docs${skipped ? ` (${skipped} skipped)` : ""}.`)
 process.exit(0)
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -178,12 +304,14 @@ function classifyContext(ctx) {
 }
 
 function buildPersonIndex(c, now, resolveCompany) {
-  const emails = Array.isArray(c.emails) && c.emails.length
+  const rawEmails = Array.isArray(c.emails) && c.emails.length
     ? c.emails
     : (c.email ? [{ label: "email", value: c.email, normalized: c.emailNormalized }] : [])
-  const phones = Array.isArray(c.phones) && c.phones.length
+  const rawPhones = Array.isArray(c.phones) && c.phones.length
     ? c.phones
     : (c.phone ? [{ label: "phone", value: c.phone, normalized: c.phoneNormalized }] : [])
+  const emails = rawEmails.filter((e) => !isInvalidValue(e?.value))
+  const phones = rawPhones.filter((p) => !isInvalidValue(p?.value))
   const addresses = Array.isArray(c.addresses) ? c.addresses : []
   const companies = Array.isArray(c.companies) && c.companies.length ? c.companies : (c.company ? [c.company] : [])
   const roles = Array.isArray(c.roles) && c.roles.length ? c.roles : (c.role ? [c.role] : [])
@@ -248,10 +376,10 @@ function buildPersonIndex(c, now, resolveCompany) {
 
 function buildCompanyIndex(ctx, now) {
   const name = ctx.name ?? ""
-  const phone = getFieldValue(ctx.fields, "Phone")
-  const address = getFieldValue(ctx.fields, "Address")
-  const timezone = getFieldValue(ctx.fields, "Timezone")
-  const website = getFieldValue(ctx.fields, "Website")
+  const phone = getCleanField(ctx.fields, "Phone")
+  const address = getCleanField(ctx.fields, "Address")
+  const timezone = getCleanField(ctx.fields, "Timezone")
+  const website = getCleanField(ctx.fields, "Website")
   const location = extractLocality(address)
   const subtitle = [address, phone].filter(Boolean).join(" | ") || ctx.description || null
 
@@ -291,13 +419,13 @@ function buildCompanyIndex(ctx, now) {
 
 function buildJobIndex(ctx, now) {
   const name = ctx.name ?? ""
-  const address = getFieldValue(ctx.fields, "Address")
+  const address = getCleanField(ctx.fields, "Address")
   // Jobs "Company" column actually holds a location string.
-  const location = getFieldValue(ctx.fields, "Company")
-  const projectManager = getFieldValue(ctx.fields, "Project Manager")
-  const projectLead = getFieldValue(ctx.fields, "Project Lead")
-  const status = getFieldValue(ctx.fields, "Status")
-  const relatedContacts = getFieldValue(ctx.fields, "Related Contacts")
+  const location = getCleanField(ctx.fields, "Company")
+  const projectManager = getCleanField(ctx.fields, "Project Manager")
+  const projectLead = getCleanField(ctx.fields, "Project Lead")
+  const status = getCleanField(ctx.fields, "Status")
+  const relatedContacts = getCleanField(ctx.fields, "Related Contacts")
   const loc = location ?? extractLocality(address)
   const subtitle = [status, location, address].filter(Boolean).join(" | ") || ctx.description || null
 
@@ -397,6 +525,23 @@ async function writeEntries(entries) {
     await batch.commit()
     console.log(`  written ${Math.min(i + 400, entries.length)} / ${entries.length}`)
   }
+}
+
+async function writeDirectoryMeta(counts) {
+  await db.doc("directoryMeta/status").set({
+    schemaVersion: DIRECTORY_SCHEMA_VERSION,
+    lastRebuildAt: FieldValue.serverTimestamp(),
+    lastChangeAt: FieldValue.serverTimestamp(),
+    counts: {
+      person: counts.person,
+      company: counts.company,
+      job: counts.job,
+      other: counts.other,
+      total: counts.total,
+    },
+    lastMode: mode,
+  }, { merge: true })
+  console.log(`Wrote directoryMeta/status (schemaVersion=${DIRECTORY_SCHEMA_VERSION}, total=${counts.total})`)
 }
 
 async function deleteCollection(name) {
@@ -514,10 +659,23 @@ function nameSegment(value) {
   if (!value) return null
   return String(value).split("/")[0].trim() || null
 }
+function isInvalidValue(v) {
+  if (v == null) return true
+  const t = String(v).trim()
+  if (!t) return true
+  return INVALID_VALUE_RE.test(t)
+}
+function cleanValue(v) {
+  return isInvalidValue(v) ? null : String(v).trim()
+}
 function getFieldValue(fields, label) {
   if (!Array.isArray(fields)) return null
   const f = fields.find((f) => f.label?.toLowerCase() === label.toLowerCase())
   return f?.value?.trim() || null
+}
+// Field value with spreadsheet-error/junk stripped (mirrors core cleanValue).
+function getCleanField(fields, label) {
+  return cleanValue(getFieldValue(fields, label))
 }
 function hasAnyField(fields, labels) {
   if (!Array.isArray(fields)) return false

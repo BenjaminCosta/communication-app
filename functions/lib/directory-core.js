@@ -3,7 +3,7 @@
 // Source of truth: lib/directory-core.ts (repo root).
 // Regenerate with: pnpm --prefix functions build  (or node functions/scripts/copy-shared-core.mjs)
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DIRECTORY_MINISEARCH_CONFIG = exports.CONTEXT_TYPES = void 0;
+exports.DIRECTORY_MINISEARCH_CONFIG = exports.CONTEXT_TYPES = exports.DIRECTORY_SCHEMA_VERSION = void 0;
 exports.directoryId = directoryId;
 exports.parseDirectoryId = parseDirectoryId;
 exports.contextCompositeIds = contextCompositeIds;
@@ -24,8 +24,21 @@ exports.buildContextIndexEntry = buildContextIndexEntry;
 exports.buildCompanyResolver = buildCompanyResolver;
 exports.detectPersonCompanyRelations = detectPersonCompanyRelations;
 exports.projectMessageRelatedEntityIds = projectMessageRelatedEntityIds;
+exports.isInvalidValue = isInvalidValue;
+exports.cleanValue = cleanValue;
+exports.isLikelyEmail = isLikelyEmail;
+exports.isLikelyPhone = isLikelyPhone;
+exports.isLikelyUrl = isLikelyUrl;
 exports.stripAccents = stripAccents;
 exports.normalizeName = normalizeName;
+/**
+ * Bump when the index shape or normalizer logic changes. Rebuilds/functions
+ * compare this against the stored schemaVersion to decide whether to re-index.
+ *   1 — initial
+ *   2 — adds schemaVersion/sourceUpdatedAt/indexedAt, validation, stable-id
+ *       company resolution, alias accumulation
+ */
+exports.DIRECTORY_SCHEMA_VERSION = 2;
 // ── Composite ID helpers ────────────────────────────────────────────────
 function directoryId(type, sourceId) {
     return `${type}__${sourceId}`;
@@ -93,21 +106,26 @@ function classifyContext(ctx) {
 }
 // ── Normalizers ─────────────────────────────────────────────────────────
 function normalizeContact(contact) {
+    // Drop spreadsheet-error / placeholder junk from contact points.
+    const rawEmails = contact.emails ?? (contact.email ? [{ label: "email", value: contact.email, normalized: contact.emailNormalized }] : []);
+    const rawPhones = contact.phones ?? (contact.phone ? [{ label: "phone", value: contact.phone, normalized: contact.phoneNormalized }] : []);
+    const emails = rawEmails.filter(e => !isInvalidValue(e?.value));
+    const phones = rawPhones.filter(p => !isInvalidValue(p?.value));
     return {
         type: "person",
         sourceCollection: "contacts",
         sourceId: contact.id,
         name: contact.name ?? "",
-        emails: contact.emails ?? (contact.email ? [{ label: "email", value: contact.email, normalized: contact.emailNormalized }] : []),
-        phones: contact.phones ?? (contact.phone ? [{ label: "phone", value: contact.phone, normalized: contact.phoneNormalized }] : []),
+        emails,
+        phones,
         addresses: contact.addresses ?? [],
-        urls: contact.urls ?? [],
-        company: contact.company ?? null,
-        companies: contact.companies ?? (contact.company ? [contact.company] : []),
-        role: contact.role ?? null,
-        roles: contact.roles ?? (contact.role ? [contact.role] : []),
+        urls: (contact.urls ?? []).filter(u => !isInvalidValue(u?.value)),
+        company: cleanValue(contact.company),
+        companies: (contact.companies ?? (contact.company ? [contact.company] : [])).filter(c => !isInvalidValue(c)),
+        role: cleanValue(contact.role),
+        roles: (contact.roles ?? (contact.role ? [contact.role] : [])).filter(r => !isInvalidValue(r)),
         tags: contact.tags ?? [],
-        notes: contact.notes ?? null,
+        notes: cleanValue(contact.notes),
         linkedUserId: contact.linkedUserId ?? null,
         source: contact.source ?? "unknown",
         sourceSheet: contact.sourceSheet ?? null,
@@ -124,11 +142,11 @@ function normalizeCompanyContext(ctx) {
         sourceCollection: "contexts",
         sourceId: ctx.id,
         name: ctx.name ?? "",
-        description: ctx.description ?? null,
-        phone: getFieldValue(fields, "Phone"),
-        address: getFieldValue(fields, "Address"),
-        timezone: getFieldValue(fields, "Timezone"),
-        website: getFieldValue(fields, "Website"),
+        description: cleanValue(ctx.description),
+        phone: cleanValue(getFieldValue(fields, "Phone")),
+        address: cleanValue(getFieldValue(fields, "Address")),
+        timezone: cleanValue(getFieldValue(fields, "Timezone")),
+        website: cleanValue(getFieldValue(fields, "Website")),
         sourceSheet: ctx.sourceSheet ?? null,
         sourceRecordId: ctx.sourceRecordId ?? null,
         fields,
@@ -141,14 +159,14 @@ function normalizeJobContext(ctx) {
         sourceCollection: "contexts",
         sourceId: ctx.id,
         name: ctx.name ?? "",
-        description: ctx.description ?? null,
-        address: getFieldValue(fields, "Address"),
+        description: cleanValue(ctx.description),
+        address: cleanValue(getFieldValue(fields, "Address")),
         // The Jobs "Company" column holds a location string, not a company name.
-        location: getFieldValue(fields, "Company"),
+        location: cleanValue(getFieldValue(fields, "Company")),
         companyEntityId: null,
-        projectManager: getFieldValue(fields, "Project Manager"),
-        projectLead: getFieldValue(fields, "Project Lead"),
-        status: getFieldValue(fields, "Status"),
+        projectManager: cleanValue(getFieldValue(fields, "Project Manager")),
+        projectLead: cleanValue(getFieldValue(fields, "Project Lead")),
+        status: cleanValue(getFieldValue(fields, "Status")),
         estimatedStartDate: getFieldValue(fields, "Estimated Start Date"),
         confirmedStartDate: getFieldValue(fields, "Confirmed Start Date"),
         durationWeeks: getFieldValue(fields, "Duration in Weeks"),
@@ -177,13 +195,28 @@ function normalizeContext(ctx) {
         default: return normalizeOtherContext(ctx);
     }
 }
+/** Stamps versioning metadata and merges any extra aliases onto a built entry. */
+function finalizeEntry(base, ctx, now) {
+    const aliases = ctx.extraAliases && ctx.extraAliases.length
+        ? uniqueStrings([...base.aliases, ...ctx.extraAliases])
+        : base.aliases;
+    return {
+        ...base,
+        aliases,
+        schemaVersion: exports.DIRECTORY_SCHEMA_VERSION,
+        sourceUpdatedAt: ctx.sourceUpdatedAt ?? null,
+        indexedAt: now,
+        updatedAt: now,
+    };
+}
 function buildPersonIndex(person, ctx = {}) {
     const now = ctx.now ?? new Date();
     const primaryEmail = person.emails.find(e => e.isPrimary)?.value ?? person.emails[0]?.value ?? null;
     const primaryPhone = person.phones.find(p => p.isPrimary)?.value ?? person.phones[0]?.value ?? null;
     const location = person.addresses[0]?.locality ?? extractLocality(person.addresses[0]?.formatted) ?? null;
     const subtitle = [person.role, person.company].filter(Boolean).join(" @ ") || null;
-    const companyEntityId = person.company ? (ctx.resolveCompanyId?.(person.company) ?? null) : null;
+    const companyEntityId = ctx.resolveCompanyIdForPerson?.(person) ??
+        (person.company ? (ctx.resolveCompanyId?.(person.company) ?? null) : null);
     const emailLocalParts = person.emails
         .map(e => (e.normalized ?? e.value)?.split("@")[0])
         .filter(Boolean);
@@ -208,7 +241,7 @@ function buildPersonIndex(person, ctx = {}) {
         ...person.addresses.map(a => a.formatted),
     ]);
     const quality = personQuality(person, companyEntityId);
-    return {
+    return finalizeEntry({
         id: directoryId("person", person.sourceId),
         type: "person",
         sourceCollection: "contacts",
@@ -229,8 +262,7 @@ function buildPersonIndex(person, ctx = {}) {
         sourceSheet: person.sourceSheet,
         sourceRecordId: person.sourceRecordId,
         quality,
-        updatedAt: now,
-    };
+    }, ctx, now);
 }
 function buildCompanyIndex(company, ctx = {}) {
     const now = ctx.now ?? new Date();
@@ -246,7 +278,7 @@ function buildCompanyIndex(company, ctx = {}) {
         ...company.fields.map(f => f.value),
     ]);
     const quality = companyQuality(company);
-    return {
+    return finalizeEntry({
         id: directoryId("company", company.sourceId),
         type: "company",
         sourceCollection: "contexts",
@@ -267,8 +299,7 @@ function buildCompanyIndex(company, ctx = {}) {
         sourceSheet: company.sourceSheet,
         sourceRecordId: company.sourceRecordId,
         quality,
-        updatedAt: now,
-    };
+    }, ctx, now);
 }
 function buildJobIndex(job, ctx = {}) {
     const now = ctx.now ?? new Date();
@@ -285,7 +316,7 @@ function buildJobIndex(job, ctx = {}) {
         ...job.fields.map(f => f.value),
     ]);
     const quality = jobQuality(job);
-    return {
+    return finalizeEntry({
         id: directoryId("job", job.sourceId),
         type: "job",
         sourceCollection: "contexts",
@@ -306,14 +337,13 @@ function buildJobIndex(job, ctx = {}) {
         sourceSheet: job.sourceSheet,
         sourceRecordId: job.sourceRecordId,
         quality,
-        updatedAt: now,
-    };
+    }, ctx, now);
 }
 function buildOtherIndex(other, ctx = {}) {
     const now = ctx.now ?? new Date();
     const keywords = extractKeywords([other.name, other.description]);
     const searchText = lowerJoin([other.name, other.description, ...other.fields.map(f => f.value)]);
-    return {
+    return finalizeEntry({
         id: directoryId("other", other.sourceId),
         type: "other",
         sourceCollection: other.sourceCollection,
@@ -339,8 +369,7 @@ function buildOtherIndex(other, ctx = {}) {
             isComplete: !!other.name.trim(),
             issues: other.name.trim() ? [] : ["Missing name"],
         },
-        updatedAt: now,
-    };
+    }, ctx, now);
 }
 function buildDirectoryIndex(entry, ctx = {}) {
     switch (entry.type) {
@@ -453,6 +482,38 @@ function projectMessageRelatedEntityIds(message, classifyContextId) {
     for (const ctxId of message.contextIds ?? [])
         ids.add(directoryId(classifyContextId(ctxId), ctxId));
     return [...ids];
+}
+// ── Validation / sanitization ────────────────────────────────────────────
+// Imported spreadsheets carry spreadsheet error tokens (#ERROR!, #N/A, …) and
+// placeholder junk. These must never surface as a phone/email/search token.
+const INVALID_VALUE_RE = /^(#(error|n\/?a|ref|value|name|div\/0|num|null)!?|n\/?a|null|undefined|none|—|–|-|\.+)$/i;
+/** True for empty/placeholder/spreadsheet-error values that should be dropped. */
+function isInvalidValue(v) {
+    if (v == null)
+        return true;
+    const t = String(v).trim();
+    if (!t)
+        return true;
+    return INVALID_VALUE_RE.test(t);
+}
+/** Returns the trimmed value, or null if it is empty/invalid. */
+function cleanValue(v) {
+    return isInvalidValue(v) ? null : String(v).trim();
+}
+/** Loose email check — rejects junk but tolerant of legitimate imported addresses. */
+function isLikelyEmail(v) {
+    const t = cleanValue(v);
+    return !!t && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t);
+}
+/** Loose phone check — at least 7 digits after stripping formatting. */
+function isLikelyPhone(v) {
+    const t = cleanValue(v);
+    return !!t && t.replace(/\D/g, "").length >= 7;
+}
+/** Loose URL check. */
+function isLikelyUrl(v) {
+    const t = cleanValue(v);
+    return !!t && /^(https?:\/\/)?[^\s.]+\.[^\s]{2,}/.test(t);
 }
 // ── Text helpers ─────────────────────────────────────────────────────────
 const STOPWORDS = new Set([
