@@ -122,5 +122,15 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && request.auth.uid == request.resource.data.ownerUserId;
     }
+
+    // ── Directory Index (derived, read-only) ───────────────────────────────
+    // A lightweight index derived from /contacts + /contexts, regenerated
+    // server-side by scripts/generate-directory-index.mjs (Admin SDK, which
+    // bypasses these rules). Any authenticated user may READ; clients may
+    // NEVER write — the collection is a projection, not a source of truth.
+    match /directoryIndex/{entryId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
   }
 }
