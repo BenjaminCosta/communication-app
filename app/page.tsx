@@ -242,7 +242,8 @@ function mapImportedContactDoc(id: string, data: Record<string, any>): ImportedC
     linkedUserId: data.linkedUserId ?? null,
     linkedAt: data.linkedAt instanceof Timestamp ? data.linkedAt.toDate() : null,
     status: data.status ?? "not_registered",
-    visibility: data.visibility ?? "private",
+    // Contacts are global-only for now — default any legacy/unset doc to global.
+    visibility: data.visibility ?? "global",
     createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
     updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
   } as ImportedContact
@@ -262,7 +263,6 @@ export default function Home() {
   const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
-  const [ownedImportedContacts, setOwnedImportedContacts] = useState<ImportedContact[]>([])
   const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
   const [appContexts, setAppContexts] = useState<AppContext[]>([])
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
@@ -273,11 +273,11 @@ export default function Home() {
 
   const importedContacts = useMemo(() => {
     const byId = new Map<string, ImportedContact>()
-    ;[...globalImportedContacts, ...ownedImportedContacts].forEach((contact) => {
+    globalImportedContacts.forEach((contact) => {
       byId.set(contact.id, contact)
     })
     return [...byId.values()]
-  }, [globalImportedContacts, ownedImportedContacts])
+  }, [globalImportedContacts])
 
   // Merged feed: union of all message sources, deduped by ID.
   // participantMessages = legacy query (array-contains participants)
@@ -427,7 +427,6 @@ export default function Home() {
         setParticipantMessages([])
         setProjectMessages([])
         setProjects([])
-        setOwnedImportedContacts([])
         setGlobalImportedContacts([])
         setContactsLoaded(false)
         setContextsLoaded(false)
@@ -523,22 +522,9 @@ export default function Home() {
       setMessagesLoaded(true)
     })
 
-    // 5. Imported contacts — own private contacts plus shared global contacts
-    const ownedContactsQuery = query(
-      collection(db, "contacts"),
-      where("ownerUserId", "==", firebaseUser.uid)
-    )
-    const ownedImportedContactsUnsub = onSnapshot(ownedContactsQuery, (snap) => {
-      setOwnedImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
-    }, () => {
-      setOwnedImportedContacts([])
-    })
-
-    const globalContactsQuery = query(
-      collection(db, "contacts"),
-      where("visibility", "==", "global")
-    )
-    const globalImportedContactsUnsub = onSnapshot(globalContactsQuery, (snap) => {
+    // 5. Imported contacts — all contacts are global; every authenticated user
+    //    reads the whole collection (single listener, no visibility filter).
+    const globalImportedContactsUnsub = onSnapshot(collection(db, "contacts"), (snap) => {
       setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
       setContactsLoaded(true)
     }, () => {
@@ -576,7 +562,6 @@ export default function Home() {
       categoriesUnsub()
       messagesUnsub()
       visibleUnsub()
-      ownedImportedContactsUnsub()
       globalImportedContactsUnsub()
       contextsUnsub()
     }
@@ -1105,7 +1090,8 @@ export default function Home() {
           tags: c.tags,
           linkedUserId: c.linkedUserId,
           status: c.status,
-          visibility: c.visibility ?? "private",
+          // All contacts are global for now — no private option.
+          visibility: "global",
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           ...(emailNormalized && { email: emailNormalized, emailNormalized }),
@@ -1208,16 +1194,6 @@ export default function Home() {
         fields.phoneNormalized = phoneNormalized ? (phoneNormalized.length === 11 && phoneNormalized.startsWith("1") ? phoneNormalized.slice(1) : phoneNormalized) : deleteField()
       }
       await updateDoc(doc(db, "contacts", contactId), fields)
-    },
-    []
-  )
-
-  const handleSetContactVisibility = useCallback(
-    async (contactId: string, visibility: "private" | "global") => {
-      await updateDoc(doc(db, "contacts", contactId), {
-        visibility,
-        updatedAt: serverTimestamp(),
-      })
     },
     []
   )
@@ -1543,7 +1519,6 @@ export default function Home() {
           onRemoveTagFromContact={handleRemoveTagFromContact}
           onDeleteImportedContact={handleDeleteImportedContact}
           onUpdateImportedContact={handleUpdateImportedContact}
-          onSetContactVisibility={handleSetContactVisibility}
         />
       )}
 

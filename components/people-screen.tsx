@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { ArrowLeft, UserPlus, Mail, Phone, Trash2, ChevronDown, ChevronUp, X, Check, Users, Pencil, Globe, Lock } from "lucide-react"
+import { ArrowLeft, UserPlus, Mail, Phone, Trash2, ChevronDown, ChevronUp, X, Check, Users, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Contact, type ImportedContact, type Message, deriveInitials } from "@/lib/store"
 import {
@@ -11,7 +11,6 @@ import {
   scoreRegisteredPersonSearch,
 } from "@/lib/smart-search"
 import { ImportContactsModal } from "@/components/import-contacts-modal"
-import { MakeGlobalModal } from "@/components/make-global-modal"
 
 const CONTACT_COLORS = [
   "bg-emerald-600",
@@ -48,7 +47,6 @@ interface PeopleScreenProps {
   onRemoveTagFromContact: (contactId: string, tag: string) => Promise<void>
   onDeleteImportedContact: (contactId: string) => Promise<void>
   onUpdateImportedContact: (contactId: string, updates: { email?: string | null; phone?: string | null }) => Promise<void>
-  onSetContactVisibility: (contactId: string, visibility: "private" | "global") => Promise<void>
   className?: string
 }
 
@@ -78,7 +76,6 @@ export function PeopleScreen({
   onRemoveTagFromContact,
   onDeleteImportedContact,
   onUpdateImportedContact,
-  onSetContactVisibility,
   className,
 }: PeopleScreenProps) {
   const [showImportModal, setShowImportModal] = useState(false)
@@ -285,7 +282,6 @@ export function PeopleScreen({
                       onRemoveTag={(tag) => onRemoveTagFromContact(contact.id, tag)}
                       onDelete={() => onDeleteImportedContact(contact.id)}
                       onUpdateContact={(updates) => onUpdateImportedContact(contact.id, updates)}
-                      onSetVisibility={(vis) => onSetContactVisibility(contact.id, vis)}
                     />
                   ))}
                 </div>
@@ -330,7 +326,6 @@ interface ImportedContactRowProps {
   onRemoveTag: (tag: string) => Promise<void>
   onDelete: () => void
   onUpdateContact: (updates: { email?: string | null; phone?: string | null }) => Promise<void>
-  onSetVisibility: (visibility: "private" | "global") => Promise<void>
 }
 
 function ImportedContactRow({
@@ -342,7 +337,6 @@ function ImportedContactRow({
   onRemoveTag,
   onDelete,
   onUpdateContact,
-  onSetVisibility,
 }: ImportedContactRowProps) {
   const [expanded, setExpanded] = useState(false)
   const [newTag, setNewTag] = useState("")
@@ -359,8 +353,6 @@ function ImportedContactRow({
   const [editingTag, setEditingTag] = useState<string | null>(null)
   const [editTagValue, setEditTagValue] = useState("")
   const [savingTag, setSavingTag] = useState(false)
-  const [showGlobalModal, setShowGlobalModal] = useState(false)
-  const [settingVisibility, setSettingVisibility] = useState(false)
 
   const initials = deriveInitials(contact.name)
   const color = getImportedContactColor(contact.id)
@@ -757,47 +749,6 @@ function ImportedContactRow({
             )}
           </div>
 
-          {/* Visibility — owner only */}
-          {canEditContact ? (
-            <div className="flex items-center justify-between py-0.5">
-              <div className="flex items-center gap-2">
-                {contact.visibility === "global" ? (
-                  <Globe className="w-3.5 h-3.5 text-blue-400" />
-                ) : (
-                  <Lock className="w-3.5 h-3.5 text-muted-foreground/40" />
-                )}
-                <span className="text-xs text-muted-foreground">
-                  {contact.visibility === "global" ? "Visible to everyone" : "Private contact"}
-                </span>
-              </div>
-              {contact.visibility === "global" ? (
-                <button
-                  disabled={settingVisibility}
-                  onClick={async () => {
-                    setSettingVisibility(true)
-                    try { await onSetVisibility("private") } finally { setSettingVisibility(false) }
-                  }}
-                  className="text-xs text-muted-foreground/60 hover:text-foreground disabled:opacity-40 transition-colors"
-                >
-                  Make private
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowGlobalModal(true)}
-                  className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  <Globe className="w-3 h-3" />
-                  Make global
-                </button>
-              )}
-            </div>
-          ) : contact.visibility === "global" ? (
-            <div className="flex items-center gap-2 py-0.5">
-              <Globe className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-xs text-muted-foreground">Shared contact</span>
-            </div>
-          ) : null}
-
           {/* Delete (only visible when expanded) */}
           {canEditContact && (
           <div className="flex justify-end pt-1">
@@ -811,20 +762,6 @@ function ImportedContactRow({
           </div>
           )}
         </div>
-      )}
-
-      {/* Make Global modal */}
-      {canEditContact && (
-        <MakeGlobalModal
-          open={showGlobalModal}
-          contactName={contact.name}
-          onConfirm={async () => {
-            setShowGlobalModal(false)
-            setSettingVisibility(true)
-            try { await onSetVisibility("global") } finally { setSettingVisibility(false) }
-          }}
-          onCancel={() => setShowGlobalModal(false)}
-        />
       )}
     </div>
   )

@@ -296,7 +296,8 @@ export function normalizeContact(contact: CoreContact): DirectoryPerson {
     sourceSheet: contact.sourceSheet ?? null,
     sourceRecordId: contact.sourceRecordId ?? null,
     sourceCompanyId: contact.sourceCompanyId ?? null,
-    visibility: contact.visibility ?? "private",
+    // Contacts are global-only for now.
+    visibility: contact.visibility ?? "global",
   }
 }
 

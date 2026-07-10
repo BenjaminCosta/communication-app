@@ -110,13 +110,10 @@ service cloud.firestore {
     }
 
     // ── Imported Contacts ──────────────────────────────────────────────────
-    // Private by default. If visibility == "global", any authenticated user can read.
-    // Only the owner can update, delete, or create.
+    // Contacts are global-only for now: any authenticated user can read every
+    // contact. Writes stay owner-scoped (only the owner can create/update/delete).
     match /contacts/{contactId} {
-      allow read: if request.auth != null && (
-                    request.auth.uid == resource.data.ownerUserId ||
-                    resource.data.visibility == "global"
-                  );
+      allow read: if request.auth != null;
       allow update, delete: if request.auth != null
                             && request.auth.uid == resource.data.ownerUserId;
       allow create: if request.auth != null

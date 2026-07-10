@@ -118,7 +118,7 @@ export function parseVcfImportedContacts(
       name: mapped.name,
       source: "vcf",
       tags: [],
-      visibility: "private",
+      visibility: "global",
       linkedUserId: linkedUser?.id ?? null,
       status: linkedUser ? "registered" : "not_registered",
       createdAt: new Date(),

@@ -201,7 +201,7 @@ const SLIDES: GuideSlide[] = [
     points: [
       { icon: <UserPlus className="w-4 h-4" />, s: P.amber, text: "Import contacts from your phone." },
       { icon: <Pencil className="w-4 h-4" />, s: P.emerald, text: "Edit email, phone, or tags on any contact." },
-      { icon: <Eye className="w-4 h-4" />, s: P.violet, text: "Switch between private and global visibility." },
+      { icon: <Eye className="w-4 h-4" />, s: P.violet, text: "Contacts are shared with everyone on the team." },
     ],
   },
   /* 6 — Dates */
