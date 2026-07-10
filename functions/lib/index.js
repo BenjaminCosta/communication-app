@@ -33,11 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onDailyCalendarReminders = exports.onMessageUpdated = exports.onMessageCreated = exports.autoLinkOnUserEmailUpdate = exports.autoLinkOnRegister = void 0;
+exports.syncDirectoryOnContextWrite = exports.syncDirectoryOnContactWrite = exports.onDailyCalendarReminders = exports.onMessageUpdated = exports.onMessageCreated = exports.autoLinkOnUserEmailUpdate = exports.autoLinkOnRegister = void 0;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const messaging_1 = require("firebase-admin/messaging");
 const functionsV1 = __importStar(require("firebase-functions/v1"));
+const directory_core_1 = require("./directory-core");
 // Today's date in YYYY-MM-DD (UTC)
 function todayUTC() {
     return new Date().toISOString().slice(0, 10);
@@ -368,5 +369,112 @@ exports.onDailyCalendarReminders = functionsV1.pubsub
         notified++;
     }));
     functionsV1.logger.info(`[calendarReminders] ${today}: notified=${notified} skipped=${skipped}`);
+});
+// ══════════════════════════════════════════════════════════════════════════
+// SVC Directory sync — keeps /directoryIndex in lockstep with the source
+// collections (/contacts, /contexts).
+//
+// /directoryIndex is a DERIVED, client-read-only projection. These functions
+// are its ONLY writers (Admin SDK bypasses security rules). The source
+// collections remain the sole source of truth and are NEVER modified here, so
+// no existing Communications flow changes. All Directory edits must therefore
+// write to /contacts or /contexts first; the change then flows here.
+//
+// Reuses the exact normalizer logic from lib/directory-core.ts via the
+// generated ./directory-core copy (no duplicated logic). 1st-gen triggers,
+// matching the rest of this file (avoids Eventarc/Cloud Run IAM setup).
+// ══════════════════════════════════════════════════════════════════════════
+/** Recursively drop undefined (Firestore rejects it); leave Dates/sentinels intact. */
+function sanitizeUndefined(value) {
+    if (Array.isArray(value))
+        return value.map(sanitizeUndefined).filter((v) => v !== undefined);
+    if (value &&
+        typeof value === "object" &&
+        !(value instanceof Date) &&
+        value.constructor === Object) {
+        return Object.fromEntries(Object.entries(value)
+            .map(([k, v]) => [k, sanitizeUndefined(v)])
+            .filter(([, v]) => v !== undefined));
+    }
+    return value === undefined ? null : value;
+}
+/** Stamp a server updatedAt and strip undefined before writing an index doc. */
+function toIndexDoc(entry) {
+    return sanitizeUndefined({ ...entry, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+}
+/**
+ * Best-effort person→company resolution for the incremental path: exact-name
+ * match against a Company context. Full normalized resolution happens on a
+ * bulk --rebuild; here we keep it cheap (one query) and fall back to null.
+ */
+async function resolveCompanyCompositeId(db, companyName) {
+    const name = typeof companyName === "string" ? companyName.trim() : "";
+    if (!name)
+        return null;
+    const snap = await db.collection("contexts").where("name", "==", name).limit(5).get();
+    for (const doc of snap.docs) {
+        if ((0, directory_core_1.classifyContext)({ id: doc.id, ...doc.data() }) === "company") {
+            return (0, directory_core_1.directoryId)("company", doc.id);
+        }
+    }
+    return null;
+}
+/**
+ * /contacts → /directoryIndex (always type "person", stable composite id).
+ * create/update → upsert person__{id}; delete → remove it.
+ */
+exports.syncDirectoryOnContactWrite = functionsV1.firestore
+    .document("contacts/{contactId}")
+    .onWrite(async (change, context) => {
+    const id = context.params.contactId;
+    const db = (0, firestore_1.getFirestore)();
+    const ref = db.collection("directoryIndex").doc((0, directory_core_1.directoryId)("person", id));
+    if (!change.after.exists) {
+        await ref.delete();
+        functionsV1.logger.info(`[directorySync] contact ${id} deleted → removed person__${id}`);
+        return;
+    }
+    const data = change.after.data() ?? {};
+    const companyEntityId = await resolveCompanyCompositeId(db, data.company);
+    const entry = (0, directory_core_1.buildContactIndexEntry)({ id, ...data }, {
+        resolveCompanyId: () => companyEntityId,
+    });
+    await ref.set(toIndexDoc(entry));
+    functionsV1.logger.info(`[directorySync] contact ${id} → person__${id}`);
+});
+/**
+ * /contexts → /directoryIndex (type company|job|other, chosen by classifyContext,
+ * which honors an explicit directoryType field first).
+ *
+ * On every write we keep EXACTLY ONE entry for the source id: delete the two
+ * non-matching type composite ids and upsert the matching one. This makes
+ * type changes self-healing (old-type doc is removed) without needing the
+ * before-state. On delete, all three context composite ids are removed.
+ */
+exports.syncDirectoryOnContextWrite = functionsV1.firestore
+    .document("contexts/{contextId}")
+    .onWrite(async (change, context) => {
+    const id = context.params.contextId;
+    const db = (0, firestore_1.getFirestore)();
+    const col = db.collection("directoryIndex");
+    const allIds = (0, directory_core_1.contextCompositeIds)(id); // [company__id, job__id, other__id]
+    if (!change.after.exists) {
+        const batch = db.batch();
+        for (const cid of allIds)
+            batch.delete(col.doc(cid));
+        await batch.commit();
+        functionsV1.logger.info(`[directorySync] context ${id} deleted → removed ${allIds.join(", ")}`);
+        return;
+    }
+    const data = change.after.data() ?? {};
+    const entry = (0, directory_core_1.buildContextIndexEntry)({ id, ...data });
+    const batch = db.batch();
+    for (const cid of allIds) {
+        if (cid !== entry.id)
+            batch.delete(col.doc(cid)); // clear stale/other-type entries
+    }
+    batch.set(col.doc(entry.id), toIndexDoc(entry));
+    await batch.commit();
+    functionsV1.logger.info(`[directorySync] context ${id} → ${entry.id} (type=${entry.type})`);
 });
 //# sourceMappingURL=index.js.map

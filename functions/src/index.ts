@@ -2,6 +2,15 @@ import { initializeApp } from "firebase-admin/app"
 import { getFirestore, FieldValue, Firestore, DocumentReference, WriteBatch } from "firebase-admin/firestore"
 import { getMessaging } from "firebase-admin/messaging"
 import * as functionsV1 from "firebase-functions/v1"
+import {
+  buildContactIndexEntry,
+  buildContextIndexEntry,
+  classifyContext,
+  directoryId,
+  contextCompositeIds,
+  type CoreContact,
+  type CoreContext,
+} from "./directory-core"
 
 // Today's date in YYYY-MM-DD (UTC)
 function todayUTC(): string {
@@ -417,4 +426,122 @@ export const onDailyCalendarReminders = functionsV1.pubsub
     functionsV1.logger.info(
       `[calendarReminders] ${today}: notified=${notified} skipped=${skipped}`
     )
+  })
+
+// ══════════════════════════════════════════════════════════════════════════
+// SVC Directory sync — keeps /directoryIndex in lockstep with the source
+// collections (/contacts, /contexts).
+//
+// /directoryIndex is a DERIVED, client-read-only projection. These functions
+// are its ONLY writers (Admin SDK bypasses security rules). The source
+// collections remain the sole source of truth and are NEVER modified here, so
+// no existing Communications flow changes. All Directory edits must therefore
+// write to /contacts or /contexts first; the change then flows here.
+//
+// Reuses the exact normalizer logic from lib/directory-core.ts via the
+// generated ./directory-core copy (no duplicated logic). 1st-gen triggers,
+// matching the rest of this file (avoids Eventarc/Cloud Run IAM setup).
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Recursively drop undefined (Firestore rejects it); leave Dates/sentinels intact. */
+function sanitizeUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeUndefined).filter((v) => v !== undefined)
+  if (
+    value &&
+    typeof value === "object" &&
+    !(value instanceof Date) &&
+    (value as { constructor?: unknown }).constructor === Object
+  ) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([k, v]) => [k, sanitizeUndefined(v)])
+        .filter(([, v]) => v !== undefined)
+    )
+  }
+  return value === undefined ? null : value
+}
+
+/** Stamp a server updatedAt and strip undefined before writing an index doc. */
+function toIndexDoc(entry: object): Record<string, unknown> {
+  return sanitizeUndefined({ ...entry, updatedAt: FieldValue.serverTimestamp() }) as Record<string, unknown>
+}
+
+/**
+ * Best-effort person→company resolution for the incremental path: exact-name
+ * match against a Company context. Full normalized resolution happens on a
+ * bulk --rebuild; here we keep it cheap (one query) and fall back to null.
+ */
+async function resolveCompanyCompositeId(db: Firestore, companyName: unknown): Promise<string | null> {
+  const name = typeof companyName === "string" ? companyName.trim() : ""
+  if (!name) return null
+  const snap = await db.collection("contexts").where("name", "==", name).limit(5).get()
+  for (const doc of snap.docs) {
+    if (classifyContext({ id: doc.id, ...(doc.data() as object) } as CoreContext) === "company") {
+      return directoryId("company", doc.id)
+    }
+  }
+  return null
+}
+
+/**
+ * /contacts → /directoryIndex (always type "person", stable composite id).
+ * create/update → upsert person__{id}; delete → remove it.
+ */
+export const syncDirectoryOnContactWrite = functionsV1.firestore
+  .document("contacts/{contactId}")
+  .onWrite(async (change, context) => {
+    const id: string = context.params.contactId
+    const db = getFirestore()
+    const ref = db.collection("directoryIndex").doc(directoryId("person", id))
+
+    if (!change.after.exists) {
+      await ref.delete()
+      functionsV1.logger.info(`[directorySync] contact ${id} deleted → removed person__${id}`)
+      return
+    }
+
+    const data = change.after.data() ?? {}
+    const companyEntityId = await resolveCompanyCompositeId(db, (data as { company?: unknown }).company)
+    const entry = buildContactIndexEntry({ id, ...(data as object) } as CoreContact, {
+      resolveCompanyId: () => companyEntityId,
+    })
+    await ref.set(toIndexDoc(entry))
+    functionsV1.logger.info(`[directorySync] contact ${id} → person__${id}`)
+  })
+
+/**
+ * /contexts → /directoryIndex (type company|job|other, chosen by classifyContext,
+ * which honors an explicit directoryType field first).
+ *
+ * On every write we keep EXACTLY ONE entry for the source id: delete the two
+ * non-matching type composite ids and upsert the matching one. This makes
+ * type changes self-healing (old-type doc is removed) without needing the
+ * before-state. On delete, all three context composite ids are removed.
+ */
+export const syncDirectoryOnContextWrite = functionsV1.firestore
+  .document("contexts/{contextId}")
+  .onWrite(async (change, context) => {
+    const id: string = context.params.contextId
+    const db = getFirestore()
+    const col = db.collection("directoryIndex")
+    const allIds = contextCompositeIds(id) // [company__id, job__id, other__id]
+
+    if (!change.after.exists) {
+      const batch = db.batch()
+      for (const cid of allIds) batch.delete(col.doc(cid))
+      await batch.commit()
+      functionsV1.logger.info(`[directorySync] context ${id} deleted → removed ${allIds.join(", ")}`)
+      return
+    }
+
+    const data = change.after.data() ?? {}
+    const entry = buildContextIndexEntry({ id, ...(data as object) } as CoreContext)
+
+    const batch = db.batch()
+    for (const cid of allIds) {
+      if (cid !== entry.id) batch.delete(col.doc(cid)) // clear stale/other-type entries
+    }
+    batch.set(col.doc(entry.id), toIndexDoc(entry))
+    await batch.commit()
+    functionsV1.logger.info(`[directorySync] context ${id} → ${entry.id} (type=${entry.type})`)
   })

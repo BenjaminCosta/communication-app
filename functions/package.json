@@ -2,7 +2,8 @@
   "name": "svc-comms-functions",
   "description": "Firebase Cloud Functions for svc-comms",
   "scripts": {
-    "build": "tsc",
+    "sync-core": "node scripts/copy-shared-core.mjs",
+    "build": "node scripts/copy-shared-core.mjs && tsc",
     "build:watch": "tsc --watch"
   },
   "engines": {

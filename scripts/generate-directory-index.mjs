@@ -165,6 +165,9 @@ function directoryId(type, sourceId) {
 }
 
 function classifyContext(ctx) {
+  const explicit = String(ctx.directoryType ?? "").toLowerCase().trim()
+  if (explicit === "company" || explicit === "job" || explicit === "other") return explicit
+  if (explicit === "person") return "other"
   const kind = getFieldValue(ctx.fields, "Kind")?.toLowerCase() ?? ""
   const sheet = (ctx.sourceSheet ?? "").toLowerCase()
   if (kind === "company" || sheet === "companies") return "company"
