@@ -151,6 +151,13 @@ process.exit(0)
 
 // ══════════════════════════════════════════════════════════════════════════
 // Normalizers (ported from lib/directory.ts — kept in sync intentionally)
+//
+// TECH DEBT: this logic is duplicated from lib/directory.ts because Node ESM
+// cannot import the .ts module directly (it imports ./store which pulls in the
+// whole app). Consolidate to a single source of truth — e.g. extract the pure
+// normalizers into a framework-free lib/directory-core.(m)js (or add a tsx/esbuild
+// loader for the script) so this .mjs imports them instead of re-declaring.
+// Until then: any change to a normalizer MUST be mirrored in both files.
 // ══════════════════════════════════════════════════════════════════════════
 
 function directoryId(type, sourceId) {
