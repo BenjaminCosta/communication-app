@@ -242,3 +242,64 @@ re-run mostly skips already-present rows (see the skip reasons in §6).
 | `lib/store.ts` | `ImportedContact` / `AppContext` type definitions |
 | `lib/vcf-import.ts` | the separate VCF import path (246 contacts), also global |
 | `docs/svc-directory-ui-context.md` | the derived Directory layer built on top of this data |
+
+---
+
+## 12. Master Source of Truth enrichment (2026-07-10)
+
+The curated `SVC_Directory_Master_Source_of_Truth(1).xlsx` is now the canonical
+enrichment source on top of the original import. It does **not** replace or
+delete existing `/contacts` or `/contexts` documents. Existing Firestore IDs,
+legacy scalar values, message references and provenance are preserved; the
+canonical correction lives in a versioned `masterData` map and Directory schema
+v3 prefers that map for display/search/relations.
+
+### Production result
+
+| Collection / projection | Result |
+|---|---:|
+| `/contacts` | 5,183 (175 safe deterministic creates; existing docs enriched in place) |
+| `/contexts` | 2,635 (1 company + 10 current jobs added; legacy exceptions preserved) |
+| `/directoryRelations` | 6,618 safe, fully resolved relationships |
+| `/directoryReviewQueue` | 496 issues (480 workbook + 16 comparison-generated) |
+| `/directoryReferenceData` | 462 curated lookup/reference rows |
+| `/directoryIndex` | 7,818 schema-v3 docs (5,183 people · 2,211 companies · 417 jobs · 7 other) |
+| Job→company in index | 355 / 355 safe relations projected |
+| Broken message refs | 0 contact · 0 context |
+| Duplicate canonical IDs | 0 people · 0 contexts |
+
+The 417 job source docs intentionally consist of 416 current master jobs plus
+the preserved legacy `77E4BB68` (`O'REILLY AUTO`) exception. The 2,211 company
+source docs consist of 2,210 master companies plus preserved legacy
+`80BBE58F` (`G M Northrup`). Both exceptions are review-queued rather than
+deleted or silently merged.
+
+Three master people matched multiple existing Firestore documents and were not
+auto-enriched; eleven otherwise-safe relationships depend on those endpoints.
+All fourteen cases, plus the two legacy source exceptions, are represented by
+deterministic generated review issues.
+
+Shared emails/phones and repeated job names are not treated as duplicate entity
+identity: the master deliberately keeps distinct canonical records when a
+generic/shared signal is insufficient. `scripts/audit-directory.mjs` therefore
+reports canonical-ID duplicates separately from shared signals/names.
+
+### Commands
+
+```bash
+# Plan only
+GOOGLE_APPLICATION_CREDENTIALS=./service-account.json \
+  node scripts/enrich-directory-from-master.mjs /path/to/master.xlsx
+
+# Apply (wrap in Directory lock/rebuild/unlock for bulk operation)
+DRY_RUN=false CONFIRM_MASTER_ENRICHMENT=true \
+  GOOGLE_APPLICATION_CREDENTIALS=./service-account.json \
+  node scripts/enrich-directory-from-master.mjs /path/to/master.xlsx --write
+
+# Verify idempotency, counts, schema, relationships and message references
+GOOGLE_APPLICATION_CREDENTIALS=./service-account.json \
+  node scripts/enrich-directory-from-master.mjs /path/to/master.xlsx --verify
+```
+
+The workbook SHA-256 applied in production is
+`8600ab63e7d2bcd72ad319051827ac184c3d26724aa74283aad70d293f26db63`.

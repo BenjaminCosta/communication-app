@@ -3,7 +3,7 @@
 import { CalendarDays, Hash, Tag, Users, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type NavTarget = "stream" | "people" | "projects" | "calendar" | "contexts"
+export type NavTarget = "stream" | "directory" | "people" | "projects" | "calendar" | "contexts"
 
 interface NavigationMenuModalProps {
   onClose: () => void

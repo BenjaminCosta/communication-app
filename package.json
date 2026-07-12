@@ -36,7 +36,9 @@
     "import:vcf": "DRY_RUN=false CONFIRM_IMPORT=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-vcf-contacts.mjs jfhContacts.vcf",
     "import:database:dry": "OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
     "import:database": "DRY_RUN=false CONFIRM_IMPORT=true OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
-    "test:vcf-import": "node --test scripts/vcf-import.test.mjs"
+    "enrich:directory-master": "node scripts/enrich-directory-from-master.mjs",
+    "test:vcf-import": "node --test scripts/vcf-import.test.mjs",
+    "test:directory": "tsx --test scripts/directory-search.test.ts"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -77,9 +79,10 @@
     "cmdk": "1.1.1",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.6.0",
-    "firebase": "^12.12.1",
+    "firebase": "^12.16.0",
     "input-otp": "1.4.2",
     "lucide-react": "^0.564.0",
+    "minisearch": "7.2.0",
     "next": "16.2.4",
     "next-themes": "^0.4.6",
     "react": "^19",
@@ -102,6 +105,7 @@
     "postcss": "^8.5",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.2.0",
+    "tsx": "4.23.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3"
   }

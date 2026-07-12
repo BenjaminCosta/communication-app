@@ -24,8 +24,6 @@ import {
   onSnapshot,
   query,
   where,
-  getDoc,
-  getDocs,
   serverTimestamp,
   Timestamp,
   arrayUnion,
@@ -41,7 +39,7 @@ import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
-import { AppLoadingScreen, AppScreenSkeleton } from "@/components/app-loading-screen"
+import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 // Secondary screens — lazy-loaded on demand (code splitting)
 const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
@@ -55,6 +53,8 @@ const AdminScreen = dynamic(() => import("@/components/admin-screen").then((m) =
 const CalendarScreen = dynamic(() => import("@/components/calendar-screen").then((m) => ({ default: m.CalendarScreen })), { ssr: false })
 const ContextsScreen = dynamic(() => import("@/components/contexts-screen").then((m) => ({ default: m.ContextsScreen })), { ssr: false })
 const ContextDetailScreen = dynamic(() => import("@/components/context-detail-screen").then((m) => ({ default: m.ContextDetailScreen })), { ssr: false })
+const DirectoryScreen = dynamic(() => import("@/components/directory/directory-screen").then((m) => ({ default: m.DirectoryScreen })), { ssr: false })
+const DirectoryProfileScreen = dynamic(() => import("@/components/directory/directory-profile-screen").then((m) => ({ default: m.DirectoryProfileScreen })), { ssr: false })
 const HelpScreen = dynamic(() => import("@/components/help-screen").then((m) => ({ default: m.HelpScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
@@ -102,6 +102,8 @@ type Screen =
   | "calendar"
   | "contexts"
   | "context-detail"
+  | "directory"
+  | "directory-detail"
   | "help"
 
 // Depth map — higher = further in the hierarchy
@@ -122,6 +124,33 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "project-detail": 5,
   contexts: 4,
   "context-detail": 5,
+  directory: 1,
+  "directory-detail": 2,
+}
+
+// Remembers which module (Communications vs Directory) the user was last in,
+// so reopening the app resumes there instead of always defaulting to Comms.
+const LAST_MODULE_KEY = "svc-last-module"
+type SvcModuleName = "communications" | "directory"
+
+function getLastModule(): SvcModuleName | null {
+  if (typeof window === "undefined") return null
+  const lastModule = localStorage.getItem(LAST_MODULE_KEY) === "directory" ? "directory" : null
+  if (lastModule) document.cookie = `${LAST_MODULE_KEY}=directory; path=/; max-age=31536000; samesite=lax`
+  return lastModule
+}
+
+function persistLastModule(screen: Screen): void {
+  if (typeof window === "undefined") return
+  let module: SvcModuleName | null = null
+  if (screen === "directory" || screen === "directory-detail") {
+    module = "directory"
+  } else if (screen !== "loading" && screen !== "login" && screen !== "register") {
+    module = "communications"
+  }
+  if (!module) return
+  localStorage.setItem(LAST_MODULE_KEY, module)
+  document.cookie = `${LAST_MODULE_KEY}=${module}; path=/; max-age=31536000; samesite=lax`
 }
 
 interface ToastState {
@@ -266,6 +295,7 @@ export default function Home() {
   const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
   const [appContexts, setAppContexts] = useState<AppContext[]>([])
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
+  const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [contextsLoaded, setContextsLoaded] = useState(false)
@@ -372,6 +402,7 @@ export default function Home() {
     }
     prevScreenRef.current = next
     setActiveScreen(next)
+    persistLastModule(next)
   }, [])
 
   useEffect(() => {
@@ -399,23 +430,20 @@ export default function Home() {
           email: user.email ?? undefined,
           emailNormalized,
         })
-        // Navigate immediately — don't block on Firestore
-        navigateTo("compose")
-        // Background: read existing user doc then merge-update (non-blocking)
+        // Navigate immediately — don't block on Firestore. Default is Compose
+        // (Communications), unless the user's last session was in Directory.
+        navigateTo(getLastModule() === "directory" ? "directory" : "compose")
+        // Background auth metadata update. Do not lead with a one-shot getDoc:
+        // it can race the realtime listeners and trip Firebase's ca9/b815 bug.
+        // Missing display fields are filled after the persistent users snapshot.
         const userRef = doc(db, "users", user.uid)
-        getDoc(userRef).then((snap) => {
-          const existing = snap.exists() ? snap.data() : {}
-          return setDoc(userRef, {
-            id: user.uid,
-            email: user.email ?? "",
-            emailNormalized,
-            emailVerified: user.emailVerified === true,
-            authProviderIds: user.providerData.map((p) => p.providerId),
-            ...(!existing.name ? { name: authName } : {}),
-            ...(!existing.initials ? { initials: authInitials } : {}),
-            ...(!existing.color ? { color: authColor } : {}),
-          }, { merge: true })
-        }).catch(() => {})
+        setDoc(userRef, {
+          id: user.uid,
+          email: user.email ?? "",
+          emailNormalized,
+          emailVerified: user.emailVerified === true,
+          authProviderIds: user.providerData.map((p) => p.providerId),
+        }, { merge: true }).catch(() => {})
         // Register FCM token if notification permission was already granted
         if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
           registerFCMToken(user.uid).catch(() => {})
@@ -451,12 +479,14 @@ export default function Home() {
     const usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
       const all = snap.docs.map((d) => {
         const data = d.data()
+        const resolvedEmail = data.email ?? (d.id === firebaseUser.uid ? firebaseUser.email : undefined)
+        const resolvedName = data.name || deriveNameFromEmail(resolvedEmail ?? "")
         return {
           id: data.id ?? d.id,
-          name: data.name,
-          email: data.email ?? undefined,
+          name: resolvedName,
+          email: resolvedEmail ?? undefined,
           emailNormalized: data.emailNormalized ?? undefined,
-          initials: data.initials,
+          initials: data.initials || deriveInitials(resolvedName),
           color: data.color ?? getUserAvatarColor(d.id),
           lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
           isAdmin: data.isAdmin === true,
@@ -469,8 +499,18 @@ export default function Home() {
       // Read notification preference from raw doc
       const meDoc = snap.docs.find((d) => d.id === firebaseUser.uid)
       if (meDoc) {
-        const pref = meDoc.data().notificationPreference
+        const meData = meDoc.data()
+        const pref = meData.notificationPreference
         setNotifPreference(pref === "muted" ? "muted" : "instant")
+        const authName = firebaseUser.displayName || deriveNameFromEmail(firebaseUser.email ?? "")
+        const missingProfileFields = {
+          ...(!meData.name ? { name: authName } : {}),
+          ...(!meData.initials ? { initials: deriveInitials(authName) } : {}),
+          ...(!meData.color ? { color: getUserAvatarColor(firebaseUser.uid) } : {}),
+        }
+        if (Object.keys(missingProfileFields).length > 0) {
+          setDoc(meDoc.ref, missingProfileFields, { merge: true }).catch(() => {})
+        }
       }
     }, () => {})
 
@@ -690,9 +730,13 @@ export default function Home() {
   }, [])
 
   const handleSignOut = useCallback(async () => {
+    if (firebaseUser?.uid) {
+      const { clearDirectorySearchCache } = await import("@/lib/directory-search")
+      await clearDirectorySearchCache(firebaseUser.uid).catch(() => {})
+    }
     await signOut(auth)
     // onAuthStateChanged will navigate to login
-  }, [])
+  }, [firebaseUser?.uid])
 
   // ── Project handlers ──────────────────────────────────────────────────
   const handleCreateProject = useCallback(
@@ -1255,7 +1299,12 @@ export default function Home() {
     navigateTo(projectsReturnRef.current)
   }, [navigateTo])
 
-  const goToCalendar = useCallback(() => navigateTo("calendar"), [navigateTo])
+  const calendarReturnRef = useRef<Screen>("stream")
+  const goToCalendar = useCallback(() => {
+    calendarReturnRef.current = "stream"
+    navigateTo("calendar")
+  }, [navigateTo])
+  const handleCalendarBack = useCallback(() => navigateTo(calendarReturnRef.current), [navigateTo])
 
   // ── Contexts navigation ───────────────────────────────────────────────
   const contextsReturnRef = useRef<Screen>("stream")
@@ -1270,6 +1319,18 @@ export default function Home() {
     setSelectedContextId(contextId)
     navigateTo("context-detail")
   }, [navigateTo])
+
+  // ── Directory navigation ──────────────────────────────────────────────
+  const goToDirectoryFromStream = useCallback(() => navigateTo("directory"), [navigateTo])
+  const goToDirectoryDetail = useCallback((directoryId: string) => {
+    setSelectedDirectoryId(directoryId)
+    navigateTo("directory-detail")
+  }, [navigateTo])
+  const handleDirectoryDetailBack = useCallback(() => {
+    setSelectedDirectoryId(null)
+    navigateTo("directory")
+  }, [navigateTo])
+  const handleDirectorySwitchToStream = useCallback(() => navigateTo("stream"), [navigateTo])
 
   // ── Context CRUD ──────────────────────────────────────────────────────
   const handleCreateContext = useCallback(async (name: string, description?: string): Promise<AppContext> => {
@@ -1445,7 +1506,7 @@ export default function Home() {
     <div className="h-full w-full flex flex-col bg-background overflow-hidden relative">
 
       {/* Loading splash */}
-      {activeScreen === "loading" && <AppLoadingScreen />}
+      {activeScreen === "loading" && <LaunchLoadingScreen />}
 
       {showScreenSkeleton && activeScreen !== "loading" && <AppScreenSkeleton />}
 
@@ -1586,7 +1647,7 @@ export default function Home() {
             contacts={contacts}
             projects={projects}
             currentUserId={currentUser?.id ?? ""}
-            onBack={goToStream}
+            onBack={handleCalendarBack}
             onSendMessage={handleSendFromCalendar}
             onMessageClick={handleMessageClick}
             importedContacts={importedContacts}
@@ -1609,6 +1670,26 @@ export default function Home() {
             />
           )}
         </>
+      )}
+
+      {!showScreenSkeleton && (activeScreen === "directory" || activeScreen === "directory-detail") && firebaseUser && (
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <DirectoryScreen
+            className={activeScreen === "directory" ? `${entranceClass} h-full w-full` : "hidden"}
+            userId={firebaseUser.uid}
+            onOpenDetail={goToDirectoryDetail}
+            onSwitchToStream={handleDirectorySwitchToStream}
+          />
+          {activeScreen === "directory-detail" && selectedDirectoryId && (
+            <DirectoryProfileScreen
+              className={entranceClass}
+              directoryId={selectedDirectoryId}
+              userId={firebaseUser.uid}
+              onBack={handleDirectoryDetailBack}
+              onOpenEntity={goToDirectoryDetail}
+            />
+          )}
+        </div>
       )}
 
       {!showScreenSkeleton && activeScreen === "contexts" && (
@@ -1672,6 +1753,7 @@ export default function Home() {
             onProjects={goToProjectsFromStream}
             onCalendar={goToCalendar}
             onContexts={goToContextsFromStream}
+            onDirectory={goToDirectoryFromStream}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

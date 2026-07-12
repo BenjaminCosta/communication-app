@@ -1,31 +1,46 @@
 "use client"
 
-export function AppLoadingScreen() {
+type LoadingProduct = "stream" | "directory"
+
+interface ProductLoadingScreenProps {
+  product: LoadingProduct
+}
+
+function ProductLoadingScreen({ product }: ProductLoadingScreenProps) {
+  const isDirectory = product === "directory"
+  const title = isDirectory ? "Directory" : "Stream"
+  const subtitle = isDirectory ? "PEOPLE · COMPANIES · JOBS" : "Team Communication"
+  const emoji = isDirectory ? "🧐" : "🤔"
+  const emojiLabel = isDirectory ? "searching" : "thinking"
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-10 stream-glass-screen animate-fade-in">
+    <div className={`flex flex-1 flex-col items-center justify-center gap-10 ${isDirectory ? "directory-glass-screen" : "stream-glass-screen"} animate-fade-in`}>
       <div className="flex flex-col items-center gap-4">
         <div className="relative animate-spring-pop">
           <div
-            className="w-24 h-24 rounded-[28px] flex items-center justify-center animate-logo-breathe"
-            style={{
+            className={`flex h-24 w-24 items-center justify-center rounded-[28px] ${isDirectory ? "animate-directory-logo-breathe" : "animate-logo-breathe"}`}
+            style={isDirectory ? {
+              background: "rgba(18,24,33,0.9)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 0 0 1px rgba(253,186,116,0.16), 0 0 30px rgba(249,115,22,0.09), 0 8px 32px rgba(0,0,0,0.42)",
+            } : {
               background: "linear-gradient(145deg, #0f2249 0%, #0d1a3a 100%)",
               boxShadow: "0 0 0 1px rgba(37,99,235,0.18), 0 0 40px rgba(37,99,235,0.18), 0 8px 32px rgba(0,0,0,0.5)",
             }}
           >
-            <span className="text-5xl select-none" role="img" aria-label="thinking">🤔</span>
+            <span className="select-none text-5xl" role="img" aria-label={emojiLabel}>{emoji}</span>
           </div>
           <div
-            className="absolute inset-0 rounded-[28px] pointer-events-none"
-            style={{ boxShadow: "0 0 0 1px rgba(37,99,235,0.10)" }}
+            className="pointer-events-none absolute inset-0 rounded-[28px]"
+            style={{ boxShadow: isDirectory ? "0 0 0 1px rgba(253,186,116,0.08)" : "0 0 0 1px rgba(37,99,235,0.10)" }}
           />
         </div>
 
         <div className="text-center animate-fade-up delay-200">
           <p className="text-xl font-bold tracking-tight">
-            SVC <span className="text-primary">Stream</span>
+            SVC <span style={{ color: isDirectory ? "#FDBA74" : undefined }} className={isDirectory ? undefined : "text-primary"}>{title}</span>
           </p>
           <p className="text-[11px] text-muted-foreground/50 font-mono tracking-[3px] uppercase mt-1">
-            Team Communication
+            {subtitle}
           </p>
         </div>
       </div>
@@ -34,12 +49,43 @@ export function AppLoadingScreen() {
         <div className="w-44 h-[3px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
           <div
             className="h-full w-1/2 rounded-full animate-load-bar"
-            style={{ background: "linear-gradient(90deg, transparent, #2563EB, #60a5fa, transparent)" }}
+            style={isDirectory ? {
+              background: "linear-gradient(90deg, transparent, rgba(249,115,22,0.72), #FDBA74, transparent)",
+              boxShadow: "0 0 10px rgba(249,115,22,0.16)",
+            } : {
+              background: "linear-gradient(90deg, transparent, #2563EB, #60a5fa, transparent)",
+            }}
           />
         </div>
         <p className="text-[10px] text-muted-foreground/40 font-mono tracking-[3px] uppercase">
           Loading
         </p>
+      </div>
+    </div>
+  )
+}
+
+export function AppLoadingScreen() {
+  return <ProductLoadingScreen product="stream" />
+}
+
+export function DirectoryLoadingScreen() {
+  return <ProductLoadingScreen product="directory" />
+}
+
+/**
+ * Both variants are present in the initial HTML so a tiny head script can
+ * choose the persisted module before React hydrates. That prevents a Stream
+ * splash from flashing before Directory on reload.
+ */
+export function LaunchLoadingScreen() {
+  return (
+    <div className="launch-loading-root flex min-h-0 w-full flex-1">
+      <div className="launch-loading-stream flex min-h-0 w-full flex-1">
+        <AppLoadingScreen />
+      </div>
+      <div className="launch-loading-directory min-h-0 w-full flex-1">
+        <DirectoryLoadingScreen />
       </div>
     </div>
   )

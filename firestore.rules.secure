@@ -25,6 +25,27 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // ── Directory user state ───────────────────────────────────────────────
+    match /users/{userId}/directoryFavorites/{entryId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.keys().hasOnly(['directoryId', 'favoritedAt'])
+                            && request.resource.data.directoryId == entryId
+                            && request.resource.data.favoritedAt == request.time;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/directoryRecents/{entryId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.keys().hasOnly(['directoryId', 'viewedAt'])
+                            && request.resource.data.directoryId == entryId
+                            && request.resource.data.viewedAt == request.time;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
     // ── Projects (Tags) ────────────────────────────────────────────────────
     // Any authenticated user can read (tags are global/shared across all users).
     // Only the owner can create/delete. Only members can update.
@@ -136,6 +157,42 @@ service cloud.firestore {
     match /directoryMeta/{docId} {
       allow read:  if request.auth != null;
       allow write: if false;
+    }
+
+    // ── Directory relations (derived, safe, confidence-gated) ───────────────
+    // Any authenticated user may READ; clients may NEVER write (Admin SDK only).
+    match /directoryRelations/{relationId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── Directory reference data (curated lookups/catalogs) ─────────────────
+    match /directoryReferenceData/{referenceId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── Directory review queue — internal ops only (server/Admin SDK) ───────
+    match /directoryReviewQueue/{issueId} {
+      allow read, write: if false;
+    }
+
+    // ── Directory notes (operational knowledge, per entity) ─────────────────
+    match /directoryNotes/{noteId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.createdBy == request.auth.uid;
+    }
+
+    // ── Directory files (evidence/docs, per entity) ─────────────────────────
+    match /directoryFiles/{fileId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uploadedBy == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.uploadedBy == request.auth.uid;
     }
 
     // ── Directory control (import lock) — server/Admin SDK only ─────────────

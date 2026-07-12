@@ -23,6 +23,7 @@ import {
   arrayUnion,
   arrayRemove,
   serverTimestamp,
+  type UpdateData,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import {
@@ -32,9 +33,100 @@ import {
   isLikelyUrl,
   type CoreContactPoint,
   type CoreContextField,
+  type DirectoryType,
 } from "@/lib/directory-core"
 
 export class DirectoryWriteError extends Error {}
+
+// ── Public Overview field edits ─────────────────────────────────────────────
+// Human edits are authoritative, so they are written into `masterData` — the
+// map the normalizer (lib/directory-core) and view models read FIRST, above
+// legacy top-level scalars. The top-level scalar is updated too (belt & braces
+// for audits/non-Directory consumers). The Cloud Functions re-derive the index
+// from the edited source doc, so edits reflect in search/lists automatically.
+//
+// Note: a future full re-enrichment from the master workbook only rewrites a
+// record's masterData when that workbook ROW changes (contentHash diff), so
+// these edits survive routine re-runs and are only superseded if the canonical
+// source itself changes — which is the intended precedence.
+
+export type DirectoryEditInput = Record<string, string>
+
+function phoneDigits(value: string): string {
+  const digits = value.replace(/\D/g, "")
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
+}
+
+export async function applyDirectoryEdits(
+  sourceCollection: "contacts" | "contexts",
+  sourceId: string,
+  type: DirectoryType,
+  edits: DirectoryEditInput,
+): Promise<void> {
+  const ref = doc(db, sourceCollection, sourceId)
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(edits, key)
+  const val = (key: string) => cleanValue(edits[key] ?? "")
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This entity no longer exists.")
+    const data = snap.data()
+    const master: Record<string, unknown> = { ...(data.masterData ?? {}) }
+    const patch: Record<string, unknown> = { updatedAt: serverTimestamp() }
+
+    if (type === "person") {
+      if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); master.displayName = v; patch.name = v }
+      if (has("role")) { const v = val("role"); master.roleName = v; patch.role = v }
+      if (has("company")) {
+        const v = val("company")
+        master.companyName = v
+        master.companyMatchConfidence = v ? 1 : (master.companyMatchConfidence ?? 0)
+        patch.company = v
+      }
+      if (has("phone")) {
+        const v = val("phone")
+        if (v && !isLikelyPhone(v)) throw new DirectoryWriteError("Enter a valid phone number.")
+        const others = (Array.isArray(master.phones) ? master.phones.map(String) : [])
+          .filter((p) => phoneDigits(p) !== (v ? phoneDigits(v) : ""))
+        master.phones = v ? [v, ...others] : others
+        master.primaryPhone = v || null
+        patch.phone = v
+        patch.phoneNormalized = v ? phoneDigits(v) : null
+      }
+      if (has("email")) {
+        const v = val("email")
+        if (v && !isLikelyEmail(v)) throw new DirectoryWriteError("Enter a valid email address.")
+        const others = (Array.isArray(master.emails) ? master.emails.map(String) : [])
+          .filter((e) => e.toLowerCase() !== (v ? v.toLowerCase() : ""))
+        master.emails = v ? [v, ...others] : others
+        master.primaryEmail = v || null
+        patch.email = v
+        patch.emailNormalized = v ? v.toLowerCase() : null
+      }
+      if (has("address")) master.address = val("address")
+      if (has("notes")) { const v = val("notes"); master.notes = v; patch.notes = v }
+      patch.masterData = master
+    } else if (type === "company") {
+      if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); master.displayName = v; patch.name = v }
+      if (has("phone")) { const v = val("phone"); if (v && !isLikelyPhone(v)) throw new DirectoryWriteError("Enter a valid phone number."); master.phone = v }
+      if (has("address")) master.address = val("address")
+      if (has("website")) { const v = val("website"); if (v && !isLikelyUrl(v)) throw new DirectoryWriteError("Enter a valid website URL."); master.website = v }
+      if (has("description")) { const v = val("description"); master.description = v; patch.description = v }
+      patch.masterData = master
+    } else if (type === "job") {
+      if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); master.canonicalName = v; patch.name = v }
+      const jobKeys = ["status", "address", "location", "durationWeeks", "projectType", "reportCadence", "operationalNotes"] as const
+      for (const key of jobKeys) if (has(key)) master[key] = val(key)
+      patch.masterData = master
+    } else {
+      // "other" contexts have no masterData; the normalizer reads top-level.
+      if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); patch.name = v }
+      if (has("description")) patch.description = val("description")
+    }
+
+    tx.update(ref, patch as unknown as UpdateData<Record<string, unknown>>)
+  })
+}
 
 // ── Scalar field edits (contacts + contexts) ────────────────────────────
 

@@ -50,17 +50,20 @@ console.log("")
 // ── Classify contacts ───────────────────────────────────────────────────
 
 const classifiedContacts = contacts.map((c) => {
+  const master = c.masterData ?? {}
+  const masterCompanyIsSafe = Number(master.companyMatchConfidence ?? 0) >= 0.75
   const sourceSheet = (c.sourceSheet ?? "").toLowerCase()
   return {
     id: c.id,
-    name: c.name ?? "(blank)",
+    name: master.displayName || master.canonicalName || c.name || "(blank)",
     directoryType: "person",
     sourceSheet: c.sourceSheet ?? null,
     source: c.source ?? null,
-    email: c.email ?? c.emailNormalized ?? null,
-    phone: c.phone ?? null,
-    company: c.company ?? null,
-    role: c.role ?? null,
+    email: master.primaryEmail ?? master.emails?.[0] ?? c.email ?? c.emailNormalized ?? null,
+    phone: master.primaryPhone ?? master.phones?.[0] ?? c.phone ?? null,
+    company: masterCompanyIsSafe ? (master.companyName ?? c.company ?? null) : (c.company ?? null),
+    companyContextId: masterCompanyIsSafe ? (master.companyContextId ?? null) : null,
+    role: master.roleName ?? c.role ?? null,
     linkedUserId: c.linkedUserId ?? null,
     visibility: c.visibility ?? "private",
     hasEmails: Array.isArray(c.emails) && c.emails.length > 0,
@@ -99,21 +102,24 @@ function classifyContext(ctx) {
 }
 
 const classifiedContexts = contexts.map((ctx) => {
+  const master = ctx.masterData ?? {}
   const directoryType = classifyContext(ctx)
   return {
     id: ctx.id,
-    name: ctx.name ?? "(blank)",
+    name: master.displayName || master.canonicalName || ctx.name || "(blank)",
     directoryType,
     sourceSheet: ctx.sourceSheet ?? null,
     description: ctx.description ?? null,
     fieldCount: Array.isArray(ctx.fields) ? ctx.fields.length : 0,
     kind: getFieldValue(ctx.fields ?? [], "Kind"),
     sourceRecordId: ctx.sourceRecordId ?? null,
-    hasAddress: !!getFieldValue(ctx.fields ?? [], "Address"),
-    hasPhone: !!getFieldValue(ctx.fields ?? [], "Phone"),
-    hasWebsite: !!getFieldValue(ctx.fields ?? [], "Website"),
-    hasStatus: !!getFieldValue(ctx.fields ?? [], "Status"),
+    hasAddress: !!(master.address ?? getFieldValue(ctx.fields ?? [], "Address")),
+    hasPhone: !!(master.phone ?? getFieldValue(ctx.fields ?? [], "Phone")),
+    hasWebsite: !!(master.website ?? getFieldValue(ctx.fields ?? [], "Website")),
+    hasStatus: !!(master.status ?? getFieldValue(ctx.fields ?? [], "Status")),
     company: getFieldValue(ctx.fields ?? [], "Company"),
+    companyName: master.companyName ?? getFieldValue(ctx.fields ?? [], "Parent Company"),
+    companyContextId: master.companyContextId ?? getFieldValue(ctx.fields ?? [], "Parent Company Context ID"),
     projectManager: getFieldValue(ctx.fields ?? [], "Project Manager"),
   }
 })
@@ -155,8 +161,22 @@ for (const ctx of classifiedContexts) {
 
 const personCompanyLinks = []
 const personCompanyUnresolved = []
+const companyByContextId = new Map(
+  classifiedContexts.filter((ctx) => ctx.directoryType === "company").map((ctx) => [ctx.id, ctx])
+)
 for (const contact of classifiedContacts) {
   if (!contact.company) continue
+  if (contact.companyContextId && companyByContextId.has(contact.companyContextId)) {
+    const company = companyByContextId.get(contact.companyContextId)
+    personCompanyLinks.push({
+      personId: contact.id,
+      personName: contact.name,
+      companyId: company.id,
+      companyName: company.name,
+      role: contact.role,
+    })
+    continue
+  }
   const key = contact.company.toLowerCase().trim()
   if (companyNames.has(key)) {
     personCompanyLinks.push({
@@ -181,8 +201,18 @@ for (const contact of classifiedContacts) {
 const jobCompanyLinks = []
 const jobCompanyUnresolved = []
 for (const ctx of classifiedContexts) {
-  if (ctx.directoryType !== "job" || !ctx.company) continue
-  const key = ctx.company.toLowerCase().trim()
+  if (ctx.directoryType !== "job" || (!ctx.companyName && !ctx.companyContextId)) continue
+  if (ctx.companyContextId && companyByContextId.has(ctx.companyContextId)) {
+    const company = companyByContextId.get(ctx.companyContextId)
+    jobCompanyLinks.push({
+      jobId: ctx.id,
+      jobName: ctx.name,
+      companyId: company.id,
+      companyName: company.name,
+    })
+    continue
+  }
+  const key = (ctx.companyName ?? "").toLowerCase().trim()
   if (companyNames.has(key)) {
     jobCompanyLinks.push({
       jobId: ctx.id,
@@ -194,7 +224,7 @@ for (const ctx of classifiedContexts) {
     jobCompanyUnresolved.push({
       jobId: ctx.id,
       jobName: ctx.name,
-      companyName: ctx.company,
+      companyName: ctx.companyName,
     })
   }
 }
@@ -242,6 +272,11 @@ const dupPhones = findDuplicates(classifiedContacts, (c) => {
   return digits.length >= 7 ? digits : null
 })
 const dupContextNames = findDuplicates(classifiedContexts, (c) => c.name.toLowerCase().trim())
+const dupMasterPeople = findDuplicates(contacts, (c) => c.masterData?.canonicalId?.toLowerCase?.().trim()).filter((g) => g.key)
+const dupMasterContexts = findDuplicates(contexts, (c) => {
+  const id = c.masterData?.canonicalId?.toLowerCase?.().trim()
+  return id ? `${classifyContext(c)}:${id}` : null
+}).filter((g) => g.key)
 
 // ── Data quality issues ─────────────────────────────────────────────────
 
@@ -265,7 +300,7 @@ for (const ctx of classifiedContexts) {
   if (ctx.directoryType === "job" && !ctx.hasAddress) {
     addIssue("warning", "job", ctx.id, ctx.name, "No address")
   }
-  if (ctx.directoryType === "job" && !ctx.company) {
+  if (ctx.directoryType === "job" && !ctx.companyContextId) {
     addIssue("warning", "job", ctx.id, ctx.name, "No company association")
   }
 }
@@ -299,7 +334,7 @@ if (qualityIssues.details.length >= 200) {
     if (ctx.directoryType === "company" && !ctx.hasPhone && !ctx.hasAddress && !ctx.hasWebsite) inc(fullCounts, "company:No phone, address, or website")
     if (ctx.directoryType === "job" && !ctx.hasStatus) inc(fullCounts, "job:No status")
     if (ctx.directoryType === "job" && !ctx.hasAddress) inc(fullCounts, "job:No address")
-    if (ctx.directoryType === "job" && !ctx.company) inc(fullCounts, "job:No company association")
+    if (ctx.directoryType === "job" && !ctx.companyContextId) inc(fullCounts, "job:No company association")
   }
   Object.assign(issueCounts, fullCounts)
 }
@@ -325,7 +360,13 @@ if (jsonMode) {
       jobCompany: { resolved: jobCompanyLinks.length, unresolved: jobCompanyUnresolved.length },
     },
     messageRefs: { msgsWithContacts, msgsWithContexts, brokenContactRefs, brokenContextRefs },
-    duplicates: { emails: dupEmails.length, phones: dupPhones.length, contextNames: dupContextNames.length },
+    duplicates: {
+      canonicalPeople: dupMasterPeople.length,
+      canonicalContexts: dupMasterContexts.length,
+      sharedEmails: dupEmails.length,
+      sharedPhones: dupPhones.length,
+      repeatedContextNames: dupContextNames.length,
+    },
     quality: { errors: qualityIssues.error, warnings: qualityIssues.warning, issueCounts },
     linkedUsers: linkedContacts.length,
   }, null, 2))
@@ -433,19 +474,21 @@ if (brokenContextRefSamples.length > 0) {
 }
 console.log("")
 
-console.log("6. DUPLICATES")
-console.log("─────────────")
-console.log(`   Duplicate email groups:        ${dupEmails.length}`)
-console.log(`   Duplicate phone groups:        ${dupPhones.length}`)
-console.log(`   Duplicate context name groups: ${dupContextNames.length}`)
+console.log("6. IDENTITY & SHARED SIGNALS")
+console.log("────────────────────────────")
+console.log(`   Duplicate canonical people:    ${dupMasterPeople.length}`)
+console.log(`   Duplicate canonical contexts:  ${dupMasterContexts.length}`)
+console.log(`   Shared email groups:            ${dupEmails.length}`)
+console.log(`   Shared phone groups:            ${dupPhones.length}`)
+console.log(`   Repeated context name groups:   ${dupContextNames.length}`)
 if (dupEmails.length > 0) {
-  console.log(`   Sample duplicate emails:`)
+  console.log(`   Sample shared emails:`)
   dupEmails.slice(0, 5).forEach((g) => {
     console.log(`   ├─ ${g.key}: ${g.entries.map((e) => e.name).join(", ")}`)
   })
 }
 if (dupContextNames.length > 0) {
-  console.log(`   Sample duplicate context names:`)
+  console.log(`   Sample repeated context names:`)
   dupContextNames.slice(0, 5).forEach((g) => {
     console.log(`   ├─ "${g.key}": ${g.entries.map((e) => `${e.name} (${e.source})`).join(", ")}`)
   })

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import posixpath
 import sys
 from zipfile import ZipFile
 from xml.etree import ElementTree as ET
@@ -44,9 +45,12 @@ def load_workbook(path):
             rid = sheet.attrib[
                 "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
             ]
-            target = relmap[rid]
+            # Relationship targets may be relative ("worksheets/sheet1.xml")
+            # or package-absolute ("/xl/worksheets/sheet1.xml"). Normalize both
+            # forms without ever producing the invalid "xl//xl/..." path.
+            target = relmap[rid].lstrip("/")
             if not target.startswith("xl/"):
-                target = "xl/" + target
+                target = posixpath.normpath(posixpath.join("xl", target))
             root = ET.fromstring(zip_file.read(target))
             raw_rows = []
             for row in root.findall("a:sheetData/a:row", NS):

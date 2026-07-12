@@ -32,6 +32,7 @@ import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import { useSwipeToReply } from "@/hooks/use-swipe-to-reply"
 import { DatePickerModal } from "@/components/date-picker-modal"
 import { NavigationMenuModal } from "@/components/navigation-menu-modal"
+import { ModuleSwitcher } from "@/components/module-switcher"
 import { GlobalSearchSheet } from "@/components/global-search-sheet"
 import { MessageImage } from "@/components/message-image"
 import {
@@ -99,6 +100,7 @@ interface StreamScreenProps {
   onProjects: () => void
   onCalendar: () => void
   onContexts: () => void
+  onDirectory: () => void
   onCopyMessage: (text: string) => void
   contexts?: AppContext[]
   onSendMessage: (draft: MessageDraft) => Promise<void>
@@ -140,6 +142,7 @@ export function StreamScreen({
   onProjects,
   onCalendar,
   onContexts,
+  onDirectory,
   onCopyMessage,
   contexts = [],
   onSendMessage,
@@ -470,9 +473,10 @@ export function StreamScreen({
     <div className="stream-glass-screen flex-1 flex flex-col min-h-0 animate-fade-in overflow-hidden">
       {/* Header */}
       <div className="glass-panel flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b animate-slide-down">
-        <h1 className="text-lg font-bold tracking-tight">
-          SVC <span className="text-blue-300">Stream</span>
-        </h1>
+        <ModuleSwitcher
+          activeModule="communications"
+          onSelect={(module) => { if (module === "directory") onDirectory() }}
+        />
         <div className="flex items-center gap-2">
           {/* Search */}
           <button
@@ -1070,6 +1074,8 @@ export function StreamScreen({
               onCalendar()
             } else if (target === "contexts") {
               onContexts()
+            } else if (target === "directory") {
+              onDirectory()
             }
           }}
         />

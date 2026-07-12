@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { cookies } from 'next/headers'
 import { Analytics } from '@vercel/analytics/next'
 import { ServiceWorkerRegister } from '@/components/ui/ServiceWorkerRegister'
 import { ViewportSync } from '@/components/ui/ViewportSync'
@@ -36,13 +37,19 @@ export const viewport: Viewport = {
   interactiveWidget: 'resizes-visual',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const cookieStore = await cookies()
+  const launchModule = cookieStore.get('svc-last-module')?.value
   return (
-    <html lang="en" className="bg-background h-full">
+    <html
+      lang="en"
+      className="bg-background h-full"
+      data-svc-launch-module={launchModule === 'directory' ? 'directory' : undefined}
+    >
       <head>
         {/* Android PWA: env(safe-area-inset-bottom) often returns 0 on Android.
             Measure it with a test element; if < 20px, override --sab to cover the nav bar. */}
@@ -59,6 +66,9 @@ export default function RootLayout({
           height: 'var(--app-h, 100%)',
         }}
       >
+        {/* Migration fallback for sessions with the older localStorage key but
+            not the server-readable cookie yet. */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(localStorage.getItem('svc-last-module')==='directory'){document.body.dataset.svcLaunchModule='directory';document.cookie='svc-last-module=directory; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
         <ViewportSync />
         <ServiceWorkerRegister />
         {children}

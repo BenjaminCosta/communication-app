@@ -37,8 +37,9 @@ exports.normalizeName = normalizeName;
  *   1 — initial
  *   2 — adds schemaVersion/sourceUpdatedAt/indexedAt, validation, stable-id
  *       company resolution, alias accumulation
+ *   3 — reads non-destructive masterData enrichment and resolves job→company
  */
-exports.DIRECTORY_SCHEMA_VERSION = 2;
+exports.DIRECTORY_SCHEMA_VERSION = 3;
 // ── Composite ID helpers ────────────────────────────────────────────────
 function directoryId(type, sourceId) {
     return `${type}__${sourceId}`;
@@ -60,10 +61,18 @@ function contextCompositeIds(sourceId) {
 }
 exports.DIRECTORY_MINISEARCH_CONFIG = {
     idField: "id",
-    fields: ["name", "aliases", "keywords", "companyName", "location", "role"],
+    fields: ["name", "aliases", "email", "phone", "keywords", "companyName", "location", "role", "searchText"],
     storeFields: ["type", "name", "subtitle", "companyName", "location"],
     searchOptions: {
-        boost: { name: 3, aliases: 2, companyName: 1.5 },
+        boost: {
+            name: 5,
+            email: 4,
+            phone: 4,
+            aliases: 3,
+            companyName: 2,
+            role: 1.5,
+            searchText: 0.35,
+        },
         prefix: true,
         fuzzy: 0.2,
     },
@@ -74,10 +83,13 @@ function buildSearchDoc(entry) {
         type: entry.type,
         name: entry.name,
         aliases: entry.aliases.join(" "),
+        email: entry.email ?? "",
+        phone: [entry.phone ?? "", normalizePhoneDigits(entry.phone ?? "")].filter(Boolean).join(" "),
         keywords: entry.keywords.join(" "),
         companyName: entry.companyName ?? "",
         location: entry.location ?? "",
         role: entry.role ?? "",
+        searchText: entry.searchText,
         subtitle: entry.subtitle ?? "",
     };
 }
@@ -106,47 +118,64 @@ function classifyContext(ctx) {
 }
 // ── Normalizers ─────────────────────────────────────────────────────────
 function normalizeContact(contact) {
+    const master = contact.masterData;
+    const masterCompanyIsSafe = (master?.companyMatchConfidence ?? 0) >= 0.75;
     // Drop spreadsheet-error / placeholder junk from contact points.
     const rawEmails = contact.emails ?? (contact.email ? [{ label: "email", value: contact.email, normalized: contact.emailNormalized }] : []);
     const rawPhones = contact.phones ?? (contact.phone ? [{ label: "phone", value: contact.phone, normalized: contact.phoneNormalized }] : []);
-    const emails = rawEmails.filter(e => !isInvalidValue(e?.value));
-    const phones = rawPhones.filter(p => !isInvalidValue(p?.value));
+    const emails = uniqueContactPoints([
+        ...(master?.emails ?? []).map((value, index) => ({ label: "email", value, normalized: value.toLowerCase(), isPrimary: index === 0 })),
+        ...rawEmails,
+    ], value => value.toLowerCase());
+    const phones = uniqueContactPoints([
+        ...(master?.phones ?? []).map((value, index) => ({ label: "phone", value, normalized: normalizePhoneDigits(value), isPrimary: index === 0 })),
+        ...rawPhones,
+    ], normalizePhoneDigits);
+    const masterAddress = cleanValue(master?.address);
+    const addresses = masterAddress
+        ? [{ label: "address", formatted: masterAddress }, ...(contact.addresses ?? []).filter(a => normalizeName(a.formatted) !== normalizeName(masterAddress))]
+        : (contact.addresses ?? []);
+    const company = masterCompanyIsSafe ? (cleanValue(master?.companyName) ?? cleanValue(contact.company)) : cleanValue(contact.company);
+    const role = cleanValue(master?.roleName) ?? cleanValue(contact.role);
     return {
         type: "person",
         sourceCollection: "contacts",
         sourceId: contact.id,
-        name: contact.name ?? "",
+        name: cleanValue(master?.displayName) ?? cleanValue(master?.canonicalName) ?? contact.name ?? "",
         emails,
         phones,
-        addresses: contact.addresses ?? [],
+        addresses,
         urls: (contact.urls ?? []).filter(u => !isInvalidValue(u?.value)),
-        company: cleanValue(contact.company),
-        companies: (contact.companies ?? (contact.company ? [contact.company] : [])).filter(c => !isInvalidValue(c)),
-        role: cleanValue(contact.role),
-        roles: (contact.roles ?? (contact.role ? [contact.role] : [])).filter(r => !isInvalidValue(r)),
+        company,
+        companies: uniqueStrings([company, ...(contact.companies ?? (contact.company ? [contact.company] : []))].filter(c => !isInvalidValue(c))),
+        role,
+        roles: uniqueStrings([role, ...(contact.roles ?? (contact.role ? [contact.role] : []))].filter(r => !isInvalidValue(r))),
         tags: contact.tags ?? [],
-        notes: cleanValue(contact.notes),
+        notes: cleanValue(master?.notes) ?? cleanValue(contact.notes),
         linkedUserId: contact.linkedUserId ?? null,
         source: contact.source ?? "unknown",
         sourceSheet: contact.sourceSheet ?? null,
         sourceRecordId: contact.sourceRecordId ?? null,
-        sourceCompanyId: contact.sourceCompanyId ?? null,
+        sourceCompanyId: masterCompanyIsSafe ? (master?.companyId ?? contact.sourceCompanyId ?? null) : (contact.sourceCompanyId ?? null),
+        companyContextId: masterCompanyIsSafe ? (master?.companyContextId ?? null) : null,
         // Contacts are global-only for now.
         visibility: contact.visibility ?? "global",
     };
 }
 function normalizeCompanyContext(ctx) {
     const fields = ctx.fields ?? [];
+    const master = ctx.masterData;
     return {
         type: "company",
         sourceCollection: "contexts",
         sourceId: ctx.id,
-        name: ctx.name ?? "",
-        description: cleanValue(ctx.description),
-        phone: cleanValue(getFieldValue(fields, "Phone")),
-        address: cleanValue(getFieldValue(fields, "Address")),
+        name: cleanValue(master?.displayName) ?? cleanValue(master?.canonicalName) ?? ctx.name ?? "",
+        description: cleanValue(master?.description) ?? cleanValue(ctx.description),
+        phone: cleanValue(master?.phone) ?? cleanValue(getFieldValue(fields, "Phone")),
+        address: cleanValue(master?.address) ?? cleanValue(getFieldValue(fields, "Address")),
         timezone: cleanValue(getFieldValue(fields, "Timezone")),
-        website: cleanValue(getFieldValue(fields, "Website")),
+        website: cleanValue(master?.website) ?? cleanValue(getFieldValue(fields, "Website")),
+        aliases: uniqueStrings(master?.aliases ?? []),
         sourceSheet: ctx.sourceSheet ?? null,
         sourceRecordId: ctx.sourceRecordId ?? null,
         fields,
@@ -154,22 +183,25 @@ function normalizeCompanyContext(ctx) {
 }
 function normalizeJobContext(ctx) {
     const fields = ctx.fields ?? [];
+    const master = ctx.masterData;
+    const companyContextId = cleanValue(master?.companyContextId);
     return {
         type: "job",
         sourceCollection: "contexts",
         sourceId: ctx.id,
-        name: ctx.name ?? "",
+        name: cleanValue(master?.canonicalName) ?? ctx.name ?? "",
         description: cleanValue(ctx.description),
-        address: cleanValue(getFieldValue(fields, "Address")),
+        address: cleanValue(master?.address) ?? cleanValue(getFieldValue(fields, "Address")),
         // The Jobs "Company" column holds a location string, not a company name.
-        location: cleanValue(getFieldValue(fields, "Company")),
-        companyEntityId: null,
-        projectManager: cleanValue(getFieldValue(fields, "Project Manager")),
-        projectLead: cleanValue(getFieldValue(fields, "Project Lead")),
-        status: cleanValue(getFieldValue(fields, "Status")),
-        estimatedStartDate: getFieldValue(fields, "Estimated Start Date"),
-        confirmedStartDate: getFieldValue(fields, "Confirmed Start Date"),
-        durationWeeks: getFieldValue(fields, "Duration in Weeks"),
+        location: cleanValue(master?.location) ?? cleanValue(getFieldValue(fields, "Location")) ?? cleanValue(getFieldValue(fields, "Company")),
+        companyName: cleanValue(master?.companyName) ?? cleanValue(getFieldValue(fields, "Parent Company")),
+        companyEntityId: companyContextId ? directoryId("company", companyContextId) : null,
+        projectManager: cleanValue(master?.projectManagerName) ?? cleanValue(getFieldValue(fields, "Project Manager")),
+        projectLead: cleanValue(master?.projectLeadName) ?? cleanValue(getFieldValue(fields, "Project Lead")),
+        status: cleanValue(master?.status) ?? cleanValue(getFieldValue(fields, "Status")),
+        estimatedStartDate: cleanValue(master?.estimatedStartDate) ?? getFieldValue(fields, "Estimated Start Date"),
+        confirmedStartDate: cleanValue(master?.confirmedStartDate) ?? getFieldValue(fields, "Confirmed Start Date"),
+        durationWeeks: master?.durationWeeks != null ? String(master.durationWeeks) : getFieldValue(fields, "Duration in Weeks"),
         relatedContacts: getFieldValue(fields, "Related Contacts"),
         sourceSheet: ctx.sourceSheet ?? null,
         sourceRecordId: ctx.sourceRecordId ?? null,
@@ -215,7 +247,8 @@ function buildPersonIndex(person, ctx = {}) {
     const primaryPhone = person.phones.find(p => p.isPrimary)?.value ?? person.phones[0]?.value ?? null;
     const location = person.addresses[0]?.locality ?? extractLocality(person.addresses[0]?.formatted) ?? null;
     const subtitle = [person.role, person.company].filter(Boolean).join(" @ ") || null;
-    const companyEntityId = ctx.resolveCompanyIdForPerson?.(person) ??
+    const companyEntityId = (person.companyContextId ? directoryId("company", person.companyContextId) : null) ??
+        ctx.resolveCompanyIdForPerson?.(person) ??
         (person.company ? (ctx.resolveCompanyId?.(person.company) ?? null) : null);
     const emailLocalParts = person.emails
         .map(e => (e.normalized ?? e.value)?.split("@")[0])
@@ -268,7 +301,7 @@ function buildCompanyIndex(company, ctx = {}) {
     const now = ctx.now ?? new Date();
     const location = extractLocality(company.address) ?? null;
     const subtitle = [company.address, company.phone].filter(Boolean).join(" | ") || company.description || null;
-    const aliases = uniqueStrings([extractDomain(company.website)]);
+    const aliases = uniqueStrings([...company.aliases, extractDomain(company.website)]);
     // Include the full address so city/street tokens are searchable in the
     // compact index (the raw address is not shipped to MiniSearch otherwise).
     const keywords = extractKeywords([company.name, company.description, company.address, location]);
@@ -304,14 +337,14 @@ function buildCompanyIndex(company, ctx = {}) {
 function buildJobIndex(job, ctx = {}) {
     const now = ctx.now ?? new Date();
     const location = job.location ?? extractLocality(job.address) ?? null;
-    const subtitle = [job.status, job.location, job.address].filter(Boolean).join(" | ") || job.description || null;
+    const subtitle = [job.status, job.companyName, job.location, job.address].filter(Boolean).join(" | ") || job.description || null;
     const aliases = [];
     // PM/Lead fields are "Name / email / phone" — keep only the name segment so
     // keywords aren't polluted with email/phone fragments. Add the address for
     // searchable city tokens.
-    const keywords = extractKeywords([job.name, job.status, location, job.address, nameSegment(job.projectManager), nameSegment(job.projectLead)]);
+    const keywords = extractKeywords([job.name, job.status, job.companyName, location, job.address, nameSegment(job.projectManager), nameSegment(job.projectLead)]);
     const searchText = lowerJoin([
-        job.name, job.description, job.address, job.location,
+        job.name, job.description, job.address, job.location, job.companyName,
         job.projectManager, job.projectLead, job.status, job.relatedContacts,
         ...job.fields.map(f => f.value),
     ]);
@@ -331,7 +364,7 @@ function buildJobIndex(job, ctx = {}) {
         phone: null,
         role: null,
         location,
-        companyName: null,
+        companyName: job.companyName,
         companyEntityId: job.companyEntityId,
         linkedUserId: null,
         sourceSheet: job.sourceSheet,
@@ -430,6 +463,7 @@ function companyQuality(company) {
 }
 function jobQuality(job) {
     const hasLocation = !!(job.location || job.address);
+    const hasCompany = !!job.companyEntityId;
     const issues = [];
     if (!job.name.trim())
         issues.push("Missing name");
@@ -438,7 +472,7 @@ function jobQuality(job) {
     if (!hasLocation)
         issues.push("No location or address");
     return {
-        hasEmail: false, hasPhone: false, hasCompany: false, hasRole: false,
+        hasEmail: false, hasPhone: false, hasCompany, hasRole: false,
         hasLocation, isLinkedUser: false,
         isComplete: !!job.name.trim(),
         issues,
@@ -499,6 +533,24 @@ function isInvalidValue(v) {
 /** Returns the trimmed value, or null if it is empty/invalid. */
 function cleanValue(v) {
     return isInvalidValue(v) ? null : String(v).trim();
+}
+function normalizePhoneDigits(value) {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+}
+function uniqueContactPoints(points, normalize) {
+    const seen = new Set();
+    const result = [];
+    for (const point of points) {
+        if (isInvalidValue(point?.value))
+            continue;
+        const normalized = normalize(point.normalized ?? point.value);
+        if (!normalized || seen.has(normalized))
+            continue;
+        seen.add(normalized);
+        result.push({ ...point, normalized });
+    }
+    return result;
 }
 /** Loose email check — rejects junk but tolerant of legitimate imported addresses. */
 function isLikelyEmail(v) {

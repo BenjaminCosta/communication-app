@@ -21,7 +21,18 @@ const serviceAccount = JSON.parse(readFileSync(SA, "utf8"))
 initializeApp({ credential: cert(serviceAccount) })
 const db = getFirestore()
 
-const COLLECTIONS = ["users", "projects", "messages"]
+const COLLECTIONS = [
+  "users",
+  "projects",
+  "messages",
+  "contacts",
+  "contexts",
+  "directoryIndex",
+  "directoryRelations",
+  "directoryReviewQueue",
+  "directoryReferenceData",
+  "directoryMeta",
+]
 
 async function backup() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)

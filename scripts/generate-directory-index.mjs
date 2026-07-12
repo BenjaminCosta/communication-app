@@ -40,7 +40,7 @@ const MINISEARCH_CONFIG = {
 
 // ── Args ─────────────────────────────────────────────────────────────────
 
-const DIRECTORY_SCHEMA_VERSION = 2
+const DIRECTORY_SCHEMA_VERSION = 3
 
 // Declared up top (const isn't hoisted) so the hoisted normalizer functions can
 // use it during top-level execution.
@@ -112,7 +112,7 @@ for (const ctx of contexts) {
 // Company resolver: name → composite company id
 const companyByName = new Map()
 for (const ctx of companiesRaw) {
-  companyByName.set(normalizeName(ctx.name ?? ""), directoryId("company", ctx.id))
+  companyByName.set(normalizeName(ctx.masterData?.displayName ?? ctx.masterData?.canonicalName ?? ctx.name ?? ""), directoryId("company", ctx.id))
 }
 const resolveCompanyId = (name) => companyByName.get(normalizeName(name ?? "")) ?? null
 
@@ -304,34 +304,49 @@ function classifyContext(ctx) {
 }
 
 function buildPersonIndex(c, now, resolveCompany) {
+  const master = c.masterData ?? {}
+  const masterCompanyIsSafe = Number(master.companyMatchConfidence ?? 0) >= 0.75
   const rawEmails = Array.isArray(c.emails) && c.emails.length
     ? c.emails
     : (c.email ? [{ label: "email", value: c.email, normalized: c.emailNormalized }] : [])
   const rawPhones = Array.isArray(c.phones) && c.phones.length
     ? c.phones
     : (c.phone ? [{ label: "phone", value: c.phone, normalized: c.phoneNormalized }] : [])
-  const emails = rawEmails.filter((e) => !isInvalidValue(e?.value))
-  const phones = rawPhones.filter((p) => !isInvalidValue(p?.value))
-  const addresses = Array.isArray(c.addresses) ? c.addresses : []
-  const companies = Array.isArray(c.companies) && c.companies.length ? c.companies : (c.company ? [c.company] : [])
-  const roles = Array.isArray(c.roles) && c.roles.length ? c.roles : (c.role ? [c.role] : [])
+  const emails = uniqueContactPoints([
+    ...(master.emails ?? []).map((value, index) => ({ label: "email", value, normalized: String(value).toLowerCase(), isPrimary: index === 0 })),
+    ...rawEmails,
+  ], (value) => String(value).toLowerCase())
+  const phones = uniqueContactPoints([
+    ...(master.phones ?? []).map((value, index) => ({ label: "phone", value, normalized: normalizePhoneDigits(value), isPrimary: index === 0 })),
+    ...rawPhones,
+  ], normalizePhoneDigits)
+  const masterAddress = cleanValue(master.address)
+  const addresses = masterAddress
+    ? [{ label: "address", formatted: masterAddress }, ...(Array.isArray(c.addresses) ? c.addresses : []).filter((a) => normalizeName(a?.formatted ?? "") !== normalizeName(masterAddress))]
+    : (Array.isArray(c.addresses) ? c.addresses : [])
+  const company = masterCompanyIsSafe ? (cleanValue(master.companyName) ?? cleanValue(c.company)) : cleanValue(c.company)
+  const role = cleanValue(master.roleName) ?? cleanValue(c.role)
+  const companies = uniqueStrings([company, ...(Array.isArray(c.companies) && c.companies.length ? c.companies : (c.company ? [c.company] : []))])
+  const roles = uniqueStrings([role, ...(Array.isArray(c.roles) && c.roles.length ? c.roles : (c.role ? [c.role] : []))])
   const tags = Array.isArray(c.tags) ? c.tags : []
-  const name = c.name ?? ""
+  const name = cleanValue(master.displayName) ?? cleanValue(master.canonicalName) ?? c.name ?? ""
 
   const primaryEmail = emails.find((e) => e.isPrimary)?.value ?? emails[0]?.value ?? null
   const primaryPhone = phones.find((p) => p.isPrimary)?.value ?? phones[0]?.value ?? null
   const location = addresses[0]?.locality ?? extractLocality(addresses[0]?.formatted) ?? null
-  const subtitle = [c.role, c.company].filter(Boolean).join(" @ ") || null
-  const companyEntityId = c.company ? resolveCompany(c.company) : null
+  const subtitle = [role, company].filter(Boolean).join(" @ ") || null
+  const companyEntityId = cleanValue(master.companyContextId)
+    ? directoryId("company", cleanValue(master.companyContextId))
+    : (company ? resolveCompany(company) : null)
 
   const emailLocalParts = emails.map((e) => (e.normalized ?? e.value)?.split("@")[0]).filter(Boolean)
   const aliases = uniqueStrings([...emailLocalParts, ...companies])
-  const keywords = extractKeywords([name, c.role, ...roles, c.company, ...companies, ...tags, location])
+  const keywords = extractKeywords([name, role, ...roles, company, ...companies, ...tags, location])
   const searchText = lowerJoin([
     name,
     ...emails.flatMap((e) => [e.value, e.normalized]),
     ...phones.flatMap((p) => [p.value, p.normalized]),
-    c.company, ...companies, c.role, ...roles, c.notes, ...tags,
+    company, ...companies, role, ...roles, master.notes, c.notes, ...tags,
     ...addresses.map((a) => a.formatted),
   ])
 
@@ -340,9 +355,9 @@ function buildPersonIndex(c, now, resolveCompany) {
   const issues = []
   if (!name.trim()) issues.push("Missing name")
   if (!hasEmail && !hasPhone) issues.push("No email or phone")
-  if (!c.company) issues.push("No company")
+  if (!company) issues.push("No company")
   else if (!companyEntityId) issues.push("Company not resolved to an entity")
-  if (!c.role) issues.push("No role")
+  if (!role) issues.push("No role")
 
   return {
     id: directoryId("person", c.id),
@@ -357,15 +372,15 @@ function buildPersonIndex(c, now, resolveCompany) {
     subtitle,
     email: primaryEmail,
     phone: primaryPhone,
-    role: c.role ?? null,
+    role,
     location,
-    companyName: c.company ?? null,
+    companyName: company,
     companyEntityId,
     linkedUserId: c.linkedUserId ?? null,
     sourceSheet: c.sourceSheet ?? null,
     sourceRecordId: c.sourceRecordId ?? null,
     quality: {
-      hasEmail, hasPhone, hasCompany: !!c.company, hasRole: !!c.role,
+      hasEmail, hasPhone, hasCompany: !!company, hasRole: !!role,
       hasLocation: addresses.length > 0, isLinkedUser: !!c.linkedUserId,
       isComplete: !!name.trim() && (hasEmail || hasPhone),
       issues,
@@ -375,13 +390,15 @@ function buildPersonIndex(c, now, resolveCompany) {
 }
 
 function buildCompanyIndex(ctx, now) {
-  const name = ctx.name ?? ""
-  const phone = getCleanField(ctx.fields, "Phone")
-  const address = getCleanField(ctx.fields, "Address")
+  const master = ctx.masterData ?? {}
+  const name = cleanValue(master.displayName) ?? cleanValue(master.canonicalName) ?? ctx.name ?? ""
+  const phone = cleanValue(master.phone) ?? getCleanField(ctx.fields, "Phone")
+  const address = cleanValue(master.address) ?? getCleanField(ctx.fields, "Address")
   const timezone = getCleanField(ctx.fields, "Timezone")
-  const website = getCleanField(ctx.fields, "Website")
+  const website = cleanValue(master.website) ?? getCleanField(ctx.fields, "Website")
+  const description = cleanValue(master.description) ?? ctx.description
   const location = extractLocality(address)
-  const subtitle = [address, phone].filter(Boolean).join(" | ") || ctx.description || null
+  const subtitle = [address, phone].filter(Boolean).join(" | ") || description || null
 
   const issues = []
   if (!name.trim()) issues.push("Missing name")
@@ -394,9 +411,9 @@ function buildCompanyIndex(ctx, now) {
     sourceId: ctx.id,
     name,
     normalizedName: normalizeName(name),
-    aliases: uniqueStrings([extractDomain(website)]),
-    keywords: extractKeywords([name, ctx.description, address, location]),
-    searchText: lowerJoin([name, ctx.description, phone, address, timezone, website, ...fieldValues(ctx.fields)]),
+    aliases: uniqueStrings([...(master.aliases ?? []), extractDomain(website)]),
+    keywords: extractKeywords([name, description, address, location]),
+    searchText: lowerJoin([name, description, phone, address, timezone, website, ...(master.aliases ?? []), ...fieldValues(ctx.fields)]),
     subtitle,
     email: null,
     phone,
@@ -418,16 +435,19 @@ function buildCompanyIndex(ctx, now) {
 }
 
 function buildJobIndex(ctx, now) {
-  const name = ctx.name ?? ""
-  const address = getCleanField(ctx.fields, "Address")
+  const master = ctx.masterData ?? {}
+  const name = cleanValue(master.canonicalName) ?? ctx.name ?? ""
+  const address = cleanValue(master.address) ?? getCleanField(ctx.fields, "Address")
   // Jobs "Company" column actually holds a location string.
-  const location = getCleanField(ctx.fields, "Company")
-  const projectManager = getCleanField(ctx.fields, "Project Manager")
-  const projectLead = getCleanField(ctx.fields, "Project Lead")
-  const status = getCleanField(ctx.fields, "Status")
+  const location = cleanValue(master.location) ?? getCleanField(ctx.fields, "Location") ?? getCleanField(ctx.fields, "Company")
+  const companyName = cleanValue(master.companyName) ?? getCleanField(ctx.fields, "Parent Company")
+  const companyEntityId = cleanValue(master.companyContextId) ? directoryId("company", cleanValue(master.companyContextId)) : null
+  const projectManager = cleanValue(master.projectManagerName) ?? getCleanField(ctx.fields, "Project Manager")
+  const projectLead = cleanValue(master.projectLeadName) ?? getCleanField(ctx.fields, "Project Lead")
+  const status = cleanValue(master.status) ?? getCleanField(ctx.fields, "Status")
   const relatedContacts = getCleanField(ctx.fields, "Related Contacts")
   const loc = location ?? extractLocality(address)
-  const subtitle = [status, location, address].filter(Boolean).join(" | ") || ctx.description || null
+  const subtitle = [status, companyName, location, address].filter(Boolean).join(" | ") || ctx.description || null
 
   const issues = []
   if (!name.trim()) issues.push("Missing name")
@@ -442,20 +462,20 @@ function buildJobIndex(ctx, now) {
     name,
     normalizedName: normalizeName(name),
     aliases: [],
-    keywords: extractKeywords([name, status, loc, address, nameSegment(projectManager), nameSegment(projectLead)]),
-    searchText: lowerJoin([name, ctx.description, address, location, projectManager, projectLead, status, relatedContacts, ...fieldValues(ctx.fields)]),
+    keywords: extractKeywords([name, status, companyName, loc, address, nameSegment(projectManager), nameSegment(projectLead)]),
+    searchText: lowerJoin([name, ctx.description, address, location, companyName, projectManager, projectLead, status, relatedContacts, ...fieldValues(ctx.fields)]),
     subtitle,
     email: null,
     phone: null,
     role: null,
     location: loc,
-    companyName: null,
-    companyEntityId: null, // deferred
+    companyName,
+    companyEntityId,
     linkedUserId: null,
     sourceSheet: ctx.sourceSheet ?? null,
     sourceRecordId: ctx.sourceRecordId ?? null,
     quality: {
-      hasEmail: false, hasPhone: false, hasCompany: false, hasRole: false,
+      hasEmail: false, hasPhone: false, hasCompany: !!companyEntityId, hasRole: false,
       hasLocation: !!(location || address), isLinkedUser: false,
       isComplete: !!name.trim(),
       issues,
@@ -667,6 +687,22 @@ function isInvalidValue(v) {
 }
 function cleanValue(v) {
   return isInvalidValue(v) ? null : String(v).trim()
+}
+function normalizePhoneDigits(value) {
+  const digits = String(value ?? "").replace(/\D/g, "")
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
+}
+function uniqueContactPoints(points, normalize) {
+  const seen = new Set()
+  const result = []
+  for (const point of points) {
+    if (isInvalidValue(point?.value)) continue
+    const normalized = normalize(point.normalized ?? point.value)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push({ ...point, normalized })
+  }
+  return result
 }
 function getFieldValue(fields, label) {
   if (!Array.isArray(fields)) return null

@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from "firebase/app"
 import { getAuth, connectAuthEmulator } from "firebase/auth"
 import { initializeFirestore, connectFirestoreEmulator, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore"
+import { getFirestore as getFirestoreLite } from "firebase/firestore/lite"
 
 const firebaseConfig = {
   apiKey: "AIzaSyAt2oVZ9ec3bc_b6QjCBn6ZZ-4IxgVpn8o",
@@ -20,6 +21,12 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
 })
+
+// One-shot, read-only Directory fetches use Firestore Lite. The full SDK's
+// transient getDoc/getDocs watch targets can hit Firebase's open ca9/b815
+// assertion race when they overlap the app's long-lived realtime listeners.
+// Lite uses direct REST reads, so it does not share that watch pipeline.
+export const directoryDb = getFirestoreLite(app)
 
 // Lazy storage — firebase/storage only loaded on first image upload
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
