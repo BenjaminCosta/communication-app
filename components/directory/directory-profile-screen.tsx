@@ -19,26 +19,29 @@ import {
   ShieldCheck,
   Star,
 } from "lucide-react"
-import { doc, getDoc } from "firebase/firestore/lite"
 import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
 import { DirectoryNotesTab } from "@/components/directory/directory-notes-tab"
 import { DirectoryFilesTab } from "@/components/directory/directory-files-tab"
 import { DirectoryEditSheet } from "@/components/directory/directory-edit-sheet"
-import { directoryDb } from "@/lib/firebase"
 import { cn } from "@/lib/utils"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
+import { useDirectoryUserState } from "@/components/directory/directory-state-provider"
 import {
-  buildProfileViewModel,
   type DirectoryProfileViewModel,
   type JobProfileViewModel,
   type ProfileAction,
   type ProfileField,
-  type ProfileIndexInput,
 } from "@/lib/directory-view-models"
 import { buildDirectoryDescription } from "@/lib/directory-descriptions"
+import { readCachedDirectoryProfile, writeCachedDirectoryProfile } from "@/lib/directory-profile-cache"
+import { loadDirectoryProfileViewModel } from "@/lib/directory-profile-loader"
 import { loadDirectoryActivitySummary, type DirectoryActivitySummary } from "@/lib/directory-activity"
-import { loadDirectoryRelations, type DirectoryRelations, type RelationEntityRef } from "@/lib/directory-relations"
-import { recordDirectoryRecent, setDirectoryFavorite, subscribeDirectoryFavorites } from "@/lib/directory-user-state"
+import {
+  directoryRelationsFromEdges,
+  loadDirectoryRelationsPage,
+  type DirectoryRelations,
+  type RelationEntityRef,
+} from "@/lib/directory-relations"
 
 type ProfileTab = "overview" | "related" | "notes" | "files"
 
@@ -50,12 +53,6 @@ interface DirectoryProfileScreenProps {
   className?: string
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
-}
-
-const PROFILE_TYPES = new Set(["person", "company", "job", "other"])
-
 export function DirectoryProfileScreen({
   directoryId,
   userId,
@@ -65,75 +62,96 @@ export function DirectoryProfileScreen({
 }: DirectoryProfileScreenProps) {
   const [vm, setVm] = useState<DirectoryProfileViewModel | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isProfileStale, setIsProfileStale] = useState(false)
   const [error, setError] = useState<"none" | "not-found" | "load">("none")
   const [relations, setRelations] = useState<DirectoryRelations | null>(null)
+  const [relationEdges, setRelationEdges] = useState<RelationEntityRef[]>([])
+  const [relationsCursor, setRelationsCursor] = useState<string | null>(null)
+  const [hasMoreRelations, setHasMoreRelations] = useState(false)
+  const [relationsPageLoading, setRelationsPageLoading] = useState(false)
+  const [fullRelationsLoaded, setFullRelationsLoaded] = useState(false)
   const [activity, setActivity] = useState<DirectoryActivitySummary | null>(null)
   const [tab, setTab] = useState<ProfileTab>("overview")
-  const [favoriteIds, setFavoriteIds] = useState<string[]>([])
+  const { favoriteIds, toggleFavorite: updateFavorite, recordRecent } = useDirectoryUserState()
   const [favoritePending, setFavoritePending] = useState(false)
   const [notice, setNotice] = useState("")
   const [showAdmin, setShowAdmin] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const vmId = vm?.id ?? null
 
-  useEffect(() => subscribeDirectoryFavorites(userId, setFavoriteIds), [userId])
+  useEffect(() => {
+    recordRecent(directoryId)
+  }, [directoryId, recordRecent])
 
   useEffect(() => {
     let active = true
     setIsLoading(true)
     setError("none")
-    setVm(null)
+    const cachedProfile = readCachedDirectoryProfile(directoryId)
+    setVm(cachedProfile)
+    setIsProfileStale(Boolean(cachedProfile))
+    if (cachedProfile) setIsLoading(false)
     setRelations(null)
+    setRelationEdges([])
+    setRelationsCursor(null)
+    setHasMoreRelations(false)
+    setFullRelationsLoaded(false)
     setTab("overview")
     setShowAdmin(false)
     setShowEdit(false)
-    ;(async () => {
-      const snapshot = await getDoc(doc(directoryDb, "directoryIndex", directoryId))
-      if (!snapshot.exists()) throw Object.assign(new Error("not-found"), { code: "not-found" })
-      const data = snapshot.data()
-      if (!PROFILE_TYPES.has(text(data.type))) throw Object.assign(new Error("not-found"), { code: "not-found" })
-      const sourceCollection = data.sourceCollection === "contacts" ? "contacts" : "contexts"
-      const sourceId = text(data.sourceId)
-      const sourceSnapshot = sourceId ? await getDoc(doc(directoryDb, sourceCollection, sourceId)) : null
-      const index: ProfileIndexInput = {
-        id: snapshot.id,
-        type: data.type,
-        sourceCollection,
-        sourceId,
-        name: text(data.name),
-        subtitle: text(data.subtitle) || null,
-        role: text(data.role) || null,
-        location: text(data.location) || null,
-        companyName: text(data.companyName) || null,
-        companyEntityId: text(data.companyEntityId) || null,
-        linkedUserId: text(data.linkedUserId) || null,
-        quality: (data.quality && typeof data.quality === "object" ? data.quality : null) as ProfileIndexInput["quality"],
-      }
-      const source = (sourceSnapshot?.data() ?? {}) as Record<string, unknown>
-      return buildProfileViewModel(index, source)
-    })()
-      .then((built) => { if (active) setVm(built) })
-      .catch((err) => { if (active) setError(err?.code === "not-found" ? "not-found" : "load") })
+    loadDirectoryProfileViewModel(directoryId, reloadKey > 0)
+      .then((built) => {
+        if (!active) return
+        setVm(built)
+        setIsProfileStale(false)
+        writeCachedDirectoryProfile(built)
+      })
+      .catch((err) => {
+        if (active && !cachedProfile) setError(err?.code === "not-found" ? "not-found" : "load")
+      })
       .finally(() => { if (active) setIsLoading(false) })
-    recordDirectoryRecent(userId, directoryId).catch(() => {})
     return () => { active = false }
   }, [directoryId, userId, reloadKey])
 
   // Resolve safe relationships + recent activity once the entity is known
   // (best-effort, non-blocking — the About narrative refines as they arrive).
   useEffect(() => {
-    if (!vm) return
+    if (!vmId) return
     let active = true
     setRelations(null)
     setActivity(null)
-    loadDirectoryRelations(vm.id)
-      .then((resolved) => { if (active) setRelations(resolved) })
+    loadDirectoryRelationsPage(vmId, null, 5)
+      .then((page) => {
+        if (!active) return
+        setRelationEdges(page.edges)
+        setRelations(page.relations)
+        setRelationsCursor(page.nextCursor)
+        setHasMoreRelations(page.hasMore)
+      })
       .catch(() => { if (active) setRelations(null) })
-    loadDirectoryActivitySummary(vm.id)
+    loadDirectoryActivitySummary(vmId)
       .then((summary) => { if (active) setActivity(summary) })
       .catch(() => { if (active) setActivity(null) })
     return () => { active = false }
-  }, [vm])
+  }, [vmId])
+
+  useEffect(() => {
+    if (!vmId || tab !== "related" || fullRelationsLoaded || relationsPageLoading) return
+    let active = true
+    setRelationsPageLoading(true)
+    loadDirectoryRelationsPage(vmId, null, 50)
+      .then((page) => {
+        if (!active) return
+        setRelationEdges(page.edges)
+        setRelations(page.relations)
+        setRelationsCursor(page.nextCursor)
+        setHasMoreRelations(page.hasMore)
+        setFullRelationsLoaded(true)
+      })
+      .finally(() => { if (active) setRelationsPageLoading(false) })
+    return () => { active = false }
+  }, [fullRelationsLoaded, tab, vmId])
 
   const isFavorite = favoriteIds.includes(directoryId)
   const description = useMemo(
@@ -149,16 +167,28 @@ export function DirectoryProfileScreen({
 
   const toggleFavorite = async () => {
     if (favoritePending) return
-    const next = !isFavorite
     setFavoritePending(true)
-    setFavoriteIds((current) => (next ? [directoryId, ...current] : current.filter((id) => id !== directoryId)))
     try {
-      await setDirectoryFavorite(userId, directoryId, next)
+      await updateFavorite(directoryId)
     } catch {
-      setFavoriteIds((current) => (next ? current.filter((id) => id !== directoryId) : [directoryId, ...current]))
       setNotice("Favorite could not be updated.")
     } finally {
       setFavoritePending(false)
+    }
+  }
+
+  const loadMoreRelations = async () => {
+    if (!vm || !relationsCursor || relationsPageLoading) return
+    setRelationsPageLoading(true)
+    try {
+      const page = await loadDirectoryRelationsPage(vm.id, relationsCursor, 50)
+      const merged = [...relationEdges, ...page.edges]
+      setRelationEdges(merged)
+      setRelations(directoryRelationsFromEdges(merged))
+      setRelationsCursor(page.nextCursor)
+      setHasMoreRelations(page.hasMore)
+    } finally {
+      setRelationsPageLoading(false)
     }
   }
 
@@ -214,6 +244,12 @@ export function DirectoryProfileScreen({
 
               <QuickActions actions={vm.actions} onAction={handleAction} />
 
+              {isProfileStale && (
+                <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/55" role="status">
+                  Showing saved profile while reconnecting
+                </p>
+              )}
+
               {notice && (
                 <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-xs text-foreground/75" role="status">
                   {notice}
@@ -254,7 +290,16 @@ export function DirectoryProfileScreen({
                     onToggleAdmin={() => setShowAdmin((v) => !v)}
                   />
                 )}
-                {tab === "related" && <RelatedTab vm={vm} relations={relations} onOpenEntity={onOpenEntity} />}
+                {tab === "related" && (
+                  <RelatedTab
+                    vm={vm}
+                    relations={relations}
+                    onOpenEntity={onOpenEntity}
+                    hasMore={hasMoreRelations}
+                    isLoadingMore={relationsPageLoading}
+                    onLoadMore={loadMoreRelations}
+                  />
+                )}
                 {tab === "notes" && <DirectoryNotesTab directoryId={vm.id} userId={userId} autoFocus />}
                 {tab === "files" && <DirectoryFilesTab directoryId={vm.id} userId={userId} />}
               </div>
@@ -525,10 +570,16 @@ function RelatedTab({
   vm,
   relations,
   onOpenEntity,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }: {
   vm: DirectoryProfileViewModel
   relations: DirectoryRelations | null
   onOpenEntity: (id: string) => void
+  hasMore: boolean
+  isLoadingMore: boolean
+  onLoadMore: () => void
 }) {
   if (!relations) return <DirectoryRowsSkeleton count={4} />
 
@@ -569,6 +620,16 @@ function RelatedTab({
           </div>
         </section>
       ))}
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={isLoadingMore}
+          className="glass-button w-full rounded-xl border px-4 py-2.5 text-xs font-medium text-muted-foreground transition-transform active:scale-[0.99] disabled:opacity-50"
+        >
+          {isLoadingMore ? "Loading relationships…" : "Load 50 more"}
+        </button>
+      )}
     </div>
   )
 }

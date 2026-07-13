@@ -1273,7 +1273,7 @@ function QuickContextSheet({
 
   const renderPeople = (compact = false) => (
     <div className={cn("flex flex-col", compact ? "max-h-[132px] overflow-y-auto pr-1 scrollbar-hide gap-0.5" : "gap-1")}>
-      {filteredContacts.map((contact) => {
+      {filteredContacts.slice(0, 50).map((contact) => {
         const selected = selectedRecipients.includes(contact.id)
         return (
           <button
@@ -1300,7 +1300,7 @@ function QuickContextSheet({
       {unregisteredContacts.length > 0 && (
         <>
           <p className="px-1 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[1.8px] text-muted-foreground">Not registered</p>
-          {unregisteredContacts.map((ic) => {
+          {unregisteredContacts.slice(0, 50).map((ic) => {
             const initials = ic.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
             const selected = selectedImportedRecipients.includes(ic.id)
             return (
@@ -1407,7 +1407,7 @@ function QuickContextSheet({
 
   const renderContexts = (compact = false) => (
     <div className={cn("flex flex-col", compact ? "gap-0.5" : "gap-1")}>
-      {filteredContexts.map((ctx) => {
+      {filteredContexts.slice(0, 50).map((ctx) => {
         const selected = selectedContextIds.includes(ctx.id)
         return (
           <button
@@ -2250,7 +2250,7 @@ function ContextFilterSheet({
               <span className="text-sm font-semibold flex-1 truncate">All Contexts</span>
               {selectedContexts.length === 0 && <Check className="w-4 h-4 text-emerald-400" />}
             </button>
-            {filtered.map((ctx) => {
+            {filtered.slice(0, 50).map((ctx) => {
               const selected = selectedContexts.includes(ctx.id)
               return (
                 <button

@@ -2,27 +2,15 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDocsFromServer,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
-  type Query,
   type Unsubscribe,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-
-// Multi-tab persistent local cache can serve a listener's first snapshot from
-// a stale/empty on-device cache before it reconciles with the backend
-// (observed on iOS PWA installs). Force one server round-trip alongside the
-// listener so a stale cache gets corrected immediately instead of waiting on
-// the SDK's own reconnect timing — the fetched docs land in the same local
-// cache the listener reads from, so this doesn't need its own onChange call.
-function primeFromServer(target: Query): void {
-  getDocsFromServer(target).catch(() => {})
-}
+import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 
 export function subscribeDirectoryFavorites(
   userId: string,
@@ -33,8 +21,7 @@ export function subscribeDirectoryFavorites(
     collection(db, "users", userId, "directoryFavorites"),
     orderBy("favoritedAt", "desc"),
   )
-  primeFromServer(favoritesQuery)
-  return onSnapshot(
+  return subscribeWithServerReconcile(
     favoritesQuery,
     (snapshot) => onChange(snapshot.docs.map((entry) => entry.id)),
     (error) => onError?.(error),
@@ -51,8 +38,7 @@ export function subscribeDirectoryRecents(
     orderBy("viewedAt", "desc"),
     limit(3),
   )
-  primeFromServer(recentsQuery)
-  return onSnapshot(
+  return subscribeWithServerReconcile(
     recentsQuery,
     (snapshot) => onChange(snapshot.docs.map((entry) => entry.id)),
     (error) => onError?.(error),

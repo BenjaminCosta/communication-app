@@ -5,6 +5,7 @@ import { FileText, Paperclip, Trash2, Upload } from "lucide-react"
 import {
   deleteDirectoryFile,
   isImageFile,
+  loadDirectoryFilesPage,
   subscribeDirectoryFiles,
   uploadDirectoryFile,
   type DirectoryFile,
@@ -28,13 +29,24 @@ export function DirectoryFilesTab({ directoryId, userId, autoOpen }: DirectoryFi
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState("")
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setIsLoading(true)
+    setFiles([])
+    setHasMore(false)
     const unsubscribe = subscribeDirectoryFiles(
       directoryId,
-      (next) => { setFiles(next); setIsLoading(false) },
+      (next) => {
+        setFiles((current) => {
+          const firstPage = new Set(next.map((file) => file.id))
+          return [...next, ...current.filter((file) => !firstPage.has(file.id))]
+        })
+        setHasMore(next.length === 50)
+        setIsLoading(false)
+      },
       () => setIsLoading(false),
     )
     return unsubscribe
@@ -69,6 +81,24 @@ export function DirectoryFilesTab({ directoryId, userId, autoOpen }: DirectoryFi
     }
   }
 
+  const loadMore = async () => {
+    const last = files.at(-1)
+    if (!last?.createdAt || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const page = await loadDirectoryFilesPage(directoryId, { id: last.id, createdAt: last.createdAt })
+      setFiles((current) => {
+        const ids = new Set(current.map((file) => file.id))
+        return [...current, ...page.items.filter((file) => !ids.has(file.id))]
+      })
+      setHasMore(page.hasMore)
+    } catch {
+      setError("Older files could not be loaded.")
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
+
   return (
     <div>
       <input ref={inputRef} type="file" className="hidden" onChange={onPick} />
@@ -98,7 +128,8 @@ export function DirectoryFilesTab({ directoryId, userId, autoOpen }: DirectoryFi
             <p className="mt-1 max-w-64 text-xs leading-5 text-muted-foreground/60">Attach photos, PDFs and documents — they stay linked to this entity.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {files.map((file) => {
               const isOwn = file.uploadedBy === userId
               return (
@@ -134,6 +165,12 @@ export function DirectoryFilesTab({ directoryId, userId, autoOpen }: DirectoryFi
                 </div>
               )
             })}
+            </div>
+            {hasMore && (
+              <button type="button" onClick={loadMore} disabled={isLoadingMore} className="glass-button mt-4 w-full rounded-xl border px-4 py-2.5 text-xs text-muted-foreground disabled:opacity-50">
+                {isLoadingMore ? "Loading files…" : "Load 50 more"}
+              </button>
+            )}
           </div>
         )}
       </div>

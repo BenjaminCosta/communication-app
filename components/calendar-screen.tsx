@@ -283,11 +283,11 @@ function CalendarComposeSheet({
 
   const filteredContacts = contacts.filter(c =>
     c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
-  )
+  ).slice(0, 50)
   const unregistered = importedContacts.filter(
     c => c.status === "not_registered" &&
       c.name.toLowerCase().includes(userSearch.trim().toLowerCase())
-  )
+  ).slice(0, 50)
   const filteredTags = tags.filter(tag =>
     tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase())
   )

@@ -193,6 +193,8 @@ export interface AppContext {
   name: string
   description?: string
   fields: ContextField[]
+  /** Available on compact catalog projections before the full source is read. */
+  fieldCount?: number
   createdBy: string  // Firebase UID
   createdAt: Date
   updatedAt: Date

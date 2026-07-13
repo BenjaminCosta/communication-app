@@ -153,6 +153,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /directorySearchShards/{shardId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
     // ── Directory metadata (schemaVersion, counts, lastChangeAt) ────────────
     match /directoryMeta/{docId} {
       allow read:  if request.auth != null;

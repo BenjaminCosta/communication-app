@@ -64,8 +64,7 @@ export function ContextsScreen({
   // Reset pagination when query changes
   useEffect(() => { setVisibleCount(50) }, [q])
 
-  // When searching: show all matches; when browsing: paginate
-  const visibleContexts = q ? filtered : filtered.slice(0, visibleCount)
+  const visibleContexts = filtered.slice(0, visibleCount)
 
   const exactMatch = contexts.some((c) => c.name.toLowerCase() === q)
   const showCreate = q.length > 0 && !exactMatch
@@ -191,16 +190,16 @@ export function ContextsScreen({
                           {ctx.description}
                         </span>
                       )}
-                      {ctx.fields.length > 0 && (
+                      {(ctx.fieldCount ?? ctx.fields.length) > 0 && (
                         <span className="text-xs text-muted-foreground/40">
-                          {ctx.fields.length} field{ctx.fields.length !== 1 ? "s" : ""}
+                          {ctx.fieldCount ?? ctx.fields.length} field{(ctx.fieldCount ?? ctx.fields.length) !== 1 ? "s" : ""}
                         </span>
                       )}
                     </div>
                   </button>
                 ))}
               </div>
-              {!q && filtered.length > visibleCount && (
+              {filtered.length > visibleCount && (
                 <button
                   onClick={() => setVisibleCount((v) => v + 50)}
                   className="w-full mt-3 py-2.5 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"

@@ -7,6 +7,30 @@
         { "fieldPath": "email",  "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "directoryRelations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entityIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "directoryNotes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entityIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "directoryFiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entityIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

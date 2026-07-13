@@ -37,6 +37,8 @@
     "import:database:dry": "OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
     "import:database": "DRY_RUN=false CONFIRM_IMPORT=true OWNER_UID=pAIknT18JAfTVcM6z1ZHgkay8lx1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/import-database-xlsx.mjs \"New Database.xlsx\"",
     "enrich:directory-master": "node scripts/enrich-directory-from-master.mjs",
+    "backfill:directory-performance:dry": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-relation-entity-ids.mjs",
+    "backfill:directory-performance": "CONFIRM_DIRECTORY_PERFORMANCE_BACKFILL=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-relation-entity-ids.mjs --write",
     "test:vcf-import": "node --test scripts/vcf-import.test.mjs",
     "test:directory": "tsx --test scripts/directory-search.test.ts"
   },

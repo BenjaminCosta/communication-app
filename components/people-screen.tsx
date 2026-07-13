@@ -129,8 +129,7 @@ export function PeopleScreen({
   // Reset pagination when query changes
   useEffect(() => { setVisibleCount(50) }, [lq])
 
-  // When searching: show all matches (usually few); when browsing: paginate
-  const visibleImported = lq ? filteredImported : filteredImported.slice(0, visibleCount)
+  const visibleImported = filteredImported.slice(0, visibleCount)
 
   const now = Date.now()
   const cutoff = 90_000
@@ -285,7 +284,7 @@ export function PeopleScreen({
                     />
                   ))}
                 </div>
-                {!lq && filteredImported.length > visibleCount && (
+                {filteredImported.length > visibleCount && (
                   <button
                     onClick={() => setVisibleCount((v) => v + 50)}
                     className="w-full mt-3 py-2.5 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"

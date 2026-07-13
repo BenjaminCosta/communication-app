@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import {
   addDirectoryNote,
   deleteDirectoryNote,
+  loadDirectoryNotesPage,
   subscribeDirectoryNotes,
   updateDirectoryNote,
   type DirectoryNote,
@@ -39,13 +40,24 @@ export function DirectoryNotesTab({ directoryId, userId, autoFocus }: DirectoryN
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState("")
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     setIsLoading(true)
+    setNotes([])
+    setHasMore(false)
     const unsubscribe = subscribeDirectoryNotes(
       directoryId,
-      (next) => { setNotes(next); setIsLoading(false) },
+      (next) => {
+        setNotes((current) => {
+          const firstPage = new Set(next.map((note) => note.id))
+          return [...next, ...current.filter((note) => !firstPage.has(note.id))]
+        })
+        setHasMore(next.length === 50)
+        setIsLoading(false)
+      },
       () => setIsLoading(false),
     )
     return unsubscribe
@@ -92,6 +104,24 @@ export function DirectoryNotesTab({ directoryId, userId, autoFocus }: DirectoryN
     }
   }
 
+  const loadMore = async () => {
+    const last = notes.at(-1)
+    if (!last?.createdAt || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const page = await loadDirectoryNotesPage(directoryId, { id: last.id, createdAt: last.createdAt })
+      setNotes((current) => {
+        const ids = new Set(current.map((note) => note.id))
+        return [...current, ...page.items.filter((note) => !ids.has(note.id))]
+      })
+      setHasMore(page.hasMore)
+    } catch {
+      setError("Older notes could not be loaded.")
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
+
   return (
     <div>
       <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -133,7 +163,8 @@ export function DirectoryNotesTab({ directoryId, userId, autoFocus }: DirectoryN
             <p className="mt-1 max-w-64 text-xs leading-5 text-muted-foreground/60">Capture operational knowledge — it stays linked to this entity.</p>
           </div>
         ) : (
-          notes.map((note) => {
+          <>
+          {notes.map((note) => {
             const isOwn = note.createdBy === userId
             const isEditing = editingId === note.id
             return (
@@ -193,7 +224,13 @@ export function DirectoryNotesTab({ directoryId, userId, autoFocus }: DirectoryN
                 )}
               </article>
             )
-          })
+          })}
+          {hasMore && (
+            <button type="button" onClick={loadMore} disabled={isLoadingMore} className="glass-button w-full rounded-xl border px-4 py-2.5 text-xs text-muted-foreground disabled:opacity-50">
+              {isLoadingMore ? "Loading notes…" : "Load 50 more"}
+            </button>
+          )}
+          </>
         )}
       </div>
     </div>

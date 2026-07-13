@@ -16,6 +16,7 @@ import { FirebaseError } from "firebase/app"
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   addDoc,
   updateDoc,
@@ -31,6 +32,8 @@ import {
   deleteField,
 } from "firebase/firestore"
 import { auth, db, getStorageLazy } from "@/lib/firebase"
+import { loadEntityCatalog, type DirectorySearchIndex } from "@/lib/directory-search"
+import { appContextsFromCatalog, importedContactsFromCatalog } from "@/lib/entity-catalog-adapters"
 import { registerFCMToken, onForegroundMessage, type NotificationPreference } from "@/lib/fcm"
 // image-upload loaded lazily in handleSend (only when uploading images)
 import dynamic from "next/dynamic"
@@ -41,6 +44,7 @@ import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
+import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
 // Secondary screens — lazy-loaded on demand (code splitting)
 const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
 const RegisterScreen = dynamic(() => import("@/components/register-screen").then((m) => ({ default: m.RegisterScreen })), { ssr: false })
@@ -85,6 +89,8 @@ import {
   normalizeEmail,
   type CategoryItem,
 } from "@/lib/store"
+
+const USE_DIRECTORY_CATALOG = process.env.NEXT_PUBLIC_USE_DIRECTORY_CATALOG === "true"
 
 type Screen =
   | "loading"
@@ -294,7 +300,10 @@ export default function Home() {
   const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
   const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
   const [appContexts, setAppContexts] = useState<AppContext[]>([])
+  const [catalogIndex, setCatalogIndex] = useState<DirectorySearchIndex | null>(null)
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null)
+  const [selectedContextData, setSelectedContextData] = useState<AppContext | null>(null)
+  const [selectedContextLoading, setSelectedContextLoading] = useState(false)
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
@@ -456,6 +465,7 @@ export default function Home() {
         setProjectMessages([])
         setProjects([])
         setGlobalImportedContacts([])
+        setCatalogIndex(null)
         setContactsLoaded(false)
         setContextsLoaded(false)
         setMessagesLoaded(false)
@@ -471,8 +481,6 @@ export default function Home() {
     if (!firebaseUser) return
 
     // Reset loading flags so skeletons show while new snapshots arrive
-    setContactsLoaded(false)
-    setContextsLoaded(false)
     setMessagesLoaded(false)
 
     // 1. All users (contacts = everyone except me)
@@ -564,16 +572,19 @@ export default function Home() {
 
     // 5. Imported contacts — all contacts are global; every authenticated user
     //    reads the whole collection (single listener, no visibility filter).
-    const globalImportedContactsUnsub = onSnapshot(collection(db, "contacts"), (snap) => {
-      setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
-      setContactsLoaded(true)
-    }, () => {
-      setGlobalImportedContacts([])
-      setContactsLoaded(true)
-    })
+    const useCompactCatalog = USE_DIRECTORY_CATALOG
+    const globalImportedContactsUnsub = useCompactCatalog
+      ? () => {}
+      : onSnapshot(collection(db, "contacts"), (snap) => {
+          setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
+          setContactsLoaded(true)
+        }, () => {
+          setGlobalImportedContacts([])
+          setContactsLoaded(true)
+        })
 
     // 6. Contexts — global, no filter needed
-    const contextsUnsub = onSnapshot(collection(db, "contexts"), (snap) => {
+    const contextsUnsub = useCompactCatalog ? () => {} : onSnapshot(collection(db, "contexts"), (snap) => {
       setAppContexts(snap.docs.map((d) => {
         const data = d.data()
         return {
@@ -606,6 +617,74 @@ export default function Home() {
       contextsUnsub()
     }
   }, [firebaseUser, listenerKey])
+
+  // Compact shared catalog: restores IndexedDB immediately, then revalidates
+  // 32 deterministic shards. A tiny metadata listener refreshes it after
+  // source writes without keeping /contacts or /contexts globally subscribed.
+  useEffect(() => {
+    if (!firebaseUser || !USE_DIRECTORY_CATALOG) return
+    let active = true
+    let firstMetaSnapshot = true
+    let refreshTimer: number | null = null
+    setContactsLoaded(false)
+    setContextsLoaded(false)
+
+    const applyCatalog = (index: DirectorySearchIndex) => {
+      if (!active) return
+      setCatalogIndex(index)
+      setGlobalImportedContacts(importedContactsFromCatalog(index))
+      setAppContexts(appContextsFromCatalog(index))
+      setContactsLoaded(true)
+      setContextsLoaded(true)
+    }
+    const refresh = () => {
+      loadEntityCatalog(firebaseUser.uid, { onCache: applyCatalog })
+        .then(applyCatalog)
+        .catch(() => {
+          if (!active) return
+          setContactsLoaded(true)
+          setContextsLoaded(true)
+        })
+    }
+    refresh()
+    const unsubscribe = onSnapshot(doc(db, "directoryMeta", "status"), () => {
+      if (firstMetaSnapshot) { firstMetaSnapshot = false; return }
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(refresh, 350)
+    }, () => {})
+    return () => {
+      active = false
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      unsubscribe()
+    }
+  }, [firebaseUser])
+
+  useEffect(() => {
+    if (!selectedContextId || activeScreen !== "context-detail") return
+    let active = true
+    setSelectedContextLoading(true)
+    getDoc(doc(db, "contexts", selectedContextId)).then((snapshot) => {
+      if (!active || !snapshot.exists()) return
+      const data = snapshot.data()
+      setSelectedContextData({
+        id: snapshot.id,
+        name: data.name ?? "",
+        description: data.description || undefined,
+        fields: Array.isArray(data.fields) ? data.fields : [],
+        fieldCount: Array.isArray(data.fields) ? data.fields.length : 0,
+        createdBy: data.createdBy ?? "",
+        createdAt: toDate(data.createdAt),
+        updatedAt: toDate(data.updatedAt),
+        importBatchId: data.importBatchId ?? undefined,
+        sourceSheet: data.sourceSheet ?? undefined,
+        sourceRecordId: data.sourceRecordId ?? undefined,
+        sourceDatabaseFile: data.sourceDatabaseFile ?? undefined,
+      })
+    }).catch(() => {}).finally(() => {
+      if (active) setSelectedContextLoading(false)
+    })
+    return () => { active = false }
+  }, [activeScreen, selectedContextId])
 
   // Recovery scripts v1/v2 removed — they corrupted participants by setting
   // participants = allUids on every message. visibleToUserIds is now the
@@ -1117,6 +1196,7 @@ export default function Home() {
     async (newContacts: Omit<ImportedContact, "id">[]) => {
       if (!firebaseUser || newContacts.length === 0) return
       const batch = writeBatch(db)
+      const optimisticContacts: ImportedContact[] = []
       newContacts.forEach((c) => {
         const ref = doc(collection(db, "contacts"))
         const emailNormalized = normalizeEmail(c.email)
@@ -1153,8 +1233,10 @@ export default function Home() {
           ...(c.urls && c.urls.length > 0 && { urls: c.urls }),
           ...(c.importBatchId && { importBatchId: c.importBatchId }),
         })
+        optimisticContacts.push({ ...c, id: ref.id, visibility: "global", createdAt: new Date(), updatedAt: new Date() })
       })
       await batch.commit()
+      setGlobalImportedContacts((current) => [...optimisticContacts, ...current])
       showToast(`${newContacts.length} contact${newContacts.length === 1 ? "" : "s"} imported ✓`, undefined, 3000)
     },
     [firebaseUser, showToast]
@@ -1193,6 +1275,9 @@ export default function Home() {
         tags: arrayUnion(trimmed),
         updatedAt: serverTimestamp(),
       })
+      setGlobalImportedContacts((current) => current.map((contact) => contact.id === contactId
+        ? { ...contact, tags: [...new Set([...contact.tags, trimmed])], updatedAt: new Date() }
+        : contact))
     },
     []
   )
@@ -1203,6 +1288,9 @@ export default function Home() {
         tags: arrayRemove(tag),
         updatedAt: serverTimestamp(),
       })
+      setGlobalImportedContacts((current) => current.map((contact) => contact.id === contactId
+        ? { ...contact, tags: contact.tags.filter((item) => item !== tag), updatedAt: new Date() }
+        : contact))
     },
     []
   )
@@ -1211,6 +1299,7 @@ export default function Home() {
     async (contactId: string) => {
       haptic.destructive()
       await deleteDoc(doc(db, "contacts", contactId))
+      setGlobalImportedContacts((current) => current.filter((contact) => contact.id !== contactId))
       showToast("Contact removed", undefined, 2000)
     },
     [showToast]
@@ -1238,6 +1327,14 @@ export default function Home() {
         fields.phoneNormalized = phoneNormalized ? (phoneNormalized.length === 11 && phoneNormalized.startsWith("1") ? phoneNormalized.slice(1) : phoneNormalized) : deleteField()
       }
       await updateDoc(doc(db, "contacts", contactId), fields)
+      setGlobalImportedContacts((current) => current.map((contact) => contact.id === contactId
+        ? {
+            ...contact,
+            ...(Object.prototype.hasOwnProperty.call(updates, "email") ? { email: updates.email?.trim() || undefined } : {}),
+            ...(Object.prototype.hasOwnProperty.call(updates, "phone") ? { phone: updates.phone?.trim() || undefined } : {}),
+            updatedAt: new Date(),
+          }
+        : contact))
     },
     []
   )
@@ -1317,6 +1414,8 @@ export default function Home() {
   }, [navigateTo])
   const goToContextDetail = useCallback((contextId: string) => {
     setSelectedContextId(contextId)
+    setSelectedContextData(null)
+    setSelectedContextLoading(true)
     navigateTo("context-detail")
   }, [navigateTo])
 
@@ -1343,7 +1442,7 @@ export default function Home() {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
-    return {
+    const context: AppContext = {
       id: ref.id,
       name,
       description: description || undefined,
@@ -1352,6 +1451,8 @@ export default function Home() {
       createdAt: new Date(),
       updatedAt: new Date(),
     }
+    setAppContexts((current) => [context, ...current])
+    return context
   }, [firebaseUser])
 
   const handleUpdateContext = useCallback(async (
@@ -1359,10 +1460,14 @@ export default function Home() {
     updates: Partial<Pick<AppContext, "name" | "description" | "fields">>
   ) => {
     await updateDoc(doc(db, "contexts", id), { ...updates, updatedAt: serverTimestamp() })
+    setAppContexts((current) => current.map((context) => context.id === id ? { ...context, ...updates, updatedAt: new Date() } : context))
+    setSelectedContextData((current) => current?.id === id ? { ...current, ...updates, updatedAt: new Date() } : current)
   }, [])
 
   const handleDeleteContext = useCallback(async (id: string) => {
     await deleteDoc(doc(db, "contexts", id))
+    setAppContexts((current) => current.filter((context) => context.id !== id))
+    setSelectedContextData(null)
     navigateTo("contexts")
   }, [navigateTo])
 
@@ -1673,23 +1778,26 @@ export default function Home() {
       )}
 
       {!showScreenSkeleton && (activeScreen === "directory" || activeScreen === "directory-detail") && firebaseUser && (
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
-          <DirectoryScreen
-            className={activeScreen === "directory" ? `${entranceClass} h-full w-full` : "hidden"}
-            userId={firebaseUser.uid}
-            onOpenDetail={goToDirectoryDetail}
-            onSwitchToStream={handleDirectorySwitchToStream}
-          />
-          {activeScreen === "directory-detail" && selectedDirectoryId && (
-            <DirectoryProfileScreen
-              className={entranceClass}
-              directoryId={selectedDirectoryId}
+        <DirectoryStateProvider userId={firebaseUser.uid}>
+          <div className="relative flex min-h-0 flex-1 overflow-hidden">
+            <DirectoryScreen
+              className={activeScreen === "directory" ? `${entranceClass} h-full w-full` : "hidden"}
               userId={firebaseUser.uid}
-              onBack={handleDirectoryDetailBack}
-              onOpenEntity={goToDirectoryDetail}
+              initialIndex={catalogIndex}
+              onOpenDetail={goToDirectoryDetail}
+              onSwitchToStream={handleDirectorySwitchToStream}
             />
-          )}
-        </div>
+            {activeScreen === "directory-detail" && selectedDirectoryId && (
+              <DirectoryProfileScreen
+                className={entranceClass}
+                directoryId={selectedDirectoryId}
+                userId={firebaseUser.uid}
+                onBack={handleDirectoryDetailBack}
+                onOpenEntity={goToDirectoryDetail}
+              />
+            )}
+          </div>
+        </DirectoryStateProvider>
       )}
 
       {!showScreenSkeleton && activeScreen === "contexts" && (
@@ -1705,7 +1813,8 @@ export default function Home() {
       )}
 
       {!showScreenSkeleton && activeScreen === "context-detail" && selectedContextId && (() => {
-        const ctx = appContexts.find((c) => c.id === selectedContextId)
+        if (selectedContextLoading) return <AppScreenSkeleton />
+        const ctx = selectedContextData ?? appContexts.find((c) => c.id === selectedContextId)
         if (!ctx) return null
         return (
           <ContextDetailScreen

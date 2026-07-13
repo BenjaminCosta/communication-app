@@ -26,25 +26,26 @@
 import { initializeApp, cert } from "firebase-admin/app"
 import { FieldValue, getFirestore } from "firebase-admin/firestore"
 import { readFileSync, existsSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { tsImport } from "tsx/esm/api"
 
-// Declared up top so the hoisted normalizer functions can reference them
-// during top-level execution (const is not hoisted — temporal dead zone).
-const STOPWORDS = new Set(["the", "and", "for", "inc", "llc", "co", "ltd", "of", "a", "an", "to", "in", "on", "at", "by", "with", "de", "la", "el", "los", "las"])
+const directoryCore = await tsImport("../lib/directory-core.ts", import.meta.url)
+const {
+  buildContactIndexEntry: buildCanonicalContactIndexEntry,
+  buildContextIndexEntry: buildCanonicalContextIndexEntry,
+  buildDirectorySearchShards: buildCanonicalDirectorySearchShards,
+  buildSearchDoc: buildCanonicalSearchDoc,
+  classifyContext: classifyCanonicalContext,
+  directoryId: canonicalDirectoryId,
+  normalizeName: normalizeCanonicalName,
+  DIRECTORY_MINISEARCH_CONFIG: CANONICAL_MINISEARCH_CONFIG,
+  DIRECTORY_SCHEMA_VERSION,
+  DIRECTORY_SEARCH_SHARD_COUNT,
+} = directoryCore
 
-const MINISEARCH_CONFIG = {
-  idField: "id",
-  fields: ["name", "aliases", "keywords", "companyName", "location", "role"],
-  storeFields: ["type", "name", "subtitle", "companyName", "location"],
-  searchOptions: { boost: { name: 3, aliases: 2, companyName: 1.5 }, prefix: true, fuzzy: 0.2 },
-}
+const MINISEARCH_CONFIG = CANONICAL_MINISEARCH_CONFIG
 
 // ── Args ─────────────────────────────────────────────────────────────────
-
-const DIRECTORY_SCHEMA_VERSION = 3
-
-// Declared up top (const isn't hoisted) so the hoisted normalizer functions can
-// use it during top-level execution.
-const INVALID_VALUE_RE = /^(#(error|n\/?a|ref|value|name|div\/0|num|null)!?|n\/?a|null|undefined|none|—|–|-|\.+)$/i
 
 const argv = process.argv.slice(2)
 const modes = ["--dry-run", "--sample", "--write", "--rebuild", "--repair", "--lock", "--unlock"].filter((m) => argv.includes(m))
@@ -60,6 +61,7 @@ if (!saPath || !existsSync(saPath)) fail("Set GOOGLE_APPLICATION_CREDENTIALS to 
 const serviceAccount = JSON.parse(readFileSync(saPath, "utf8"))
 const app = initializeApp({ credential: cert(serviceAccount), projectId: "svc-comms" })
 const db = getFirestore(app)
+db.settings({ preferRest: true })
 
 console.log(`Mode: ${mode}`)
 console.log("")
@@ -103,7 +105,7 @@ const companiesRaw = []
 const jobsRaw = []
 const otherContextsRaw = []
 for (const ctx of contexts) {
-  const type = classifyContext(ctx)
+  const type = classifyCanonicalContext(ctx)
   if (type === "company") companiesRaw.push(ctx)
   else if (type === "job") jobsRaw.push(ctx)
   else otherContextsRaw.push(ctx)
@@ -111,29 +113,52 @@ for (const ctx of contexts) {
 
 // Company resolver: name → composite company id
 const companyByName = new Map()
+const companyBySourceRecordId = new Map()
 for (const ctx of companiesRaw) {
-  companyByName.set(normalizeName(ctx.masterData?.displayName ?? ctx.masterData?.canonicalName ?? ctx.name ?? ""), directoryId("company", ctx.id))
+  const companyId = canonicalDirectoryId("company", ctx.id)
+  companyByName.set(normalizeCanonicalName(ctx.masterData?.displayName ?? ctx.masterData?.canonicalName ?? ctx.name ?? ""), companyId)
+  if (typeof ctx.sourceRecordId === "string" && ctx.sourceRecordId.trim()) {
+    companyBySourceRecordId.set(ctx.sourceRecordId.trim(), companyId)
+  }
 }
-const resolveCompanyId = (name) => companyByName.get(normalizeName(name ?? "")) ?? null
+const resolveCompanyIdForPerson = (person) => {
+  if (person.sourceCompanyId && companyBySourceRecordId.has(person.sourceCompanyId)) {
+    return companyBySourceRecordId.get(person.sourceCompanyId)
+  }
+  return person.company ? companyByName.get(normalizeCanonicalName(person.company)) ?? null : null
+}
 
 // Stamp versioning metadata (mirrors lib/directory-core.ts finalizeEntry) so
 // bulk-built docs carry the same schemaVersion/sourceUpdatedAt/indexedAt as
 // Cloud-Function-built ones, enabling the rebuild guard below.
 const toDateOrNull = (v) => (v && typeof v.toDate === "function") ? v.toDate() : (v instanceof Date ? v : null)
-const stampMeta = (entry, raw) => ({
-  ...entry,
-  schemaVersion: DIRECTORY_SCHEMA_VERSION,
-  sourceUpdatedAt: toDateOrNull(raw.updatedAt),
-  indexedAt: now,
-  updatedAt: now,
-})
-
-const personEntries = contacts.map((c) => stampMeta(buildPersonIndex(c, now, resolveCompanyId), c))
-const companyEntries = companiesRaw.map((c) => stampMeta(buildCompanyIndex(c, now), c))
-const jobEntries = jobsRaw.map((c) => stampMeta(buildJobIndex(c, now), c))
-const otherEntries = otherContextsRaw.map((c) => stampMeta(buildOtherIndex(c, now), c))
+const personEntries = contacts.map((contact) => buildCanonicalContactIndexEntry(contact, {
+  now,
+  sourceUpdatedAt: toDateOrNull(contact.updatedAt),
+  resolveCompanyIdForPerson,
+}))
+const companyEntries = companiesRaw.map((context) => buildCanonicalContextIndexEntry(context, {
+  now,
+  sourceUpdatedAt: toDateOrNull(context.updatedAt),
+}))
+const jobEntries = jobsRaw.map((context) => buildCanonicalContextIndexEntry(context, {
+  now,
+  sourceUpdatedAt: toDateOrNull(context.updatedAt),
+}))
+const otherEntries = otherContextsRaw.map((context) => buildCanonicalContextIndexEntry(context, {
+  now,
+  sourceUpdatedAt: toDateOrNull(context.updatedAt),
+}))
 
 const allEntries = [...personEntries, ...companyEntries, ...jobEntries, ...otherEntries]
+const allSearchDocs = allEntries.map(buildCanonicalSearchDoc).sort((a, b) => a.id.localeCompare(b.id))
+const searchRevision = createHash("sha256").update(JSON.stringify(allSearchDocs)).digest("hex").slice(0, 20)
+const searchShards = buildCanonicalDirectorySearchShards(allEntries)
+const shardedDocs = searchShards.flatMap((shard) => shard.entries)
+if (shardedDocs.length !== allSearchDocs.length || new Set(shardedDocs.map((entry) => entry.id)).size !== allSearchDocs.length) {
+  fail("Canonical search shards are incomplete or contain duplicate IDs.")
+}
+const shardBytes = searchShards.map((shard) => Buffer.byteLength(JSON.stringify(shard.entries), "utf8"))
 
 // ── Counts ───────────────────────────────────────────────────────────────
 
@@ -155,14 +180,15 @@ console.log(`  job:     ${counts.job}`)
 console.log(`  other:   ${counts.other}`)
 console.log(`  total:   ${counts.total}`)
 console.log(`  person→company resolved: ${resolvedPersonCompany}/${withCompanyName} with a company name`)
+console.log(`  search revision: ${searchRevision}`)
+console.log(`  search shards:   ${searchShards.length} docs, ${Math.min(...shardBytes)}–${Math.max(...shardBytes)} bytes each`)
 console.log("")
 
 // ── Optional compact index dump ─────────────────────────────────────────
 
 if (dumpPath) {
-  const searchDocs = allEntries.map(buildSearchDoc)
-  writeFileSync(dumpPath, JSON.stringify({ config: MINISEARCH_CONFIG, docs: searchDocs }, null, 2))
-  console.log(`Wrote compact MiniSearch payload (${searchDocs.length} docs) → ${dumpPath}`)
+  writeFileSync(dumpPath, JSON.stringify({ config: MINISEARCH_CONFIG, docs: allSearchDocs }, null, 2))
+  console.log(`Wrote compact MiniSearch payload (${allSearchDocs.length} docs) → ${dumpPath}`)
   console.log("")
 }
 
@@ -225,7 +251,8 @@ if (mode === "--repair") {
     }
     const toFix = allEntries.filter((e) => missing.has(e.id) || stale.has(e.id))
     await writeEntries(toFix)
-    await writeDirectoryMeta(counts)
+    await writeDirectorySearchShards(searchShards, searchRevision)
+    await writeDirectoryMeta(counts, searchRevision)
     console.log(`Repaired: -${orphaned.length} orphaned, +${missing.size} missing, ~${stale.size} stale.`)
   } else {
     console.log("")
@@ -270,266 +297,14 @@ if (mode === "--write" && !force) {
 }
 
 await writeEntries(toWrite)
-await writeDirectoryMeta(counts)
+await writeDirectorySearchShards(searchShards, searchRevision)
+await writeDirectoryMeta(counts, searchRevision)
 console.log("")
 console.log(`Done. ${mode === "--rebuild" ? "Rebuilt" : "Upserted"} ${toWrite.length} /directoryIndex docs${skipped ? ` (${skipped} skipped)` : ""}.`)
 process.exit(0)
 
-// ══════════════════════════════════════════════════════════════════════════
-// Normalizers (ported from lib/directory.ts — kept in sync intentionally)
-//
-// TECH DEBT: this logic is duplicated from lib/directory.ts because Node ESM
-// cannot import the .ts module directly (it imports ./store which pulls in the
-// whole app). Consolidate to a single source of truth — e.g. extract the pure
-// normalizers into a framework-free lib/directory-core.(m)js (or add a tsx/esbuild
-// loader for the script) so this .mjs imports them instead of re-declaring.
-// Until then: any change to a normalizer MUST be mirrored in both files.
-// ══════════════════════════════════════════════════════════════════════════
-
-function directoryId(type, sourceId) {
-  return `${type}__${sourceId}`
-}
-
-function classifyContext(ctx) {
-  const explicit = String(ctx.directoryType ?? "").toLowerCase().trim()
-  if (explicit === "company" || explicit === "job" || explicit === "other") return explicit
-  if (explicit === "person") return "other"
-  const kind = getFieldValue(ctx.fields, "Kind")?.toLowerCase() ?? ""
-  const sheet = (ctx.sourceSheet ?? "").toLowerCase()
-  if (kind === "company" || sheet === "companies") return "company"
-  if (kind === "project/job" || kind === "job" || sheet === "jobs") return "job"
-  if (hasAnyField(ctx.fields, ["Phone", "Website", "Timezone"])) return "company"
-  if (hasAnyField(ctx.fields, ["Project Manager", "Project Lead", "Duration in Weeks", "Job Rate"])) return "job"
-  return "other"
-}
-
-function buildPersonIndex(c, now, resolveCompany) {
-  const master = c.masterData ?? {}
-  const masterCompanyIsSafe = Number(master.companyMatchConfidence ?? 0) >= 0.75
-  const rawEmails = Array.isArray(c.emails) && c.emails.length
-    ? c.emails
-    : (c.email ? [{ label: "email", value: c.email, normalized: c.emailNormalized }] : [])
-  const rawPhones = Array.isArray(c.phones) && c.phones.length
-    ? c.phones
-    : (c.phone ? [{ label: "phone", value: c.phone, normalized: c.phoneNormalized }] : [])
-  const emails = uniqueContactPoints([
-    ...(master.emails ?? []).map((value, index) => ({ label: "email", value, normalized: String(value).toLowerCase(), isPrimary: index === 0 })),
-    ...rawEmails,
-  ], (value) => String(value).toLowerCase())
-  const phones = uniqueContactPoints([
-    ...(master.phones ?? []).map((value, index) => ({ label: "phone", value, normalized: normalizePhoneDigits(value), isPrimary: index === 0 })),
-    ...rawPhones,
-  ], normalizePhoneDigits)
-  const masterAddress = cleanValue(master.address)
-  const addresses = masterAddress
-    ? [{ label: "address", formatted: masterAddress }, ...(Array.isArray(c.addresses) ? c.addresses : []).filter((a) => normalizeName(a?.formatted ?? "") !== normalizeName(masterAddress))]
-    : (Array.isArray(c.addresses) ? c.addresses : [])
-  const company = masterCompanyIsSafe ? (cleanValue(master.companyName) ?? cleanValue(c.company)) : cleanValue(c.company)
-  const role = cleanValue(master.roleName) ?? cleanValue(c.role)
-  const companies = uniqueStrings([company, ...(Array.isArray(c.companies) && c.companies.length ? c.companies : (c.company ? [c.company] : []))])
-  const roles = uniqueStrings([role, ...(Array.isArray(c.roles) && c.roles.length ? c.roles : (c.role ? [c.role] : []))])
-  const tags = Array.isArray(c.tags) ? c.tags : []
-  const name = cleanValue(master.displayName) ?? cleanValue(master.canonicalName) ?? c.name ?? ""
-
-  const primaryEmail = emails.find((e) => e.isPrimary)?.value ?? emails[0]?.value ?? null
-  const primaryPhone = phones.find((p) => p.isPrimary)?.value ?? phones[0]?.value ?? null
-  const location = addresses[0]?.locality ?? extractLocality(addresses[0]?.formatted) ?? null
-  const subtitle = [role, company].filter(Boolean).join(" @ ") || null
-  const companyEntityId = cleanValue(master.companyContextId)
-    ? directoryId("company", cleanValue(master.companyContextId))
-    : (company ? resolveCompany(company) : null)
-
-  const emailLocalParts = emails.map((e) => (e.normalized ?? e.value)?.split("@")[0]).filter(Boolean)
-  const aliases = uniqueStrings([...emailLocalParts, ...companies])
-  const keywords = extractKeywords([name, role, ...roles, company, ...companies, ...tags, location])
-  const searchText = lowerJoin([
-    name,
-    ...emails.flatMap((e) => [e.value, e.normalized]),
-    ...phones.flatMap((p) => [p.value, p.normalized]),
-    company, ...companies, role, ...roles, master.notes, c.notes, ...tags,
-    ...addresses.map((a) => a.formatted),
-  ])
-
-  const hasEmail = emails.length > 0
-  const hasPhone = phones.length > 0
-  const issues = []
-  if (!name.trim()) issues.push("Missing name")
-  if (!hasEmail && !hasPhone) issues.push("No email or phone")
-  if (!company) issues.push("No company")
-  else if (!companyEntityId) issues.push("Company not resolved to an entity")
-  if (!role) issues.push("No role")
-
-  return {
-    id: directoryId("person", c.id),
-    type: "person",
-    sourceCollection: "contacts",
-    sourceId: c.id,
-    name,
-    normalizedName: normalizeName(name),
-    aliases,
-    keywords,
-    searchText,
-    subtitle,
-    email: primaryEmail,
-    phone: primaryPhone,
-    role,
-    location,
-    companyName: company,
-    companyEntityId,
-    linkedUserId: c.linkedUserId ?? null,
-    sourceSheet: c.sourceSheet ?? null,
-    sourceRecordId: c.sourceRecordId ?? null,
-    quality: {
-      hasEmail, hasPhone, hasCompany: !!company, hasRole: !!role,
-      hasLocation: addresses.length > 0, isLinkedUser: !!c.linkedUserId,
-      isComplete: !!name.trim() && (hasEmail || hasPhone),
-      issues,
-    },
-    updatedAt: now,
-  }
-}
-
-function buildCompanyIndex(ctx, now) {
-  const master = ctx.masterData ?? {}
-  const name = cleanValue(master.displayName) ?? cleanValue(master.canonicalName) ?? ctx.name ?? ""
-  const phone = cleanValue(master.phone) ?? getCleanField(ctx.fields, "Phone")
-  const address = cleanValue(master.address) ?? getCleanField(ctx.fields, "Address")
-  const timezone = getCleanField(ctx.fields, "Timezone")
-  const website = cleanValue(master.website) ?? getCleanField(ctx.fields, "Website")
-  const description = cleanValue(master.description) ?? ctx.description
-  const location = extractLocality(address)
-  const subtitle = [address, phone].filter(Boolean).join(" | ") || description || null
-
-  const issues = []
-  if (!name.trim()) issues.push("Missing name")
-  if (!phone && !address && !website) issues.push("No phone, address, or website")
-
-  return {
-    id: directoryId("company", ctx.id),
-    type: "company",
-    sourceCollection: "contexts",
-    sourceId: ctx.id,
-    name,
-    normalizedName: normalizeName(name),
-    aliases: uniqueStrings([...(master.aliases ?? []), extractDomain(website)]),
-    keywords: extractKeywords([name, description, address, location]),
-    searchText: lowerJoin([name, description, phone, address, timezone, website, ...(master.aliases ?? []), ...fieldValues(ctx.fields)]),
-    subtitle,
-    email: null,
-    phone,
-    role: null,
-    location,
-    companyName: null,
-    companyEntityId: null,
-    linkedUserId: null,
-    sourceSheet: ctx.sourceSheet ?? null,
-    sourceRecordId: ctx.sourceRecordId ?? null,
-    quality: {
-      hasEmail: false, hasPhone: !!phone, hasCompany: false, hasRole: false,
-      hasLocation: !!address, isLinkedUser: false,
-      isComplete: !!name.trim() && (!!phone || !!address || !!website),
-      issues,
-    },
-    updatedAt: now,
-  }
-}
-
-function buildJobIndex(ctx, now) {
-  const master = ctx.masterData ?? {}
-  const name = cleanValue(master.canonicalName) ?? ctx.name ?? ""
-  const address = cleanValue(master.address) ?? getCleanField(ctx.fields, "Address")
-  // Jobs "Company" column actually holds a location string.
-  const location = cleanValue(master.location) ?? getCleanField(ctx.fields, "Location") ?? getCleanField(ctx.fields, "Company")
-  const companyName = cleanValue(master.companyName) ?? getCleanField(ctx.fields, "Parent Company")
-  const companyEntityId = cleanValue(master.companyContextId) ? directoryId("company", cleanValue(master.companyContextId)) : null
-  const projectManager = cleanValue(master.projectManagerName) ?? getCleanField(ctx.fields, "Project Manager")
-  const projectLead = cleanValue(master.projectLeadName) ?? getCleanField(ctx.fields, "Project Lead")
-  const status = cleanValue(master.status) ?? getCleanField(ctx.fields, "Status")
-  const relatedContacts = getCleanField(ctx.fields, "Related Contacts")
-  const loc = location ?? extractLocality(address)
-  const subtitle = [status, companyName, location, address].filter(Boolean).join(" | ") || ctx.description || null
-
-  const issues = []
-  if (!name.trim()) issues.push("Missing name")
-  if (!status) issues.push("No status")
-  if (!location && !address) issues.push("No location or address")
-
-  return {
-    id: directoryId("job", ctx.id),
-    type: "job",
-    sourceCollection: "contexts",
-    sourceId: ctx.id,
-    name,
-    normalizedName: normalizeName(name),
-    aliases: [],
-    keywords: extractKeywords([name, status, companyName, loc, address, nameSegment(projectManager), nameSegment(projectLead)]),
-    searchText: lowerJoin([name, ctx.description, address, location, companyName, projectManager, projectLead, status, relatedContacts, ...fieldValues(ctx.fields)]),
-    subtitle,
-    email: null,
-    phone: null,
-    role: null,
-    location: loc,
-    companyName,
-    companyEntityId,
-    linkedUserId: null,
-    sourceSheet: ctx.sourceSheet ?? null,
-    sourceRecordId: ctx.sourceRecordId ?? null,
-    quality: {
-      hasEmail: false, hasPhone: false, hasCompany: !!companyEntityId, hasRole: false,
-      hasLocation: !!(location || address), isLinkedUser: false,
-      isComplete: !!name.trim(),
-      issues,
-    },
-    updatedAt: now,
-  }
-}
-
-function buildOtherIndex(ctx, now) {
-  const name = ctx.name ?? ""
-  return {
-    id: directoryId("other", ctx.id),
-    type: "other",
-    sourceCollection: "contexts",
-    sourceId: ctx.id,
-    name,
-    normalizedName: normalizeName(name),
-    aliases: [],
-    keywords: extractKeywords([name, ctx.description]),
-    searchText: lowerJoin([name, ctx.description, ...fieldValues(ctx.fields)]),
-    subtitle: ctx.description ?? null,
-    email: null,
-    phone: null,
-    role: null,
-    location: null,
-    companyName: null,
-    companyEntityId: null,
-    linkedUserId: null,
-    sourceSheet: ctx.sourceSheet ?? null,
-    sourceRecordId: ctx.sourceRecordId ?? null,
-    quality: {
-      hasEmail: false, hasPhone: false, hasCompany: false, hasRole: false,
-      hasLocation: false, isLinkedUser: false,
-      isComplete: !!name.trim(),
-      issues: name.trim() ? [] : ["Missing name"],
-    },
-    updatedAt: now,
-  }
-}
-
-function buildSearchDoc(entry) {
-  return {
-    id: entry.id,
-    type: entry.type,
-    name: entry.name,
-    aliases: entry.aliases.join(" "),
-    keywords: entry.keywords.join(" "),
-    companyName: entry.companyName ?? "",
-    location: entry.location ?? "",
-    role: entry.role ?? "",
-    subtitle: entry.subtitle ?? "",
-  }
-}
-
+// All classification, normalization, index projection and shard distribution
+// come from lib/directory-core.ts via tsx/esm/api at the top of this script.
 // ══════════════════════════════════════════════════════════════════════════
 // Firestore writers (idempotent)
 // ══════════════════════════════════════════════════════════════════════════
@@ -547,11 +322,35 @@ async function writeEntries(entries) {
   }
 }
 
-async function writeDirectoryMeta(counts) {
+async function writeDirectorySearchShards(shards, revision) {
+  const batch = db.batch()
+  const collection = db.collection("directorySearchShards")
+  for (const shard of shards) {
+    const bytes = Buffer.byteLength(JSON.stringify(shard.entries), "utf8")
+    if (bytes > 800_000) fail(`Search shard ${shard.shardId} is ${bytes} bytes; increase shard count before writing.`)
+    batch.set(collection.doc(shard.shardId), {
+      schemaVersion: DIRECTORY_SCHEMA_VERSION,
+      shardId: shard.shardId,
+      revision,
+      entryCount: shard.entries.length,
+      entries: shard.entries,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  }
+  await batch.commit()
+  console.log(`Wrote ${shards.length} /directorySearchShards docs (revision=${revision}).`)
+}
+
+async function writeDirectoryMeta(counts, revision) {
   await db.doc("directoryMeta/status").set({
     schemaVersion: DIRECTORY_SCHEMA_VERSION,
     lastRebuildAt: FieldValue.serverTimestamp(),
     lastChangeAt: FieldValue.serverTimestamp(),
+    searchRevision: revision,
+    searchSchemaVersion: DIRECTORY_SCHEMA_VERSION,
+    searchShardCount: DIRECTORY_SEARCH_SHARD_COUNT,
+    searchEntryCount: counts.total,
+    searchBuiltAt: FieldValue.serverTimestamp(),
     counts: {
       person: counts.person,
       company: counts.company,
@@ -617,7 +416,7 @@ function sampleBlock(title, entries) {
     console.log(`  aliases:       ${e.aliases.length ? e.aliases.join(", ") : "—"}`)
     console.log(`  keywords:      ${e.keywords.slice(0, 12).join(", ")}${e.keywords.length > 12 ? " …" : ""}`)
     console.log(`  quality:       complete=${e.quality.isComplete}${e.quality.issues.length ? " | issues: " + e.quality.issues.join("; ") : ""}`)
-    console.log(`  → searchDoc:   ${JSON.stringify(buildSearchDoc(e))}`)
+    console.log(`  → searchDoc:   ${JSON.stringify(buildCanonicalSearchDoc(e))}`)
   }
 }
 
@@ -636,90 +435,6 @@ function printQuality() {
     console.log(`   ├─ [${type}] ${issue}: ${count}`)
   }
   console.log("")
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// Text helpers (ported from lib/directory.ts)
-// ══════════════════════════════════════════════════════════════════════════
-
-function stripAccents(v) {
-  return String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-}
-function normalizeName(v) {
-  return stripAccents(v).toLowerCase().replace(/\s+/g, " ").trim()
-}
-function tokenize(v) {
-  return stripAccents(v).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !STOPWORDS.has(t))
-}
-function extractKeywords(values) {
-  const set = new Set()
-  for (const v of values) { if (!v) continue; for (const t of tokenize(v)) set.add(t) }
-  return [...set]
-}
-function uniqueStrings(values) {
-  const set = new Set()
-  for (const v of values) { const c = String(v ?? "").trim(); if (c) set.add(c) }
-  return [...set]
-}
-function lowerJoin(values) {
-  return values.filter(Boolean).join(" ").toLowerCase()
-}
-function extractLocality(formatted) {
-  if (!formatted) return null
-  const parts = String(formatted).split(",").map((p) => p.trim()).filter(Boolean)
-  if (parts.length >= 2) return parts.slice(-2).join(", ")
-  return parts[0] ?? null
-}
-function extractDomain(website) {
-  if (!website) return null
-  const m = String(website).replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0]
-  return m || null
-}
-function nameSegment(value) {
-  if (!value) return null
-  return String(value).split("/")[0].trim() || null
-}
-function isInvalidValue(v) {
-  if (v == null) return true
-  const t = String(v).trim()
-  if (!t) return true
-  return INVALID_VALUE_RE.test(t)
-}
-function cleanValue(v) {
-  return isInvalidValue(v) ? null : String(v).trim()
-}
-function normalizePhoneDigits(value) {
-  const digits = String(value ?? "").replace(/\D/g, "")
-  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
-}
-function uniqueContactPoints(points, normalize) {
-  const seen = new Set()
-  const result = []
-  for (const point of points) {
-    if (isInvalidValue(point?.value)) continue
-    const normalized = normalize(point.normalized ?? point.value)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    result.push({ ...point, normalized })
-  }
-  return result
-}
-function getFieldValue(fields, label) {
-  if (!Array.isArray(fields)) return null
-  const f = fields.find((f) => f.label?.toLowerCase() === label.toLowerCase())
-  return f?.value?.trim() || null
-}
-// Field value with spreadsheet-error/junk stripped (mirrors core cleanValue).
-function getCleanField(fields, label) {
-  return cleanValue(getFieldValue(fields, label))
-}
-function hasAnyField(fields, labels) {
-  if (!Array.isArray(fields)) return false
-  const set = new Set(labels.map((l) => l.toLowerCase()))
-  return fields.some((f) => set.has(f.label?.toLowerCase()) && f.value?.trim())
-}
-function fieldValues(fields) {
-  return Array.isArray(fields) ? fields.map((f) => f.value).filter(Boolean) : []
 }
 
 // ── misc helpers ─────────────────────────────────────────────────────────

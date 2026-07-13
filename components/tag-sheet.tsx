@@ -607,7 +607,7 @@ function SearchResultsView({
     <div className="px-4 pb-4">
       <SectionTitle>Results</SectionTitle>
       <div className="flex flex-col gap-1">
-        {filteredContacts.map((contact) => (
+        {filteredContacts.slice(0, 50).map((contact) => (
           <SearchResultRow
             key={contact.id}
             selected={selectedParticipants.includes(contact.id)}
@@ -617,7 +617,7 @@ function SearchResultsView({
             onClick={() => onToggleParticipant(contact.id)}
           />
         ))}
-        {filteredImported.map((contact) => (
+        {filteredImported.slice(0, 50).map((contact) => (
           <SearchResultRow
             key={contact.id}
             selected={selectedImported.includes(contact.id)}
@@ -627,7 +627,7 @@ function SearchResultsView({
             onClick={() => onToggleImported(contact.id)}
           />
         ))}
-        {filteredTags.map((tag) => (
+        {filteredTags.slice(0, 50).map((tag) => (
           <SearchResultRow
             key={tag.id}
             selected={selectedTags.includes(tag.id)}
@@ -637,7 +637,7 @@ function SearchResultsView({
             onClick={() => onToggleTag(tag.id)}
           />
         ))}
-        {filteredContexts.map((ctx) => (
+        {filteredContexts.slice(0, 50).map((ctx) => (
           <SearchResultRow
             key={ctx.id}
             selected={selectedContextIds.includes(ctx.id)}
@@ -683,9 +683,8 @@ function PeopleDetailView({
 }) {
   const [visibleCount, setVisibleCount] = useState(50)
   const q = query.trim().toLowerCase()
-  // When searching, parent already filtered to matches (few). When browsing, paginate.
   useEffect(() => { setVisibleCount(50) }, [q])
-  const visibleImported = q ? importedContacts : importedContacts.slice(0, visibleCount)
+  const visibleImported = importedContacts.slice(0, visibleCount)
 
   return (
     <div className="px-4 pb-4">
@@ -711,7 +710,7 @@ function PeopleDetailView({
             onClick={() => onToggleImported(contact.id)}
           />
         ))}
-        {!q && importedContacts.length > visibleCount && (
+        {importedContacts.length > visibleCount && (
           <button
             onClick={() => setVisibleCount((v) => v + 50)}
             className="mt-1 w-full py-2 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"
@@ -841,7 +840,7 @@ function ContextsDetailView({
   const filtered = q
     ? contexts.filter((ctx) => ctx.name.toLowerCase().includes(q) || (ctx.description ?? "").toLowerCase().includes(q))
     : contexts
-  const visible = q ? filtered : filtered.slice(0, visibleCount)
+  const visible = filtered.slice(0, visibleCount)
 
   return (
     <div className="px-4 pb-4">
@@ -877,7 +876,7 @@ function ContextsDetailView({
             {q ? "No contexts found" : "No contexts available"}
           </p>
         )}
-        {!q && filtered.length > visibleCount && (
+        {filtered.length > visibleCount && (
           <button
             onClick={() => setVisibleCount((v) => v + 50)}
             className="w-full py-2 rounded-xl border border-white/10 bg-white/3 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-all active:scale-[0.99]"

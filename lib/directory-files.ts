@@ -18,15 +18,19 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDocsFromServer,
-  onSnapshot,
+  documentId,
+  getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
+  startAfter,
+  Timestamp,
   where,
-  type Query,
   type Unsubscribe,
 } from "firebase/firestore"
 import { db, getStorageLazy } from "@/lib/firebase"
+import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 
 /** V1 always writes "general"; the rest are reserved for later phases. */
 export type DirectoryFileCategory =
@@ -50,6 +54,11 @@ export interface DirectoryFile {
   caption: string
   uploadedBy: string
   createdAt: Date | null
+}
+
+export interface DirectoryFilesPage {
+  items: DirectoryFile[]
+  hasMore: boolean
 }
 
 export const MAX_DIRECTORY_FILE_BYTES = 15 * 1024 * 1024 // 15 MB
@@ -79,36 +88,54 @@ function mapFile(id: string, data: Record<string, unknown>): DirectoryFile {
   }
 }
 
-function primeFromServer(target: Query): void {
-  getDocsFromServer(target).catch(() => {})
-}
-
 export function isImageFile(file: Pick<DirectoryFile, "mimeType">): boolean {
   return file.mimeType.startsWith("image/")
+}
+
+const FILES_PAGE_SIZE = 50
+
+function filesQueryFor(directoryId: string) {
+  return query(
+    collection(db, FILES),
+    where("entityIds", "array-contains", directoryId),
+    orderBy("createdAt", "desc"),
+    orderBy(documentId(), "desc"),
+  )
 }
 
 function sanitizeStorageName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/_{2,}/g, "_").slice(0, 120) || "file"
 }
 
-/** Live files for one entity, newest first (sorted client-side — no composite index). */
+/** Live first page for one entity; older pages are fetched on demand. */
 export function subscribeDirectoryFiles(
   directoryId: string,
   onChange: (files: DirectoryFile[]) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  const filesQuery = query(collection(db, FILES), where("entityIds", "array-contains", directoryId))
-  primeFromServer(filesQuery)
-  return onSnapshot(
+  const filesQuery = query(filesQueryFor(directoryId), limit(FILES_PAGE_SIZE))
+  return subscribeWithServerReconcile(
     filesQuery,
     (snapshot) => {
-      const files = snapshot.docs
-        .map((entry) => mapFile(entry.id, entry.data()))
-        .sort((a, b) => (b.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (a.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER))
-      onChange(files)
+      onChange(snapshot.docs.map((entry) => mapFile(entry.id, entry.data())))
     },
     (error) => onError?.(error),
   )
+}
+
+export async function loadDirectoryFilesPage(
+  directoryId: string,
+  cursor: { createdAt: Date; id: string },
+): Promise<DirectoryFilesPage> {
+  const snapshot = await getDocs(query(
+    filesQueryFor(directoryId),
+    startAfter(Timestamp.fromDate(cursor.createdAt), cursor.id),
+    limit(FILES_PAGE_SIZE),
+  ))
+  return {
+    items: snapshot.docs.map((entry) => mapFile(entry.id, entry.data())),
+    hasMore: snapshot.size === FILES_PAGE_SIZE,
+  }
 }
 
 export interface UploadFileOptions {

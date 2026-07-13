@@ -3,11 +3,13 @@
 // Source of truth: lib/directory-core.ts (repo root).
 // Regenerate with: pnpm --prefix functions build  (or node functions/scripts/copy-shared-core.mjs)
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DIRECTORY_MINISEARCH_CONFIG = exports.CONTEXT_TYPES = exports.DIRECTORY_SCHEMA_VERSION = void 0;
+exports.DIRECTORY_MINISEARCH_CONFIG = exports.CONTEXT_TYPES = exports.DIRECTORY_SEARCH_SHARD_COUNT = exports.DIRECTORY_SCHEMA_VERSION = void 0;
 exports.directoryId = directoryId;
 exports.parseDirectoryId = parseDirectoryId;
 exports.contextCompositeIds = contextCompositeIds;
 exports.buildSearchDoc = buildSearchDoc;
+exports.directorySearchShardId = directorySearchShardId;
+exports.buildDirectorySearchShards = buildDirectorySearchShards;
 exports.classifyContext = classifyContext;
 exports.normalizeContact = normalizeContact;
 exports.normalizeCompanyContext = normalizeCompanyContext;
@@ -38,8 +40,10 @@ exports.normalizeName = normalizeName;
  *   2 — adds schemaVersion/sourceUpdatedAt/indexedAt, validation, stable-id
  *       company resolution, alias accumulation
  *   3 — reads non-destructive masterData enrichment and resolves job→company
+ *   4 — adds a compact shared catalog and deterministic search shards
  */
-exports.DIRECTORY_SCHEMA_VERSION = 3;
+exports.DIRECTORY_SCHEMA_VERSION = 4;
+exports.DIRECTORY_SEARCH_SHARD_COUNT = 32;
 // ── Composite ID helpers ────────────────────────────────────────────────
 function directoryId(type, sourceId) {
     return `${type}__${sourceId}`;
@@ -62,7 +66,9 @@ function contextCompositeIds(sourceId) {
 exports.DIRECTORY_MINISEARCH_CONFIG = {
     idField: "id",
     fields: ["name", "aliases", "email", "phone", "keywords", "companyName", "location", "role", "searchText"],
-    storeFields: ["type", "name", "subtitle", "companyName", "location"],
+    // Search results are resolved through DirectorySearchIndex.byId; only type
+    // must be duplicated inside MiniSearch for scope filtering.
+    storeFields: ["type"],
     searchOptions: {
         boost: {
             name: 5,
@@ -81,17 +87,49 @@ function buildSearchDoc(entry) {
     return {
         id: entry.id,
         type: entry.type,
+        sourceCollection: entry.sourceCollection,
+        sourceId: entry.sourceId,
+        ownerUserId: entry.ownerUserId ?? "",
         name: entry.name,
         aliases: entry.aliases.join(" "),
         email: entry.email ?? "",
         phone: [entry.phone ?? "", normalizePhoneDigits(entry.phone ?? "")].filter(Boolean).join(" "),
+        phoneDisplay: entry.phone ?? "",
         keywords: entry.keywords.join(" "),
         companyName: entry.companyName ?? "",
         location: entry.location ?? "",
         role: entry.role ?? "",
         searchText: entry.searchText,
         subtitle: entry.subtitle ?? "",
+        linkedUserId: entry.linkedUserId ?? "",
+        status: entry.status ?? "",
+        tags: entry.tags,
+        description: entry.description ?? "",
+        fieldCount: entry.fieldCount,
     };
+}
+/** FNV-1a keeps an entry in the same shard in browsers, scripts and Functions. */
+function directorySearchShardId(id, shardCount = exports.DIRECTORY_SEARCH_SHARD_COUNT) {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < id.length; index += 1) {
+        hash ^= id.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return String(hash % shardCount).padStart(2, "0");
+}
+function buildDirectorySearchShards(entries, shardCount = exports.DIRECTORY_SEARCH_SHARD_COUNT) {
+    const buckets = Array.from({ length: shardCount }, (_, index) => ({
+        schemaVersion: exports.DIRECTORY_SCHEMA_VERSION,
+        shardId: String(index).padStart(2, "0"),
+        entries: [],
+    }));
+    for (const entry of entries) {
+        const searchDoc = buildSearchDoc(entry);
+        buckets[Number(directorySearchShardId(searchDoc.id, shardCount))].entries.push(searchDoc);
+    }
+    for (const bucket of buckets)
+        bucket.entries.sort((a, b) => a.id.localeCompare(b.id));
+    return buckets;
 }
 // ── Classification ──────────────────────────────────────────────────────
 function classifyContext(ctx) {
@@ -141,6 +179,7 @@ function normalizeContact(contact) {
         type: "person",
         sourceCollection: "contacts",
         sourceId: contact.id,
+        ownerUserId: contact.ownerUserId ?? "",
         name: cleanValue(master?.displayName) ?? cleanValue(master?.canonicalName) ?? contact.name ?? "",
         emails,
         phones,
@@ -153,6 +192,7 @@ function normalizeContact(contact) {
         tags: contact.tags ?? [],
         notes: cleanValue(master?.notes) ?? cleanValue(contact.notes),
         linkedUserId: contact.linkedUserId ?? null,
+        status: contact.status === "registered" || contact.linkedUserId ? "registered" : "not_registered",
         source: contact.source ?? "unknown",
         sourceSheet: contact.sourceSheet ?? null,
         sourceRecordId: contact.sourceRecordId ?? null,
@@ -279,6 +319,7 @@ function buildPersonIndex(person, ctx = {}) {
         type: "person",
         sourceCollection: "contacts",
         sourceId: person.sourceId,
+        ownerUserId: person.ownerUserId || null,
         name: person.name,
         normalizedName: normalizeName(person.name),
         aliases,
@@ -292,6 +333,10 @@ function buildPersonIndex(person, ctx = {}) {
         companyName: person.company,
         companyEntityId,
         linkedUserId: person.linkedUserId,
+        status: person.status,
+        tags: person.tags,
+        description: person.notes,
+        fieldCount: 0,
         sourceSheet: person.sourceSheet,
         sourceRecordId: person.sourceRecordId,
         quality,
@@ -316,6 +361,7 @@ function buildCompanyIndex(company, ctx = {}) {
         type: "company",
         sourceCollection: "contexts",
         sourceId: company.sourceId,
+        ownerUserId: null,
         name: company.name,
         normalizedName: normalizeName(company.name),
         aliases,
@@ -329,6 +375,10 @@ function buildCompanyIndex(company, ctx = {}) {
         companyName: null,
         companyEntityId: null,
         linkedUserId: null,
+        status: null,
+        tags: [],
+        description: company.description,
+        fieldCount: company.fields.length,
         sourceSheet: company.sourceSheet,
         sourceRecordId: company.sourceRecordId,
         quality,
@@ -354,6 +404,7 @@ function buildJobIndex(job, ctx = {}) {
         type: "job",
         sourceCollection: "contexts",
         sourceId: job.sourceId,
+        ownerUserId: null,
         name: job.name,
         normalizedName: normalizeName(job.name),
         aliases,
@@ -367,6 +418,10 @@ function buildJobIndex(job, ctx = {}) {
         companyName: job.companyName,
         companyEntityId: job.companyEntityId,
         linkedUserId: null,
+        status: null,
+        tags: [],
+        description: job.description,
+        fieldCount: job.fields.length,
         sourceSheet: job.sourceSheet,
         sourceRecordId: job.sourceRecordId,
         quality,
@@ -381,6 +436,7 @@ function buildOtherIndex(other, ctx = {}) {
         type: "other",
         sourceCollection: other.sourceCollection,
         sourceId: other.sourceId,
+        ownerUserId: null,
         name: other.name,
         normalizedName: normalizeName(other.name),
         aliases: [],
@@ -394,6 +450,10 @@ function buildOtherIndex(other, ctx = {}) {
         companyName: null,
         companyEntityId: null,
         linkedUserId: null,
+        status: null,
+        tags: [],
+        description: other.description,
+        fieldCount: other.fields.length,
         sourceSheet: other.sourceSheet,
         sourceRecordId: other.sourceRecordId,
         quality: {

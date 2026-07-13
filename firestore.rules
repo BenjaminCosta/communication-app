@@ -153,6 +153,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Compact, deterministic catalog shards derived from directoryIndex.
+    match /directorySearchShards/{shardId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
     // ── Directory metadata (schemaVersion, counts, lastChangeAt) ────────────
     // Read-only signal clients use to invalidate their local MiniSearch cache.
     match /directoryMeta/{docId} {

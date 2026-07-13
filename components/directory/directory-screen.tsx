@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Star } from "lucide-react"
 import { DirectoryFavoritesScreen } from "@/components/directory/directory-favorites-screen"
 import { DirectoryHome } from "@/components/directory/directory-home"
@@ -10,6 +10,7 @@ import { DirectorySearchExperience } from "@/components/directory/directory-sear
 import { DirectoryErrorState } from "@/components/directory/directory-states"
 import { ModuleSwitcher } from "@/components/module-switcher"
 import { cn } from "@/lib/utils"
+import { useDirectoryUserState } from "@/components/directory/directory-state-provider"
 import type { DirectoryListItem, DirectoryScope } from "@/lib/directory-config"
 import {
   directoryItemsForIds,
@@ -20,14 +21,10 @@ import {
   searchDirectory,
   type DirectorySearchIndex,
 } from "@/lib/directory-search"
-import {
-  recordDirectoryRecent,
-  subscribeDirectoryFavorites,
-  subscribeDirectoryRecents,
-} from "@/lib/directory-user-state"
 
 interface DirectoryScreenProps {
   userId: string
+  initialIndex?: DirectorySearchIndex | null
   onOpenDetail: (directoryId: string) => void
   onSwitchToStream: () => void
   className?: string
@@ -35,34 +32,63 @@ interface DirectoryScreenProps {
 
 const PAGE_SIZE = 50
 
-export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, className }: DirectoryScreenProps) {
+export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onSwitchToStream, className }: DirectoryScreenProps) {
   const [draftQuery, setDraftQuery] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
   const [scope, setScope] = useState<DirectoryScope>("all")
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [homeVisibleCount, setHomeVisibleCount] = useState(PAGE_SIZE)
-  const [searchIndex, setSearchIndex] = useState<DirectorySearchIndex | null>(null)
-  const [isIndexLoading, setIsIndexLoading] = useState(true)
+  const [searchIndex, setSearchIndex] = useState<DirectorySearchIndex | null>(initialIndex)
+  const [isIndexLoading, setIsIndexLoading] = useState(!initialIndex)
   const [loadError, setLoadError] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
-  const [favoriteIds, setFavoriteIds] = useState<string[]>([])
-  const [recentIds, setRecentIds] = useState<string[]>([])
-  const [isFavoritesLoading, setIsFavoritesLoading] = useState(true)
-  const [isRecentsLoading, setIsRecentsLoading] = useState(true)
+  const {
+    favoriteIds,
+    recentIds,
+    favoritesLoading: isFavoritesLoading,
+    recentsLoading: isRecentsLoading,
+  } = useDirectoryUserState()
   const [showFavorites, setShowFavorites] = useState(false)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
+  const [debouncedDraftQuery, setDebouncedDraftQuery] = useState("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const deferredDraftQuery = useDeferredValue(draftQuery)
+  const searchIndexRef = useRef(searchIndex)
 
   useEffect(() => {
+    searchIndexRef.current = searchIndex
+  }, [searchIndex])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedDraftQuery(draftQuery), 120)
+    return () => window.clearTimeout(timer)
+  }, [draftQuery])
+
+  useEffect(() => {
+    if (initialIndex && retryKey === 0) {
+      setSearchIndex(initialIndex)
+      setIsIndexLoading(false)
+      setIsRefreshing(initialIndex.stale)
+      setLoadError(false)
+      return
+    }
     let active = true
-    setIsIndexLoading(true)
+    setIsIndexLoading(!searchIndexRef.current)
+    setIsRefreshing(false)
     setLoadError(false)
-    loadDirectorySearch(userId)
+    loadDirectorySearch(userId, {
+      onCache: (index) => {
+        if (!active) return
+        setSearchIndex(index)
+        setIsIndexLoading(false)
+        setIsRefreshing(true)
+      },
+    })
       .then((index) => {
         if (!active) return
         setSearchIndex(index)
+        setIsRefreshing(false)
         setLoadError(false)
       })
       .catch(() => {
@@ -71,30 +97,10 @@ export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, classN
         setLoadError(true)
       })
       .finally(() => {
-        if (active) setIsIndexLoading(false)
+        if (active) { setIsIndexLoading(false); setIsRefreshing(false) }
       })
     return () => { active = false }
-  }, [userId, retryKey])
-
-  useEffect(() => {
-    setIsFavoritesLoading(true)
-    const unsubscribe = subscribeDirectoryFavorites(
-      userId,
-      (ids) => { setFavoriteIds(ids); setIsFavoritesLoading(false) },
-      () => setIsFavoritesLoading(false),
-    )
-    return unsubscribe
-  }, [userId])
-
-  useEffect(() => {
-    setIsRecentsLoading(true)
-    const unsubscribe = subscribeDirectoryRecents(
-      userId,
-      (ids) => { setRecentIds(ids); setIsRecentsLoading(false) },
-      () => setIsRecentsLoading(false),
-    )
-    return unsubscribe
-  }, [userId])
+  }, [initialIndex, userId, retryKey])
 
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [submittedQuery, scope])
   useEffect(() => { setHomeVisibleCount(PAGE_SIZE) }, [scope])
@@ -104,14 +110,14 @@ export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, classN
     [searchIndex, submittedQuery, scope],
   )
   const titleSuggestions = useMemo(
-    () => getDirectoryTitleSuggestions(searchIndex, deferredDraftQuery, scope),
-    [searchIndex, deferredDraftQuery, scope],
+    () => getDirectoryTitleSuggestions(searchIndex, debouncedDraftQuery, scope),
+    [searchIndex, debouncedDraftQuery, scope],
   )
   const isSuggestionsOpen =
     isSearchFocused &&
     !isIndexLoading &&
     draftQuery.trim().length >= 2 &&
-    deferredDraftQuery === draftQuery &&
+    debouncedDraftQuery === draftQuery &&
     titleSuggestions.length > 0
   const visibleResults = paginateDirectoryItems(allResults, visibleCount)
   const recentItems = useMemo(() => directoryItemsForIds(searchIndex, recentIds), [searchIndex, recentIds])
@@ -125,10 +131,9 @@ export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, classN
     if (!searchIndex || scope === "all") return []
     const recentOfScope = recentItems.filter((item) => item.type === scope)
     const recentIdSet = new Set(recentOfScope.map((item) => item.id))
-    const restOfScope = searchIndex.documents
-      .filter((document) => document.type === scope && !recentIdSet.has(document.id))
+    const restOfScope = searchIndex.byType[scope]
+      .filter((document) => !recentIdSet.has(document.id))
       .map((document) => directoryListItemFromDoc(document))
-      .sort((a, b) => a.name.localeCompare(b.name))
     return [...recentOfScope, ...restOfScope]
   }, [searchIndex, scope, recentItems])
   const visibleScopeBrowseItems = paginateDirectoryItems(scopeBrowseItems, homeVisibleCount)
@@ -202,11 +207,9 @@ export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, classN
   }, [activeSuggestionIndex, isSuggestionsOpen, selectSuggestion, titleSuggestions])
 
   const openItem = useCallback((item: DirectoryListItem) => {
-    setRecentIds((current) => [item.id, ...current.filter((id) => id !== item.id)].slice(0, 3))
-    recordDirectoryRecent(userId, item.id).catch(() => {})
     setShowFavorites(false)
     onOpenDetail(item.id)
-  }, [onOpenDetail, userId])
+  }, [onOpenDetail])
 
   return (
     <div className={cn("directory-glass-screen flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
@@ -295,9 +298,9 @@ export function DirectoryScreen({ userId, onOpenDetail, onSwitchToStream, classN
         )}
       </main>
 
-      {searchIndex?.stale && (
+      {(searchIndex?.stale || isRefreshing) && (
         <div className="pointer-events-none absolute bottom-[calc(var(--sab)+0.75rem)] left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-[#101720]/90 px-3 py-1 text-[10px] text-muted-foreground backdrop-blur-md">
-          Showing saved Directory data
+          {isRefreshing ? "Updating Directory" : "Showing saved Directory data"}
         </div>
       )}
       {showFavorites && (

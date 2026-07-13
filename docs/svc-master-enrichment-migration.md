@@ -10,6 +10,11 @@
 > (sección 12 de ese archivo tiene el mismo resumen de producción, más corto).
 > Este documento existe para explicar el modelo de datos resultante con
 > detalle de campos, algo que los otros dos docs no cubren en profundidad.
+>
+> Performance follow-up (2026-07-13): the derived Directory schema is now v4
+> and adds compact search shards plus relation `entityIds`. See
+> `docs/svc-directory-performance-optimization.md`. The enrichment/provenance
+> contract described here is unchanged.
 
 ---
 
@@ -179,6 +184,10 @@ fromSourceId, fromDirectoryId, fromName, toEntityType, toMasterId, toSourceId,
 toDirectoryId, toName, role, supervisorMasterId, supervisorSourceId,
 supervisorDirectoryId, supervisorName, sourceRelationIds[], sourceSheets[],
 sourceValue, confidence, sourceFile, workbookSha256, active, contentHash`.
+
+La optimización v4 agrega además `entityIds: [fromDirectoryId,
+toDirectoryId]` de forma idempotente para una única consulta paginada
+`array-contains` en ambas direcciones.
 
 `fromDirectoryId`/`toDirectoryId` ya vienen en formato **composite ID**
 (`"{type}__{sourceId}"`), el mismo formato que usa `/directoryIndex` — o sea

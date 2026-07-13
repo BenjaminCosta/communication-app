@@ -1,12 +1,16 @@
 import { MapPin } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import type { DirectoryListItem } from "@/lib/directory-config"
+import { prefetchDirectoryProfile } from "@/lib/directory-profile-loader"
 
 interface DirectoryResultRowProps {
   item: DirectoryListItem
   onSelect: (item: DirectoryListItem) => void
   compact?: boolean
 }
+
+const RESULT_ROW_STYLE = { contentVisibility: "auto", containIntrinsicSize: "68px" } as const
+const COMPACT_RESULT_ROW_STYLE = { contentVisibility: "auto", containIntrinsicSize: "52px" } as const
 
 /** Small context breadcrumb above the name (Google's "site/URL" line). */
 function kicker(item: DirectoryListItem): string {
@@ -30,7 +34,9 @@ export function DirectoryResultRow({ item, onSelect, compact = false }: Director
     <button
       type="button"
       onClick={() => onSelect(item)}
+      onPointerDown={() => prefetchDirectoryProfile(item.id)}
       className={`flex w-full items-start gap-3 rounded-lg text-left transition-colors duration-150 hover:bg-white/3 ${compact ? "px-2 py-2" : "px-2 py-2.5"}`}
+      style={compact ? COMPACT_RESULT_ROW_STYLE : RESULT_ROW_STYLE}
       aria-label={`Open ${item.name}`}
     >
       <DirectoryEntityIcon item={item} size="xs" />

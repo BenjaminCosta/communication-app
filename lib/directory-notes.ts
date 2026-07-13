@@ -17,16 +17,20 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDocsFromServer,
-  onSnapshot,
+  documentId,
+  getDocs,
+  limit,
+  orderBy,
   query,
   serverTimestamp,
+  startAfter,
+  Timestamp,
   updateDoc,
   where,
-  type Query,
   type Unsubscribe,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 
 /** V1 always writes "general"; the rest are reserved for later phases. */
 export type DirectoryNoteType =
@@ -46,6 +50,11 @@ export interface DirectoryNote {
   createdBy: string
   createdAt: Date | null
   updatedAt: Date | null
+}
+
+export interface DirectoryNotesPage {
+  items: DirectoryNote[]
+  hasMore: boolean
 }
 
 const NOTES = "directoryNotes"
@@ -70,28 +79,46 @@ function mapNote(id: string, data: Record<string, unknown>): DirectoryNote {
   }
 }
 
-function primeFromServer(target: Query): void {
-  getDocsFromServer(target).catch(() => {})
+const NOTES_PAGE_SIZE = 50
+
+function notesQueryFor(directoryId: string) {
+  return query(
+    collection(db, NOTES),
+    where("entityIds", "array-contains", directoryId),
+    orderBy("createdAt", "desc"),
+    orderBy(documentId(), "desc"),
+  )
 }
 
-/** Live notes for one entity, newest first (sorted client-side — no composite index). */
+/** Live first page for one entity; older pages are fetched on demand. */
 export function subscribeDirectoryNotes(
   directoryId: string,
   onChange: (notes: DirectoryNote[]) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  const notesQuery = query(collection(db, NOTES), where("entityIds", "array-contains", directoryId))
-  primeFromServer(notesQuery)
-  return onSnapshot(
+  const notesQuery = query(notesQueryFor(directoryId), limit(NOTES_PAGE_SIZE))
+  return subscribeWithServerReconcile(
     notesQuery,
     (snapshot) => {
-      const notes = snapshot.docs
-        .map((entry) => mapNote(entry.id, entry.data()))
-        .sort((a, b) => (b.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (a.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER))
-      onChange(notes)
+      onChange(snapshot.docs.map((entry) => mapNote(entry.id, entry.data())))
     },
     (error) => onError?.(error),
   )
+}
+
+export async function loadDirectoryNotesPage(
+  directoryId: string,
+  cursor: { createdAt: Date; id: string },
+): Promise<DirectoryNotesPage> {
+  const snapshot = await getDocs(query(
+    notesQueryFor(directoryId),
+    startAfter(Timestamp.fromDate(cursor.createdAt), cursor.id),
+    limit(NOTES_PAGE_SIZE),
+  ))
+  return {
+    items: snapshot.docs.map((entry) => mapNote(entry.id, entry.data())),
+    hasMore: snapshot.size === NOTES_PAGE_SIZE,
+  }
 }
 
 export interface AddNoteOptions {

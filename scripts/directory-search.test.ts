@@ -3,7 +3,9 @@ import test from "node:test"
 import {
   buildContactIndexEntry,
   buildContextIndexEntry,
+  buildDirectorySearchShards,
   DIRECTORY_SCHEMA_VERSION,
+  DIRECTORY_SEARCH_SHARD_COUNT,
   type DirectorySearchDoc,
 } from "../lib/directory-core"
 import {
@@ -14,49 +16,78 @@ import {
   paginateDirectoryItems,
   searchDirectory,
 } from "../lib/directory-search"
+import { importedContactsFromCatalog } from "../lib/entity-catalog-adapters"
+import { directoryRelationPageWindow } from "../lib/directory-relations"
 
 const documents: DirectorySearchDoc[] = [
   {
     id: "person__marcus-whitfield",
     type: "person",
+    sourceCollection: "contacts",
+    sourceId: "marcus-whitfield",
+    ownerUserId: "user-a",
     name: "Marcus Whitfield",
     aliases: "marcusw",
     email: "marcus@meridian.example",
     phone: "+1 (214) 555-0188 12145550188",
+    phoneDisplay: "+1 (214) 555-0188",
     keywords: "site supervisor construction",
     companyName: "Meridian Construction",
     location: "Dallas, TX",
     role: "Site Supervisor",
     searchText: "Marcus Whitfield marcus@meridian.example Site Supervisor Meridian Construction Dallas TX",
     subtitle: "Site Supervisor @ Meridian Construction",
+    linkedUserId: "",
+    status: "not_registered",
+    tags: ["supervisor"],
+    description: "",
+    fieldCount: 0,
   },
   {
     id: "company__meridian",
     type: "company",
+    sourceCollection: "contexts",
+    sourceId: "meridian",
+    ownerUserId: "",
     name: "Meridian Construction",
     aliases: "meridianbuild.com",
     email: "",
     phone: "",
+    phoneDisplay: "",
     keywords: "construction dallas",
     companyName: "",
     location: "Dallas, TX",
     role: "",
     searchText: "Meridian Construction construction Dallas TX",
     subtitle: "Construction company",
+    linkedUserId: "",
+    status: "",
+    tags: [],
+    description: "Construction company",
+    fieldCount: 4,
   },
   {
     id: "job__dallas-site",
     type: "job",
+    sourceCollection: "contexts",
+    sourceId: "dallas-site",
+    ownerUserId: "",
     name: "Dallas Site Project",
     aliases: "",
     email: "",
     phone: "",
+    phoneDisplay: "",
     keywords: "site project active",
     companyName: "",
     location: "Dallas, TX",
     role: "",
     searchText: "Dallas Site Project active Dallas TX",
     subtitle: "Active | Dallas, TX",
+    linkedUserId: "",
+    status: "",
+    tags: [],
+    description: "",
+    fieldCount: 6,
   },
 ]
 
@@ -95,6 +126,16 @@ test("maps stored docs in requested order for recents and favorites", async () =
   assert.equal(items[0]?.location, "Dallas, TX")
 })
 
+test("preserves contact ownership and linked-user status in the Communications catalog", async () => {
+  const index = await createDirectorySearchIndex([
+    { ...documents[0], linkedUserId: "linked-user", status: "" },
+  ])
+  const [contact] = importedContactsFromCatalog(index)
+  assert.equal(contact.ownerUserId, "user-a")
+  assert.equal(contact.linkedUserId, "linked-user")
+  assert.equal(contact.status, "registered")
+})
+
 test("paginates results without mutating the ranked source list", async () => {
   const index = await createDirectorySearchIndex(documents)
   const results = searchDirectory(index, "Dallas")
@@ -102,6 +143,18 @@ test("paginates results without mutating the ranked source list", async () => {
   assert.equal(page.length, 2)
   assert.ok(results.length >= page.length)
   assert.notEqual(page, results)
+})
+
+test("handles relation pagination boundaries at 50, 51, and 141 edges", () => {
+  const fifty = directoryRelationPageWindow(Array.from({ length: 50 }, (_, index) => index), 50)
+  const fiftyOne = directoryRelationPageWindow(Array.from({ length: 51 }, (_, index) => index), 50)
+  const oneFortyOne = directoryRelationPageWindow(Array.from({ length: 141 }, (_, index) => index), 50)
+  assert.equal(fifty.items.length, 50)
+  assert.equal(fifty.hasMore, false)
+  assert.equal(fiftyOne.items.length, 50)
+  assert.equal(fiftyOne.hasMore, true)
+  assert.equal(oneFortyOne.items.length, 50)
+  assert.equal(oneFortyOne.hasMore, true)
 })
 
 test("cache key changes with user, schema, and metadata timestamp", () => {
@@ -131,13 +184,26 @@ test("prefers canonical master enrichment without discarding source contact data
     },
   })
 
-  assert.equal(DIRECTORY_SCHEMA_VERSION, 3)
+  assert.equal(DIRECTORY_SCHEMA_VERSION, 4)
   assert.equal(entry.name, "Canonical Name")
   assert.equal(entry.email, "canonical@example.com")
   assert.equal(entry.companyName, "Canonical Company")
   assert.equal(entry.companyEntityId, "company__company-context-id")
   assert.equal(entry.role, "Canonical Role")
   assert.match(entry.searchText, /legacy@example\.com/)
+})
+
+test("builds a deterministic, complete 32-shard catalog", () => {
+  const entries = [
+    buildContactIndexEntry({ id: "a", name: "A" }),
+    buildContactIndexEntry({ id: "b", name: "B" }),
+    buildContextIndexEntry({ id: "c", name: "C", sourceSheet: "Companies" }),
+  ]
+  const first = buildDirectorySearchShards(entries)
+  const second = buildDirectorySearchShards([...entries].reverse())
+  assert.equal(first.length, DIRECTORY_SEARCH_SHARD_COUNT)
+  assert.equal(first.flatMap((shard) => shard.entries).length, entries.length)
+  assert.deepEqual(first, second)
 })
 
 test("projects a safe master job-company relation into the Directory index", () => {

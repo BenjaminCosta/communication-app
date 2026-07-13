@@ -685,6 +685,7 @@ function relationshipData(row, fromSourceId, toSourceId, supervisorSourceId) {
     toMasterId: row.to_entity_id,
     toSourceId,
     toDirectoryId,
+    entityIds: [fromDirectoryId, toDirectoryId],
     toName: cleanOrNull(row.to_entity_name),
     role: cleanOrNull(row.role),
     supervisorMasterId: cleanOrNull(row.super_person_id),
@@ -787,20 +788,20 @@ function verifyState({ contacts, contexts, plan, messageSnap, relationSnap, revi
   const enrichedRelations = relationSnap.docs.filter((doc) => doc.data().workbookSha256 === workbookHash && doc.data().active === true).length
   const enrichedReviews = reviewSnap.docs.filter((doc) => doc.data().workbookSha256 === workbookHash).length
   const enrichedReferences = referenceSnap.docs.filter((doc) => doc.data().workbookSha256 === workbookHash).length
-  const schema3IndexDocs = directoryIndexSnap.docs.filter((doc) => doc.data().schemaVersion === 3).length
+  const currentIndexDocs = directoryIndexSnap.docs.filter((doc) => doc.data().schemaVersion === 4).length
   const indexedJobCompanyRelations = directoryIndexSnap.docs.filter((doc) => doc.data().type === "job" && !!doc.data().companyEntityId).length
   const expectedJobCompanyRelations = contexts.filter((ctx) => classifyContext(ctx) === "job" && !!ctx.masterData?.companyContextId).length
   const directoryMeta = directoryMetaSnap.data?.() ?? {}
   const pendingWrites = Object.values(plan.counts).reduce((sum, count) => sum + count, 0)
   return {
-    ok: enrichedContacts === expectedPeople && enrichedContexts === expectedContexts && enrichedRelations === expectedRelations && enrichedReviews === expectedReviews && enrichedReferences === plan.sourceCounts.references && directoryIndexSnap.size === contacts.length + contexts.length && schema3IndexDocs === directoryIndexSnap.size && indexedJobCompanyRelations === expectedJobCompanyRelations && directoryMeta.schemaVersion === 3 && directoryMeta.counts?.total === directoryIndexSnap.size && brokenContactRefs === 0 && brokenContextRefs === 0 && pendingWrites === 0,
+    ok: enrichedContacts === expectedPeople && enrichedContexts === expectedContexts && enrichedRelations === expectedRelations && enrichedReviews === expectedReviews && enrichedReferences === plan.sourceCounts.references && directoryIndexSnap.size === contacts.length + contexts.length && currentIndexDocs === directoryIndexSnap.size && indexedJobCompanyRelations === expectedJobCompanyRelations && directoryMeta.schemaVersion === 4 && directoryMeta.counts?.total === directoryIndexSnap.size && brokenContactRefs === 0 && brokenContextRefs === 0 && pendingWrites === 0,
     enrichedContacts: `${enrichedContacts}/${expectedPeople}`,
     enrichedContexts: `${enrichedContexts}/${expectedContexts}`,
     safeRelations: `${enrichedRelations}/${expectedRelations}`,
     reviewIssues: `${enrichedReviews}/${expectedReviews}`,
     referenceRecords: `${enrichedReferences}/${plan.sourceCounts.references}`,
     directoryIndexDocs: `${directoryIndexSnap.size}/${contacts.length + contexts.length}`,
-    directoryIndexSchema3: `${schema3IndexDocs}/${directoryIndexSnap.size}`,
+    directoryIndexCurrentSchema: `${currentIndexDocs}/${directoryIndexSnap.size}`,
     indexedJobCompanyRelations: `${indexedJobCompanyRelations}/${expectedJobCompanyRelations}`,
     directoryMetaSchema: directoryMeta.schemaVersion ?? "missing",
     brokenMessageContactRefs: brokenContactRefs,

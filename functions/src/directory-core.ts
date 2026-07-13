@@ -29,8 +29,10 @@ export type DirectoryType = "person" | "company" | "job" | "other"
  *   2 — adds schemaVersion/sourceUpdatedAt/indexedAt, validation, stable-id
  *       company resolution, alias accumulation
  *   3 — reads non-destructive masterData enrichment and resolves job→company
+ *   4 — adds a compact shared catalog and deterministic search shards
  */
-export const DIRECTORY_SCHEMA_VERSION = 3
+export const DIRECTORY_SCHEMA_VERSION = 4
+export const DIRECTORY_SEARCH_SHARD_COUNT = 32
 
 // ── Self-contained input shapes (structurally satisfied by ImportedContact
 //    / AppContext from lib/store, and by raw Firestore document data). ─────
@@ -51,6 +53,7 @@ export interface CoreContactAddress {
 
 export interface CoreContact {
   id: string
+  ownerUserId?: string
   name?: string
   email?: string
   emailNormalized?: string
@@ -72,6 +75,7 @@ export interface CoreContact {
   sourceRecordId?: string
   sourceCompanyId?: string
   linkedUserId?: string | null
+  status?: string
   visibility?: string
   masterData?: {
     displayName?: string | null
@@ -149,6 +153,7 @@ export interface DirectoryPerson {
   type: "person"
   sourceCollection: "contacts"
   sourceId: string
+  ownerUserId: string
   name: string
   emails: CoreContactPoint[]
   phones: CoreContactPoint[]
@@ -161,6 +166,7 @@ export interface DirectoryPerson {
   tags: string[]
   notes: string | null
   linkedUserId: string | null
+  status: "registered" | "not_registered"
   source: string
   sourceSheet: string | null
   sourceRecordId: string | null
@@ -240,6 +246,7 @@ export interface DirectoryIndexEntry {
   type: DirectoryType
   sourceCollection: "contacts" | "contexts"
   sourceId: string
+  ownerUserId: string | null
   name: string
   normalizedName: string
   aliases: string[]
@@ -253,6 +260,10 @@ export interface DirectoryIndexEntry {
   companyName: string | null
   companyEntityId: string | null
   linkedUserId: string | null
+  status: "registered" | "not_registered" | null
+  tags: string[]
+  description: string | null
+  fieldCount: number
   sourceSheet: string | null
   sourceRecordId: string | null
   quality: DirectoryQualityFlags
@@ -272,10 +283,14 @@ export interface DirectoryIndexEntry {
 export interface DirectorySearchDoc {
   id: string
   type: DirectoryType
+  sourceCollection: "contacts" | "contexts"
+  sourceId: string
+  ownerUserId: string
   name: string
   aliases: string
   email: string
   phone: string
+  phoneDisplay: string
   keywords: string
   companyName: string
   location: string
@@ -283,12 +298,35 @@ export interface DirectorySearchDoc {
   /** Canonical, normalized text assembled by the derived Directory index. */
   searchText: string
   subtitle: string
+  linkedUserId: string
+  status: "registered" | "not_registered" | ""
+  tags: string[]
+  description: string
+  fieldCount: number
+}
+
+export type EntityCatalogEntry = DirectorySearchDoc
+
+export interface DirectorySearchManifest {
+  searchRevision: string | number
+  searchSchemaVersion: number
+  searchShardCount: number
+  searchEntryCount: number
+  searchBuiltAt: string
+}
+
+export interface DirectorySearchShard {
+  schemaVersion: number
+  shardId: string
+  entries: DirectorySearchDoc[]
 }
 
 export const DIRECTORY_MINISEARCH_CONFIG = {
   idField: "id",
   fields: ["name", "aliases", "email", "phone", "keywords", "companyName", "location", "role", "searchText"],
-  storeFields: ["type", "name", "subtitle", "companyName", "location"],
+  // Search results are resolved through DirectorySearchIndex.byId; only type
+  // must be duplicated inside MiniSearch for scope filtering.
+  storeFields: ["type"],
   searchOptions: {
     boost: {
       name: 5,
@@ -308,17 +346,53 @@ export function buildSearchDoc(entry: DirectoryIndexEntry): DirectorySearchDoc {
   return {
     id: entry.id,
     type: entry.type,
+    sourceCollection: entry.sourceCollection,
+    sourceId: entry.sourceId,
+    ownerUserId: entry.ownerUserId ?? "",
     name: entry.name,
     aliases: entry.aliases.join(" "),
     email: entry.email ?? "",
     phone: [entry.phone ?? "", normalizePhoneDigits(entry.phone ?? "")].filter(Boolean).join(" "),
+    phoneDisplay: entry.phone ?? "",
     keywords: entry.keywords.join(" "),
     companyName: entry.companyName ?? "",
     location: entry.location ?? "",
     role: entry.role ?? "",
     searchText: entry.searchText,
     subtitle: entry.subtitle ?? "",
+    linkedUserId: entry.linkedUserId ?? "",
+    status: entry.status ?? "",
+    tags: entry.tags,
+    description: entry.description ?? "",
+    fieldCount: entry.fieldCount,
   }
+}
+
+/** FNV-1a keeps an entry in the same shard in browsers, scripts and Functions. */
+export function directorySearchShardId(id: string, shardCount = DIRECTORY_SEARCH_SHARD_COUNT): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return String(hash % shardCount).padStart(2, "0")
+}
+
+export function buildDirectorySearchShards(
+  entries: DirectoryIndexEntry[],
+  shardCount = DIRECTORY_SEARCH_SHARD_COUNT,
+): DirectorySearchShard[] {
+  const buckets = Array.from({ length: shardCount }, (_, index) => ({
+    schemaVersion: DIRECTORY_SCHEMA_VERSION,
+    shardId: String(index).padStart(2, "0"),
+    entries: [] as DirectorySearchDoc[],
+  }))
+  for (const entry of entries) {
+    const searchDoc = buildSearchDoc(entry)
+    buckets[Number(directorySearchShardId(searchDoc.id, shardCount))].entries.push(searchDoc)
+  }
+  for (const bucket of buckets) bucket.entries.sort((a, b) => a.id.localeCompare(b.id))
+  return buckets
 }
 
 // ── Classification ──────────────────────────────────────────────────────
@@ -370,6 +444,7 @@ export function normalizeContact(contact: CoreContact): DirectoryPerson {
     type: "person",
     sourceCollection: "contacts",
     sourceId: contact.id,
+    ownerUserId: contact.ownerUserId ?? "",
     name: cleanValue(master?.displayName) ?? cleanValue(master?.canonicalName) ?? contact.name ?? "",
     emails,
     phones,
@@ -382,6 +457,7 @@ export function normalizeContact(contact: CoreContact): DirectoryPerson {
     tags: contact.tags ?? [],
     notes: cleanValue(master?.notes) ?? cleanValue(contact.notes),
     linkedUserId: contact.linkedUserId ?? null,
+    status: contact.status === "registered" || contact.linkedUserId ? "registered" : "not_registered",
     source: contact.source ?? "unknown",
     sourceSheet: contact.sourceSheet ?? null,
     sourceRecordId: contact.sourceRecordId ?? null,
@@ -545,6 +621,7 @@ export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildCon
     type: "person",
     sourceCollection: "contacts",
     sourceId: person.sourceId,
+    ownerUserId: person.ownerUserId || null,
     name: person.name,
     normalizedName: normalizeName(person.name),
     aliases,
@@ -558,6 +635,10 @@ export function buildPersonIndex(person: DirectoryPerson, ctx: DirectoryBuildCon
     companyName: person.company,
     companyEntityId,
     linkedUserId: person.linkedUserId,
+    status: person.status,
+    tags: person.tags,
+    description: person.notes,
+    fieldCount: 0,
     sourceSheet: person.sourceSheet,
     sourceRecordId: person.sourceRecordId,
     quality,
@@ -585,6 +666,7 @@ export function buildCompanyIndex(company: DirectoryCompany, ctx: DirectoryBuild
     type: "company",
     sourceCollection: "contexts",
     sourceId: company.sourceId,
+    ownerUserId: null,
     name: company.name,
     normalizedName: normalizeName(company.name),
     aliases,
@@ -598,6 +680,10 @@ export function buildCompanyIndex(company: DirectoryCompany, ctx: DirectoryBuild
     companyName: null,
     companyEntityId: null,
     linkedUserId: null,
+    status: null,
+    tags: [],
+    description: company.description,
+    fieldCount: company.fields.length,
     sourceSheet: company.sourceSheet,
     sourceRecordId: company.sourceRecordId,
     quality,
@@ -626,6 +712,7 @@ export function buildJobIndex(job: DirectoryJob, ctx: DirectoryBuildContext = {}
     type: "job",
     sourceCollection: "contexts",
     sourceId: job.sourceId,
+    ownerUserId: null,
     name: job.name,
     normalizedName: normalizeName(job.name),
     aliases,
@@ -639,6 +726,10 @@ export function buildJobIndex(job: DirectoryJob, ctx: DirectoryBuildContext = {}
     companyName: job.companyName,
     companyEntityId: job.companyEntityId,
     linkedUserId: null,
+    status: null,
+    tags: [],
+    description: job.description,
+    fieldCount: job.fields.length,
     sourceSheet: job.sourceSheet,
     sourceRecordId: job.sourceRecordId,
     quality,
@@ -655,6 +746,7 @@ export function buildOtherIndex(other: DirectoryOther, ctx: DirectoryBuildContex
     type: "other",
     sourceCollection: other.sourceCollection,
     sourceId: other.sourceId,
+    ownerUserId: null,
     name: other.name,
     normalizedName: normalizeName(other.name),
     aliases: [],
@@ -668,6 +760,10 @@ export function buildOtherIndex(other: DirectoryOther, ctx: DirectoryBuildContex
     companyName: null,
     companyEntityId: null,
     linkedUserId: null,
+    status: null,
+    tags: [],
+    description: other.description,
+    fieldCount: other.fields.length,
     sourceSheet: other.sourceSheet,
     sourceRecordId: other.sourceRecordId,
     quality: {

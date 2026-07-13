@@ -4,18 +4,24 @@
 > architecture, sync, hardening, helpers and scripts are all done, tested and
 > deployed. This file is the single place to read before maquetar la UI.
 >
-> Last updated: 2026-07-10 · schemaVersion **3** · index docs: **7,818**
+> Last updated: 2026-07-13 · schemaVersion **4** · last verified production
+> index count: **7,818**. The current performance architecture and rollout are
+> documented in `docs/svc-directory-performance-optimization.md`.
 
 ---
 
 ## 0. TL;DR
 
 - The Directory is a **read-only derived layer** over `/contacts` + `/contexts`.
-- Read from **`/directoryIndex`** (7,818 docs: person 5,183 · company 2,211 · job 417 · other 7).
+- Search/browse from the 32 compact **`/directorySearchShards`** docs; read
+  **`/directoryIndex`** plus its source document for profile detail. The index
+  remains the fallback during rollout.
 - **Never write to `/directoryIndex`.** Every edit writes to `/contacts` or `/contexts`; Cloud Functions re-derive the index automatically (~3–6s).
 - Use the ready-made conflict-safe helpers in **`lib/directory-writes.ts`**.
 - Contacts are **global-only**: any authenticated user sees every contact.
-- Search: build a **MiniSearch** index client-side from the compact projection, load it **only when Directory opens**, cache locally, invalidate via `/directoryMeta`.
+- Search: restore cached data immediately, revalidate the compact shard catalog,
+  and build MiniSearch in a Web Worker. Communications shares the same catalog
+  when its rollout flag is enabled.
 - UI v1 is implemented: Home → mixed Results → read-only Detail, with per-user favorites/recents and a title-based Stream/Directory switcher.
 - A follow-up polish pass (this session, **uncommitted** — see §13) restyled Results Google-style, made Home's scope pills toggle into a type-browse list, moved Favorites from a modal to a full screen, simplified both topbars, and deployed the `directoryFavorites`/`directoryRecents` Firestore rules to production. Read §13 before starting new work.
 
@@ -55,6 +61,7 @@ Helpers: `directoryId(type, sourceId)`, `parseDirectoryId(id)`, `contextComposit
 | `type` | DirectoryType | person / company / job / other |
 | `sourceCollection` | "contacts" \| "contexts" | where the source lives |
 | `sourceId` | string | original doc id |
+| `ownerUserId` | string \| null | contact owner; preserves existing edit authorization |
 | `name` | string | display name |
 | `normalizedName` | string | accent-stripped, lowercased |
 | `aliases` | string[] | email local-parts, prior company names, domains |
@@ -68,10 +75,11 @@ Helpers: `directoryId(type, sourceId)`, `parseDirectoryId(id)`, `contextComposit
 | `companyName` | string \| null | parent company display name (person or safely resolved job) |
 | `companyEntityId` | string \| null | `company__…` when a safe master/source relation resolves |
 | `linkedUserId` | string \| null | Firebase UID when the person registered |
+| `status`, `tags`, `description`, `fieldCount` | compact UI fields | shared Directory/Communications projection |
 | `sourceSheet` | string \| null | import provenance |
 | `sourceRecordId` | string \| null | import provenance |
 | `quality` | DirectoryQualityFlags | see below |
-| `schemaVersion` | number | current = 2 |
+| `schemaVersion` | number | current = 4 |
 | `sourceUpdatedAt` | Timestamp \| null | source doc updatedAt |
 | `indexedAt` | Timestamp | when the entry was (re)built |
 | `updatedAt` | Timestamp | back-compat alias of indexedAt |
@@ -79,8 +87,10 @@ Helpers: `directoryId(type, sourceId)`, `parseDirectoryId(id)`, `contextComposit
 `DirectoryQualityFlags`: `{ hasEmail, hasPhone, hasCompany, hasRole, hasLocation, isLinkedUser, isComplete, issues: string[] }`.
 Use `quality.isComplete` / `quality.issues` to show "incomplete" badges or a data-quality filter.
 
-### Compact search projection — `DirectorySearchDoc`
-Tiny per-entity doc for MiniSearch: `{ id, type, name, aliases, keywords, companyName, location, role, subtitle }`.
+### Compact shared projection — `EntityCatalogEntry` / `DirectorySearchDoc`
+Per-entity catalog doc for MiniSearch and Communications selectors. It includes
+source IDs/collection, display/search fields, primary contact points,
+`linkedUserId`, `status`, tags, description, field count, and contact owner.
 Build with `buildSearchDoc(entry)`. Index config is the shared const `DIRECTORY_MINISEARCH_CONFIG`:
 
 ```ts
@@ -97,7 +107,8 @@ Build with `buildSearchDoc(entry)`. Index config is the shared const `DIRECTORY_
 | Collection/doc | Client access | Purpose |
 |---|---|---|
 | `/directoryIndex/{compositeId}` | **read** (auth), no write | the derived entries |
-| `/directoryMeta/status` | **read** (auth), no write | `{ schemaVersion, counts, lastRebuildAt, lastChangeAt }` — cache-invalidation signal |
+| `/directorySearchShards/{00..31}` | **read** (auth), no write | compact catalog; deterministic hash distribution |
+| `/directoryMeta/status` | **read** (auth), no write | index counts plus atomic search manifest/revision |
 | `/directoryControl/importLock` | none (Admin only) | bulk-import suppression lock |
 | `/contacts/{id}` | read (auth); write owner-scoped | source of truth (person) |
 | `/contexts/{id}` | read (auth); write auth | source of truth (company/job/other) |
@@ -115,11 +126,10 @@ Two complementary paths:
 - Paginate with `orderBy("normalizedName").limit(50)` + `startAfter(cursor)` — do NOT load all 7,632 at once (reuse the existing "Load 50 more" pattern from `components/people-screen.tsx`).
 - Detail view: read the composite-id doc, then read the **source** doc (`/contacts/{sourceId}` or `/contexts/{sourceId}`) for full fields when editing.
 
-**B. Global search (MiniSearch).** For fast "type-anything" search across all 7,632:
-1. `pnpm add minisearch` (not installed yet).
-2. On Directory open, fetch the compact docs (either query `/directoryIndex` once and `buildSearchDoc` each, or ship a prebuilt payload — see `--dump`), build the index with `DIRECTORY_MINISEARCH_CONFIG`, and cache it (IndexedDB/localStorage).
-3. Load lazily — **never at app boot**. Show a skeleton while it builds.
-4. Invalidate cache when `/directoryMeta/status.lastChangeAt` or `schemaVersion` changes, and on user change / sign-out.
+**B. Global search (MiniSearch).** `loadEntityCatalog()` restores IndexedDB
+immediately, reads the manifest plus 32 shards when the revision changes, and
+atomically swaps the revalidated index. The previous index remains interactive
+while updating. An incomplete shard set falls back to `/directoryIndex`.
 
 > A ready-made compact payload can be generated any time:
 > `… node scripts/generate-directory-index.mjs --dry-run --dump=directory-search.json`
@@ -166,7 +176,8 @@ Latency observed in prod smoke tests: create ~6s, re-relate/rename ~0–3s, dele
 
 ## 7. Versioning & cache invalidation
 
-- `DIRECTORY_SCHEMA_VERSION = 3` (in `lib/directory-core.ts`). Version 3 reads the non-destructive `masterData` enrichment and resolves safe job→company relations. Bump it whenever the entry shape or normalizer logic changes → forces re-index.
+- `DIRECTORY_SCHEMA_VERSION = 4` (in `lib/directory-core.ts`). Version 4 adds
+  the shared compact catalog while retaining v3 master enrichment behavior.
 - Every entry carries `schemaVersion`, `sourceUpdatedAt`, `indexedAt`.
 - Client cache contract: store the MiniSearch payload keyed by `schemaVersion`; re-fetch when `/directoryMeta/status` shows a newer `schemaVersion` or `lastChangeAt`. Clear on user change / sign-out.
 - Rebuild guard prevents a slow rebuild from clobbering fresher incremental writes (compares `schemaVersion` + `sourceUpdatedAt`).

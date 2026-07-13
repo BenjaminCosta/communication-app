@@ -452,6 +452,73 @@ async function markDirectoryChanged(db) {
     catch { /* non-fatal */ }
 }
 /**
+ * Incrementally maintains the compact catalog after the full shard backfill is
+ * installed. The index remains authoritative if this best-effort projection
+ * cannot be updated; clients then keep their previous revision or fall back.
+ */
+async function syncDirectorySearchCatalog(db, upserts, deletedIds) {
+    const affectedIds = [...new Set([...upserts.map((entry) => entry.id), ...deletedIds])];
+    if (affectedIds.length === 0)
+        return;
+    const shardIds = [...new Set(affectedIds.map((id) => (0, directory_core_1.directorySearchShardId)(id)))];
+    const metaRef = db.doc("directoryMeta/status");
+    const shardRefs = shardIds.map((id) => db.collection("directorySearchShards").doc(id));
+    try {
+        await db.runTransaction(async (transaction) => {
+            const [metaSnap, ...shardSnaps] = await transaction.getAll(metaRef, ...shardRefs);
+            const meta = metaSnap.data() ?? {};
+            if (meta.searchShardCount !== directory_core_1.DIRECTORY_SEARCH_SHARD_COUNT || typeof meta.searchEntryCount !== "number")
+                return;
+            if (shardSnaps.some((snapshot) => !snapshot.exists)) {
+                throw new Error("directory search shard set is incomplete");
+            }
+            const previousRevision = typeof meta.searchRevision === "number" ? meta.searchRevision : Date.now();
+            const nextRevision = previousRevision + 1;
+            let entryCountDelta = 0;
+            for (let index = 0; index < shardRefs.length; index += 1) {
+                const shardId = shardIds[index];
+                const snapshot = shardSnaps[index];
+                const existing = Array.isArray(snapshot.data()?.entries)
+                    ? (snapshot.data()?.entries).filter((entry) => typeof entry?.id === "string")
+                    : [];
+                const removed = new Set(deletedIds.filter((id) => (0, directory_core_1.directorySearchShardId)(id) === shardId));
+                const replacements = new Map(upserts
+                    .filter((entry) => (0, directory_core_1.directorySearchShardId)(entry.id) === shardId)
+                    .map((entry) => [entry.id, (0, directory_core_1.buildSearchDoc)(entry)]));
+                const entries = existing
+                    .filter((entry) => !removed.has(String(entry.id)) && !replacements.has(String(entry.id)))
+                    .concat([...replacements.values()])
+                    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                if (Buffer.byteLength(JSON.stringify(entries), "utf8") > 800_000) {
+                    throw new Error(`directory search shard ${shardId} exceeded the 800 KB safety ceiling`);
+                }
+                entryCountDelta += entries.length - existing.length;
+                transaction.set(shardRefs[index], {
+                    schemaVersion: directory_core_1.DIRECTORY_SCHEMA_VERSION,
+                    shardId,
+                    revision: nextRevision,
+                    entryCount: entries.length,
+                    entries,
+                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
+                });
+            }
+            transaction.set(metaRef, {
+                schemaVersion: directory_core_1.DIRECTORY_SCHEMA_VERSION,
+                lastChangeAt: firestore_1.FieldValue.serverTimestamp(),
+                searchRevision: nextRevision,
+                searchSchemaVersion: directory_core_1.DIRECTORY_SCHEMA_VERSION,
+                searchShardCount: directory_core_1.DIRECTORY_SEARCH_SHARD_COUNT,
+                searchEntryCount: Math.max(0, Number(meta.searchEntryCount ?? 0) + entryCountDelta),
+                searchBuiltAt: firestore_1.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        });
+    }
+    catch (error) {
+        functionsV1.logger.error("[directorySearch] incremental shard update failed", error);
+        throw error;
+    }
+}
+/**
  * Stable-id-aware person→company resolver for the incremental path.
  * Prefers sourceCompanyId (survives company renames), then exact company name.
  * Returns the composite company id, or null.
@@ -488,6 +555,7 @@ async function reindexContact(db, id, data) {
         resolveCompanyIdForPerson: (_p) => companyEntityId,
     });
     await db.collection("directoryIndex").doc((0, directory_core_1.directoryId)("person", id)).set(toIndexDoc(entry));
+    return entry;
 }
 /**
  * When a company context is created or renamed, re-relate people that reference
@@ -515,7 +583,8 @@ async function reRelatePeopleForCompany(db, companyCtxId, companyData, previousN
     // Reindex in bounded batches of parallel writes.
     const docs = [...refs.values()];
     for (let i = 0; i < docs.length; i += 50) {
-        await Promise.all(docs.slice(i, i + 50).map((d) => reindexContact(db, d.id, d.data())));
+        const entries = await Promise.all(docs.slice(i, i + 50).map((d) => reindexContact(db, d.id, d.data())));
+        await syncDirectorySearchCatalog(db, entries, []);
         count += Math.min(50, docs.length - i);
     }
     functionsV1.logger.info(`[directorySync] company ${companyCtxId} re-related ${count} people (names=${names.join("|")})`);
@@ -533,6 +602,7 @@ exports.syncDirectoryOnContactWrite = functionsV1.firestore
     const ref = db.collection("directoryIndex").doc((0, directory_core_1.directoryId)("person", id));
     if (!change.after.exists) {
         await ref.delete();
+        await syncDirectorySearchCatalog(db, [], [(0, directory_core_1.directoryId)("person", id)]);
         await markDirectoryChanged(db);
         functionsV1.logger.info(`[directorySync] contact ${id} deleted → removed person__${id}`);
         return;
@@ -542,7 +612,8 @@ exports.syncDirectoryOnContactWrite = functionsV1.firestore
         return;
     }
     const data = change.after.data() ?? {};
-    await reindexContact(db, id, data);
+    const entry = await reindexContact(db, id, data);
+    await syncDirectorySearchCatalog(db, [entry], []);
     await markDirectoryChanged(db);
     functionsV1.logger.info(`[directorySync] contact ${id} → person__${id}`);
 });
@@ -567,6 +638,7 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
         for (const cid of allIds)
             batch.delete(col.doc(cid));
         await batch.commit();
+        await syncDirectorySearchCatalog(db, [], allIds);
         await markDirectoryChanged(db);
         functionsV1.logger.info(`[directorySync] context ${id} deleted → removed ${allIds.join(", ")}`);
         return;
@@ -602,6 +674,7 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
     }
     batch.set(col.doc(entry.id), toIndexDoc(entry));
     await batch.commit();
+    await syncDirectorySearchCatalog(db, [entry], allIds.filter((candidate) => candidate !== entry.id));
     // Company created or renamed → re-relate people referencing it.
     if (entry.type === "company") {
         const isNew = !before;
