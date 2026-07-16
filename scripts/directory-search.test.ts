@@ -18,6 +18,7 @@ import {
 } from "../lib/directory-search"
 import { importedContactsFromCatalog } from "../lib/entity-catalog-adapters"
 import { directoryRelationPageWindow } from "../lib/directory-relations"
+import { inspectDirectoryConsistency } from "../lib/directory-consistency"
 
 const documents: DirectorySearchDoc[] = [
   {
@@ -226,4 +227,63 @@ test("projects a safe master job-company relation into the Directory index", () 
   assert.equal(entry.companyName, "Canonical Company")
   assert.equal(entry.companyEntityId, "company__company-context-id")
   assert.equal(entry.quality.hasCompany, true)
+})
+
+test("accepts a complete Directory index, shard set, and manifest", () => {
+  const entries = [
+    buildContactIndexEntry({ id: "person-a", name: "Person A" }),
+    buildContextIndexEntry({ id: "company-a", name: "Company A", sourceSheet: "Companies" }),
+  ]
+  const revision = "revision-1"
+  const shards = buildDirectorySearchShards(entries).map((shard) => ({
+    id: shard.shardId,
+    ...shard,
+    revision,
+    entryCount: shard.entries.length,
+  }))
+  const report = inspectDirectoryConsistency({
+    indexEntries: entries.map((entry) => ({ id: entry.id, companyEntityId: entry.companyEntityId })),
+    shards,
+    meta: {
+      schemaVersion: DIRECTORY_SCHEMA_VERSION,
+      searchSchemaVersion: DIRECTORY_SCHEMA_VERSION,
+      searchRevision: revision,
+      searchShardCount: DIRECTORY_SEARCH_SHARD_COUNT,
+      searchEntryCount: entries.length,
+    },
+  })
+
+  assert.equal(report.ok, true)
+  assert.deepEqual(report.issues, [])
+})
+
+test("reports projection drift and dangling entity references", () => {
+  const report = inspectDirectoryConsistency({
+    indexEntries: [{ id: "person__a", companyEntityId: "company__missing" }],
+    shards: [],
+    meta: null,
+    references: [{ collection: "directoryNotes", id: "note-a", entityIds: ["person__missing"] }],
+  })
+  const codes = new Set(report.issues.map((entry) => entry.code))
+
+  assert.equal(report.ok, false)
+  assert.equal(codes.has("meta_missing"), true)
+  assert.equal(codes.has("shard_missing"), true)
+  assert.equal(codes.has("company_reference_missing"), true)
+  assert.equal(codes.has("entity_reference_missing"), true)
+})
+
+test("reports a Directory manifest without a search revision", () => {
+  const report = inspectDirectoryConsistency({
+    indexEntries: [],
+    shards: [],
+    meta: {
+      schemaVersion: DIRECTORY_SCHEMA_VERSION,
+      searchSchemaVersion: DIRECTORY_SCHEMA_VERSION,
+      searchShardCount: DIRECTORY_SEARCH_SHARD_COUNT,
+      searchEntryCount: 0,
+    },
+  })
+
+  assert.equal(report.issues.some((entry) => entry.code === "meta_revision"), true)
 })

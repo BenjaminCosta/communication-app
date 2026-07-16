@@ -8,6 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "verify:fast": "pnpm test:directory && pnpm test:vcf-import && pnpm test:message-feed && pnpm test:functions && pnpm typecheck && pnpm --dir functions build",
+    "verify": "pnpm verify:fast && pnpm build",
     "emulator": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json --import=./emulator-data --export-on-exit=./emulator-data",
     "emulator:clean": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json",
     "functions:build": "cd functions && pnpm install && pnpm build",
@@ -16,6 +19,7 @@
     "emulator:migrate": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/migrate-visible-to.mjs",
     "emulator:seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node scripts/seed-test-cases.mjs",
     "emulator:verify": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/verify-test-cases.mjs",
+    "emulator:test-message-pagination": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-message-pagination.mjs",
     "emulator:migrate-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/migrate-tag-categories.mjs",
     "emulator:test-categories": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-tag-categories.mjs",
     "emulator:test-calendar": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-calendar.mjs",
@@ -24,6 +28,9 @@
     "backfill:image-dims:dry": "DRY_RUN=1 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-image-dims.mjs",
     "inspect:tag-visibility": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/inspect-tag-visibility.mjs",
     "inspect:tag-visibility:prod": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/inspect-tag-visibility.mjs",
+    "inspect:message-feed-readiness:prod": "READ_ONLY_PRODUCTION_AUDIT=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/audit-message-feed-readiness.mjs",
+    "inspect:directory-consistency": "tsx scripts/verify-directory-projections.mjs",
+    "inspect:directory-consistency:prod": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json tsx scripts/verify-directory-projections.mjs",
     "backfill:recipients:dry": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
     "backfill:recipients": "DRY_RUN=false FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/backfill-explicit-recipients.mjs",
     "backfill:recipients:dry:prod": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-explicit-recipients.mjs",
@@ -40,7 +47,9 @@
     "backfill:directory-performance:dry": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-relation-entity-ids.mjs",
     "backfill:directory-performance": "CONFIRM_DIRECTORY_PERFORMANCE_BACKFILL=true GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-relation-entity-ids.mjs --write",
     "test:vcf-import": "node --test scripts/vcf-import.test.mjs",
-    "test:directory": "tsx --test scripts/directory-search.test.ts"
+    "test:directory": "tsx --test scripts/directory-search.test.ts",
+    "test:message-feed": "tsx --test scripts/message-feed.test.ts",
+    "test:functions": "tsx --test scripts/functions-batches.test.ts"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

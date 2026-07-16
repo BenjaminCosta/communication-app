@@ -110,6 +110,9 @@ interface StreamScreenProps {
   availableTags: MessageTag[]
   importedContacts: ImportedContact[]
   isLoading?: boolean
+  hasOlderMessages?: boolean
+  isLoadingOlderMessages?: boolean
+  onLoadOlderMessages?: () => Promise<void>
 }
 
 export function StreamScreen({
@@ -152,6 +155,9 @@ export function StreamScreen({
   availableTags,
   importedContacts,
   isLoading = false,
+  hasOlderMessages = false,
+  isLoadingOlderMessages = false,
+  onLoadOlderMessages,
 }: StreamScreenProps) {
   const [showUniversalAdd, setShowUniversalAdd] = useState(false)
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null)
@@ -297,6 +303,18 @@ export function StreamScreen({
     }
     if (floatingHideTimer.current) clearTimeout(floatingHideTimer.current)
     floatingHideTimer.current = setTimeout(() => setShowFloatingDate(false), 1200)
+  }
+
+  const handleLoadOlderMessages = async () => {
+    if (!onLoadOlderMessages || isLoadingOlderMessages) return
+    const feed = feedRef.current
+    const previousHeight = feed?.scrollHeight ?? 0
+    const previousTop = feed?.scrollTop ?? 0
+    await onLoadOlderMessages()
+    requestAnimationFrame(() => {
+      if (!feed) return
+      feed.scrollTop = previousTop + (feed.scrollHeight - previousHeight)
+    })
   }
 
   // Auto-scroll to bottom only when a new message arrives (not on deletions)
@@ -617,15 +635,38 @@ export function StreamScreen({
                   Start by creating a message and choosing who should see it.
                 </p>
               </div>
+              {hasOlderMessages && onLoadOlderMessages && (
+                <button
+                  type="button"
+                  onClick={handleLoadOlderMessages}
+                  disabled={isLoadingOlderMessages}
+                  className="glass-pill min-h-9 rounded-full border px-4 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoadingOlderMessages ? "Loading…" : "Search older messages"}
+                </button>
+              )}
             </div>
           ) : (
-            sortedMessages.map((msg, index) => {
+            <>
+              {hasOlderMessages && onLoadOlderMessages && (
+                <div className="flex justify-center py-3">
+                  <button
+                    type="button"
+                    onClick={handleLoadOlderMessages}
+                    disabled={isLoadingOlderMessages}
+                    className="glass-pill min-h-9 rounded-full border px-4 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isLoadingOlderMessages ? "Loading…" : "Load older messages"}
+                  </button>
+                </div>
+              )}
+              {sortedMessages.map((msg, index) => {
               const prevMsg = sortedMessages[index - 1]
               const nextMsg = sortedMessages[index + 1]
               const newDay = !prevMsg || !isSameDay(prevMsg.timestamp, msg.timestamp)
               const isFirstInGroup = newDay || prevMsg.senderId !== msg.senderId
               const isLastInGroup = !nextMsg || !isSameDay(msg.timestamp, nextMsg.timestamp) || nextMsg.senderId !== msg.senderId
-              return (
+                return (
                 <Fragment key={msg.id}>
                   {/* invisible date anchor for scroll detection */}
                   <div data-date-label={getDayLabel(msg.timestamp)} className="h-0 overflow-hidden" aria-hidden />
@@ -673,8 +714,9 @@ export function StreamScreen({
                     onReplyQuoteTap={(msgId) => scrollToAndHighlight(msgId)}
                   />
                 </Fragment>
-              )
-            })
+                )
+              })}
+            </>
           )}
           <div className="h-3" />
         </div>

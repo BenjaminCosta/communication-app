@@ -39,14 +39,14 @@ const EXPECTED = {
     note:  "Alice (author) + Bob (recipient)",
   },
   "msg-case-c": {
-    label: "Case C — tag (Alice+Carol project), no recipient",
-    expected: [alice, carol],
-    note:  "Alice (author+member) + Carol (member)",
+    label: "Case C — tag (Alice+Carol project), no explicit recipient",
+    expected: [alice],
+    note:  "Only Alice (author); tag membership does not grant visibility",
   },
   "msg-case-d": {
     label: "Case D — tag (Alice+Carol) + recipient Bob",
-    expected: [alice, bob, carol],
-    note:  "Alice (author+member) + Carol (member) + Bob (recipient)",
+    expected: [alice, bob],
+    note:  "Alice (author) + Bob (explicit recipient); Carol is only a tag member",
   },
   "msg-case-e": {
     label: "Case E — legacy broken participants (all UIDs), author=Bob, no tags/recipients",
@@ -60,8 +60,8 @@ const EXPECTED = {
   },
   "msg-case-g": {
     label: "Case G — edited via Tag Later (tag Alice+Carol + recipient Bob)",
-    expected: [alice, bob, carol],
-    note:  "After Tag Later: Alice (author+member) + Carol (member) + Bob (recipient)",
+    expected: [alice, bob],
+    note:  "After Tag Later: Alice (author) + Bob (explicit recipient)",
   },
 }
 

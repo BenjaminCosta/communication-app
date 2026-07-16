@@ -3,7 +3,7 @@
   "description": "Firebase Cloud Functions for svc-comms",
   "scripts": {
     "sync-core": "node scripts/copy-shared-core.mjs",
-    "build": "node scripts/copy-shared-core.mjs && tsc",
+    "build": "node scripts/copy-shared-core.mjs && tsc && node scripts/verify-exports.mjs",
     "build:watch": "tsc --watch"
   },
   "engines": {

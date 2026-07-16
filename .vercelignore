@@ -1,0 +1,36 @@
+.vercel/
+.env*
+.vscode/
+
+# Local credentials and Firebase emulator state
+service-account.json
+serviceAccountKey.json
+svc-comms-firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+*.firebase-adminsdk-*.json
+*.serviceAccount.json
+emulator-data/
+*-debug.log
+*.log
+
+# Local-only artifacts and data imports
+.codex_spreadsheet_flights/
+backups/
+imports/
+import-data/
+*.vcf
+*.vcard
+*.xlsx
+*.xls
+*.csv
+*.tsv
+
+# Backend, operations and documentation are not part of the Next.js artifact
+functions/
+scripts/
+docs/
+firebase.json
+firestore.indexes.json
+firestore.rules*
+.firebaserc
+tsconfig.tsbuildinfo

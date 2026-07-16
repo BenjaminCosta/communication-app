@@ -56,3 +56,5 @@ serviceAccountKey.json
 
 # Local docs
 VSCODE_TIPS.md
+.vercel
+.env*

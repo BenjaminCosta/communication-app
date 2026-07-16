@@ -23,8 +23,6 @@ import {
   deleteDoc,
   writeBatch,
   onSnapshot,
-  query,
-  where,
   serverTimestamp,
   Timestamp,
   arrayUnion,
@@ -35,6 +33,8 @@ import { auth, db, getStorageLazy } from "@/lib/firebase"
 import { loadEntityCatalog, type DirectorySearchIndex } from "@/lib/directory-search"
 import { appContextsFromCatalog, importedContactsFromCatalog } from "@/lib/entity-catalog-adapters"
 import { registerFCMToken, onForegroundMessage, type NotificationPreference } from "@/lib/fcm"
+import { createLoadMetric, createSnapshotMetric, recordFirebaseMetricError } from "@/lib/firebase-dev-metrics"
+import { useMessageFeed } from "@/features/communications/messages/use-message-feed"
 // image-upload loaded lazily in handleSend (only when uploading images)
 import dynamic from "next/dynamic"
 import { haptic, getUserAvatarColor } from "@/lib/utils"
@@ -64,7 +64,6 @@ const NotificationPromptBanner = dynamic(() => import("@/components/notification
 import {
   type Message,
   type MessageDraft,
-  type MessageType,
   type Project,
   type Contact,
   type ImportedContact,
@@ -173,68 +172,6 @@ function toDate(value: unknown): Date {
   return new Date()
 }
 
-function mapMessageDoc(id: string, data: Record<string, any>): Message {
-  const senderId = data.senderId ?? data.authorId ?? ""
-  const projectIds = Array.isArray(data.projectIds)
-    ? data.projectIds.filter(Boolean)
-    : [data.projectId ?? data.project_id].filter(Boolean)
-  const timestamp = toDate(data.timestamp ?? data.createdAt)
-
-  return {
-    id,
-    senderId,
-    authorId: data.authorId ?? senderId,
-    participants: Array.isArray(data.participants) ? data.participants : [senderId].filter(Boolean),
-    visibleToUserIds: Array.isArray(data.visibleToUserIds) ? data.visibleToUserIds.filter(Boolean) : undefined,
-    recipientIds: Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : [],
-    peopleIds: Array.isArray(data.peopleIds)
-      ? data.peopleIds.filter(Boolean)
-      : (Array.isArray(data.recipientIds) ? data.recipientIds.filter(Boolean) : []),
-    projectId: data.projectId ?? data.project_id ?? projectIds[0] ?? null,
-    projectIds,
-    project_id: data.project_id ?? null,
-    tagIds: Array.isArray(data.tagIds) ? data.tagIds.filter(Boolean) : undefined,
-    text: data.text ?? data.content ?? "",
-    content: data.content ?? data.text ?? "",
-    type: (data.type ?? "none") as MessageType,
-    timestamp,
-    createdAt: toDate(data.createdAt ?? data.timestamp),
-    updatedAt: toDate(data.updatedAt ?? data.timestamp),
-    isFavorited: data.isFavorited ?? false,
-    contactIds: Array.isArray(data.contactIds) ? data.contactIds.filter(Boolean) : [],
-    contextIds: Array.isArray(data.contextIds) ? data.contextIds.filter(Boolean) : [],
-    imageUrl: data.imageUrl,
-    imagePath: data.imagePath,
-    imageName: data.imageName,
-    imageContentType: data.imageContentType,
-    imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
-    imageWidth: typeof data.imageWidth === "number" ? data.imageWidth : undefined,
-    imageHeight: typeof data.imageHeight === "number" ? data.imageHeight : undefined,
-    imageBlurHash: typeof data.imageBlurHash === "string" ? data.imageBlurHash : undefined,
-    imageUploadedAt: data.imageUploadedAt ? toDate(data.imageUploadedAt) : undefined,
-    calendarDates: Array.isArray(data.calendarDates)
-      ? data.calendarDates
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((d: any) => ({
-            id: String(d.id ?? ""),
-            date: String(d.date ?? ""),
-            createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : new Date(),
-            createdBy: String(d.createdBy ?? ""),
-          }))
-          .filter((d: { date: string }) => !!d.date)
-      : undefined,
-    replyToId: typeof data.replyToId === "string" ? data.replyToId : undefined,
-    replyPreview: data.replyPreview && typeof data.replyPreview === "object"
-      ? {
-          messageId: String(data.replyPreview.messageId ?? ""),
-          authorId: String(data.replyPreview.authorId ?? ""),
-          authorName: String(data.replyPreview.authorName ?? ""),
-          text: String(data.replyPreview.text ?? ""),
-        }
-      : undefined,
-  }
-}
-
 function sanitizeStorageName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 90) || "image"
 }
@@ -293,9 +230,6 @@ export default function Home() {
 
   // ── Firestore data ────────────────────────────────────────────────────
   const [contacts, setContacts] = useState<Contact[]>([])
-  const [participantMessages, setParticipantMessages] = useState<Message[]>([])
-  const [projectMessages, setProjectMessages] = useState<Message[]>([])
-  const [visibleMessages, setVisibleMessages] = useState<Message[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [customCategories, setCustomCategories] = useState<CategoryItem[]>([])
   const [globalImportedContacts, setGlobalImportedContacts] = useState<ImportedContact[]>([])
@@ -308,7 +242,17 @@ export default function Home() {
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [contextsLoaded, setContextsLoaded] = useState(false)
-  const [messagesLoaded, setMessagesLoaded] = useState(false)
+  const messageProjectIds = useMemo(() => projects.map((project) => project.id), [projects])
+  const {
+    messages,
+    isLoaded: messagesLoaded,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+  } = useMessageFeed({
+    userId: firebaseUser?.uid,
+    projectIds: messageProjectIds,
+  })
 
   const importedContacts = useMemo(() => {
     const byId = new Map<string, ImportedContact>()
@@ -317,34 +261,6 @@ export default function Home() {
     })
     return [...byId.values()]
   }, [globalImportedContacts])
-
-  // Merged feed: union of all message sources, deduped by ID.
-  // participantMessages = legacy query (array-contains participants)
-  // projectMessages     = legacy query (array-contains projectId)
-  // visibleMessages     = new query (array-contains visibleToUserIds)
-  //
-  // IMPORTANT: after merging, apply a client-side visibility gate.
-  // If a message has visibleToUserIds, that field is the source of truth.
-  // Even if the message arrived via the legacy participants/projectId listeners,
-  // we must NOT show it to users not listed in visibleToUserIds.
-  // This is what prevents Case E (corrupted participants=allUids) from leaking.
-  const messages = useMemo(() => {
-    const byId = new Map<string, Message>()
-    participantMessages.forEach((m) => byId.set(m.id, m))
-    projectMessages.forEach((m) => byId.set(m.id, m))
-    visibleMessages.forEach((m) => byId.set(m.id, m))
-    const uid = firebaseUser?.uid
-    return [...byId.values()]
-      .filter((m) => {
-        // If visibleToUserIds exists → it decides. Exclude if current user not in it.
-        if (uid && Array.isArray(m.visibleToUserIds)) {
-          return m.visibleToUserIds.includes(uid)
-        }
-        // Legacy: no visibleToUserIds yet → trust what the listener returned
-        return true
-      })
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
-  }, [participantMessages, projectMessages, visibleMessages, firebaseUser])
 
   const recentUserMessages = useMemo(
     () => messages.filter((m) => m.senderId === firebaseUser?.uid).slice(-20).reverse(),
@@ -361,7 +277,6 @@ export default function Home() {
   const [selectedContextFilter, setSelectedContextFilter] = useState<string[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
-  const [listenerKey, setListenerKey] = useState(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
   const [composeInitialProjectId, setComposeInitialProjectId] = useState<string | null>(null)
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null)
@@ -461,14 +376,11 @@ export default function Home() {
         setFirebaseUser(null)
         setCurrentUser(null)
         setContacts([])
-        setParticipantMessages([])
-        setProjectMessages([])
         setProjects([])
         setGlobalImportedContacts([])
         setCatalogIndex(null)
         setContactsLoaded(false)
         setContextsLoaded(false)
-        setMessagesLoaded(false)
         setAppContexts([])
         navigateTo("login")
       }
@@ -480,11 +392,15 @@ export default function Home() {
   useEffect(() => {
     if (!firebaseUser) return
 
-    // Reset loading flags so skeletons show while new snapshots arrive
-    setMessagesLoaded(false)
+    const usersMetric = createSnapshotMetric("users")
+    const projectsMetric = createSnapshotMetric("projects")
+    const categoriesMetric = createSnapshotMetric("categories")
+    const contactsMetric = createSnapshotMetric("contacts")
+    const contextsMetric = createSnapshotMetric("contexts")
 
     // 1. All users (contacts = everyone except me)
     const usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
+      usersMetric(snap)
       const all = snap.docs.map((d) => {
         const data = d.data()
         const resolvedEmail = data.email ?? (d.id === firebaseUser.uid ? firebaseUser.email : undefined)
@@ -520,17 +436,19 @@ export default function Home() {
           setDoc(meDoc.ref, missingProfileFields, { merge: true }).catch(() => {})
         }
       }
-    }, () => {})
+    }, () => recordFirebaseMetricError("users"))
 
     // 2. All projects (tags are global — visible to any authenticated user)
     const projectsUnsub = onSnapshot(collection(db, "projects"), (snap) => {
+      projectsMetric(snap)
       setProjects(snap.docs.map((d) => d.data() as Project))
-    }, () => {})
+    }, () => recordFirebaseMetricError("projects"))
 
     // 2b. User-created categories
     // Filter out any docs whose name shadows a system category (prevents duplicates)
     const _systemNames = new Set(["project","status","date / time","report","task","custom","type"])
     const categoriesUnsub = onSnapshot(collection(db, "categories"), (snap) => {
+      categoriesMetric(snap)
       setCustomCategories(
         snap.docs
           .map((d) => ({
@@ -541,34 +459,7 @@ export default function Home() {
           }))
           .filter((c) => !_systemNames.has(c.name.trim().toLowerCase()))
       )
-    }, () => {})
-
-    // 3. Messages where current user is a participant (legacy, kept for backward compat)
-    const messagesQuery = query(
-      collection(db, "messages"),
-      where("participants", "array-contains", firebaseUser.uid)
-    )
-    const messagesUnsub = onSnapshot(messagesQuery, (snap) => {
-      setParticipantMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
-      setMessagesLoaded(true)
-    }, () => {
-      // Restart all listeners after a brief delay if a permission error occurs
-      setMessagesLoaded(true)
-      setTimeout(() => setListenerKey((k) => k + 1), 3000)
-    })
-
-    // 4. Messages via visibleToUserIds (new visibility model — forward compat)
-    const visibleQuery = query(
-      collection(db, "messages"),
-      where("visibleToUserIds", "array-contains", firebaseUser.uid)
-    )
-    const visibleUnsub = onSnapshot(visibleQuery, (snap) => {
-      setVisibleMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
-      setMessagesLoaded(true)
-    }, () => {
-      setVisibleMessages([])
-      setMessagesLoaded(true)
-    })
+    }, () => recordFirebaseMetricError("categories"))
 
     // 5. Imported contacts — all contacts are global; every authenticated user
     //    reads the whole collection (single listener, no visibility filter).
@@ -576,15 +467,18 @@ export default function Home() {
     const globalImportedContactsUnsub = useCompactCatalog
       ? () => {}
       : onSnapshot(collection(db, "contacts"), (snap) => {
+          contactsMetric(snap)
           setGlobalImportedContacts(snap.docs.map((d) => mapImportedContactDoc(d.id, d.data())))
           setContactsLoaded(true)
         }, () => {
+          recordFirebaseMetricError("contacts")
           setGlobalImportedContacts([])
           setContactsLoaded(true)
         })
 
     // 6. Contexts — global, no filter needed
     const contextsUnsub = useCompactCatalog ? () => {} : onSnapshot(collection(db, "contexts"), (snap) => {
+      contextsMetric(snap)
       setAppContexts(snap.docs.map((d) => {
         const data = d.data()
         return {
@@ -603,6 +497,7 @@ export default function Home() {
       }))
       setContextsLoaded(true)
     }, () => {
+      recordFirebaseMetricError("contexts")
       setAppContexts([])
       setContextsLoaded(true)
     })
@@ -611,12 +506,10 @@ export default function Home() {
       usersUnsub()
       projectsUnsub()
       categoriesUnsub()
-      messagesUnsub()
-      visibleUnsub()
       globalImportedContactsUnsub()
       contextsUnsub()
     }
-  }, [firebaseUser, listenerKey])
+  }, [firebaseUser])
 
   // Compact shared catalog: restores IndexedDB immediately, then revalidates
   // 32 deterministic shards. A tiny metadata listener refreshes it after
@@ -638,20 +531,31 @@ export default function Home() {
       setContextsLoaded(true)
     }
     const refresh = () => {
+      const catalogLoadMetric = createLoadMetric("directory.catalog")
       loadEntityCatalog(firebaseUser.uid, { onCache: applyCatalog })
-        .then(applyCatalog)
+        .then((index) => {
+          catalogLoadMetric(index.documents.length)
+          applyCatalog(index)
+        })
         .catch(() => {
+          recordFirebaseMetricError("directory.catalog")
           if (!active) return
           setContactsLoaded(true)
           setContextsLoaded(true)
         })
     }
     refresh()
-    const unsubscribe = onSnapshot(doc(db, "directoryMeta", "status"), () => {
+    const directoryMetaMetric = createSnapshotMetric("directory.meta")
+    const unsubscribe = onSnapshot(doc(db, "directoryMeta", "status"), (snapshot) => {
+      directoryMetaMetric({
+        size: snapshot.exists() ? 1 : 0,
+        docChanges: () => [],
+        metadata: snapshot.metadata,
+      })
       if (firstMetaSnapshot) { firstMetaSnapshot = false; return }
       if (refreshTimer) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(refresh, 350)
-    }, () => {})
+    }, () => recordFirebaseMetricError("directory.meta"))
     return () => {
       active = false
       if (refreshTimer) window.clearTimeout(refreshTimer)
@@ -716,23 +620,6 @@ export default function Home() {
     })
     return unsub
   }, [firebaseUser, showToast])
-
-  // ── Second listener: project-tagged messages (covers members not in participants) ──
-  useEffect(() => {
-    if (!firebaseUser || projects.length === 0) {
-      setProjectMessages([])
-      return
-    }
-    const projectIds = projects.map((p) => p.id).slice(0, 30) // Firestore 'in' max 30
-    const projectMsgsQuery = query(
-      collection(db, "messages"),
-      where("projectId", "in", projectIds)
-    )
-    const unsub = onSnapshot(projectMsgsQuery, (snap) => {
-      setProjectMessages(snap.docs.map((d) => mapMessageDoc(d.id, d.data())))
-    }, () => { setProjectMessages([]) })
-    return () => { unsub(); setProjectMessages([]) }
-  }, [firebaseUser, projects])
 
   // ── Auth handlers ─────────────────────────────────────────────────────
   const handleLogin = useCallback(async (email: string, password: string) => {
@@ -1104,7 +991,7 @@ export default function Home() {
         ...peopleIds,
         ...resolveLinkedImportedContactUserIds(importedContactIds, importedContacts),
       ].filter(Boolean))]
-      // Always include all project members so they receive the message
+      // Tags classify the message; only explicit people grant visibility.
       const type = getLegacyTypeFromTagIds(tagIds, "none")
       const projectIds = getLegacyProjectIdsFromTagIds(tagIds, [])
       const selectedProjectIds = [...new Set(projectIds.filter(Boolean))]
@@ -1872,6 +1759,9 @@ export default function Home() {
             importedContacts={importedContacts}
             contexts={appContexts}
             isLoading={!messagesLoaded}
+            hasOlderMessages={hasOlderMessages}
+            isLoadingOlderMessages={isLoadingOlderMessages}
+            onLoadOlderMessages={loadOlderMessages}
           />
           {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
           {activeScreen === "stream" && firebaseUser && (

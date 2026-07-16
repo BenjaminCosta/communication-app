@@ -113,18 +113,18 @@ async function createMessages() {
       participants: [alice, bob],
     }),
 
-    // ── Case C: tag (project), sin recipient → lo ven autor+miembros del tag ─
+    // ── Case C: tag, sin recipient → el tag no concede visibilidad ───────────
     "msg-case-c": msgBase(alice, {
-      text:        "[Case C] Tag only (project with Alice+Carol) — Alice+Carol see this",
+      text:        "[Case C] Tag only (project with Alice+Carol) — only Alice sees this",
       tagIds:      [PROJECT_TAG],
       projectId:   PROJECT_ID,
       projectIds:  [PROJECT_ID],
       participants: [alice, carol],
     }),
 
-    // ── Case D: tag + recipient → autor+miembros+recipient ───────────────────
+    // ── Case D: tag + recipient → autor+recipient explícito ─────────────────
     "msg-case-d": msgBase(alice, {
-      text:         "[Case D] Tag (Alice+Carol) + Recipient Bob — all three see this",
+      text:         "[Case D] Tag (Alice+Carol) + Recipient Bob — Alice+Bob see this",
       tagIds:       [PROJECT_TAG],
       projectId:    PROJECT_ID,
       projectIds:   [PROJECT_ID],
@@ -150,11 +150,11 @@ async function createMessages() {
       participants: [carol],
     }),
 
-    // ── Case G: Tag Later applied — project (Alice+Carol) + recipient Bob ─────
+    // ── Case G: Tag Later applied — tag + explicit recipient Bob ──────────────
     // Simulates the state AFTER a Tag Later edit:
     // Alice sent it, then tagged with the Alice+Carol project and added Bob as recipient.
     "msg-case-g": msgBase(alice, {
-      text:         "[Case G] Tag Later applied: project (Alice+Carol) + recipient Bob",
+      text:         "[Case G] Tag Later applied: project tag + explicit recipient Bob",
       tagIds:       [PROJECT_TAG],
       projectId:    PROJECT_ID,
       projectIds:   [PROJECT_ID],
