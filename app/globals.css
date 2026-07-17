@@ -348,6 +348,10 @@
 }
 
 .outlook-input {
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.75rem;
@@ -360,12 +364,25 @@
   transition: border-color 160ms ease;
 }
 
+input[type="date"].outlook-input,
+input[type="number"].outlook-input,
+select.outlook-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .outlook-input::placeholder {
   color: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
 }
 
 .outlook-input:focus {
   border-color: rgba(167, 139, 250, 0.35);
+}
+
+.outlook-compact-fields .outlook-input {
+  padding: 0.5rem 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
 }
 
 @media (min-width: 640px) {

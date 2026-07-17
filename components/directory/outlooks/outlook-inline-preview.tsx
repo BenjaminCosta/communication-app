@@ -3,6 +3,7 @@
 import { CalendarDays, Clock3 } from "lucide-react"
 import {
   formatOutlookDate,
+  localDateToIso,
   outlookDates,
   taskStatusLabel,
   type OutlookTask,
@@ -25,6 +26,7 @@ function clampDate(date: string, start: string, end: string): string {
 
 export function OutlookInlinePreview({ window, tasks }: { window: OutlookWindow; tasks: OutlookTask[] }) {
   const dates = outlookDates(window.start)
+  const todayIndex = dates.indexOf(localDateToIso(new Date()))
   const visibleTasks = tasks
     .filter((task) => task.startDate && task.endDate && task.startDate <= window.end && task.endDate >= window.start)
     .slice(0, 4)
@@ -46,7 +48,7 @@ export function OutlookInlinePreview({ window, tasks }: { window: OutlookWindow;
         })}
       </div>
 
-      <div className="relative min-h-28 overflow-hidden px-1.5 py-2">
+      <div className="relative min-h-36 overflow-hidden px-1.5 py-3">
         <div className="pointer-events-none absolute inset-0 grid grid-cols-[repeat(21,minmax(0,1fr))]">
           {dates.map((date, index) => (
             <span
@@ -59,14 +61,20 @@ export function OutlookInlinePreview({ window, tasks }: { window: OutlookWindow;
           ))}
         </div>
 
+        {todayIndex >= 0 && (
+          <div className="pointer-events-none absolute inset-y-0 z-[2] w-px bg-[var(--directory-job)]/70" style={{ left: `${((todayIndex + 0.5) / 21) * 100}%` }} aria-hidden="true">
+            <span className="absolute left-1/2 top-1 -translate-x-1/2 rounded bg-[var(--directory-job)] px-1 py-0.5 text-[7px] font-semibold text-[#0b0f14]">Today</span>
+          </div>
+        )}
+
         {visibleTasks.length === 0 ? (
-          <div className="relative flex min-h-24 flex-col items-center justify-center text-center">
-            <CalendarDays className="h-5 w-5 text-violet-300/55" strokeWidth={1.7} />
+          <div className="relative flex min-h-28 flex-col items-center justify-center text-center">
+            <CalendarDays className="h-5 w-5 text-[var(--directory-job)]/65" strokeWidth={1.7} />
             <p className="mt-2 text-xs font-medium text-foreground/70">No tasks in this window</p>
             <p className="mt-0.5 text-[10px] text-muted-foreground/50">Use Quick Update to add the first activity.</p>
           </div>
         ) : (
-          <div className="relative grid grid-cols-[repeat(21,minmax(0,1fr))] grid-rows-[repeat(4,22px)] gap-y-1">
+          <div className="relative grid grid-cols-[repeat(21,minmax(0,1fr))] grid-rows-[repeat(4,26px)] gap-y-1.5">
             {visibleTasks.map((task, index) => {
               const start = dates.indexOf(clampDate(task.startDate!, window.start, window.end)) + 1
               const end = dates.indexOf(clampDate(task.endDate!, window.start, window.end)) + 2

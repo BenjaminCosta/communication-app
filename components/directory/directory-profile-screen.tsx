@@ -76,6 +76,10 @@ export function DirectoryProfileScreen({
   const [relationsPageLoading, setRelationsPageLoading] = useState(false)
   const [fullRelationsLoaded, setFullRelationsLoaded] = useState(false)
   const [activity, setActivity] = useState<DirectoryActivitySummary | null>(null)
+  // Track when the async inputs to the About narrative have settled, so the
+  // description renders once (no visible mid-load text swap).
+  const [relationsSettled, setRelationsSettled] = useState(false)
+  const [activitySettled, setActivitySettled] = useState(false)
   const [tab, setTab] = useState<ProfileTab>("overview")
   const [fullOutlook, setFullOutlook] = useState(false)
   const { favoriteIds, toggleFavorite: updateFavorite, recordRecent } = useDirectoryUserState()
@@ -128,6 +132,8 @@ export function DirectoryProfileScreen({
     let active = true
     setRelations(null)
     setActivity(null)
+    setRelationsSettled(false)
+    setActivitySettled(false)
     loadDirectoryRelationsPage(vmId, null, 5)
       .then((page) => {
         if (!active) return
@@ -137,9 +143,11 @@ export function DirectoryProfileScreen({
         setHasMoreRelations(page.hasMore)
       })
       .catch(() => { if (active) setRelations(null) })
+      .finally(() => { if (active) setRelationsSettled(true) })
     loadDirectoryActivitySummary(vmId)
       .then((summary) => { if (active) setActivity(summary) })
       .catch(() => { if (active) setActivity(null) })
+      .finally(() => { if (active) setActivitySettled(true) })
     return () => { active = false }
   }, [vmId])
 
@@ -165,6 +173,11 @@ export function DirectoryProfileScreen({
     () => (vm ? buildDirectoryDescription(vm, relations, activity) : null),
     [vm, relations, activity],
   )
+  // Only reveal the narrative once its async inputs (relations + activity) have
+  // settled, so it never visibly rewrites itself a beat after open. The vm's own
+  // identity text is stable across cache→fresh, so we don't gate on that (keeps
+  // the cached description visible while offline instead of an endless skeleton).
+  const descriptionReady = !!vm && relationsSettled && activitySettled
 
   useEffect(() => {
     if (!notice) return
@@ -293,10 +306,22 @@ export function DirectoryProfileScreen({
                 </p>
               )}
 
-              {description?.text && (
-                <section className="mt-6" aria-label="About">
-                  <p className="text-[15px] leading-7 text-foreground/85">{description.text}</p>
-                </section>
+              {descriptionReady ? (
+                description?.text && (
+                  <section className="mt-6" aria-label="About">
+                    <p className="text-[15px] leading-7 text-foreground/85">{description.text}</p>
+                  </section>
+                )
+              ) : (
+                vm && (
+                  <section className="mt-6" aria-hidden>
+                    <div className="space-y-2.5">
+                      <div className="h-3.5 w-full rounded-full bg-white/[0.06] animate-pulse" />
+                      <div className="h-3.5 w-11/12 rounded-full bg-white/[0.06] animate-pulse" />
+                      <div className="h-3.5 w-3/5 rounded-full bg-white/[0.06] animate-pulse" />
+                    </div>
+                  </section>
+                )
               )}
 
               <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-white/[0.07] scrollbar-hide" aria-label="Profile sections">

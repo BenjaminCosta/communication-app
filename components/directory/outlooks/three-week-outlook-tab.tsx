@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Send } from "lucide-react"
+import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Send, SlidersHorizontal } from "lucide-react"
 import { OutlookActionBar, type OutlookAction } from "@/components/directory/outlooks/outlook-action-bar"
 import { OutlookAdvancedView } from "@/components/directory/outlooks/outlook-advanced-view"
 import { OutlookInlinePreview } from "@/components/directory/outlooks/outlook-inline-preview"
@@ -206,26 +206,26 @@ function DedicatedOutlookScreen({
 }
 
 function OutlookTabs({ active, onChange }: { active: OutlookScreenTab; onChange: (tab: OutlookScreenTab) => void }) {
-  const tabs: Array<{ id: OutlookScreenTab; label: string }> = [
-    { id: "preview", label: "Preview" },
-    { id: "tasks", label: "Tasks" },
-    { id: "advanced", label: "Advanced" },
+  const tabs: Array<{ id: OutlookScreenTab; label: string; icon: React.ReactNode }> = [
+    { id: "preview", label: "Preview", icon: <CalendarDays className="size-3.5" strokeWidth={1.8} /> },
+    { id: "tasks", label: "Tasks", icon: <ListTodo className="size-3.5" strokeWidth={1.8} /> },
+    { id: "advanced", label: "Advanced", icon: <SlidersHorizontal className="size-3.5" strokeWidth={1.8} /> },
   ]
   return (
-    <nav className="grid grid-cols-3 rounded-xl border border-white/[0.07] bg-white/[0.035] p-0.5" aria-label="Outlook views">
+    <nav className="grid grid-cols-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]" aria-label="Outlook views">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => onChange(tab.id)}
           className={cn(
-            "relative rounded-[10px] px-2 py-2.5 text-[11px] font-semibold transition-[background-color,color,transform] active:scale-[0.98]",
-            active === tab.id ? "bg-white/[0.045] text-foreground/88" : "text-muted-foreground/58",
+            "relative flex min-w-0 items-center justify-center gap-1.5 rounded-[9px] px-1.5 py-2.5 text-[10px] font-semibold transition-[background-color,color,transform] active:scale-[0.98] min-[380px]:text-[11px]",
+            active === tab.id ? "bg-[var(--directory-job-soft)] text-[var(--directory-job)]" : "text-muted-foreground/58 hover:text-foreground/75",
           )}
           aria-current={active === tab.id ? "page" : undefined}
         >
-          {tab.label}
-          {active === tab.id && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-violet-400" />}
+          {tab.icon}<span className="truncate">{tab.label}</span>
+          {active === tab.id && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-[var(--directory-job)]" />}
         </button>
       ))}
     </nav>
@@ -246,8 +246,8 @@ function OutlookMetrics({
   const trades = new Set(tasks.map((task) => task.trade.trim() || task.companyName.trim()).filter(Boolean)).size
   return (
     <div className="space-y-2.5">
-      <label className="flex min-h-12 items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.07] px-3 transition focus-within:border-violet-400/55 focus-within:ring-2 focus-within:ring-violet-500/15">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-violet-400/20 bg-violet-500/10 text-violet-300">
+      <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] px-3 transition focus-within:border-[var(--directory-job)] focus-within:ring-2 focus-within:ring-violet-500/10">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-[var(--directory-job-border)] bg-white/[0.025] text-[var(--directory-job)]">
           <CalendarDays className="size-4" strokeWidth={1.8} />
         </span>
         <span className="min-w-0 flex-1">
@@ -259,7 +259,7 @@ function OutlookMetrics({
           value={window.start}
           onChange={(event) => onStartDateChange(event.target.value)}
           aria-label="Outlook start date"
-          className="min-w-0 max-w-[9.5rem] cursor-pointer rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-right font-mono text-[11px] font-semibold text-foreground/90 outline-none [color-scheme:dark] focus:border-violet-400/50"
+          className="min-w-0 max-w-[9.5rem] cursor-pointer rounded-lg border border-white/10 bg-[#0b1119]/80 px-2.5 py-2 text-right font-mono text-[11px] font-semibold text-foreground/90 outline-none [color-scheme:dark] focus:border-[var(--directory-job-border)]"
         />
       </label>
       <div className="flex min-w-0 gap-1.5 overflow-x-auto scrollbar-hide">
@@ -309,7 +309,7 @@ function buildActions({
 }): OutlookAction[] {
   if (activeTab === "tasks") {
     return [
-      { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate, tone: "accent" },
+      { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate },
       { id: "preview", label: "Preview calendar", icon: <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPreview },
     ]
   }
@@ -321,9 +321,9 @@ function buildActions({
     ]
   }
   return [
-    { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate, tone: "accent" },
+    { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate },
     { id: "pdf", label: generatingPdf ? "Generating..." : "Generate PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onGeneratePdf, disabled: saving || generatingPdf || !canPublish },
-    { id: "post", label: "Post update", icon: <Send className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPostUpdate, disabled: !canPostUpdate || saving || generatingPdf },
+    { id: "post", label: "Post update", icon: <Send className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPostUpdate, disabled: !canPostUpdate || saving || generatingPdf, tone: "accent" },
   ]
 }
 
@@ -341,21 +341,23 @@ function EmbeddedOutlookPanel({
   const trades = new Set(scheduled.tasks.map((task) => task.trade.trim() || task.companyName.trim()).filter(Boolean)).size
 
   return (
-    <section className="animate-fade-up rounded-2xl border border-violet-400/20 bg-[#0a111b]/78 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] sm:p-4" aria-label="3-Week Outlook summary">
+    <section className="animate-fade-up overflow-hidden rounded-2xl border border-[var(--directory-job-border)] bg-[#0a111b]/78 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] sm:p-4" aria-label="3-Week Outlook summary">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-400/25 bg-violet-400/10 text-violet-200"><CalendarDays className="h-5 w-5" strokeWidth={1.7} /></div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] text-[var(--directory-job)]"><CalendarDays className="h-5 w-5" strokeWidth={1.7} /></div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-foreground/92">3-Week Outlook</h2>
             <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-2 py-0.5 text-[8px] font-semibold uppercase text-emerald-200/75">{latestVersion ? `Version ${latestVersion.versionNumber}` : tasks.length ? "Draft" : "Ready"}</span>
           </div>
-          <p className="mt-1.5 font-mono text-[9px] text-muted-foreground/55">{formatOutlookRange(window)} · {tasks.length} tasks · {trades} trades</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] text-muted-foreground/58">
+            <span>{formatOutlookRange(window)}</span><span className="h-3 w-px bg-white/10" aria-hidden="true" /><span>{tasks.length} tasks</span><span className="h-3 w-px bg-white/10" aria-hidden="true" /><span>{trades} trades</span>
+          </div>
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 rounded-xl border border-white/[0.08] bg-white/[0.025] p-0.5" role="group" aria-label="Outlook panel view">
+      <div className="mt-4 grid grid-cols-2 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1" role="group" aria-label="Outlook panel view">
         {(["preview", "quick"] as const).map((entry) => (
-          <button key={entry} type="button" onClick={() => setView(entry)} className={cn("rounded-[10px] border px-3 py-2 text-[11px] font-medium active:scale-[0.98]", view === entry ? "border-violet-400/25 bg-violet-400/18 text-violet-100" : "border-transparent text-muted-foreground/65")} aria-pressed={view === entry}>{entry === "preview" ? "Preview" : "Quick Update"}</button>
+          <button key={entry} type="button" onClick={() => setView(entry)} className={cn("rounded-[9px] border px-2 py-2.5 text-[11px] font-semibold transition-[background-color,border-color,color,transform] active:scale-[0.98]", view === entry ? "border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] text-[var(--directory-job)]" : "border-transparent text-muted-foreground/60 hover:text-foreground/75")} aria-pressed={view === entry}>{entry === "preview" ? "Preview" : "Quick Update"}</button>
         ))}
       </div>
 
@@ -377,7 +379,7 @@ function EmbeddedOutlookPanel({
           />
         )}
       </div>
-      <button type="button" onClick={onSeeFullOutlook} className="glass-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.09] px-4 py-2.5 text-[11px] font-semibold text-violet-200/85 active:scale-[0.98]">See full outlook<ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.8} /></button>
+      <button type="button" onClick={onSeeFullOutlook} className="glass-button mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.1] px-4 py-2.5 text-[11px] font-semibold text-[var(--directory-job)] transition-[border-color,background-color,transform] hover:border-[var(--directory-job-border)] hover:bg-[var(--directory-job-soft)] active:scale-[0.98]">See full outlook<ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.8} /></button>
     </section>
   )
 }
@@ -417,15 +419,15 @@ function EmbeddedQuickForm({
   }
 
   return (
-    <div className="rounded-xl border border-violet-400/20 bg-[#080e16]/72 p-3.5">
-      <label className="block"><span className="outlook-label">Task name</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ADA ramp" className="outlook-input" /></label>
-      <div className="mt-3 grid grid-cols-2 gap-2.5">
-        <label className="block"><span className="outlook-label">Start date</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="outlook-input" /></label>
-        <label className="block"><span className="outlook-label">Duration</span><select value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value))} className="outlook-input">{Array.from({ length: 14 }, (_, index) => index + 1).map((days) => <option key={days} value={days}>{days} day{days === 1 ? "" : "s"}</option>)}</select></label>
+    <div className="rounded-xl border border-white/[0.08] bg-[#080e16]/62 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <label className="block min-w-0"><span className="outlook-label">Task name</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ADA ramp" className="outlook-input" /></label>
+      <div className="mt-3 grid grid-cols-1 gap-3 min-[440px]:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <label className="block min-w-0"><span className="outlook-label">Start date</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="outlook-input" /></label>
+        <label className="block min-w-0"><span className="outlook-label">Duration</span><select value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value))} className="outlook-input">{Array.from({ length: 14 }, (_, index) => index + 1).map((days) => <option key={days} value={days}>{days} day{days === 1 ? "" : "s"}</option>)}</select></label>
       </div>
-      <button type="button" onClick={() => setShowMore((value) => !value)} className="mt-3 text-[10px] font-medium text-violet-200/72">{showMore ? "Hide optional details" : "Trade and company"}</button>
-      {showMore && <div className="mt-3 grid grid-cols-2 gap-2.5 border-t border-white/[0.06] pt-3"><label className="block"><span className="outlook-label">Trade</span><input value={trade} onChange={(event) => setTrade(event.target.value)} className="outlook-input" /></label><label className="block"><span className="outlook-label">Company</span><input list="embedded-company-options" value={companyName} onChange={(event) => setCompanyName(event.target.value)} className="outlook-input" /></label></div>}
-      <button type="button" onClick={() => void submit().catch(() => {})} disabled={saving || !title.trim() || !startDate} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500/80 py-2.5 text-[11px] font-semibold text-white active:scale-[0.98] disabled:opacity-40"><Save className="h-3.5 w-3.5" strokeWidth={1.8} />{saving ? "Saving..." : "Add task"}</button>
+      <button type="button" onClick={() => setShowMore((value) => !value)} className="mt-3 text-[10px] font-medium text-[var(--directory-job)] active:opacity-60">{showMore ? "Hide optional details" : "Add trade and company"}</button>
+      {showMore && <div className="mt-3 grid grid-cols-1 gap-3 border-t border-white/[0.06] pt-3 min-[440px]:grid-cols-2"><label className="block min-w-0"><span className="outlook-label">Trade</span><input value={trade} onChange={(event) => setTrade(event.target.value)} className="outlook-input" /></label><label className="block min-w-0"><span className="outlook-label">Company</span><input list="embedded-company-options" value={companyName} onChange={(event) => setCompanyName(event.target.value)} className="outlook-input" /></label></div>}
+      <button type="button" onClick={() => void submit().catch(() => {})} disabled={saving || !title.trim() || !startDate} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--directory-job)] py-2.5 text-[11px] font-semibold text-[#0b0f14] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] transition-[opacity,transform] active:scale-[0.98] disabled:opacity-35"><Save className="h-3.5 w-3.5" strokeWidth={1.8} />{saving ? "Saving..." : "Add task"}</button>
       <datalist id="embedded-company-options">{companyOptions.map((name) => <option key={name} value={name} />)}</datalist>
     </div>
   )

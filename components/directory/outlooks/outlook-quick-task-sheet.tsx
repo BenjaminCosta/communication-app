@@ -64,7 +64,7 @@ export function OutlookQuickTaskSheet({
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/15" aria-hidden="true" />
         <div className="mx-auto w-full max-w-xl">
           <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-400/22 bg-violet-400/[0.1] text-violet-200"><Plus className="h-4 w-4" strokeWidth={1.8} /></div>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] text-[var(--directory-job)]"><Plus className="h-4 w-4" strokeWidth={1.8} /></div>
             <div className="min-w-0 flex-1">
               <h2 id="quick-outlook-title" className="text-sm font-semibold text-foreground/90">Quick Update</h2>
               <p className="mt-0.5 text-[10px] text-muted-foreground/52">Add one scheduled activity to this outlook.</p>
@@ -73,23 +73,23 @@ export function OutlookQuickTaskSheet({
           </div>
 
           <div className="mt-5 space-y-4">
-            <label className="block"><span className="outlook-label">Task name</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ADA ramp" className="outlook-input" /></label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block"><span className="outlook-label">Start date</span><input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setDependencyTaskId("") }} disabled={Boolean(dependencyTaskId)} className="outlook-input disabled:opacity-45" /></label>
-              <label className="block"><span className="outlook-label">Duration</span><select value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value))} className="outlook-input">{Array.from({ length: 14 }, (_, index) => index + 1).map((days) => <option key={days} value={days}>{days} day{days === 1 ? "" : "s"}</option>)}</select></label>
+            <label className="block min-w-0"><span className="outlook-label">Task name</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ADA ramp" className="outlook-input" /></label>
+            <div className="grid grid-cols-1 gap-3 min-[430px]:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <label className="block min-w-0"><span className="outlook-label">Start date</span><input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setDependencyTaskId("") }} disabled={Boolean(dependencyTaskId)} className="outlook-input disabled:opacity-45" /></label>
+              <label className="block min-w-0"><span className="outlook-label">Duration</span><select value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value))} className="outlook-input">{Array.from({ length: 14 }, (_, index) => index + 1).map((days) => <option key={days} value={days}>{days} day{days === 1 ? "" : "s"}</option>)}</select></label>
             </div>
-            <button type="button" onClick={() => setShowMore((value) => !value)} className="text-xs font-medium text-violet-200/75 active:opacity-60">{showMore ? "Hide optional details" : "Trade, company and dependency"}</button>
+            <button type="button" onClick={() => setShowMore((value) => !value)} className="text-xs font-medium text-[var(--directory-job)] active:opacity-60">{showMore ? "Hide optional details" : "Trade, company and dependency"}</button>
             {showMore && (
               <div className="grid grid-cols-1 gap-3 border-t border-white/[0.06] pt-4 min-[420px]:grid-cols-2">
-                <label className="block"><span className="outlook-label">Trade</span><input value={trade} onChange={(event) => setTrade(event.target.value)} placeholder="Concrete" className="outlook-input" /></label>
-                <label className="block"><span className="outlook-label">Company</span><input list="quick-sheet-company-options" value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="74 Construction" className="outlook-input" /></label>
-                <label className="block min-[420px]:col-span-2"><span className="outlook-label">Dependency</span><select value={dependencyTaskId} onChange={(event) => { setDependencyTaskId(event.target.value); if (event.target.value) setStartDate("") }} className="outlook-input"><option value="">None</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title || "Untitled task"}</option>)}</select></label>
+                <label className="block min-w-0"><span className="outlook-label">Trade</span><input value={trade} onChange={(event) => setTrade(event.target.value)} placeholder="Concrete" className="outlook-input" /></label>
+                <label className="block min-w-0"><span className="outlook-label">Company</span><input list="quick-sheet-company-options" value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="74 Construction" className="outlook-input" /></label>
+                <label className="block min-w-0 min-[420px]:col-span-2"><span className="outlook-label">Dependency</span><select value={dependencyTaskId} onChange={(event) => { setDependencyTaskId(event.target.value); if (event.target.value) setStartDate("") }} className="outlook-input"><option value="">None</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title || "Untitled task"}</option>)}</select></label>
               </div>
             )}
             {error && <p className="text-[10px] text-orange-200/80" role="alert">{error}</p>}
           </div>
 
-          <button type="button" onClick={() => void submit().catch(() => {})} disabled={saving || !title.trim() || (!startDate && !dependencyTaskId)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500/80 py-3 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] active:scale-[0.98] disabled:opacity-40">
+          <button type="button" onClick={() => void submit().catch(() => {})} disabled={saving || !title.trim() || (!startDate && !dependencyTaskId)} className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--directory-job)] py-3 text-xs font-semibold text-[#0b0f14] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] transition-[opacity,transform] active:scale-[0.98] disabled:opacity-40">
             <Save className="h-3.5 w-3.5" strokeWidth={1.8} />{saving ? "Saving..." : "Add task"}
           </button>
           <datalist id="quick-sheet-company-options">{companies.map((company) => <option key={company.id} value={company.name} />)}</datalist>

@@ -17,22 +17,22 @@ export function OutlookPreviewView({ window, tasks }: { window: OutlookWindow; t
             <p className="mt-1 text-[10px] text-muted-foreground/50">Quick Update will add the first scheduled activity.</p>
           </div>
         ) : tasks.map((task, index) => (
-          <div key={task.id} className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-white/[0.06] px-3 py-2.5 last:border-b-0">
-            <div className="flex min-w-0 items-start gap-2">
+          <div key={task.id} className="border-b border-white/[0.06] px-3.5 py-3 last:border-b-0">
+            <div className="flex min-w-0 items-start gap-2.5">
               <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", index % 4 === 0 ? "bg-violet-400" : index % 4 === 1 ? "bg-cyan-400" : index % 4 === 2 ? "bg-blue-400" : "bg-amber-400")} />
-              <div className="min-w-0">
-                <p className="truncate text-[10px] font-semibold text-foreground/84">{task.title || "Untitled task"}</p>
-                <p className="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[8px] text-muted-foreground/48">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[11px] font-semibold text-foreground/84">{task.title || "Untitled task"}</p>
+                <p className="mt-1 flex min-w-0 items-center gap-1 truncate text-[9px] text-muted-foreground/52">
                   <Building2 className="h-2.5 w-2.5 shrink-0" strokeWidth={1.8} />
                   {task.trade || "General"}{task.companyName ? ` · ${task.companyName}` : ""}
                 </p>
               </div>
+              <StatusBadge task={task} />
             </div>
-            <div className="min-w-0 font-mono text-[8px] text-muted-foreground/58">
-              <p className="flex items-center gap-1 truncate"><CalendarDays className="h-2.5 w-2.5 shrink-0" strokeWidth={1.8} />{task.startDate ? formatOutlookDate(task.startDate) : "Missing"}{task.endDate ? ` - ${formatOutlookDate(task.endDate)}` : ""}</p>
-              <p className="mt-1 flex items-center gap-1"><Clock3 className="h-2.5 w-2.5" strokeWidth={1.8} />{task.durationDays}d</p>
+            <div className="ml-4 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] text-muted-foreground/58">
+              <p className="flex items-center gap-1"><CalendarDays className="h-3 w-3 shrink-0" strokeWidth={1.8} />{task.startDate ? formatOutlookDate(task.startDate) : "Missing"}{task.endDate ? ` - ${formatOutlookDate(task.endDate)}` : ""}</p>
+              <p className="flex items-center gap-1"><Clock3 className="h-3 w-3" strokeWidth={1.8} />{task.durationDays}d</p>
             </div>
-            <StatusBadge task={task} />
           </div>
         ))}
       </section>
