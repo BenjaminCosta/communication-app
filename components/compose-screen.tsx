@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash, Plus, Loader2 } from "lucide-react"
+import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, Hash, Plus, Loader2, FileText } from "lucide-react"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
@@ -15,6 +15,8 @@ import {
   type ImportedContact,
   type TagCategory,
   type AppContext,
+  type MessageFileAttachment,
+  messageAttachmentKindLabel,
   MESSAGE_TYPE_CONFIG,
   parseProjectTagId,
   parseSystemTypeTagId,
@@ -33,6 +35,10 @@ interface ComposeScreenProps {
   contacts: Contact[]
   importedContacts?: ImportedContact[]
   initialProjectId?: string | null
+  initialText?: string
+  initialContextIds?: string[]
+  /** Pre-uploaded file attachment (e.g. outlook PDF) to send with the message */
+  initialAttachment?: MessageFileAttachment | null
   /** Pre-selected calendar dates (from Calendar screen "Add" flow) */
   initialCalendarDates?: string[]
   availableTags?: MessageTag[]
@@ -45,19 +51,20 @@ interface ComposeScreenProps {
 // Max items shown in browse panels before requiring search
 const MAX_PANEL_ITEMS = 30
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialCalendarDates, availableTags, contexts = [], onCreateContext, isContactsLoading = false, isContextsLoading = false }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialText = "", initialContextIds = [], initialAttachment = null, initialCalendarDates, availableTags, contexts = [], onCreateContext, isContactsLoading = false, isContextsLoading = false }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
   const associationPanelRef = useRef<HTMLDivElement>(null)
   const optionBarRef = useRef<HTMLDivElement>(null)
-  const [text, setText] = useState("")
+  const [text, setText] = useState(initialText)
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [selectedImportedContacts, setSelectedImportedContacts] = useState<string[]>([])
   const [selectedProjects, setSelectedProjects] = useState<string[]>(initialProjectId ? [initialProjectId] : [])
   const [selectedType, setSelectedType] = useState<MessageType>("none")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [attachment, setAttachment] = useState<MessageFileAttachment | null>(initialAttachment)
   const [imageError, setImageError] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -75,7 +82,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   const [selectedCalendarDates, setSelectedCalendarDates] = useState<string[]>(initialCalendarDates ?? [])
   const [showDatePicker, setShowDatePicker] = useState(false)
   // Contexts
-  const [selectedContextIds, setSelectedContextIds] = useState<string[]>([])
+  const [selectedContextIds, setSelectedContextIds] = useState<string[]>(initialContextIds)
 
   useEffect(() => {
     return () => {
@@ -273,7 +280,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
   }
 
   const handleSend = async () => {
-    if ((!text.trim() && !imageFile) || isSending) return
+    if ((!text.trim() && !imageFile && !attachment) || isSending) return
     haptic.success()
     setIsSending(true)
     setIsSent(true)
@@ -288,10 +295,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
         tagIds: selectedTagIds,
         type: selectedType,
         imageFile,
+        attachment,
         calendarDates: selectedCalendarDates.length > 0 ? selectedCalendarDates : undefined,
         contextIds: selectedContextIds.length > 0 ? selectedContextIds : undefined,
       })
       clearImage()
+      setAttachment(null)
     } catch {
       setIsSent(false)
       setSendError("Could not send the message. Please try again.")
@@ -496,6 +505,25 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
                 className="glass-button absolute right-2 top-2 w-8 h-8 rounded-full border flex items-center justify-center active:scale-[0.98]"
               >
                 <Trash2 className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          )}
+          {attachment && (
+            <div className="relative mt-3 flex items-center gap-3 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-400/25 bg-red-400/10 text-red-300">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-foreground/90">{attachment.name}</span>
+                <span className="block text-[10px] uppercase tracking-wide text-muted-foreground/60">{messageAttachmentKindLabel(attachment)} attachment</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="glass-button flex h-8 w-8 shrink-0 items-center justify-center rounded-full border active:scale-[0.98]"
+                aria-label="Remove attachment"
+              >
+                <Trash2 className="h-4 w-4 text-white" />
               </button>
             </div>
           )}
@@ -790,12 +818,12 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
           <button
             type="button"
             onClick={handleSend}
-            disabled={(!text.trim() && !imageFile) || isSending || isSent}
+            disabled={(!text.trim() && !imageFile && !attachment) || isSending || isSent}
             className={cn(
               "rounded-full px-6 py-3 text-sm font-semibold tracking-wide transition-colors min-w-[90px] flex items-center justify-center gap-2",
               isSent
                 ? "bg-progress text-white shadow-[0_4px_14px_rgba(34,197,94,0.45)] animate-sent-pop"
-                : (text.trim() || imageFile) && !isSending
+                : (text.trim() || imageFile || attachment) && !isSending
                   ? "border border-primary/30 bg-[linear-gradient(135deg,rgba(37,99,235,0.96),rgba(99,102,241,0.92))] text-white glow-blue active:scale-[0.98]"
                   : "glass-button border text-muted-foreground"
             )}

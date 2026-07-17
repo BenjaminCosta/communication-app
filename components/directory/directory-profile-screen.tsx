@@ -23,6 +23,7 @@ import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
 import { DirectoryNotesTab } from "@/components/directory/directory-notes-tab"
 import { DirectoryFilesTab } from "@/components/directory/directory-files-tab"
 import { DirectoryEditSheet } from "@/components/directory/directory-edit-sheet"
+import { ThreeWeekOutlookTab, type OutlookPostPayload } from "@/components/directory/outlooks/three-week-outlook-tab"
 import { cn } from "@/lib/utils"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
 import { useDirectoryUserState } from "@/components/directory/directory-state-provider"
@@ -43,13 +44,15 @@ import {
   type RelationEntityRef,
 } from "@/lib/directory-relations"
 
-type ProfileTab = "overview" | "related" | "notes" | "files"
+type ProfileTab = "overview" | "outlook" | "related" | "notes" | "files"
 
 interface DirectoryProfileScreenProps {
   directoryId: string
   userId: string
   onBack: () => void
   onOpenEntity: (directoryId: string) => void
+  companies?: Array<{ id: string; name: string }>
+  onPostOutlook?: (payload: OutlookPostPayload) => void
   className?: string
 }
 
@@ -58,6 +61,8 @@ export function DirectoryProfileScreen({
   userId,
   onBack,
   onOpenEntity,
+  companies = [],
+  onPostOutlook,
   className,
 }: DirectoryProfileScreenProps) {
   const [vm, setVm] = useState<DirectoryProfileViewModel | null>(null)
@@ -72,6 +77,7 @@ export function DirectoryProfileScreen({
   const [fullRelationsLoaded, setFullRelationsLoaded] = useState(false)
   const [activity, setActivity] = useState<DirectoryActivitySummary | null>(null)
   const [tab, setTab] = useState<ProfileTab>("overview")
+  const [fullOutlook, setFullOutlook] = useState(false)
   const { favoriteIds, toggleFavorite: updateFavorite, recordRecent } = useDirectoryUserState()
   const [favoritePending, setFavoritePending] = useState(false)
   const [notice, setNotice] = useState("")
@@ -98,6 +104,7 @@ export function DirectoryProfileScreen({
     setHasMoreRelations(false)
     setFullRelationsLoaded(false)
     setTab("overview")
+    setFullOutlook(false)
     setShowAdmin(false)
     setShowEdit(false)
     loadDirectoryProfileViewModel(directoryId, reloadKey > 0)
@@ -201,43 +208,73 @@ export function DirectoryProfileScreen({
 
   const tabs: Array<{ id: ProfileTab; label: string }> = [
     { id: "overview", label: "Overview" },
+    ...(vm?.type === "job" ? [{ id: "outlook" as const, label: "Outlook" }] : []),
     { id: "related", label: "Related" },
     { id: "notes", label: "Notes" },
     { id: "files", label: "Files" },
   ]
+  const isOutlookScreen = fullOutlook && tab === "outlook" && vm?.type === "job"
 
   return (
     <div className={cn("directory-glass-screen flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden", className)}>
-      <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
-        <button
-          type="button"
-          onClick={onBack}
-          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96]"
-          aria-label="Back to Directory"
-        >
-          <ArrowLeft className="h-4 w-4 text-white/80" strokeWidth={1.8} />
-        </button>
-        <button
-          type="button"
-          onClick={toggleFavorite}
-          disabled={favoritePending || isLoading || error !== "none"}
-          className={cn(
-            "glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-[color,transform] active:scale-[0.96] disabled:opacity-40",
-            isFavorite && "text-[var(--directory-title)]",
-          )}
-          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-          aria-pressed={isFavorite}
-        >
-          <Star className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} strokeWidth={1.8} />
-        </button>
-      </header>
+      {isOutlookScreen ? (
+        <header className="glass-panel app-topbar flex shrink-0 items-center gap-3 border-b px-4 animate-slide-down">
+          <button
+            type="button"
+            onClick={() => setFullOutlook(false)}
+            className="glass-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full border active:scale-[0.96]"
+            aria-label="Back to job profile"
+          >
+            <ArrowLeft className="h-4 w-4 text-white/80" strokeWidth={1.8} />
+          </button>
+          <div className="min-w-0 flex-1 text-center">
+            <h1 className="text-sm font-semibold tracking-tight text-foreground">3-Week Outlook</h1>
+            <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
+              {vm.name}{vm.companyName ? ` · ${vm.companyName}` : ""}
+            </p>
+          </div>
+          <span className="h-9 w-9 shrink-0" aria-hidden="true" />
+        </header>
+      ) : (
+        <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
+          <button
+            type="button"
+            onClick={onBack}
+            className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96]"
+            aria-label="Back to Directory"
+          >
+            <ArrowLeft className="h-4 w-4 text-white/80" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleFavorite}
+            disabled={favoritePending || isLoading || error !== "none"}
+            className={cn(
+              "glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-[color,transform] active:scale-[0.96] disabled:opacity-40",
+              isFavorite && "text-[var(--directory-title)]",
+            )}
+            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            aria-pressed={isFavorite}
+          >
+            <Star className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} strokeWidth={1.8} />
+          </button>
+        </header>
+      )}
 
       <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
-        <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-6 md:px-6">
+        <div className={cn("mx-auto w-full px-4 pb-24 md:px-6", isOutlookScreen ? "max-w-xl pt-4" : "max-w-3xl pt-6")}>
           {isLoading ? (
             <ProfileSkeleton />
           ) : error !== "none" || !vm ? (
             <ProfileErrorState kind={error === "not-found" ? "not-found" : "load"} onBack={onBack} />
+          ) : isOutlookScreen ? (
+            <ThreeWeekOutlookTab
+              job={vm}
+              userId={userId}
+              companies={companies}
+              onPostUpdate={onPostOutlook}
+              mode="full"
+            />
           ) : (
             <>
               <ProfileHeader vm={vm} relations={relations} />
@@ -288,6 +325,16 @@ export function DirectoryProfileScreen({
                     onOpenEntity={onOpenEntity}
                     showAdmin={showAdmin}
                     onToggleAdmin={() => setShowAdmin((v) => !v)}
+                  />
+                )}
+                {tab === "outlook" && vm.type === "job" && (
+                  <ThreeWeekOutlookTab
+                    job={vm}
+                    userId={userId}
+                    companies={companies}
+                    onPostUpdate={onPostOutlook}
+                    mode="embedded"
+                    onSeeFullOutlook={() => setFullOutlook(true)}
                   />
                 )}
                 {tab === "related" && (

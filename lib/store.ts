@@ -227,6 +227,23 @@ export interface ReplyPreview {
   text: string        // first ~120 chars of original message text
 }
 
+/** A non-image file attachment (e.g. an outlook PDF) already uploaded to Storage. */
+export interface MessageFileAttachment {
+  url: string             // download URL
+  name: string            // display file name (e.g. "job-3-week-outlook-...-v2.pdf")
+  contentType: string     // MIME type (e.g. "application/pdf")
+  size?: number           // bytes, if known
+  path?: string           // Storage path, if known
+}
+
+/** Short uppercase label for a file attachment (e.g. "PDF", "DOCX", "File"). */
+export function messageAttachmentKindLabel(attachment: { name?: string; contentType?: string }): string {
+  const name = (attachment.name ?? "").toLowerCase()
+  if (attachment.contentType === "application/pdf" || name.endsWith(".pdf")) return "PDF"
+  const ext = name.includes(".") ? name.split(".").pop() ?? "" : ""
+  return ext && ext.length >= 2 && ext.length <= 5 ? ext.toUpperCase() : "File"
+}
+
 export interface Message {
   id: string
   senderId: string        // Firebase UID of sender
@@ -256,6 +273,11 @@ export interface Message {
   imageHeight?: number
   imageBlurHash?: string
   imageUploadedAt?: Date
+  fileUrl?: string                // non-image attachment (e.g. outlook PDF)
+  fileName?: string
+  fileContentType?: string
+  fileSize?: number
+  filePath?: string
   calendarDates?: CalendarDate[]  // dates this message appears on in Calendar
   contextIds?: string[]           // IDs from /contexts collection — business context (never affects visibility)
   replyToId?: string              // ID of the message being replied to
@@ -271,6 +293,7 @@ export interface MessageDraft {
   tagIds?: string[]
   type: MessageType
   imageFile?: File | null
+  attachment?: MessageFileAttachment | null  // pre-uploaded remote file (e.g. outlook PDF)
   calendarDates?: string[]    // "YYYY-MM-DD" strings; page.tsx wraps to CalendarDate[]
   contextIds?: string[]       // IDs from /contexts collection
   replyToId?: string

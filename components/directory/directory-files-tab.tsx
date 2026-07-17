@@ -101,7 +101,13 @@ export function DirectoryFilesTab({ directoryId, userId, autoOpen }: DirectoryFi
 
   return (
     <div>
-      <input ref={inputRef} type="file" className="hidden" onChange={onPick} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+        className="hidden"
+        onChange={onPick}
+      />
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

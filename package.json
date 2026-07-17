@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "verify:fast": "pnpm test:directory && pnpm test:vcf-import && pnpm test:message-feed && pnpm test:functions && pnpm typecheck && pnpm --dir functions build",
+    "verify:fast": "pnpm test:directory && pnpm test:vcf-import && pnpm test:message-feed && pnpm test:functions && pnpm test:outlooks && pnpm typecheck && pnpm --dir functions build",
     "verify": "pnpm verify:fast && pnpm build",
     "emulator": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json --import=./emulator-data --export-on-exit=./emulator-data",
     "emulator:clean": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json",
@@ -49,7 +49,8 @@
     "test:vcf-import": "node --test scripts/vcf-import.test.mjs",
     "test:directory": "tsx --test scripts/directory-search.test.ts",
     "test:message-feed": "tsx --test scripts/message-feed.test.ts",
-    "test:functions": "tsx --test scripts/functions-batches.test.ts"
+    "test:functions": "tsx --test scripts/functions-batches.test.ts",
+    "test:outlooks": "tsx --test scripts/outlook-core.test.ts"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -96,6 +97,7 @@
     "minisearch": "7.2.0",
     "next": "16.2.4",
     "next-themes": "^0.4.6",
+    "pdf-lib": "^1.17.1",
     "react": "^19",
     "react-day-picker": "9.13.2",
     "react-dom": "^19",

@@ -45,6 +45,7 @@ import { LoginScreen } from "@/components/login-screen"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
+import type { OutlookPostPayload } from "@/components/directory/outlooks/three-week-outlook-tab"
 // Secondary screens — lazy-loaded on demand (code splitting)
 const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
 const RegisterScreen = dynamic(() => import("@/components/register-screen").then((m) => ({ default: m.RegisterScreen })), { ssr: false })
@@ -64,6 +65,7 @@ const NotificationPromptBanner = dynamic(() => import("@/components/notification
 import {
   type Message,
   type MessageDraft,
+  type MessageFileAttachment,
   type Project,
   type Contact,
   type ImportedContact,
@@ -262,6 +264,11 @@ export default function Home() {
     return [...byId.values()]
   }, [globalImportedContacts])
 
+  const directoryCompanies = useMemo(
+    () => catalogIndex?.byType.company.map((entry) => ({ id: entry.sourceId, name: entry.name })) ?? [],
+    [catalogIndex],
+  )
+
   const recentUserMessages = useMemo(
     () => messages.filter((m) => m.senderId === firebaseUser?.uid).slice(-20).reverse(),
     [messages, firebaseUser?.uid]
@@ -279,6 +286,9 @@ export default function Home() {
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
   const [composeInitialProjectId, setComposeInitialProjectId] = useState<string | null>(null)
+  const [composeInitialText, setComposeInitialText] = useState("")
+  const [composeInitialContextIds, setComposeInitialContextIds] = useState<string[]>([])
+  const [composeInitialAttachment, setComposeInitialAttachment] = useState<MessageFileAttachment | null>(null)
   const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null)
   const notificationsReturnRef = useRef<Screen>("profile")
   const tagSourceScreenRef = useRef<Screen>("stream")
@@ -804,7 +814,7 @@ export default function Home() {
   const handleSend = useCallback(
     async (draft: MessageDraft) => {
       const text = draft.text.trim()
-      if ((!text && !draft.imageFile) || !firebaseUser) { navigateTo("stream"); return }
+      if ((!text && !draft.imageFile && !draft.attachment) || !firebaseUser) { navigateTo("stream"); return }
       const importedContactIds = draft.importedContactIds ?? []
       const incomingTagIds = draft.tagIds ?? []
       const projectIds = getLegacyProjectIdsFromTagIds(incomingTagIds, draft.projectIds).filter(Boolean)
@@ -825,6 +835,16 @@ export default function Home() {
       ].filter(Boolean))]
       const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
       const imageMeta: Record<string, unknown> = {}
+
+      // Pre-uploaded file attachment (e.g. outlook PDF) — reference it, no re-upload.
+      const attachmentMeta: Record<string, unknown> = {}
+      if (draft.attachment?.url) {
+        attachmentMeta.fileUrl = draft.attachment.url
+        attachmentMeta.fileName = draft.attachment.name
+        attachmentMeta.fileContentType = draft.attachment.contentType
+        if (typeof draft.attachment.size === "number") attachmentMeta.fileSize = draft.attachment.size
+        if (draft.attachment.path) attachmentMeta.filePath = draft.attachment.path
+      }
 
       if (draft.imageFile) {
         const { validateImageFile, compressImageFile: compress } = await import("@/lib/image-upload")
@@ -926,9 +946,13 @@ export default function Home() {
         } : {}),
         ...(draft.replyToId ? { replyToId: draft.replyToId, replyPreview: draft.replyPreview } : {}),
         ...imageMeta,
+        ...attachmentMeta,
       }
       await addDoc(collection(db, "messages"), msgData)
       setCalendarInitialDate(null)
+      setComposeInitialText("")
+      setComposeInitialContextIds([])
+      setComposeInitialAttachment(null)
       navigateTo("stream")
     },
     [firebaseUser, importedContacts, projects, navigateTo, showToast]
@@ -1241,10 +1265,13 @@ export default function Home() {
   const goToCompose = useCallback(() => {
     const filterProjectId = activeFilter !== "all" && activeFilter !== "unsorted" ? activeFilter : null
     setComposeInitialProjectId(filterProjectId)
+    setComposeInitialText("")
+    setComposeInitialContextIds([])
+    setComposeInitialAttachment(null)
     setComposeMode("sheet")
     navigateTo("compose")
   }, [navigateTo, activeFilter])
-  const goToComposeFromProject = useCallback((projectId: string) => { setComposeInitialProjectId(projectId); setComposeMode("sheet"); navigateTo("compose") }, [navigateTo])
+  const goToComposeFromProject = useCallback((projectId: string) => { setComposeInitialProjectId(projectId); setComposeInitialText(""); setComposeInitialContextIds([]); setComposeInitialAttachment(null); setComposeMode("sheet"); navigateTo("compose") }, [navigateTo])
   const goToStream = useCallback(() => navigateTo("stream"), [navigateTo])
   const goToProfile = useCallback(() => navigateTo("profile"), [navigateTo])
   const goToNotificationsFromProfile = useCallback(() => {
@@ -1317,6 +1344,14 @@ export default function Home() {
     navigateTo("directory")
   }, [navigateTo])
   const handleDirectorySwitchToStream = useCallback(() => navigateTo("stream"), [navigateTo])
+  const handlePostOutlook = useCallback((payload: OutlookPostPayload) => {
+    setComposeInitialProjectId(null)
+    setComposeInitialText(payload.text)
+    setComposeInitialContextIds([payload.contextId])
+    setComposeInitialAttachment(payload.attachment ?? null)
+    setComposeMode("fullscreen")
+    navigateTo("compose")
+  }, [navigateTo])
 
   // ── Context CRUD ──────────────────────────────────────────────────────
   const handleCreateContext = useCallback(async (name: string, description?: string): Promise<AppContext> => {
@@ -1362,6 +1397,7 @@ export default function Home() {
     (date: string) => {
       setCalendarInitialDate(date)
       setComposeInitialProjectId(null)
+      setComposeInitialAttachment(null)
       setComposeMode("fullscreen")
       navigateTo("compose")
     },
@@ -1622,6 +1658,9 @@ export default function Home() {
           contacts={contacts}
           importedContacts={importedContacts}
           initialProjectId={composeInitialProjectId}
+          initialText={composeInitialText}
+          initialContextIds={composeInitialContextIds}
+          initialAttachment={composeInitialAttachment}
           initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
           availableTags={availableTags}
           contexts={appContexts}
@@ -1681,6 +1720,8 @@ export default function Home() {
                 userId={firebaseUser.uid}
                 onBack={handleDirectoryDetailBack}
                 onOpenEntity={goToDirectoryDetail}
+                companies={directoryCompanies}
+                onPostOutlook={handlePostOutlook}
               />
             )}
           </div>
@@ -1792,6 +1833,8 @@ export default function Home() {
                   contacts={contacts}
                   importedContacts={importedContacts}
                   initialProjectId={composeInitialProjectId}
+                  initialText={composeInitialText}
+                  initialContextIds={composeInitialContextIds}
                   initialCalendarDates={calendarInitialDate ? [calendarInitialDate] : undefined}
                   availableTags={availableTags}
                   contexts={appContexts}

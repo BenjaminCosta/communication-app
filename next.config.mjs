@@ -6,7 +6,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  allowedDevOrigins: ['192.168.68.104', '192.168.1.3'],
+  allowedDevOrigins: ['192.168.68.104', '192.168.1.3', '192.168.68.108'],
   async headers() {
     return [
       {

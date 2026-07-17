@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react"
-import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronRight, Plus, CornerDownLeft, Hash } from "lucide-react"
+import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronRight, Plus, CornerDownLeft, Hash, FileText } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
 import {
@@ -17,6 +17,7 @@ import {
   getContactFromList,
   formatTime,
   getMessageTagIds,
+  messageAttachmentKindLabel,
   MESSAGE_TYPE_CONFIG,
   parseProjectTagId,
   parseSystemTypeTagId,
@@ -35,6 +36,7 @@ import { NavigationMenuModal } from "@/components/navigation-menu-modal"
 import { ModuleSwitcher } from "@/components/module-switcher"
 import { GlobalSearchSheet } from "@/components/global-search-sheet"
 import { MessageImage } from "@/components/message-image"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import {
   buildContextActivityStats,
   buildPeopleActivityStats,
@@ -2716,8 +2718,22 @@ function MessageBubble({
   const hasDirectRecipients =
     (message.recipientIds ?? []).filter(Boolean).length > 0 ||
     (message.contactIds ?? []).filter(Boolean).length > 0
+  // Resolve tagged people to names for the compact people pill (no data/tagging change).
+  const recipientPeople = Array.from(new Set([
+    ...(message.recipientIds ?? []),
+    ...(message.contactIds ?? []),
+    ...(message.peopleIds ?? []),
+  ].filter(Boolean)))
+    .map((id) => getContactFromList(id, contacts)?.name?.trim())
+    .filter((name): name is string => !!name)
+  const shownRecipients = recipientPeople.slice(0, 2)
+  const recipientOverflow = recipientPeople.length - shownRecipients.length
+  const recipientLabel = shownRecipients.join(", ") + (recipientOverflow > 0 ? ` +${recipientOverflow}` : "")
   const hasCalendarDates = (message.calendarDates ?? []).length > 0
+  const hasContexts = (message.contextIds ?? []).filter(Boolean).length > 0
   const visibleTagCount = messageTags.filter((tag) => tag.systemType !== "none").length
+  // "Unassigned" means the message has no association at all. A context counts as an association.
+  const hasAnyAssociation = hasDirectRecipients || hasCalendarDates || hasContexts
 
   // Tail is on the bottom-sender-side corner (WhatsApp style)
   const bubbleRadius = isMe
@@ -2731,7 +2747,7 @@ function MessageBubble({
   return (
     <div
       data-msg-id={message.id}
-      className={cn("relative", first ? "mt-2 animate-fade-up" : "mt-0.5")}
+      className={cn("relative min-w-0", first ? "mt-2 animate-fade-up" : "mt-0.5")}
       style={swipeTouchAction}
       {...swipeHandlers}
     >
@@ -2745,7 +2761,7 @@ function MessageBubble({
       </div>
     <div
       className={cn(
-        "flex gap-2.5 items-end select-none no-callout",
+        "flex gap-2.5 items-end select-none no-callout min-w-0",
         isMe && "flex-row-reverse",
         isSelected && "opacity-90",
       )}
@@ -2766,7 +2782,7 @@ function MessageBubble({
         <div className="w-7 shrink-0" />
       )}
 
-      <div className={cn("max-w-[75%] md:max-w-[55%] flex flex-col gap-1", isMe && "items-end")}>
+      <div className={cn("max-w-[75%] md:max-w-[55%] min-w-0 flex flex-col gap-1", isMe && "items-end")}>
         {!isMe && first && (
           <span className="text-[10px] font-semibold text-muted-foreground/75 px-1 mb-0.5">{contact.name}</span>
         )}
@@ -2778,7 +2794,7 @@ function MessageBubble({
           onClick={(e) => { e.stopPropagation(); onTap() }}
           onContextMenu={(e) => { e.preventDefault(); onPressStart(); setTimeout(onPressEnd, 0) }}
           className={cn(
-            "border px-3 py-2 cursor-pointer transition-all duration-300",
+            "border px-3 py-2 cursor-pointer transition-all duration-300 min-w-0 max-w-full",
             isMe
               ? cn("glass-message-me", bubbleRadius)
               : cn("glass-message", bubbleRadius),
@@ -2820,7 +2836,7 @@ function MessageBubble({
           {message.text && (
             <div>
               <p className={cn(
-                "text-sm leading-snug text-foreground/90 no-callout",
+                "text-sm leading-snug text-foreground/90 no-callout whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
                 isLong && !isExpanded && "line-clamp-10"
               )}>
                 {message.text}
@@ -2836,12 +2852,30 @@ function MessageBubble({
               )}
             </div>
           )}
+          {message.fileUrl && (
+            <a
+              href={message.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1.5 flex w-full items-center gap-2.5 rounded-xl border border-white/12 bg-white/[0.04] px-2.5 py-2 transition-colors active:bg-white/[0.08]"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/25 bg-red-400/10 text-red-300">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium text-foreground/90">{message.fileName || "Attachment"}</span>
+                <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">{messageAttachmentKindLabel({ name: message.fileName, contentType: message.fileContentType })} · Tap to open</span>
+              </span>
+            </a>
+          )}
           <div className="flex items-center gap-1 mt-1 flex-wrap">
-            {/* Safety fallback: no tags computed AND no recipients AND no calendar dates → Unassigned */}
-            {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
+            {/* Safety fallback: no tags AND no recipients AND no calendar dates AND no contexts → Unassigned */}
+            {messageTags.length === 0 && !hasAnyAssociation && (
               <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
             )}
-            {messageTags.length === 0 && !hasDirectRecipients && !hasCalendarDates && (
+            {messageTags.length === 0 && !hasAnyAssociation && (
               <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full font-mono flex-shrink-0 border border-feedback/25 bg-feedback/10 text-feedback no-callout backdrop-blur-md">
                 Unassigned
               </span>
@@ -2854,7 +2888,7 @@ function MessageBubble({
             )}
             {messageTags.map((tag) => {
               if (tag.systemType === "none") {
-                if (hasDirectRecipients || hasCalendarDates) return null
+                if (hasAnyAssociation) return null
                 return (
                   <Fragment key={tag.id}>
                     <div className="w-1.5 h-1.5 rounded-full bg-feedback flex-shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse" />
@@ -2900,11 +2934,45 @@ function MessageBubble({
                 </span>
               )
             })}
-            {/* Direct recipients indicator — subtle yellow people icon */}
+            {/* Direct recipients — compact people pill (1–2 names + overflow); tap opens the full list */}
             {hasDirectRecipients && (
-              <span className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-amber-400/70">
-                <Users className="w-3 h-3" />
-              </span>
+              recipientPeople.length > 0 ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex max-w-[150px] items-center gap-1 rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-amber-300/90 no-callout backdrop-blur-md transition-colors active:bg-amber-400/20"
+                    >
+                      <Users className="h-2.5 w-2.5 shrink-0" />
+                      <span className="truncate">{recipientLabel}</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={6}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="w-auto min-w-[9rem] max-w-[15rem] rounded-2xl border border-amber-400/20 bg-[#0b1424]/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-xl"
+                  >
+                    <div className="flex items-center gap-1.5 px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300/70">
+                      <Users className="h-3 w-3 shrink-0" />
+                      <span>Tagged{recipientPeople.length > 1 ? ` · ${recipientPeople.length}` : ""}</span>
+                    </div>
+                    <div className="flex max-h-56 flex-col gap-0.5 overflow-y-auto scrollbar-hide">
+                      {recipientPeople.map((name, i) => (
+                        <div key={`${name}-${i}`} className="truncate rounded-lg px-2 py-1 text-xs text-foreground/90">
+                          {name}
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-amber-400/70">
+                  <Users className="h-3 w-3" />
+                </span>
+              )
             )}
             {message.isFavorited && (
               <Star className="w-3 h-3 text-feedback fill-current ml-0.5 flex-shrink-0" />

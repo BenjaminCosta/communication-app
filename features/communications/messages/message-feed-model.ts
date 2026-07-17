@@ -65,6 +65,11 @@ export function mapMessageDocument(id: string, data: MessageDocument): Message {
     imageHeight: typeof data.imageHeight === "number" ? data.imageHeight : undefined,
     imageBlurHash: optionalString(data.imageBlurHash),
     imageUploadedAt: data.imageUploadedAt ? messageDate(data.imageUploadedAt) : undefined,
+    fileUrl: optionalString(data.fileUrl),
+    fileName: optionalString(data.fileName),
+    fileContentType: optionalString(data.fileContentType),
+    fileSize: typeof data.fileSize === "number" ? data.fileSize : undefined,
+    filePath: optionalString(data.filePath),
     calendarDates: Array.isArray(data.calendarDates)
       ? data.calendarDates
           .filter((entry): entry is MessageDocument => Boolean(entry && typeof entry === "object"))

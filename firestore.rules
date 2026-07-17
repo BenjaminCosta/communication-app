@@ -132,6 +132,42 @@ service cloud.firestore {
                     && resource.data.createdBy == request.auth.uid;
     }
 
+    // ── Three-week outlooks (operational records under a source job) ───────
+    // No roles in V1: authenticated SVC users may collaborate on the working
+    // draft. Identity/window fields are immutable and revisions must advance
+    // one step at a time. Published snapshots are immutable except for the PDF
+    // artifact, which is attached after deterministic generation/upload.
+    match /contexts/{contextId}/outlooks/{outlookId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.updatedBy == request.auth.uid
+                    && request.resource.data.jobId == contextId
+                    && request.resource.data.windowStart == outlookId
+                    && request.resource.data.revision == 1;
+      allow update: if request.auth != null
+                    && request.resource.data.updatedBy == request.auth.uid
+                    && request.resource.data.jobId == resource.data.jobId
+                    && request.resource.data.jobDirectoryId == resource.data.jobDirectoryId
+                    && request.resource.data.windowStart == resource.data.windowStart
+                    && request.resource.data.windowEnd == resource.data.windowEnd
+                    && request.resource.data.createdBy == resource.data.createdBy
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+
+      match /versions/{versionId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.createdBy == request.auth.uid
+                      && request.resource.data.jobId == contextId
+                      && request.resource.data.kind == 'published';
+        allow update: if request.auth != null
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pdf']);
+        allow delete: if false;
+      }
+    }
+
     // ── Imported Contacts ──────────────────────────────────────────────────
     // Contacts are global-only for now: any authenticated user can read every
     // contact. Writes stay owner-scoped (only the owner can create/update/delete).

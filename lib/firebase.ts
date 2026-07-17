@@ -20,6 +20,12 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),
   }),
+  // Auto-detect and fall back to long polling when the WebChannel streaming
+  // transport is blocked/unreliable (mobile carriers, corporate proxies, some
+  // iOS PWA/WebView networks). This is Firebase's recommended remedy for the
+  // "Could not reach Cloud Firestore backend / Backend didn't respond within
+  // 10 seconds" error, and is a no-op on healthy connections.
+  experimentalAutoDetectLongPolling: true,
 })
 
 // One-shot, read-only Directory fetches use Firestore Lite. The full SDK's

@@ -43,6 +43,12 @@ backups/
 imports/
 import-data/
 
+# Local temp / scratch outputs (generated PDF/PNG previews, etc.)
+tmp/
+
+# Unrelated scratch from other tooling sessions
+.codex_spreadsheet_flights/
+
 # Firebase / Google service account secrets
 svc-comms-firebase-adminsdk*.json
 svc-comms-firebase-adminsdk-*.json
