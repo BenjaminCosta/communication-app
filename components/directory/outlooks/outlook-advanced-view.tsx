@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, Loader2, Plus, Trash2 } from "lucide-react"
 import { createOutlookTask, formatOutlookDate, outlookDates, scheduleOutlookTasks, taskStatusLabel, type OutlookTask, type OutlookWindow } from "@/lib/outlook-core"
 import { cn } from "@/lib/utils"
 
@@ -12,15 +12,27 @@ export function OutlookAdvancedView({
   drafts,
   companies,
   focusTaskId,
+  saving,
+  dirty,
   onChange,
+  onSave,
+  onDeleteTask,
 }: {
   window: OutlookWindow
   drafts: OutlookTask[]
   companies: Array<{ id: string; name: string }>
   focusTaskId?: string | null
+  saving: boolean
+  dirty: boolean
   onChange: (tasks: OutlookTask[]) => void
+  onSave: () => void
+  onDeleteTask: (id: string) => void
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(drafts.map((task) => task.id)))
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  // Per-task raw text buffer so the duration field can be cleared/retyped
+  // instead of snapping to a number on every keystroke.
+  const [durationDrafts, setDurationDrafts] = useState<Record<string, string>>({})
   const companyNames = useMemo(() => companies.map((company) => company.name), [companies])
 
   useEffect(() => {
@@ -33,12 +45,13 @@ export function OutlookAdvancedView({
   }
 
   const remove = (id: string) => {
-    onChange(drafts.filter((task) => task.id !== id).map((task, sortOrder) => ({ ...task, sortOrder })))
+    onDeleteTask(id)
     setExpandedIds((current) => {
       const next = new Set(current)
       next.delete(id)
       return next
     })
+    setConfirmDeleteId(null)
   }
 
   const add = () => {
@@ -48,10 +61,30 @@ export function OutlookAdvancedView({
   }
 
   const toggle = (id: string) => {
+    setConfirmDeleteId(null)
     setExpandedIds((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      return next
+    })
+  }
+
+  const changeDuration = (id: string, rawValue: string) => {
+    const digits = rawValue.replace(/[^0-9]/g, "")
+    setDurationDrafts((current) => ({ ...current, [id]: digits }))
+    if (digits !== "") update(id, { durationDays: Math.min(90, Math.max(1, Number(digits))) })
+  }
+
+  const commitDuration = (id: string) => {
+    const raw = durationDrafts[id]
+    if (raw !== undefined) {
+      const value = raw === "" ? 1 : Math.min(90, Math.max(1, Number(raw)))
+      update(id, { durationDays: value })
+    }
+    setDurationDrafts((current) => {
+      const next = { ...current }
+      delete next[id]
       return next
     })
   }
@@ -89,7 +122,17 @@ export function OutlookAdvancedView({
                     update(task.id, { companyName: event.target.value, companyContextId: match?.id ?? null })
                   }} className="outlook-input" /></Field>
                   <Field label="Start date"><input type="date" value={task.startDate ?? ""} onChange={(event) => update(task.id, { startDate: event.target.value || null, dependencyTaskId: null })} className="outlook-input" /></Field>
-                  <Field label="Duration"><input type="number" min={1} max={90} inputMode="numeric" value={task.durationDays} onChange={(event) => update(task.id, { durationDays: Math.max(1, Number(event.target.value) || 1) })} className="outlook-input" /></Field>
+                  <Field label="Duration">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={durationDrafts[task.id] ?? String(task.durationDays)}
+                      onChange={(event) => changeDuration(task.id, event.target.value)}
+                      onBlur={() => commitDuration(task.id)}
+                      className="outlook-input"
+                      aria-label="Duration in days"
+                    />
+                  </Field>
                   <Field label="Dependency"><select value={task.dependencyTaskId ?? ""} onChange={(event) => update(task.id, { dependencyTaskId: event.target.value || null, ...(event.target.value ? { startDate: null } : {}) })} className="outlook-input"><option value="">None</option>{drafts.filter((candidate) => candidate.id !== task.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title || "Untitled task"}</option>)}</select></Field>
                   <Field label="Status"><select value={task.status} onChange={(event) => update(task.id, { status: event.target.value as OutlookTask["status"] })} className="outlook-input"><option value="not_started">Planned</option><option value="in_progress">In progress</option><option value="blocked">Blocked</option><option value="complete">Complete</option></select></Field>
                   <Field label="Completion" wide>
@@ -99,9 +142,35 @@ export function OutlookAdvancedView({
                     </div>
                   </Field>
                 </div>
-                <button type="button" onClick={() => remove(task.id)} className="mt-3 flex items-center gap-1.5 border-t border-white/[0.06] pt-3 text-[10px] font-medium text-red-300/68 active:opacity-60">
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} /> Delete task
-                </button>
+
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
+                  {confirmDeleteId === task.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground/60">Delete?</span>
+                      <button type="button" onClick={() => setConfirmDeleteId(null)} className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground transition-transform active:scale-95">Cancel</button>
+                      <button type="button" onClick={() => remove(task.id)} className="rounded-lg border border-red-400/25 bg-red-400/15 px-2.5 py-1.5 text-[10px] font-semibold text-red-200 transition-transform active:scale-95">Delete</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmDeleteId(task.id)} className="flex items-center gap-1.5 text-[10px] font-medium text-red-300/68 transition-opacity active:opacity-60">
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} /> Delete task
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={onSave}
+                    disabled={!dirty || saving}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[10px] font-semibold transition-[background-color,border-color,color,transform] active:scale-95 disabled:active:scale-100",
+                      dirty && !saving
+                        ? "border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] text-[var(--directory-job)]"
+                        : "border-white/10 text-muted-foreground/50",
+                    )}
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <Check className="h-3.5 w-3.5" strokeWidth={2} />}
+                    {saving ? "Saving" : dirty ? "Save changes" : "Saved"}
+                  </button>
+                </div>
               </div>
             )}
           </section>

@@ -4,10 +4,10 @@ import { formatOutlookDate, outlookDates, type OutlookTask, type OutlookWindow }
 import { cn } from "@/lib/utils"
 
 const TASK_TONES = [
-  "border-violet-400/55 bg-violet-400/20 text-violet-100",
-  "border-cyan-400/55 bg-cyan-400/20 text-cyan-100",
-  "border-amber-400/55 bg-amber-400/20 text-amber-100",
-  "border-emerald-400/55 bg-emerald-400/20 text-emerald-100",
+  "border-violet-600 bg-violet-600 text-white",
+  "border-cyan-600 bg-cyan-600 text-white",
+  "border-amber-500 bg-amber-500 text-[#14100a]",
+  "border-emerald-600 bg-emerald-600 text-white",
 ]
 
 function maxDate(a: string, b: string): string { return a > b ? a : b }
@@ -57,7 +57,7 @@ export function OutlookCalendarPreview({ window, tasks }: { window: OutlookWindo
                     return (
                       <div key={task.id} className="grid grid-cols-7 px-0.5">
                         <div
-                          className={cn("min-w-0 truncate rounded-md border px-1.5 py-1 text-[9px] font-medium", TASK_TONES[(task.sortOrder + index) % TASK_TONES.length])}
+                          className={cn("min-w-0 truncate rounded-md border px-1.5 py-1 text-[9px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_5px_rgba(2,6,12,0.28)]", TASK_TONES[(task.sortOrder + index) % TASK_TONES.length])}
                           style={{ gridColumn: `${startColumn} / ${endColumn}` }}
                           title={task.title}
                         >
@@ -75,4 +75,3 @@ export function OutlookCalendarPreview({ window, tasks }: { window: OutlookWindo
     </section>
   )
 }
-

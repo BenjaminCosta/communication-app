@@ -1,14 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Send, SlidersHorizontal } from "lucide-react"
+import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Send, SlidersHorizontal, Sparkles } from "lucide-react"
 import { OutlookActionBar, type OutlookAction } from "@/components/directory/outlooks/outlook-action-bar"
 import { OutlookAdvancedView } from "@/components/directory/outlooks/outlook-advanced-view"
+import { OutlookAiCaptureSheet } from "@/components/directory/outlooks/outlook-ai-capture-sheet"
+import { OutlookAiQuickUpdate } from "@/components/directory/outlooks/outlook-ai-quick-update"
 import { OutlookInlinePreview } from "@/components/directory/outlooks/outlook-inline-preview"
 import { OutlookPreviewView } from "@/components/directory/outlooks/outlook-preview-view"
 import { OutlookQuickTaskSheet } from "@/components/directory/outlooks/outlook-quick-task-sheet"
 import { OutlookTaskDetailSheet } from "@/components/directory/outlooks/outlook-task-detail-sheet"
-import { OutlookTasksView } from "@/components/directory/outlooks/outlook-tasks-view"
+import { OUTLOOK_AI_ENABLED } from "@/lib/ai/flags"
 import { useJobOutlookController } from "@/features/outlooks/use-job-outlook-controller"
 import {
   compareIsoDates,
@@ -26,7 +28,7 @@ import { cn } from "@/lib/utils"
 export type { OutlookPostPayload } from "@/features/outlooks/use-job-outlook-controller"
 import type { OutlookPostPayload } from "@/features/outlooks/use-job-outlook-controller"
 
-type OutlookScreenTab = "preview" | "tasks" | "advanced"
+type OutlookScreenTab = "preview" | "advanced"
 
 interface ThreeWeekOutlookTabProps {
   job: JobProfileViewModel
@@ -56,12 +58,21 @@ export function ThreeWeekOutlookTab({
       <EmbeddedOutlookPanel
         controller={controller}
         companies={companies}
+        jobName={job.name}
+        location={job.location}
         onSeeFullOutlook={onSeeFullOutlook}
       />
     )
   }
 
-  return <DedicatedOutlookScreen controller={controller} companies={companies} />
+  return (
+    <DedicatedOutlookScreen
+      controller={controller}
+      companies={companies}
+      jobName={job.name}
+      location={job.location}
+    />
+  )
 }
 
 type OutlookController = ReturnType<typeof useJobOutlookController>
@@ -69,9 +80,13 @@ type OutlookController = ReturnType<typeof useJobOutlookController>
 function DedicatedOutlookScreen({
   controller,
   companies,
+  jobName,
+  location,
 }: {
   controller: OutlookController
   companies: Array<{ id: string; name: string }>
+  jobName: string
+  location: string | null
 }) {
   const {
     window,
@@ -91,6 +106,7 @@ function DedicatedOutlookScreen({
   } = controller
   const [activeTab, setActiveTab] = useState<OutlookScreenTab>("preview")
   const [quickUpdateOpen, setQuickUpdateOpen] = useState(false)
+  const [aiCaptureOpen, setAiCaptureOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<OutlookTask | null>(null)
   const [advancedFocusId, setAdvancedFocusId] = useState<string | null>(null)
   const [advancedDrafts, setAdvancedDrafts] = useState<OutlookTask[]>(scheduled.tasks)
@@ -104,9 +120,15 @@ function DedicatedOutlookScreen({
   useEffect(() => {
     setSelectedTask(null)
     setQuickUpdateOpen(false)
+    setAiCaptureOpen(false)
     setAdvancedFocusId(null)
     setAdvancedDirty(false)
   }, [window.start])
+
+  const addAiTasks = async (accepted: OutlookTask[]) => {
+    if (accepted.length === 0) return
+    await persist([...tasks, ...accepted], accepted.length === 1 ? "Task added." : `${accepted.length} tasks added.`)
+  }
 
   const openAdvancedTask = (task: OutlookTask) => {
     setSelectedTask(null)
@@ -116,6 +138,13 @@ function DedicatedOutlookScreen({
 
   const saveAdvanced = async () => {
     await persist(advancedDrafts, "Advanced changes saved.")
+    setAdvancedDirty(false)
+  }
+
+  const deleteAdvancedTask = async (id: string) => {
+    const next = advancedDrafts.filter((task) => task.id !== id).map((task, sortOrder) => ({ ...task, sortOrder }))
+    setAdvancedDrafts(next)
+    await persist(next, "Task deleted.")
     setAdvancedDirty(false)
   }
 
@@ -131,8 +160,6 @@ function DedicatedOutlookScreen({
     canPublish: activeTab === "advanced" ? advancedScheduled.canPublish : scheduled.canPublish,
     canPostUpdate,
     onQuickUpdate: () => setQuickUpdateOpen(true),
-    onPreview: () => setActiveTab("preview"),
-    onSave: () => void saveAdvanced().catch(() => {}),
     onGeneratePdf: () => void generatePdf(activeTab === "advanced" ? advancedDrafts : scheduled.tasks).catch(() => {}),
     onPostUpdate: postLatestVersion,
   })
@@ -149,6 +176,17 @@ function DedicatedOutlookScreen({
 
       <OutlookTabs active={activeTab} onChange={setActiveTab} />
 
+      {OUTLOOK_AI_ENABLED && (
+        <button
+          type="button"
+          onClick={() => setAiCaptureOpen(true)}
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--directory-job-border)] bg-[var(--directory-job-soft)] px-4 py-2.5 text-[11px] font-semibold text-[var(--directory-job)] transition-[background-color,transform] active:scale-[0.98]"
+        >
+          <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+          Capture with AI
+        </button>
+      )}
+
       {latestVersion && (
         <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.045] px-3 py-2 text-[9px] text-emerald-100/72">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/75" />
@@ -164,20 +202,21 @@ function DedicatedOutlookScreen({
         </div>
       )}
 
-      {activeTab === "preview" && <OutlookPreviewView window={window} tasks={scheduled.tasks} />}
-      {activeTab === "tasks" && (
-        <OutlookTasksView tasks={scheduled.tasks} onAddTask={() => setQuickUpdateOpen(true)} onOpenTask={setSelectedTask} />
-      )}
+      {activeTab === "preview" && <OutlookPreviewView window={window} tasks={scheduled.tasks} onOpenTask={setSelectedTask} />}
       {activeTab === "advanced" && (
         <OutlookAdvancedView
           window={window}
           drafts={advancedDrafts}
           companies={companies}
           focusTaskId={advancedFocusId}
+          saving={saving}
+          dirty={advancedDirty}
           onChange={(next) => {
             setAdvancedDrafts(next)
             setAdvancedDirty(true)
           }}
+          onSave={() => void saveAdvanced().catch(() => {})}
+          onDeleteTask={(id) => void deleteAdvancedTask(id).catch(() => {})}
         />
       )}
 
@@ -201,6 +240,23 @@ function DedicatedOutlookScreen({
           onEdit={() => openAdvancedTask(selectedTask)}
         />
       )}
+      {aiCaptureOpen && (
+        <OutlookAiCaptureSheet
+          window={window}
+          companies={companies}
+          existingTasks={tasks}
+          jobName={jobName}
+          location={location}
+          saving={saving}
+          onClose={() => setAiCaptureOpen(false)}
+          onConfirm={addAiTasks}
+          onManualFallback={() => {
+            setAiCaptureOpen(false)
+            setQuickUpdateOpen(true)
+          }}
+          onAdvanced={() => setActiveTab("advanced")}
+        />
+      )}
     </div>
   )
 }
@@ -208,11 +264,10 @@ function DedicatedOutlookScreen({
 function OutlookTabs({ active, onChange }: { active: OutlookScreenTab; onChange: (tab: OutlookScreenTab) => void }) {
   const tabs: Array<{ id: OutlookScreenTab; label: string; icon: React.ReactNode }> = [
     { id: "preview", label: "Preview", icon: <CalendarDays className="size-3.5" strokeWidth={1.8} /> },
-    { id: "tasks", label: "Tasks", icon: <ListTodo className="size-3.5" strokeWidth={1.8} /> },
     { id: "advanced", label: "Advanced", icon: <SlidersHorizontal className="size-3.5" strokeWidth={1.8} /> },
   ]
   return (
-    <nav className="grid grid-cols-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]" aria-label="Outlook views">
+    <nav className="grid grid-cols-2 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]" aria-label="Outlook views">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -291,8 +346,6 @@ function buildActions({
   canPublish,
   canPostUpdate,
   onQuickUpdate,
-  onPreview,
-  onSave,
   onGeneratePdf,
   onPostUpdate,
 }: {
@@ -302,20 +355,11 @@ function buildActions({
   canPublish: boolean
   canPostUpdate: boolean
   onQuickUpdate: () => void
-  onPreview: () => void
-  onSave: () => void
   onGeneratePdf: () => void
   onPostUpdate: () => void
 }): OutlookAction[] {
-  if (activeTab === "tasks") {
-    return [
-      { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate },
-      { id: "preview", label: "Preview calendar", icon: <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPreview },
-    ]
-  }
   if (activeTab === "advanced") {
     return [
-      { id: "save", label: saving ? "Saving..." : "Save", icon: <Save className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onSave, disabled: saving || generatingPdf },
       { id: "pdf", label: generatingPdf ? "Generating..." : "Generate PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onGeneratePdf, disabled: saving || generatingPdf || !canPublish },
       { id: "post", label: "Post update", icon: <Send className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPostUpdate, disabled: !canPostUpdate || saving || generatingPdf, tone: "accent" },
     ]
@@ -330,15 +374,26 @@ function buildActions({
 function EmbeddedOutlookPanel({
   controller,
   companies,
+  jobName,
+  location,
   onSeeFullOutlook,
 }: {
   controller: OutlookController
   companies: Array<{ id: string; name: string }>
+  jobName: string
+  location: string | null
   onSeeFullOutlook?: () => void
 }) {
   const { window, tasks, scheduled, latestVersion, saving, error, notice, persist } = controller
   const [view, setView] = useState<"preview" | "quick">("preview")
+  const [manualOpen, setManualOpen] = useState(false)
   const trades = new Set(scheduled.tasks.map((task) => task.trade.trim() || task.companyName.trim()).filter(Boolean)).size
+
+  const addAiTasks = async (accepted: OutlookTask[]) => {
+    if (accepted.length === 0) return
+    await persist([...tasks, ...accepted], accepted.length === 1 ? "Task added." : `${accepted.length} tasks added.`)
+    setView("preview")
+  }
 
   return (
     <section className="animate-fade-up overflow-hidden rounded-2xl border border-[var(--directory-job-border)] bg-[#0a111b]/78 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] sm:p-4" aria-label="3-Week Outlook summary">
@@ -366,17 +421,42 @@ function EmbeddedOutlookPanel({
       <div className="mt-3">
         {view === "preview" ? (
           <OutlookInlinePreview window={window} tasks={scheduled.tasks} />
-        ) : (
-          <EmbeddedQuickForm
+        ) : OUTLOOK_AI_ENABLED && !manualOpen ? (
+          <OutlookAiQuickUpdate
             window={window}
-            tasks={tasks}
             companies={companies}
+            existingTasks={tasks}
+            jobName={jobName}
+            location={location}
             saving={saving}
-            onSave={async (task) => {
-              await persist([...tasks, task], "Task added.")
-              setView("preview")
-            }}
+            onConfirm={addAiTasks}
+            onManualFallback={() => setManualOpen(true)}
+            onAdvanced={onSeeFullOutlook}
           />
+        ) : (
+          <div className="space-y-3">
+            {OUTLOOK_AI_ENABLED && (
+              <button
+                type="button"
+                onClick={() => setManualOpen(false)}
+                className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--directory-job)] transition-opacity active:opacity-60"
+              >
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+                Back to AI capture
+              </button>
+            )}
+            <EmbeddedQuickForm
+              window={window}
+              tasks={tasks}
+              companies={companies}
+              saving={saving}
+              onSave={async (task) => {
+                await persist([...tasks, task], "Task added.")
+                setManualOpen(false)
+                setView("preview")
+              }}
+            />
+          </div>
         )}
       </div>
       <button type="button" onClick={onSeeFullOutlook} className="glass-button mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.1] px-4 py-2.5 text-[11px] font-semibold text-[var(--directory-job)] transition-[border-color,background-color,transform] hover:border-[var(--directory-job-border)] hover:bg-[var(--directory-job-soft)] active:scale-[0.98]">See full outlook<ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.8} /></button>

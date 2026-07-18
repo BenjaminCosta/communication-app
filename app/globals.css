@@ -837,3 +837,60 @@ body[data-svc-launch-module="directory"] .launch-loading-directory { display: fl
     animation: none;
   }
 }
+
+/* ── Directory "AI-generated" treatment ──────────────────────────────────────
+   For content composed by the Directory's narrative engine (About summaries)
+   and for its loading placeholders (recents, summary). A multi-accent gradient
+   sweep reading as "being generated", using the entity accents
+   (amber → violet → cyan). Reduced-motion safe. */
+@keyframes directory-ai-sweep {
+  0%   { background-position: 175% 0; }
+  100% { background-position: -75% 0; }
+}
+.directory-ai-shimmer {
+  background-color: rgba(255, 255, 255, 0.08);
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 8%,
+    rgba(253, 186, 116, 0.38) 30%,
+    rgba(167, 139, 250, 0.52) 50%,
+    rgba(34, 211, 238, 0.34) 70%,
+    rgba(255, 255, 255, 0) 92%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: directory-ai-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+.directory-ai-text {
+  background-image: linear-gradient(90deg, var(--directory-title), var(--directory-job) 52%, var(--directory-company));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+@keyframes directory-ai-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+.directory-ai-spark {
+  animation: directory-ai-pulse 1.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .directory-ai-shimmer { animation: none; }
+  .directory-ai-spark { animation: none; }
+}
+
+/* ── Outlook voice "Listening…" waveform ─────────────────────────────────────
+   Decorative equalizer bars for the recording state — staggered scaleY bounce.
+   Not audio-reactive (kept dependency-free); reduced-motion falls back static. */
+@keyframes outlook-wave {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
+}
+.outlook-wave-bar {
+  transform-origin: center;
+  animation: outlook-wave 0.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .outlook-wave-bar { animation: none; transform: scaleY(0.6); }
+}

@@ -1,17 +1,21 @@
 import { AlertCircle, SearchX, Star, TimerReset } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-export function DirectoryRowsSkeleton({ count = 5 }: { count?: number }) {
+export function DirectoryRowsSkeleton({ count = 5, ai = false }: { count?: number; ai?: boolean }) {
   return (
-    <div aria-label="Loading results">
-      {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="flex items-center gap-3 px-2 py-2.5">
-          <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/[0.07]" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3.5 w-[42%] animate-pulse rounded bg-white/[0.08]" />
-            <div className="h-3 w-[64%] animate-pulse rounded bg-white/[0.05]" />
+    <div aria-label={ai ? "Generating" : "Loading results"}>
+      {Array.from({ length: count }, (_, index) => {
+        const delay = ai ? { animationDelay: `${index * 0.15}s` } : undefined
+        return (
+          <div key={index} className="flex items-center gap-3 px-2 py-2.5">
+            <div className={cn("h-8 w-8 shrink-0 rounded-full", ai ? "directory-ai-shimmer" : "animate-pulse bg-white/[0.07]")} style={delay} />
+            <div className="flex-1 space-y-2">
+              <div className={cn("h-3.5 w-[42%] rounded", ai ? "directory-ai-shimmer" : "animate-pulse bg-white/[0.08]")} style={delay} />
+              <div className={cn("h-3 w-[64%] rounded", ai ? "directory-ai-shimmer" : "animate-pulse bg-white/[0.05]")} style={delay} />
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

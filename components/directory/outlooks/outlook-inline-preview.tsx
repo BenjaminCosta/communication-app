@@ -12,10 +12,10 @@ import {
 import { cn } from "@/lib/utils"
 
 const TASK_TONES = [
-  "border-violet-400/45 bg-violet-400/25 text-violet-100",
-  "border-cyan-400/45 bg-cyan-400/20 text-cyan-100",
-  "border-amber-400/45 bg-amber-400/20 text-amber-100",
-  "border-emerald-400/45 bg-emerald-400/20 text-emerald-100",
+  "border-violet-600 bg-violet-600 text-white",
+  "border-cyan-600 bg-cyan-600 text-white",
+  "border-amber-500 bg-amber-500 text-[#14100a]",
+  "border-emerald-600 bg-emerald-600 text-white",
 ]
 
 function clampDate(date: string, start: string, end: string): string {
@@ -82,7 +82,7 @@ export function OutlookInlinePreview({ window, tasks }: { window: OutlookWindow;
                 <div
                   key={task.id}
                   className={cn(
-                    "z-[1] mx-0.5 min-w-0 self-center truncate rounded border px-1.5 py-1 text-[9px] font-medium",
+                    "z-[1] mx-0.5 min-w-0 self-center truncate rounded-md border px-1.5 py-1 text-[9px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_5px_rgba(2,6,12,0.28)]",
                     TASK_TONES[index % TASK_TONES.length],
                   )}
                   style={{ gridColumn: `${start} / ${end}`, gridRow: index + 1 }}

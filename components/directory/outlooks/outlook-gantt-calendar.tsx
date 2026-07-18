@@ -4,11 +4,11 @@ import { formatOutlookDate, localDateToIso, outlookDates, type OutlookTask, type
 import { cn } from "@/lib/utils"
 
 const BAR_TONES = [
-  "border-violet-400/55 bg-violet-400/30 text-violet-100",
-  "border-cyan-400/50 bg-cyan-400/25 text-cyan-100",
-  "border-blue-400/50 bg-blue-400/25 text-blue-100",
-  "border-amber-400/50 bg-amber-400/25 text-amber-100",
-  "border-emerald-400/50 bg-emerald-400/25 text-emerald-100",
+  "border-violet-600 bg-violet-600 text-white",
+  "border-cyan-600 bg-cyan-600 text-white",
+  "border-blue-600 bg-blue-600 text-white",
+  "border-amber-500 bg-amber-500 text-[#14100a]",
+  "border-emerald-600 bg-emerald-600 text-white",
 ]
 
 function clampDate(date: string, start: string, end: string): string {
@@ -17,7 +17,7 @@ function clampDate(date: string, start: string, end: string): string {
   return date
 }
 
-export function OutlookGanttCalendar({ window, tasks }: { window: OutlookWindow; tasks: OutlookTask[] }) {
+export function OutlookGanttCalendar({ window, tasks, onOpenTask }: { window: OutlookWindow; tasks: OutlookTask[]; onOpenTask?: (task: OutlookTask) => void }) {
   const dates = outlookDates(window.start)
   const todayIndex = dates.indexOf(localDateToIso(new Date()))
   const visibleTasks = tasks.filter((task) => task.startDate && task.endDate && task.startDate <= window.end && task.endDate >= window.start)
@@ -59,7 +59,12 @@ export function OutlookGanttCalendar({ window, tasks }: { window: OutlookWindow;
             const start = dates.indexOf(clampDate(task.startDate!, window.start, window.end)) + 1
             const end = dates.indexOf(clampDate(task.endDate!, window.start, window.end)) + 2
             return (
-              <div key={task.id} className="grid min-h-16 grid-cols-[96px_minmax(0,1fr)] border-b border-white/[0.055] last:border-b-0">
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => onOpenTask?.(task)}
+                className="grid min-h-16 w-full grid-cols-[96px_minmax(0,1fr)] border-b border-white/[0.055] text-left transition-colors last:border-b-0 hover:bg-white/[0.02] active:bg-white/[0.04]"
+              >
                 <div className="flex min-w-0 items-center border-r border-white/[0.07] px-2.5">
                   <span className="line-clamp-2 text-[9px] font-semibold leading-3.5 text-foreground/82" title={task.title}>{task.title || "Untitled"}</span>
                 </div>
@@ -70,14 +75,14 @@ export function OutlookGanttCalendar({ window, tasks }: { window: OutlookWindow;
                     ))}
                   </div>
                   <div
-                    className={cn("relative z-[1] mx-0.5 h-5 min-w-0 rounded border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]", BAR_TONES[index % BAR_TONES.length])}
+                    className={cn("relative z-[1] mx-0.5 h-5 min-w-0 rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_5px_rgba(2,6,12,0.28)]", BAR_TONES[index % BAR_TONES.length])}
                     style={{ gridColumn: `${start} / ${end}` }}
                     title={`${task.title} · ${formatOutlookDate(task.startDate!)} - ${formatOutlookDate(task.endDate!)}`}
                   >
                     <span className="sr-only">{task.title || "Untitled"}</span>
                   </div>
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>

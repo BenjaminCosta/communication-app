@@ -17,6 +17,7 @@ import {
   Pencil,
   Phone,
   ShieldCheck,
+  Sparkles,
   Star,
 } from "lucide-react"
 import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
@@ -34,6 +35,7 @@ import {
   type ProfileField,
 } from "@/lib/directory-view-models"
 import { buildDirectoryDescription } from "@/lib/directory-descriptions"
+import { useGeneratingReveal } from "@/hooks/use-generating-reveal"
 import { readCachedDirectoryProfile, writeCachedDirectoryProfile } from "@/lib/directory-profile-cache"
 import { loadDirectoryProfileViewModel } from "@/lib/directory-profile-loader"
 import { loadDirectoryActivitySummary, type DirectoryActivitySummary } from "@/lib/directory-activity"
@@ -173,11 +175,13 @@ export function DirectoryProfileScreen({
     () => (vm ? buildDirectoryDescription(vm, relations, activity) : null),
     [vm, relations, activity],
   )
-  // Only reveal the narrative once its async inputs (relations + activity) have
-  // settled, so it never visibly rewrites itself a beat after open. The vm's own
-  // identity text is stable across cache→fresh, so we don't gate on that (keeps
-  // the cached description visible while offline instead of an endless skeleton).
-  const descriptionReady = !!vm && relationsSettled && activitySettled
+  // Reveal the narrative only once its async inputs (relations + activity) have
+  // settled — it never visibly rewrites itself a beat after open. Held for a
+  // deliberate minimum so the "generating" shimmer reads as an intentional
+  // micro-moment, not an imperceptible flicker on a warm cache. (vm identity text
+  // is stable across cache→fresh, so we don't gate on that.)
+  const descriptionInputsReady = !!vm && relationsSettled && activitySettled
+  const generatingDescription = useGeneratingReveal(directoryId, !descriptionInputsReady, 750)
 
   useEffect(() => {
     if (!notice) return
@@ -306,22 +310,27 @@ export function DirectoryProfileScreen({
                 </p>
               )}
 
-              {descriptionReady ? (
-                description?.text && (
-                  <section className="mt-6" aria-label="About">
-                    <p className="text-[15px] leading-7 text-foreground/85">{description.text}</p>
-                  </section>
-                )
-              ) : (
-                vm && (
-                  <section className="mt-6" aria-hidden>
-                    <div className="space-y-2.5">
-                      <div className="h-3.5 w-full rounded-full bg-white/[0.06] animate-pulse" />
-                      <div className="h-3.5 w-11/12 rounded-full bg-white/[0.06] animate-pulse" />
-                      <div className="h-3.5 w-3/5 rounded-full bg-white/[0.06] animate-pulse" />
+              {vm && (generatingDescription || description?.text) && (
+                <section className="mt-6" aria-label="About">
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <Sparkles
+                      className={cn("h-3 w-3 shrink-0 text-[var(--directory-job)]", generatingDescription && "directory-ai-spark")}
+                      strokeWidth={2}
+                    />
+                    <span className="directory-ai-text text-[10px] font-semibold uppercase tracking-[0.14em]">
+                      {generatingDescription ? "Generating summary" : "AI summary"}
+                    </span>
+                  </div>
+                  {generatingDescription ? (
+                    <div className="space-y-2.5" aria-hidden>
+                      <div className="h-3.5 w-full rounded-full directory-ai-shimmer" />
+                      <div className="h-3.5 w-11/12 rounded-full directory-ai-shimmer" style={{ animationDelay: "0.15s" }} />
+                      <div className="h-3.5 w-3/5 rounded-full directory-ai-shimmer" style={{ animationDelay: "0.3s" }} />
                     </div>
-                  </section>
-                )
+                  ) : (
+                    <p className="text-[15px] leading-7 text-foreground/85">{description?.text}</p>
+                  )}
+                </section>
               )}
 
               <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-white/[0.07] scrollbar-hide" aria-label="Profile sections">

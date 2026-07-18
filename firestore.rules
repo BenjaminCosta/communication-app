@@ -250,5 +250,11 @@ service cloud.firestore {
     match /directoryControl/{docId} {
       allow read, write: if false;
     }
+
+    // Distributed AI rate limits, idempotency fingerprints and active leases.
+    // Server/Admin SDK only; no request content or transcript is stored here.
+    match /outlookAiUsage/{userHash} {
+      allow read, write: if false;
+    }
   }
 }
