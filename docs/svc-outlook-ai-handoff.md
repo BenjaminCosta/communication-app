@@ -76,10 +76,12 @@ no requiere redeploy más allá de lo que ya hace la plataforma).
    [`lib/ai/config-public.ts`](../lib/ai/config-public.ts)
    (`OUTLOOK_AI_LIMITS`: `maxAudioSeconds`, `maxTextChars`, `maxSuggestions`,
    `providerTimeoutMs`). Ya se aplica server-side una ventana móvil de 10 minutos
-   (10 generations / 5 transcriptions por usuario), un único request activo,
+   (20 generations / 10 transcriptions por usuario), un único request activo,
    idempotencia/deduplicación y backoff selectivo para `429`. El texto está
    limitado a 2.000 caracteres y el audio a 3 minutos / 8 MiB con validación del
-   media real. Sólo queda definir/monitorear el presupuesto mensual operativo.
+   media real. Para MP4 fragmentado de Safari, el servidor comprueba la firma
+   MP4 y usa como fallback la duración medida por `MediaRecorder`. Sólo queda
+   definir/monitorear el presupuesto mensual operativo.
 
 **No hay más cambios de código requeridos para live.** Todo lo demás ya está.
 

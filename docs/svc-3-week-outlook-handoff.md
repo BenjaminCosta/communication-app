@@ -845,7 +845,7 @@ No generar PDF automáticamente después del parsing.
 ### Operación y costo
 
 - presupuesto mensual;
-- rate limits definidos: 10 generations y 5 transcriptions por usuario cada 10 minutos;
+- rate limits definidos: 20 generations y 10 transcriptions por usuario cada 10 minutos;
 - métricas de parsing correcto;
 - estrategia de fallback cuando el proveedor falla;
 - logging/redaction de datos sensibles.

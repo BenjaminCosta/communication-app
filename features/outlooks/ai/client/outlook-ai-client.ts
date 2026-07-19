@@ -77,11 +77,12 @@ function extensionForAudio(type: string): string {
 
 export async function requestOutlookTranscription(
   audio: Blob,
-  options: { language?: string; fileName?: string; idempotencyKey?: string } = {},
+  options: { language?: string; fileName?: string; idempotencyKey?: string; durationMs?: number } = {},
 ): Promise<TranscribeOutlookResponse> {
   const form = new FormData()
   form.append("audio", audio, options.fileName ?? `outlook-note.${extensionForAudio(audio.type)}`)
   if (options.language) form.append("language", options.language)
+  if (options.durationMs != null) form.append("durationMs", String(Math.round(options.durationMs)))
 
   const response = await fetch("/api/outlooks/transcribe", {
     method: "POST",

@@ -12,13 +12,22 @@ const ACCEPTED_AUDIO_TYPES = new Set([
   "audio/x-m4a",
 ])
 
+// Safari records MediaRecorder audio as fragmented MP4. Those files are valid
+// for OpenAI, but commonly have no container-level duration for parsers to read.
+const RECORDER_DURATION_FALLBACK_TYPES = new Set(["audio/mp4", "audio/m4a", "audio/x-m4a"])
+const DURATION_TOLERANCE_MS = 1_000
+
 export interface ValidatedOutlookAudio {
   durationMs: number
   mediaType: string
+  durationSource: "metadata" | "recorder"
 }
 
-/** Validate declared type plus actual parseable media duration server-side. */
-export async function validateOutlookAudio(file: File): Promise<ValidatedOutlookAudio> {
+/** Validate declared type plus media duration server-side, with a Safari MP4 fallback. */
+export async function validateOutlookAudio(
+  file: File,
+  reportedDurationMs?: number,
+): Promise<ValidatedOutlookAudio> {
   const mediaType = file.type.split(";", 1)[0].trim().toLowerCase()
   if (!ACCEPTED_AUDIO_TYPES.has(mediaType)) {
     throw new AiError(
@@ -27,17 +36,31 @@ export async function validateOutlookAudio(file: File): Promise<ValidatedOutlook
     )
   }
 
+  const recorderDurationMs = validateReportedDuration(reportedDurationMs)
+
   let duration: number | undefined
+  let metadataReadable = true
   try {
     const { parseBlob } = await import("music-metadata")
     const metadata = await parseBlob(file, { duration: true, skipCovers: true })
     duration = metadata.format.duration
   } catch {
-    throw new AiError("invalid-audio", "That audio file could not be read. Please record it again.")
+    metadataReadable = false
   }
 
   if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) {
-    throw new AiError("invalid-audio", "The recording duration could not be verified.")
+    const hasMp4Signature = RECORDER_DURATION_FALLBACK_TYPES.has(mediaType)
+      ? await fileHasMp4Signature(file)
+      : false
+    if (hasMp4Signature && recorderDurationMs != null) {
+      return { durationMs: recorderDurationMs, mediaType, durationSource: "recorder" }
+    }
+    throw new AiError(
+      "invalid-audio",
+      metadataReadable
+        ? "The recording duration could not be verified. Please record it again."
+        : "That audio file could not be read. Please record it again.",
+    )
   }
   if (duration > OUTLOOK_AI_LIMITS.maxAudioSeconds + 0.5) {
     throw new AiError(
@@ -46,6 +69,30 @@ export async function validateOutlookAudio(file: File): Promise<ValidatedOutlook
     )
   }
 
-  return { durationMs: Math.round(duration * 1000), mediaType }
+  return { durationMs: Math.round(duration * 1000), mediaType, durationSource: "metadata" }
 }
 
+function validateReportedDuration(reportedDurationMs?: number): number | undefined {
+  if (reportedDurationMs == null) return undefined
+  if (!Number.isFinite(reportedDurationMs) || reportedDurationMs <= 0) {
+    throw new AiError("invalid-request", "The recording duration was invalid. Please record it again.")
+  }
+
+  const roundedDurationMs = Math.round(reportedDurationMs)
+  if (roundedDurationMs > OUTLOOK_AI_LIMITS.maxAudioSeconds * 1000 + DURATION_TOLERANCE_MS) {
+    throw new AiError(
+      "payload-too-large",
+      `Voice recordings must be ${Math.floor(OUTLOOK_AI_LIMITS.maxAudioSeconds / 60)} minutes or shorter.`,
+    )
+  }
+  return roundedDurationMs
+}
+
+async function fileHasMp4Signature(file: File): Promise<boolean> {
+  const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  return header.length >= 12 &&
+    header[4] === 0x66 && // f
+    header[5] === 0x74 && // t
+    header[6] === 0x79 && // y
+    header[7] === 0x70 // p
+}

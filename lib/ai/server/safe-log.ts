@@ -13,6 +13,7 @@ export interface SafeOutlookAiLog {
   textChars?: number
   audioBytes?: number
   audioDurationMs?: number
+  audioDurationSource?: "metadata" | "recorder"
   providerRequestId?: string
   attempt?: number
 }
@@ -29,4 +30,3 @@ export function safeIdentifier(value: string): string {
 export function logOutlookAi(metadata: SafeOutlookAiLog): void {
   console.info("[outlook-ai]", JSON.stringify(metadata))
 }
-

@@ -44,7 +44,7 @@ export function OutlookNaturalLanguageInput({
   generationCooldownSeconds: number
   transcriptionCooldownSeconds: number
   voiceEnabled: boolean
-  onAudio: (audio: Blob) => void
+  onAudio: (audio: Blob, durationMs: number) => void
   onGenerate: () => void
   onMoreOptions?: () => void
   error: string
@@ -107,9 +107,9 @@ export function OutlookNaturalLanguageInput({
           {voiceEnabled && (
             <div className="absolute bottom-2.5 right-2.5">
               <OutlookVoiceControl
-                onAudio={(audio) => {
+                onAudio={(audio, durationMs) => {
                   setVoiceError("")
-                  onAudio(audio)
+                  onAudio(audio, durationMs)
                 }}
                 busy={transcribing}
                 disabled={parsing || transcriptionCooldownSeconds > 0}

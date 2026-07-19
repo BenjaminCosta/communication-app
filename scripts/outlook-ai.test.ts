@@ -198,7 +198,7 @@ test("auth guard fails closed when live AI has no Firebase Admin credentials", a
   }
 })
 
-test("generation guard allows 10 requests in 10 minutes and rejects the 11th", () => {
+test(`generation guard allows ${OUTLOOK_AI_LIMITS.generationRequestsPerWindow} requests per window`, () => {
   let state = emptyOutlookAiGuardState()
   const nowMs = Date.UTC(2026, 6, 18, 12)
 
@@ -215,14 +215,14 @@ test("generation guard allows 10 requests in 10 minutes and rejects the 11th", (
 
   assertAiErrorCode(() => acquireOutlookAiGuardState(state, {
     operation: "generation",
-    requestHash: "request-11",
-    keyHash: "key-11",
-    leaseId: "lease-11",
+    requestHash: "request-over-limit",
+    keyHash: "key-over-limit",
+    leaseId: "lease-over-limit",
     nowMs: nowMs + 20,
   }), "rate-limited")
 })
 
-test("transcription guard allows 5 requests and shares one active lock with generation", () => {
+test(`transcription guard allows ${OUTLOOK_AI_LIMITS.transcriptionRequestsPerWindow} requests and shares the active lock`, () => {
   let state = emptyOutlookAiGuardState()
   const nowMs = Date.UTC(2026, 6, 18, 12)
   const active = acquireOutlookAiGuardState(state, {
@@ -256,9 +256,9 @@ test("transcription guard allows 5 requests and shares one active lock with gene
 
   assertAiErrorCode(() => acquireOutlookAiGuardState(state, {
     operation: "transcription",
-    requestHash: "voice-6",
-    keyHash: "voice-key-6",
-    leaseId: "voice-lease-6",
+    requestHash: "voice-over-limit",
+    keyHash: "voice-key-over-limit",
+    leaseId: "voice-lease-over-limit",
     nowMs: nowMs + 20,
   }), "rate-limited")
 })
@@ -295,12 +295,34 @@ test("audio validation checks actual duration and declared media type", async ()
   const validAudio = new File([wavBytes(1)], "voice.wav", { type: "audio/wav" })
   const metadata = await validateOutlookAudio(validAudio)
   assert.ok(metadata.durationMs >= 990 && metadata.durationMs <= 1010)
+  assert.equal(metadata.durationSource, "metadata")
 
   const tooLong = new File([wavBytes(181)], "long.wav", { type: "audio/wav" })
   await assert.rejects(() => validateOutlookAudio(tooLong), hasAiErrorCode("payload-too-large"))
 
   const wrongType = new File([wavBytes(1)], "voice.txt", { type: "text/plain" })
   await assert.rejects(() => validateOutlookAudio(wrongType), hasAiErrorCode("invalid-audio"))
+})
+
+test("audio validation accepts Safari fragmented MP4 duration measured by the recorder", async () => {
+  const fragmentedMp4 = new File([new Uint8Array([
+    0, 0, 0, 12, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20,
+  ])], "voice.m4a", {
+    type: "audio/mp4",
+  })
+
+  const metadata = await validateOutlookAudio(fragmentedMp4, 4_250)
+  assert.equal(metadata.durationMs, 4_250)
+  assert.equal(metadata.durationSource, "recorder")
+
+  await assert.rejects(
+    () => validateOutlookAudio(fragmentedMp4),
+    hasAiErrorCode("invalid-audio"),
+  )
+  await assert.rejects(
+    () => validateOutlookAudio(fragmentedMp4, (OUTLOOK_AI_LIMITS.maxAudioSeconds + 2) * 1000),
+    hasAiErrorCode("payload-too-large"),
+  )
 })
 
 test("OpenAI 429 retries with backoff but insufficient credit never retries", async () => {

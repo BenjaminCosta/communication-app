@@ -95,13 +95,14 @@ export function useOutlookAiCapture({
     [window.start, window.end, jobName, location, companies, existingTasks],
   )
 
-  const transcribeFromAudio = useCallback(async (audio: Blob) => {
+  const transcribeFromAudio = useCallback(async (audio: Blob, durationMs: number) => {
     if (busyRef.current || transcriptionCooldownUntil > Date.now()) return
     busyRef.current = true
     setTranscribing(true)
     setError("")
     try {
       const result = await requestOutlookTranscription(audio, {
+        durationMs,
         idempotencyKey: createOutlookAiIdempotencyKey(),
       })
       setMode(result.mode)

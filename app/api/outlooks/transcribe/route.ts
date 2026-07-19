@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
   let requestId = "unassigned"
   let acquired: AcquiredOutlookAiRequest | null = null
   let providerSucceeded = false
-  let audioMetadata: { bytes: number; durationMs: number } | null = null
+  let audioMetadata: { bytes: number; durationMs: number; durationSource: "metadata" | "recorder" } | null = null
   try {
     const user = await authenticateOutlookRequest(request)
     uid = user.uid
@@ -68,8 +68,17 @@ export async function POST(request: Request): Promise<Response> {
     if (language && !/^[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(language)) {
       throw new AiError("invalid-request", "The recording language is not valid.")
     }
-    const validatedAudio = await validateOutlookAudio(audio)
-    audioMetadata = { bytes: audio.size, durationMs: validatedAudio.durationMs }
+    const rawDurationMs = form.get("durationMs")
+    if (rawDurationMs != null && (typeof rawDurationMs !== "string" || !/^\d{1,9}$/.test(rawDurationMs))) {
+      throw new AiError("invalid-request", "The recording duration was invalid. Please record it again.")
+    }
+    const reportedDurationMs = typeof rawDurationMs === "string" ? Number(rawDurationMs) : undefined
+    const validatedAudio = await validateOutlookAudio(audio, reportedDurationMs)
+    audioMetadata = {
+      bytes: audio.size,
+      durationMs: validatedAudio.durationMs,
+      durationSource: validatedAudio.durationSource,
+    }
     const bytes = new Uint8Array(await audio.arrayBuffer())
     const requestHash = hashOutlookAiRequest(
       `${hashOutlookAiRequest(bytes)}:${validatedAudio.mediaType}:${language ?? "auto"}`,
@@ -88,6 +97,7 @@ export async function POST(request: Request): Promise<Response> {
         userHash: acquired.userHash,
         audioBytes: audio.size,
         audioDurationMs: validatedAudio.durationMs,
+        audioDurationSource: validatedAudio.durationSource,
       })
     }
 
@@ -106,6 +116,7 @@ export async function POST(request: Request): Promise<Response> {
       latencyMs: Date.now() - startedAt,
       audioBytes: audio.size,
       audioDurationMs: validatedAudio.durationMs,
+      audioDurationSource: validatedAudio.durationSource,
     })
     return Response.json(result, {
       headers: responseHeaders(requestId, acquired?.lease.remaining),
@@ -126,7 +137,11 @@ export async function POST(request: Request): Promise<Response> {
       errorCode: isAiError(error) ? error.code : "unexpected",
       latencyMs: Date.now() - startedAt,
       ...(audioMetadata
-        ? { audioBytes: audioMetadata.bytes, audioDurationMs: audioMetadata.durationMs }
+        ? {
+            audioBytes: audioMetadata.bytes,
+            audioDurationMs: audioMetadata.durationMs,
+            audioDurationSource: audioMetadata.durationSource,
+          }
         : {}),
     })
     return toOutlookAiErrorResponse(error)

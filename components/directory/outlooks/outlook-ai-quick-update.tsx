@@ -95,7 +95,7 @@ export function OutlookAiQuickUpdate({
         generationCooldownSeconds={capture.generationCooldownSeconds}
         transcriptionCooldownSeconds={capture.transcriptionCooldownSeconds}
         voiceEnabled={OUTLOOK_VOICE_ENABLED}
-        onAudio={(audio) => void capture.transcribeFromAudio(audio)}
+        onAudio={(audio, durationMs) => void capture.transcribeFromAudio(audio, durationMs)}
         onGenerate={generate}
         onMoreOptions={onManualFallback}
         error={reviewOpen ? "" : capture.error}

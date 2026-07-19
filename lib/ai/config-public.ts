@@ -13,8 +13,8 @@ export const OUTLOOK_AI_LIMITS = {
   /** Max recording duration surfaced to the recorder UI (seconds). */
   maxAudioSeconds: 180,
   /** Per-user rolling application limits. Enforced transactionally server-side. */
-  generationRequestsPerWindow: 10,
-  transcriptionRequestsPerWindow: 5,
+  generationRequestsPerWindow: 20,
+  transcriptionRequestsPerWindow: 10,
   requestWindowMs: 10 * 60 * 1000,
   /** Max task suggestions returned from a single parse request. */
   maxSuggestions: 20,

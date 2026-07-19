@@ -21,7 +21,7 @@ export function OutlookVoiceControl({
   onError,
   onActiveChange,
 }: {
-  onAudio: (audio: Blob) => void
+  onAudio: (audio: Blob, durationMs: number) => void
   busy?: boolean
   disabled?: boolean
   onError?: (message: string) => void

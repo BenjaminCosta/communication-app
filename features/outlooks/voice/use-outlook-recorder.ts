@@ -25,7 +25,7 @@ export type OutlookRecorderErrorKind =
 
 interface UseOutlookRecorderOptions {
   maxSeconds?: number
-  onComplete?: (audio: Blob) => void
+  onComplete?: (audio: Blob, durationMs: number) => void
 }
 
 const PREFERRED_MIME_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
@@ -65,6 +65,7 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
   const chunksRef = useRef<Blob[]>([])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const maxTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recordingStartedAtRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
   const startingRef = useRef(false)
   // Keep the latest callback without re-subscribing the recorder handlers.
@@ -97,6 +98,7 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
       clearTimers()
       stopTracks()
       recorderRef.current = null
+      recordingStartedAtRef.current = null
       startingRef.current = false
       chunksRef.current = []
       setErrorKind(kind)
@@ -142,6 +144,10 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
     recorder.onstop = () => {
       clearTimers()
       stopTracks()
+      const durationMs = recordingStartedAtRef.current == null
+        ? 0
+        : Math.max(1, Math.round(performance.now() - recordingStartedAtRef.current))
+      recordingStartedAtRef.current = null
       const type = recorder.mimeType || mimeType || "audio/webm"
       const blob = new Blob(chunksRef.current, { type })
       chunksRef.current = []
@@ -156,12 +162,13 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
         return
       }
       setState("idle")
-      onCompleteRef.current?.(blob)
+      onCompleteRef.current?.(blob, durationMs)
     }
     recorder.onerror = () => fail("unknown")
 
     try {
       recorder.start()
+      recordingStartedAtRef.current = performance.now()
     } catch {
       fail("unknown")
       return
@@ -191,6 +198,7 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
     } else {
       stopTracks()
       recorderRef.current = null
+      recordingStartedAtRef.current = null
       startingRef.current = false
       chunksRef.current = []
       setState("idle")
@@ -204,6 +212,7 @@ export function useOutlookRecorder({ maxSeconds = 120, onComplete }: UseOutlookR
     setSeconds(0)
     setState("idle")
     startingRef.current = false
+    recordingStartedAtRef.current = null
   }, [])
 
   // Always release the mic if the component unmounts mid-recording.
