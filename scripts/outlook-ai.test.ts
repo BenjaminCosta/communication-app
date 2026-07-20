@@ -325,6 +325,22 @@ test("audio validation accepts Safari fragmented MP4 duration measured by the re
   )
 })
 
+test("audio validation accepts mobile WebM duration measured by the recorder", async () => {
+  const streamedWebm = new File([new Uint8Array([
+    0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81,
+  ])], "voice.webm", { type: "audio/webm;codecs=opus" })
+
+  const metadata = await validateOutlookAudio(streamedWebm, 3_800)
+  assert.equal(metadata.durationMs, 3_800)
+  assert.equal(metadata.durationSource, "recorder")
+
+  const spoofedWebm = new File([new Uint8Array([1, 2, 3, 4])], "voice.webm", { type: "audio/webm" })
+  await assert.rejects(
+    () => validateOutlookAudio(spoofedWebm, 3_800),
+    hasAiErrorCode("invalid-audio"),
+  )
+})
+
 test("OpenAI 429 retries with backoff but insufficient credit never retries", async () => {
   const originalFetch = globalThis.fetch
   const schema = { name: "test", schema: { type: "object", properties: {}, additionalProperties: false } }

@@ -12,9 +12,15 @@ const ACCEPTED_AUDIO_TYPES = new Set([
   "audio/x-m4a",
 ])
 
-// Safari records MediaRecorder audio as fragmented MP4. Those files are valid
-// for OpenAI, but commonly have no container-level duration for parsers to read.
-const RECORDER_DURATION_FALLBACK_TYPES = new Set(["audio/mp4", "audio/m4a", "audio/x-m4a"])
+// Mobile MediaRecorder output is often streamed/fragmented, so WebM, OGG, and
+// MP4 blobs may be valid for transcription without a container-level duration.
+const RECORDER_DURATION_FALLBACK_TYPES = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/x-m4a",
+])
 const DURATION_TOLERANCE_MS = 1_000
 
 export interface ValidatedOutlookAudio {
@@ -49,10 +55,10 @@ export async function validateOutlookAudio(
   }
 
   if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) {
-    const hasMp4Signature = RECORDER_DURATION_FALLBACK_TYPES.has(mediaType)
-      ? await fileHasMp4Signature(file)
+    const hasRecorderSignature = RECORDER_DURATION_FALLBACK_TYPES.has(mediaType)
+      ? await fileMatchesRecorderType(file, mediaType)
       : false
-    if (hasMp4Signature && recorderDurationMs != null) {
+    if (hasRecorderSignature && recorderDurationMs != null) {
       return { durationMs: recorderDurationMs, mediaType, durationSource: "recorder" }
     }
     throw new AiError(
@@ -88,8 +94,22 @@ function validateReportedDuration(reportedDurationMs?: number): number | undefin
   return roundedDurationMs
 }
 
-async function fileHasMp4Signature(file: File): Promise<boolean> {
+async function fileMatchesRecorderType(file: File, mediaType: string): Promise<boolean> {
   const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  if (mediaType === "audio/webm") {
+    return header.length >= 4 &&
+      header[0] === 0x1a &&
+      header[1] === 0x45 &&
+      header[2] === 0xdf &&
+      header[3] === 0xa3
+  }
+  if (mediaType === "audio/ogg") {
+    return header.length >= 4 &&
+      header[0] === 0x4f && // O
+      header[1] === 0x67 && // g
+      header[2] === 0x67 && // g
+      header[3] === 0x53 // S
+  }
   return header.length >= 12 &&
     header[4] === 0x66 && // f
     header[5] === 0x74 && // t
