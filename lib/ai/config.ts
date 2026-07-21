@@ -12,16 +12,20 @@
  * exists. Setting `OUTLOOK_AI_MODE=mock` forces mock even when a key is present.
  */
 
-import { OUTLOOK_AI_LIMITS } from "@/lib/ai/config-public"
+import { DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS } from "@/lib/ai/config-public"
 
 export type OutlookAiMode = "mock" | "live"
+/** Shared alias — both AI features use the same mock/live semantics. */
+export type AiMode = OutlookAiMode
 
 /** Default models. Overridable per-environment without touching code. */
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
 const DEFAULT_PARSE_MODEL = "gpt-5-mini"
+const DEFAULT_ASK_MODEL = "gpt-5-mini"
+const DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 
 // Re-export the client-safe limits so server code has one import site.
-export { OUTLOOK_AI_LIMITS }
+export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS }
 
 function readMode(hasKey: boolean): OutlookAiMode {
   const raw = (process.env.OUTLOOK_AI_MODE ?? "").trim().toLowerCase()
@@ -59,7 +63,47 @@ export function getOutlookAiConfig(): OutlookAiConfig {
   }
 }
 
-/** True when a live provider call is actually possible (mode live + key present). */
-export function canCallProvider(config: OutlookAiConfig): config is OutlookAiConfig & { apiKey: string } {
+export interface DirectoryAiConfig {
+  mode: AiMode
+  apiKey: string | null
+  askModel: string
+  transcribeModel: string
+  /** Embedding model used for semantic note retrieval. */
+  embedModel: string
+  baseUrl: string
+}
+
+/**
+ * Resolve the "Ask SVC Directory" config at request time. Mirrors
+ * `getOutlookAiConfig()` and deliberately reuses the same `OPENAI_API_KEY`
+ * secret + base URL, but keeps its own mode flag and model env so the Directory
+ * assistant can be tuned (or forced to mock) independently of the Outlook flow.
+ */
+export function getDirectoryAiConfig(): DirectoryAiConfig {
+  if (typeof window !== "undefined") {
+    throw new Error("getDirectoryAiConfig() must only run on the server.")
+  }
+  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim() || null
+  const raw = (process.env.DIRECTORY_AI_MODE ?? "").trim().toLowerCase()
+  const mode: AiMode = raw === "mock" ? "mock" : raw === "live" ? "live" : apiKey ? "live" : "mock"
+  return {
+    mode,
+    apiKey,
+    askModel: (process.env.DIRECTORY_AI_ASK_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
+    transcribeModel: (process.env.DIRECTORY_AI_TRANSCRIBE_MODEL ?? "").trim() || DEFAULT_TRANSCRIBE_MODEL,
+    embedModel: (process.env.DIRECTORY_AI_EMBED_MODEL ?? "").trim() || DEFAULT_EMBED_MODEL,
+    baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
+  }
+}
+
+/**
+ * True when a live provider call is actually possible (mode live + key present).
+ *
+ * Structural + generic so both `OutlookAiConfig` and `DirectoryAiConfig` (and any
+ * future per-feature config) narrow to a variant with a non-null `apiKey`.
+ */
+export function canCallProvider<T extends { mode: AiMode; apiKey: string | null }>(
+  config: T,
+): config is T & { apiKey: string } {
   return config.mode === "live" && typeof config.apiKey === "string" && config.apiKey.length > 0
 }

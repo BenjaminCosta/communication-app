@@ -1,5 +1,7 @@
 import { getFirestore, FieldValue, Firestore } from "firebase-admin/firestore"
 import * as functionsV1 from "firebase-functions/v1"
+import { createHash } from "node:crypto"
+import { buildAskContext } from "../directory-ask-context"
 import {
   buildContactIndexEntry,
   buildContextIndexEntry,
@@ -344,7 +346,16 @@ export const syncDirectoryOnContextWrite = functionsV1.firestore
     for (const cid of allIds) {
       if (cid !== entry.id) batch.delete(col.doc(cid)) // clear stale/other-type entries
     }
-    batch.set(col.doc(entry.id), toIndexDoc(entry))
+    // The derived askContext MUST be part of this write: `set()` replaces the
+    // document, so omitting it would wipe the projection on every context edit.
+    const askContext = buildAskContext(id, data as object, (value) =>
+      createHash("sha256").update(value).digest("hex"),
+    )
+    batch.set(col.doc(entry.id), {
+      ...toIndexDoc(entry),
+      askContext: { ...askContext, updatedAt: data.updatedAt ?? null },
+      source: { collection: "contexts", id, updatedAt: data.updatedAt ?? null },
+    })
     await batch.commit()
     await syncDirectorySearchCatalog(db, [entry], allIds.filter((candidate) => candidate !== entry.id))
 

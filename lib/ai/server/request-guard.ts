@@ -6,11 +6,15 @@ import {
   completeOutlookAiGuardState,
   failOutlookAiGuardState,
   normalizeOutlookAiGuardState,
+  type AiGuardLimits,
   type OutlookAiGuardLease,
 } from "@/lib/ai/server/request-guard-core"
 import { safeIdentifier, type OutlookAiOperation } from "@/lib/ai/server/safe-log"
 
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9_-]{12,32}$/
+
+/** Firestore collection holding the Outlook per-user AI usage/lease docs. */
+const OUTLOOK_USAGE_COLLECTION = "outlookAiUsage"
 
 export interface AcquiredOutlookAiRequest {
   lease: OutlookAiGuardLease
@@ -35,11 +39,16 @@ export async function acquireOutlookAiRequest(input: {
   operation: OutlookAiOperation
   requestHash: string
   idempotencyKey: string
+  /** Override to isolate a feature's budget in its own collection. */
+  collection?: string
+  /** Override to give a feature its own rolling limits. */
+  limits?: AiGuardLimits
 }): Promise<AcquiredOutlookAiRequest> {
   const { getFirestore } = await import("firebase-admin/firestore")
   const db = getFirestore(await getFirebaseAdminApp())
   const userHash = safeIdentifier(input.uid)
-  const ref = db.collection("outlookAiUsage").doc(hashOutlookAiRequest(input.uid))
+  const collectionName = input.collection ?? OUTLOOK_USAGE_COLLECTION
+  const ref = db.collection(collectionName).doc(hashOutlookAiRequest(input.uid))
   const keyHash = hashOutlookAiRequest(input.idempotencyKey)
   const leaseId = randomUUID()
   const nowMs = Date.now()
@@ -54,6 +63,7 @@ export async function acquireOutlookAiRequest(input: {
       keyHash,
       leaseId,
       nowMs,
+      limits: input.limits,
     })
     acquired = decision.lease
     transaction.set(ref, { ...decision.state, updatedAtMs: nowMs })
@@ -66,25 +76,28 @@ export async function acquireOutlookAiRequest(input: {
 export async function completeOutlookAiRequest(
   uid: string,
   acquired: AcquiredOutlookAiRequest,
+  collection: string = OUTLOOK_USAGE_COLLECTION,
 ): Promise<void> {
-  await updateLease(uid, acquired.lease, "complete")
+  await updateLease(uid, acquired.lease, "complete", collection)
 }
 
 export async function failOutlookAiRequest(
   uid: string,
   acquired: AcquiredOutlookAiRequest,
+  collection: string = OUTLOOK_USAGE_COLLECTION,
 ): Promise<void> {
-  await updateLease(uid, acquired.lease, "fail")
+  await updateLease(uid, acquired.lease, "fail", collection)
 }
 
 async function updateLease(
   uid: string,
   lease: OutlookAiGuardLease,
   outcome: "complete" | "fail",
+  collection: string,
 ): Promise<void> {
   const { getFirestore } = await import("firebase-admin/firestore")
   const db = getFirestore(await getFirebaseAdminApp())
-  const ref = db.collection("outlookAiUsage").doc(hashOutlookAiRequest(uid))
+  const ref = db.collection(collection).doc(hashOutlookAiRequest(uid))
   const nowMs = Date.now()
 
   await db.runTransaction(async (transaction) => {

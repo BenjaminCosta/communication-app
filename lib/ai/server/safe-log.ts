@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto"
 
-export type OutlookAiOperation = "generation" | "transcription"
+/**
+ * Operations across the AI features. `generation`/`transcription` belong to the
+ * Outlook flow; `ask`/`transcription` to the Ask SVC Directory flow. The union
+ * is shared so the request guard and logs can be reused by both.
+ */
+export type OutlookAiOperation = "generation" | "transcription" | "ask"
 
 export interface SafeOutlookAiLog {
   event: "accepted" | "succeeded" | "failed" | "provider-retry" | "rejected"
@@ -11,6 +16,7 @@ export interface SafeOutlookAiLog {
   errorCode?: string
   latencyMs?: number
   textChars?: number
+  recordCount?: number
   audioBytes?: number
   audioDurationMs?: number
   audioDurationSource?: "metadata" | "recorder"
@@ -25,8 +31,14 @@ export function safeIdentifier(value: string): string {
 
 /**
  * Metadata-only structured logging. The type deliberately has no text,
- * transcript, filename, request body, token, or API-key field.
+ * transcript, question, record content, filename, request body, token, or
+ * API-key field.
  */
 export function logOutlookAi(metadata: SafeOutlookAiLog): void {
   console.info("[outlook-ai]", JSON.stringify(metadata))
+}
+
+/** Same allowlisted metadata shape, tagged for the Ask SVC Directory flow. */
+export function logDirectoryAi(metadata: SafeOutlookAiLog): void {
+  console.info("[directory-ai]", JSON.stringify(metadata))
 }

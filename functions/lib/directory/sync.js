@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.syncDirectoryOnContextWrite = exports.syncDirectoryOnContactWrite = void 0;
 const firestore_1 = require("firebase-admin/firestore");
 const functionsV1 = __importStar(require("firebase-functions/v1"));
+const node_crypto_1 = require("node:crypto");
+const directory_ask_context_1 = require("../directory-ask-context");
 const directory_core_1 = require("../directory-core");
 // ══════════════════════════════════════════════════════════════════════════
 // SVC Directory sync — keeps /directoryIndex in lockstep with the source
@@ -339,7 +341,14 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
         if (cid !== entry.id)
             batch.delete(col.doc(cid)); // clear stale/other-type entries
     }
-    batch.set(col.doc(entry.id), toIndexDoc(entry));
+    // The derived askContext MUST be part of this write: `set()` replaces the
+    // document, so omitting it would wipe the projection on every context edit.
+    const askContext = (0, directory_ask_context_1.buildAskContext)(id, data, (value) => (0, node_crypto_1.createHash)("sha256").update(value).digest("hex"));
+    batch.set(col.doc(entry.id), {
+        ...toIndexDoc(entry),
+        askContext: { ...askContext, updatedAt: data.updatedAt ?? null },
+        source: { collection: "contexts", id, updatedAt: data.updatedAt ?? null },
+    });
     await batch.commit();
     await syncDirectorySearchCatalog(db, [entry], allIds.filter((candidate) => candidate !== entry.id));
     // Company created or renamed → re-relate people referencing it.

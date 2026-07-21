@@ -30,6 +30,17 @@ export interface OutlookAiGuardLease extends ActiveRequest {
   remaining: number
 }
 
+/**
+ * Per-feature rolling limits. `generationRequestsPerWindow` covers the
+ * non-transcription bucket (Outlook `generation` and Directory `ask`), so a
+ * feature with its own budget just supplies its own numbers here.
+ */
+export interface AiGuardLimits {
+  requestWindowMs: number
+  generationRequestsPerWindow: number
+  transcriptionRequestsPerWindow: number
+}
+
 export function emptyOutlookAiGuardState(): OutlookAiGuardState {
   return {
     generationTimestamps: [],
@@ -61,11 +72,15 @@ export function acquireOutlookAiGuardState(
     keyHash: string
     nowMs: number
     leaseId?: string
+    /** Defaults to the Outlook limits so existing callers are unaffected. */
+    limits?: AiGuardLimits
   },
 ): { state: OutlookAiGuardState; lease: OutlookAiGuardLease } {
   const { operation, requestHash, keyHash, nowMs } = input
+  const limits = input.limits ?? OUTLOOK_AI_LIMITS
+  const isTranscription = operation === "transcription"
   const leaseId = input.leaseId ?? randomUUID()
-  const windowStart = nowMs - OUTLOOK_AI_LIMITS.requestWindowMs
+  const windowStart = nowMs - limits.requestWindowMs
   const generationTimestamps = current.generationTimestamps.filter((at) => at > windowStart)
   const transcriptionTimestamps = current.transcriptionTimestamps.filter((at) => at > windowStart)
   const recentRequests = current.recentRequests
@@ -99,20 +114,15 @@ export function acquireOutlookAiGuardState(
     })
   }
 
-  const timestamps = operation === "generation" ? generationTimestamps : transcriptionTimestamps
-  const limit =
-    operation === "generation"
-      ? OUTLOOK_AI_LIMITS.generationRequestsPerWindow
-      : OUTLOOK_AI_LIMITS.transcriptionRequestsPerWindow
+  const timestamps = isTranscription ? transcriptionTimestamps : generationTimestamps
+  const limit = isTranscription
+    ? limits.transcriptionRequestsPerWindow
+    : limits.generationRequestsPerWindow
   if (timestamps.length >= limit) {
-    const retryAtMs = Math.min(...timestamps) + OUTLOOK_AI_LIMITS.requestWindowMs
-    throw new AiError(
-      "rate-limited",
-      operation === "generation"
-        ? "You reached the task-generation limit. Try again when the countdown ends."
-        : "You reached the voice-transcription limit. Try again when the countdown ends.",
-      { retryAfterSeconds: secondsUntil(retryAtMs, nowMs) },
-    )
+    const retryAtMs = Math.min(...timestamps) + limits.requestWindowMs
+    throw new AiError("rate-limited", rateLimitMessage(operation), {
+      retryAfterSeconds: secondsUntil(retryAtMs, nowMs),
+    })
   }
 
   const lease: OutlookAiGuardLease = {
@@ -128,15 +138,27 @@ export function acquireOutlookAiGuardState(
 
   return {
     state: {
-      generationTimestamps:
-        operation === "generation" ? [...generationTimestamps, nowMs] : generationTimestamps,
-      transcriptionTimestamps:
-        operation === "transcription" ? [...transcriptionTimestamps, nowMs] : transcriptionTimestamps,
+      generationTimestamps: isTranscription
+        ? generationTimestamps
+        : [...generationTimestamps, nowMs],
+      transcriptionTimestamps: isTranscription
+        ? [...transcriptionTimestamps, nowMs]
+        : transcriptionTimestamps,
       active: activeRequest,
       recentRequests: [...recentRequests, recent].slice(-MAX_RECENT_REQUESTS),
     },
     lease,
   }
+}
+
+function rateLimitMessage(operation: OutlookAiOperation): string {
+  if (operation === "transcription") {
+    return "You reached the voice-transcription limit. Try again when the countdown ends."
+  }
+  if (operation === "ask") {
+    return "You reached the question limit. Try again when the countdown ends."
+  }
+  return "You reached the task-generation limit. Try again when the countdown ends."
 }
 
 export function completeOutlookAiGuardState(

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Star } from "lucide-react"
+import { DirectoryAskScreen } from "@/components/directory/ask/directory-ask-screen"
 import { DirectoryFavoritesScreen } from "@/components/directory/directory-favorites-screen"
 import { DirectoryHome } from "@/components/directory/directory-home"
 import { DirectoryResults } from "@/components/directory/directory-results"
@@ -10,6 +11,7 @@ import { DirectorySearchExperience } from "@/components/directory/directory-sear
 import { DirectoryErrorState } from "@/components/directory/directory-states"
 import { ModuleSwitcher } from "@/components/module-switcher"
 import { cn } from "@/lib/utils"
+import { DIRECTORY_AI_ENABLED, DIRECTORY_VOICE_ENABLED } from "@/lib/ai/flags"
 import { useDirectoryUserState } from "@/components/directory/directory-state-provider"
 import type { DirectoryListItem, DirectoryScope } from "@/lib/directory-config"
 import {
@@ -49,6 +51,7 @@ export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onS
     recentsLoading: isRecentsLoading,
   } = useDirectoryUserState()
   const [showFavorites, setShowFavorites] = useState(false)
+  const [showAsk, setShowAsk] = useState(false)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const [debouncedDraftQuery, setDebouncedDraftQuery] = useState("")
@@ -211,6 +214,11 @@ export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onS
     onOpenDetail(item.id)
   }, [onOpenDetail])
 
+  const openAskDetail = useCallback((directoryId: string) => {
+    setShowAsk(false)
+    onOpenDetail(directoryId)
+  }, [onOpenDetail])
+
   return (
     <div className={cn("directory-glass-screen flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
       <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
@@ -252,6 +260,7 @@ export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onS
             onScopeChange={selectHomeScope}
             onSelect={openItem}
             onLoadMoreScope={() => setHomeVisibleCount((count) => count + PAGE_SIZE)}
+            onAskAi={DIRECTORY_AI_ENABLED ? () => setShowAsk(true) : undefined}
           />
         ) : (
           <div className="directory-results-enter mx-auto w-full max-w-3xl px-4 pb-12 md:px-6">
@@ -312,6 +321,18 @@ export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onS
             onBack={() => setShowFavorites(false)}
             onSelect={openItem}
             onRetry={() => setRetryKey((key) => key + 1)}
+          />
+        </div>
+      )}
+      {DIRECTORY_AI_ENABLED && showAsk && (
+        <div className="animate-slide-in-right absolute inset-0 z-20">
+          <DirectoryAskScreen
+            index={searchIndex}
+            scope={scope}
+            recentItems={recentItems}
+            voiceEnabled={DIRECTORY_VOICE_ENABLED}
+            onOpenDetail={openAskDetail}
+            onBack={() => setShowAsk(false)}
           />
         </div>
       )}

@@ -16,6 +16,7 @@ interface DirectorySearchBarProps {
   activeSuggestionId?: string
   variant: "home" | "results"
   isLoading?: boolean
+  askAiAvailable?: boolean
 }
 
 export const DirectorySearchBar = forwardRef<HTMLInputElement, DirectorySearchBarProps>(function DirectorySearchBar({
@@ -31,6 +32,7 @@ export const DirectorySearchBar = forwardRef<HTMLInputElement, DirectorySearchBa
   activeSuggestionId,
   variant,
   isLoading = false,
+  askAiAvailable = false,
 }, ref) {
   const isHome = variant === "home"
   return (
@@ -55,7 +57,7 @@ export const DirectorySearchBar = forwardRef<HTMLInputElement, DirectorySearchBa
         onKeyDown={onKeyDown}
         placeholder="Search people, companies or jobs..."
         autoComplete="off"
-        className={`min-w-0 flex-1 bg-transparent px-2 text-foreground outline-none placeholder:text-muted-foreground/50 ${isHome ? "text-base md:text-lg" : "text-sm"}`}
+        className={`min-w-0 flex-1 bg-transparent px-2 text-foreground outline-none placeholder:text-muted-foreground/50 ${isHome ? "text-base md:text-lg" : "text-sm"} ${askAiAvailable ? "pr-24" : ""}`}
         aria-label="Search people, companies or jobs"
         role="combobox"
         aria-autocomplete="list"

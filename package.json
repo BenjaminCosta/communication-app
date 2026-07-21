@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "verify:fast": "pnpm test:directory && pnpm test:vcf-import && pnpm test:message-feed && pnpm test:functions && pnpm test:outlooks && pnpm test:outlooks-ai && pnpm typecheck && pnpm --dir functions build",
+    "verify:fast": "pnpm test:directory && pnpm test:vcf-import && pnpm test:message-feed && pnpm test:functions && pnpm test:outlooks && pnpm test:outlooks-ai && pnpm test:directory-ai && pnpm test:directory-ai-eval && pnpm typecheck && pnpm --dir functions build",
     "verify": "pnpm verify:fast && pnpm build",
     "emulator": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json --import=./emulator-data --export-on-exit=./emulator-data",
     "emulator:clean": "JAVA_HOME=/usr/local/opt/openjdk@21 PATH=/usr/local/opt/openjdk@21/bin:$PATH firebase emulators:start --config firebase.emulator.json",
@@ -51,7 +51,14 @@
     "test:message-feed": "tsx --test scripts/message-feed.test.ts",
     "test:functions": "tsx --test scripts/functions-batches.test.ts",
     "test:outlooks": "tsx --test scripts/outlook-core.test.ts",
-    "test:outlooks-ai": "tsx --test scripts/outlook-ai.test.ts"
+    "test:outlooks-ai": "tsx --test scripts/outlook-ai.test.ts",
+    "test:directory-ai": "tsx --test scripts/directory-ai.test.ts",
+    "test:directory-ai-eval": "tsx --test scripts/directory-ai-eval.test.ts",
+    "census:ask-context": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json tsx scripts/census-directory-ask-context.ts",
+    "backfill:note-embeddings:dry": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-note-embeddings.mjs",
+    "backfill:note-embeddings": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-directory-note-embeddings.mjs --write",
+    "backfill:ask-context:dry": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json tsx scripts/backfill-directory-ask-context.ts",
+    "backfill:ask-context": "GOOGLE_APPLICATION_CREDENTIALS=./service-account.json tsx scripts/backfill-directory-ask-context.ts --write"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

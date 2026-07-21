@@ -25,6 +25,20 @@
       ]
     },
     {
+      "collectionGroup": "directoryNotes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "embedding", "vectorConfig": { "dimension": 1536, "flat": {} } }
+      ]
+    },
+    {
+      "collectionGroup": "directoryIndex",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "askContext.embedding", "vectorConfig": { "dimension": 1536, "flat": {} } }
+      ]
+    },
+    {
       "collectionGroup": "directoryFiles",
       "queryScope": "COLLECTION",
       "fields": [

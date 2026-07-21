@@ -209,3 +209,110 @@ export async function createStructuredJson(
     throw new AiError("invalid-output", "Parser did not return valid JSON.")
   }
 }
+
+export interface OpenAiToolSpec {
+  type: "function"
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+export interface OpenAiToolCall {
+  id: string
+  name: string
+  /** Raw JSON string from the model — always validated by the caller. */
+  arguments: string
+}
+
+interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool"
+  content?: string | null
+  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>
+  tool_call_id?: string
+}
+
+/**
+ * Run a bounded tool-calling conversation that ends in strict JSON.
+ *
+ * `response_format` is set on every turn, so the model either requests tools or
+ * returns the final structured answer — the common case (context already
+ * prefetched) costs a single call. Tool rounds are hard-capped; on the last
+ * round the tools are withheld so the model must answer with what it has.
+ *
+ * The caller owns tool execution via `onToolCalls` and is responsible for
+ * validating every argument — model output is never trusted here.
+ */
+export async function runToolConversation(
+  config: OpenAiClientConfig,
+  input: {
+    model: string
+    system: string
+    user: string
+    tools: OpenAiToolSpec[]
+    schema: StructuredJsonSchema
+    maxToolRounds: number
+    maxOutputTokens?: number
+    reasoningEffort?: OpenAiReasoningEffort
+    verbosity?: OpenAiVerbosity
+    onToolCalls: (calls: OpenAiToolCall[]) => Promise<Array<{ id: string; content: string }>>
+  },
+): Promise<{ result: unknown; toolRounds: number; toolNames: string[] }> {
+  const messages: ChatMessage[] = [
+    { role: "system", content: input.system },
+    { role: "user", content: input.user },
+  ]
+  const toolNames: string[] = []
+  let toolRounds = 0
+
+  for (let round = 0; round <= input.maxToolRounds; round += 1) {
+    const isFinalRound = round === input.maxToolRounds
+    const response = await openAiFetch(config, "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: input.model,
+        messages,
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: input.schema.name, schema: input.schema.schema, strict: true },
+        },
+        // Withhold tools on the final round so the model must commit to an answer.
+        ...(isFinalRound ? {} : { tools: input.tools, tool_choice: "auto" }),
+        ...(input.reasoningEffort ? { reasoning_effort: input.reasoningEffort } : {}),
+        ...(input.verbosity ? { verbosity: input.verbosity } : {}),
+        max_completion_tokens: input.maxOutputTokens ?? 2000,
+      }),
+    })
+    if (!response.ok) throw providerFailure(response, "generation")
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: ChatMessage }>
+    }
+    const message = data.choices?.[0]?.message
+    const calls = message?.tool_calls ?? []
+
+    if (calls.length > 0 && !isFinalRound) {
+      toolRounds += 1
+      messages.push({ role: "assistant", content: message?.content ?? null, tool_calls: calls })
+      const requested: OpenAiToolCall[] = calls.map((call) => ({
+        id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments,
+      }))
+      toolNames.push(...requested.map((call) => call.name))
+      const results = await input.onToolCalls(requested)
+      for (const result of results) {
+        messages.push({ role: "tool", tool_call_id: result.id, content: result.content })
+      }
+      continue
+    }
+
+    if (typeof message?.content === "string" && message.content.trim()) {
+      try {
+        return { result: JSON.parse(message.content) as unknown, toolRounds, toolNames }
+      } catch {
+        throw new AiError("invalid-output", "The assistant did not return valid JSON.")
+      }
+    }
+  }
+
+  throw new AiError("invalid-output", "The assistant did not produce an answer.")
+}

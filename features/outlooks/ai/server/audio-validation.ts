@@ -33,6 +33,7 @@ export interface ValidatedOutlookAudio {
 export async function validateOutlookAudio(
   file: File,
   reportedDurationMs?: number,
+  maxSeconds: number = OUTLOOK_AI_LIMITS.maxAudioSeconds,
 ): Promise<ValidatedOutlookAudio> {
   const mediaType = file.type.split(";", 1)[0].trim().toLowerCase()
   if (!ACCEPTED_AUDIO_TYPES.has(mediaType)) {
@@ -42,7 +43,7 @@ export async function validateOutlookAudio(
     )
   }
 
-  const recorderDurationMs = validateReportedDuration(reportedDurationMs)
+  const recorderDurationMs = validateReportedDuration(reportedDurationMs, maxSeconds)
 
   let duration: number | undefined
   let metadataReadable = true
@@ -68,28 +69,28 @@ export async function validateOutlookAudio(
         : "That audio file could not be read. Please record it again.",
     )
   }
-  if (duration > OUTLOOK_AI_LIMITS.maxAudioSeconds + 0.5) {
-    throw new AiError(
-      "payload-too-large",
-      `Voice recordings must be ${Math.floor(OUTLOOK_AI_LIMITS.maxAudioSeconds / 60)} minutes or shorter.`,
-    )
+  if (duration > maxSeconds + 0.5) {
+    throw new AiError("payload-too-large", tooLongMessage(maxSeconds))
   }
 
   return { durationMs: Math.round(duration * 1000), mediaType, durationSource: "metadata" }
 }
 
-function validateReportedDuration(reportedDurationMs?: number): number | undefined {
+function tooLongMessage(maxSeconds: number): string {
+  return maxSeconds >= 120
+    ? `Voice recordings must be ${Math.floor(maxSeconds / 60)} minutes or shorter.`
+    : `Voice recordings must be ${maxSeconds} seconds or shorter.`
+}
+
+function validateReportedDuration(reportedDurationMs: number | undefined, maxSeconds: number): number | undefined {
   if (reportedDurationMs == null) return undefined
   if (!Number.isFinite(reportedDurationMs) || reportedDurationMs <= 0) {
     throw new AiError("invalid-request", "The recording duration was invalid. Please record it again.")
   }
 
   const roundedDurationMs = Math.round(reportedDurationMs)
-  if (roundedDurationMs > OUTLOOK_AI_LIMITS.maxAudioSeconds * 1000 + DURATION_TOLERANCE_MS) {
-    throw new AiError(
-      "payload-too-large",
-      `Voice recordings must be ${Math.floor(OUTLOOK_AI_LIMITS.maxAudioSeconds / 60)} minutes or shorter.`,
-    )
+  if (roundedDurationMs > maxSeconds * 1000 + DURATION_TOLERANCE_MS) {
+    throw new AiError("payload-too-large", tooLongMessage(maxSeconds))
   }
   return roundedDurationMs
 }

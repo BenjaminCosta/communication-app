@@ -1,12 +1,15 @@
-import { MapPin } from "lucide-react"
+import { ChevronRight, MapPin } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import type { DirectoryListItem } from "@/lib/directory-config"
 import { prefetchDirectoryProfile } from "@/lib/directory-profile-loader"
+import { cn } from "@/lib/utils"
 
 interface DirectoryResultRowProps {
   item: DirectoryListItem
   onSelect: (item: DirectoryListItem) => void
   compact?: boolean
+  className?: string
+  showChevron?: boolean
 }
 
 const RESULT_ROW_STYLE = { contentVisibility: "auto", containIntrinsicSize: "68px" } as const
@@ -25,7 +28,7 @@ function snippet(item: DirectoryListItem): string {
   return item.description || item.subtitle || ""
 }
 
-export function DirectoryResultRow({ item, onSelect, compact = false }: DirectoryResultRowProps) {
+export function DirectoryResultRow({ item, onSelect, compact = false, className, showChevron = false }: DirectoryResultRowProps) {
   const topLine = kicker(item)
   const description = snippet(item)
   const showDescription = description && description !== topLine
@@ -35,7 +38,7 @@ export function DirectoryResultRow({ item, onSelect, compact = false }: Director
       type="button"
       onClick={() => onSelect(item)}
       onPointerDown={() => prefetchDirectoryProfile(item.id)}
-      className={`flex w-full items-start gap-3 rounded-lg text-left transition-colors duration-150 hover:bg-white/3 ${compact ? "px-2 py-2" : "px-2 py-2.5"}`}
+      className={cn("flex w-full items-start gap-3 rounded-lg text-left transition-colors duration-150 hover:bg-white/3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--directory-ai)]/70", compact ? "px-2 py-2" : "px-2 py-2.5", className)}
       style={compact ? COMPACT_RESULT_ROW_STYLE : RESULT_ROW_STYLE}
       aria-label={`Open ${item.name}`}
     >
@@ -59,6 +62,7 @@ export function DirectoryResultRow({ item, onSelect, compact = false }: Director
           </span>
         )}
       </span>
+      {showChevron && <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/45" strokeWidth={1.8} />}
     </button>
   )
 }

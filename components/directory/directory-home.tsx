@@ -1,6 +1,7 @@
 "use client"
 
 import type { KeyboardEvent, RefObject } from "react"
+import { DirectoryAskEntry } from "@/components/directory/ask/directory-ask-entry"
 import { DirectoryRecentList } from "@/components/directory/directory-recent-list"
 import { DirectoryResults } from "@/components/directory/directory-results"
 import { DirectoryScopeTabs } from "@/components/directory/directory-scope-tabs"
@@ -29,6 +30,8 @@ interface DirectoryHomeProps {
   onScopeChange: (scope: DirectoryScope) => void
   onSelect: (item: DirectoryListItem) => void
   onLoadMoreScope: () => void
+  /** When provided, shows the "Ask AI" entry point in the search area. */
+  onAskAi?: () => void
 }
 
 export function DirectoryHome({
@@ -53,6 +56,7 @@ export function DirectoryHome({
   onScopeChange,
   onSelect,
   onLoadMoreScope,
+  onAskAi,
 }: DirectoryHomeProps) {
   return (
     <div className="directory-home-enter mx-auto flex w-full max-w-3xl flex-col px-4 pb-12 pt-[clamp(3.5rem,13vh,8.5rem)] md:px-6">
@@ -61,7 +65,7 @@ export function DirectoryHome({
         <span className="text-[var(--directory-company)]">companies</span> and{" "}
         <span className="text-[var(--directory-job)]">jobs</span>
       </h1>
-      <div className="mt-9 md:mt-12">
+      <div className="relative mt-9 md:mt-12">
         <DirectorySearchExperience
           inputRef={inputRef}
           value={query}
@@ -77,7 +81,9 @@ export function DirectoryHome({
           onSuggestionSelect={onSuggestionSelect}
           variant="home"
           isLoading={isIndexLoading && !!query.trim()}
+          askAiAvailable={Boolean(onAskAi && !query.trim())}
         />
+        {onAskAi && !query.trim() && <DirectoryAskEntry onClick={onAskAi} className="absolute right-3.5 top-1/2 z-5 -translate-y-1/2 md:right-4" />}
       </div>
       <div className="mt-4 md:mt-5">
         <DirectoryScopeTabs value={scope} onChange={onScopeChange} includeAll={false} variant="home" />

@@ -16,6 +16,7 @@ interface DirectorySearchExperienceProps {
   isSuggestionsOpen: boolean
   variant: "home" | "results"
   isLoading?: boolean
+  askAiAvailable?: boolean
   onChange: (value: string) => void
   onSubmit: () => void
   onClear: () => void
@@ -33,6 +34,7 @@ export function DirectorySearchExperience({
   isSuggestionsOpen,
   variant,
   isLoading = false,
+  askAiAvailable = false,
   onChange,
   onSubmit,
   onClear,
@@ -61,6 +63,7 @@ export function DirectorySearchExperience({
         activeSuggestionId={activeItem ? directorySuggestionOptionId(listboxId, activeItem.id) : undefined}
         variant={variant}
         isLoading={isLoading}
+        askAiAvailable={askAiAvailable}
       />
       {isSuggestionsOpen && (
         <DirectorySearchSuggestions

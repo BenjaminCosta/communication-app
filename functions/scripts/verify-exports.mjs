@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path"
 const expected = [
   "autoLinkOnRegister",
   "autoLinkOnUserEmailUpdate",
+  "embedDirectoryAskContextOnWrite",
   "onDailyCalendarReminders",
   "onMessageCreated",
   "onMessageUpdated",

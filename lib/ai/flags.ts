@@ -24,3 +24,13 @@ export const OUTLOOK_AI_ENABLED = readBooleanFlag(process.env.NEXT_PUBLIC_OUTLOO
  */
 export const OUTLOOK_VOICE_ENABLED =
   OUTLOOK_AI_ENABLED && readBooleanFlag(process.env.NEXT_PUBLIC_OUTLOOK_VOICE_ENABLED)
+
+/**
+ * Show the "Ask SVC Directory" AI assistant entry point in the Directory. When
+ * off, Directory search behaves exactly as before (keyword search only).
+ */
+export const DIRECTORY_AI_ENABLED = readBooleanFlag(process.env.NEXT_PUBLIC_DIRECTORY_AI_ENABLED)
+
+/** Show the voice-question control inside the Ask SVC Directory flow. */
+export const DIRECTORY_VOICE_ENABLED =
+  DIRECTORY_AI_ENABLED && readBooleanFlag(process.env.NEXT_PUBLIC_DIRECTORY_VOICE_ENABLED)

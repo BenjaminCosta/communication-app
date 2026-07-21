@@ -894,3 +894,109 @@ body[data-svc-launch-module="directory"] .launch-loading-directory { display: fl
 @media (prefers-reduced-motion: reduce) {
   .outlook-wave-bar { animation: none; transform: scaleY(0.6); }
 }
+
+/* ── Ask SVC Directory ───────────────────────────────────────────────────────
+   Purple AI accent shared by the entry pill and screen. The listening orb is a
+   soft pulsing gradient ring behind the decorative waveform (screen 4). */
+:root {
+  --directory-ai: #A78BFA;
+  --directory-ai-action: #7651bd;
+  --directory-ai-soft: rgba(167, 139, 250, 0.12);
+  --directory-ai-border: rgba(167, 139, 250, 0.34);
+}
+@keyframes directory-ask-orb {
+  0%, 100% { transform: scale(0.96); opacity: 0.85; }
+  50%      { transform: scale(1.04); opacity: 1; }
+}
+.directory-ask-orb {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(167, 139, 250, 0.22), transparent 62%),
+    conic-gradient(from 210deg, rgba(167, 139, 250, 0.55), rgba(34, 211, 238, 0.45), rgba(167, 139, 250, 0.55));
+  animation: directory-ask-orb 2.4s ease-in-out infinite;
+}
+.directory-ask-screen {
+  background:
+    radial-gradient(circle at 18% -8%, rgba(249, 115, 22, 0.065), transparent 30%),
+    radial-gradient(circle at 100% 100%, rgba(34, 211, 238, 0.025), transparent 34%),
+    #070b11;
+}
+.directory-ask-header {
+  background: rgba(5, 10, 18, 0.58);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 50px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+.directory-ask-dock {
+  background:
+    linear-gradient(100deg, rgba(12, 12, 15, 0.84), rgba(24, 18, 14, 0.68)),
+    rgba(5, 10, 18, 0.7);
+  border-color: rgba(253, 186, 116, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 36px rgba(0, 0, 0, 0.16);
+  -webkit-backdrop-filter: blur(24px) saturate(155%);
+  backdrop-filter: blur(24px) saturate(155%);
+}
+.directory-ask-compose,
+.directory-ask-question,
+.directory-ask-evidence,
+.directory-ask-loading-panel,
+.directory-ask-loading-row {
+  border-color: rgba(253, 186, 116, 0.11);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.016) 58%, rgba(249, 115, 22, 0.025)),
+    rgba(12, 15, 19, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(255,255,255,0.02), 0 18px 44px rgba(0, 0, 0, 0.16);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+.directory-ask-compose:focus-within {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.11), inset 0 0 0 1px rgba(253, 186, 116, 0.12), 0 18px 44px rgba(0, 0, 0, 0.2);
+}
+.directory-ask-chip {
+  background-image: linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 18px rgba(0,0,0,0.16);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+}
+.directory-ask-suggestion {
+  border-color: rgba(180, 200, 255, 0.1);
+  background: linear-gradient(110deg, rgba(255,255,255,0.052), rgba(19, 28, 44, 0.52));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055), 0 10px 24px rgba(0,0,0,0.1);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+.directory-ask-suggestion:hover {
+  border-color: var(--directory-ai-border);
+  background: linear-gradient(110deg, rgba(167,139,250,0.14), rgba(34,211,238,0.055));
+}
+.directory-ask-evidence-row {
+  margin-bottom: 0.25rem;
+  background: rgba(255,255,255,0.022);
+}
+.directory-ask-evidence-row:last-child { margin-bottom: 0; }
+@keyframes directory-ask-generation-copy {
+  from { opacity: 0; transform: translate3d(0, 5px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes directory-ask-generation-orb {
+  0%, 100% { transform: scale(0.92); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); }
+  50% { transform: scale(1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 6px rgba(167,139,250,0.05); }
+}
+.directory-ask-generating {
+  padding: 0.75rem 0.25rem 1.25rem;
+}
+.directory-ask-generating-orb {
+  background: linear-gradient(145deg, rgba(167,139,250,0.22), rgba(34,211,238,0.08));
+  border: 1px solid rgba(167, 139, 250, 0.36);
+  animation: directory-ask-generation-orb 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.directory-ask-generation-copy {
+  animation: directory-ask-generation-copy 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Answer entity highlights preserve a single white narrative tone. */
+.directory-ask-hl { color: rgba(249, 250, 251, 0.98); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) {
+  .directory-ask-orb,
+  .directory-ask-generating-orb,
+  .directory-ask-generation-copy { animation: none; }
+}
