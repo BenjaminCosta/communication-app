@@ -13,7 +13,7 @@ import { ArrowLeft, Check, Copy, Link2, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppsButton, StatusPill } from "@/components/applications/ui/apps-primitives"
 import { AppsTextarea } from "@/components/applications/ui/apps-form"
-import { issueApplicationLink } from "@/features/applications/mock-applications"
+import { issueApplicationLink } from "@/features/applications/candidate-links"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import { saveApplicationLink } from "@/lib/applications-writes"
 import {

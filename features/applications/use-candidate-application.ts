@@ -4,11 +4,11 @@
  * State for the candidate application flow.
  *
  * Two modes behind one surface, chosen by NEXT_PUBLIC_APPLICATIONS_BACKEND:
- *  - mock: everything is local; opens instantly. The demo path.
+ *  - mock: everything is local (no fake data — a blank draft). The preview/dev
+ *    path; opens instantly, nothing is persisted.
  *  - live: the browser opens a session (custom token) and reads/writes the real
  *    /applications doc. Edits are optimistic locally and persisted with a
- *    debounced autosave. File bytes (documents/video) are NOT uploaded yet —
- *    that is a later phase; only the metadata the candidate enters is saved.
+ *    debounced autosave; documents and the intro video upload to Storage.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -29,7 +29,7 @@ import {
   type SignatureDraft,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { applicationById, applicationByToken, linkForToken } from "@/features/applications/mock-applications"
+import { applicationById, applicationByToken, linkForToken } from "@/features/applications/candidate-links"
 import {
   openCandidateSession,
   signCandidateAgreement,
@@ -94,7 +94,7 @@ export function useCandidateApplication(token: string, options: CandidateApplica
   const [mockEntry] = useState(() => {
     if (live) return null
     const link = linkForToken(token)
-    const application = applicationById(link.applicationId) ?? applicationByToken(token)
+    const application = applicationById() ?? applicationByToken(token)
     return { link, application, step: initialStepForLink(link, application) }
   })
 

@@ -19,7 +19,7 @@ import {
   type LinkPurpose,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { generateLinkToken, issueApplicationLink, revokeApplicationLink } from "@/features/applications/mock-applications"
+import { generateLinkToken, issueApplicationLink, revokeApplicationLink } from "@/features/applications/candidate-links"
 import {
   createApplication,
   revokeApplicationLinkDoc,

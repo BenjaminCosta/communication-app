@@ -46,7 +46,7 @@ import {
 import { RequestInfoScreen } from "@/components/applications/dashboard/request-info-screen"
 import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-sheet"
 import { useShareLink } from "@/features/applications/use-share-link"
-import { issueApplicationLink } from "@/features/applications/mock-applications"
+import { issueApplicationLink } from "@/features/applications/candidate-links"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
   AGREEMENT_STATUS_META,

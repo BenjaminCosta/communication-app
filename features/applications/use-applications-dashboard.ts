@@ -23,7 +23,6 @@ import {
   type CandidateApplication,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { MOCK_APPLICATIONS, MOCK_JOBS } from "@/features/applications/mock-applications"
 import {
   approveApplication,
   archiveApplication,
@@ -45,9 +44,9 @@ function eventId(): string {
 }
 
 export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "") {
-  const [applications, setApplications] = useState<CandidateApplication[]>(() =>
-    APPLICATIONS_BACKEND_ENABLED ? [] : MOCK_APPLICATIONS.map((application) => ({ ...application })),
-  )
+  // No fake data: the pipeline is empty until real applications arrive (live)
+  // or an invite creates one. Flag-off dev shows an empty dashboard.
+  const [applications, setApplications] = useState<CandidateApplication[]>([])
   const [isLoading, setIsLoading] = useState(APPLICATIONS_BACKEND_ENABLED)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [filters, setFilters] = useState<ApplicationFilters>(emptyFilters)
@@ -208,7 +207,6 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const jobs = useMemo(() => {
-    if (!APPLICATIONS_BACKEND_ENABLED) return MOCK_JOBS
     // Job filter options come from what is actually in the pipeline.
     const byId = new Map<string, CandidateApplication["job"]>()
     applications.forEach((application) => {
