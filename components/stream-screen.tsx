@@ -103,6 +103,7 @@ interface StreamScreenProps {
   onCalendar: () => void
   onContexts: () => void
   onDirectory: () => void
+  onApplications: () => void
   onCopyMessage: (text: string) => void
   contexts?: AppContext[]
   onSendMessage: (draft: MessageDraft) => Promise<void>
@@ -148,6 +149,7 @@ export function StreamScreen({
   onCalendar,
   onContexts,
   onDirectory,
+  onApplications,
   onCopyMessage,
   contexts = [],
   onSendMessage,
@@ -495,7 +497,10 @@ export function StreamScreen({
       <div className="glass-panel flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b animate-slide-down">
         <ModuleSwitcher
           activeModule="communications"
-          onSelect={(module) => { if (module === "directory") onDirectory() }}
+          onSelect={(module) => {
+            if (module === "directory") onDirectory()
+            if (module === "applications") onApplications()
+          }}
         />
         <div className="flex items-center gap-2">
           {/* Search */}

@@ -42,6 +42,7 @@ import { haptic, getUserAvatarColor } from "@/lib/utils"
 import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
+import { useApplicationsDashboard } from "@/features/applications/use-applications-dashboard"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
@@ -61,6 +62,9 @@ const ContextDetailScreen = dynamic(() => import("@/components/context-detail-sc
 const DirectoryScreen = dynamic(() => import("@/components/directory/directory-screen").then((m) => ({ default: m.DirectoryScreen })), { ssr: false })
 const DirectoryProfileScreen = dynamic(() => import("@/components/directory/directory-profile-screen").then((m) => ({ default: m.DirectoryProfileScreen })), { ssr: false })
 const HelpScreen = dynamic(() => import("@/components/help-screen").then((m) => ({ default: m.HelpScreen })), { ssr: false })
+const ApplicationsListScreen = dynamic(() => import("@/components/applications/dashboard/applications-list-screen").then((m) => ({ default: m.ApplicationsListScreen })), { ssr: false })
+const ApplicationDetailScreen = dynamic(() => import("@/components/applications/dashboard/application-detail-screen").then((m) => ({ default: m.ApplicationDetailScreen })), { ssr: false })
+const CandidateFlowScreen = dynamic(() => import("@/components/applications/candidate/candidate-flow-screen").then((m) => ({ default: m.CandidateFlowScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -111,6 +115,9 @@ type Screen =
   | "context-detail"
   | "directory"
   | "directory-detail"
+  | "applications"
+  | "application-detail"
+  | "apply"
   | "help"
 
 // Depth map — higher = further in the hierarchy
@@ -133,17 +140,29 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "context-detail": 5,
   directory: 1,
   "directory-detail": 2,
+  applications: 1,
+  "application-detail": 2,
+  // The candidate flow is its own root: it is reached by link, not by drilling in.
+  apply: 0,
 }
 
 // Remembers which module (Communications vs Directory) the user was last in,
 // so reopening the app resumes there instead of always defaulting to Comms.
 const LAST_MODULE_KEY = "svc-last-module"
-type SvcModuleName = "communications" | "directory"
+type SvcModuleName = "communications" | "directory" | "applications"
+
+/** Secure candidate link: ?apply=<token>. Works before sign-in. */
+function getApplyDeepLink(): string | null {
+  if (typeof window === "undefined") return null
+  return new URLSearchParams(window.location.search).get("apply")?.trim() || null
+}
 
 function getLastModule(): SvcModuleName | null {
   if (typeof window === "undefined") return null
-  const lastModule = localStorage.getItem(LAST_MODULE_KEY) === "directory" ? "directory" : null
-  if (lastModule) document.cookie = `${LAST_MODULE_KEY}=directory; path=/; max-age=31536000; samesite=lax`
+  const stored = localStorage.getItem(LAST_MODULE_KEY)
+  const lastModule = stored === "directory" ? "directory" : stored === "applications" ? "applications" : null
+  // Only Directory has a launch-splash variant; Applications resumes without one.
+  if (lastModule === "directory") document.cookie = `${LAST_MODULE_KEY}=directory; path=/; max-age=31536000; samesite=lax`
   return lastModule
 }
 
@@ -152,6 +171,11 @@ function persistLastModule(screen: Screen): void {
   let module: SvcModuleName | null = null
   if (screen === "directory" || screen === "directory-detail") {
     module = "directory"
+  } else if (screen === "applications" || screen === "application-detail") {
+    module = "applications"
+  } else if (screen === "apply") {
+    // Candidate sessions must never change what an internal user resumes into.
+    return
   } else if (screen !== "loading" && screen !== "login" && screen !== "register") {
     module = "communications"
   }
@@ -241,6 +265,11 @@ export default function Home() {
   const [selectedContextData, setSelectedContextData] = useState<AppContext | null>(null)
   const [selectedContextLoading, setSelectedContextLoading] = useState(false)
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
+  // ── Applications (mock data for now — see features/applications) ───────
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
+  const [applyToken, setApplyToken] = useState<string | null>(null)
+  // Read once at mount so the candidate link survives the auth round-trip.
+  const applyTokenRef = useRef<string | null>(getApplyDeepLink())
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [contextsLoaded, setContextsLoaded] = useState(false)
@@ -348,6 +377,15 @@ export default function Home() {
   // ── Auth state listener ───────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
+      // A candidate link owns the session regardless of sign-in state: the
+      // person filling it in is not an SVC user. Crucially, do NOT set
+      // firebaseUser here — that would start the whole-app Firestore listeners
+      // (users/projects/contacts/…), which the candidate has no access to. The
+      // candidate flow manages its own custom-token sign-in internally.
+      if (applyTokenRef.current) {
+        navigateTo("apply")
+        return
+      }
       if (user) {
         setFirebaseUser(user)
         // Build preliminary currentUser from auth token (instant, no network)
@@ -1344,6 +1382,25 @@ export default function Home() {
     navigateTo("directory")
   }, [navigateTo])
   const handleDirectorySwitchToStream = useCallback(() => navigateTo("stream"), [navigateTo])
+
+  // ── Applications navigation ───────────────────────────────────────────
+  const goToApplications = useCallback(() => navigateTo("applications"), [navigateTo])
+  const goToApplicationDetail = useCallback((applicationId: string) => {
+    setSelectedApplicationId(applicationId)
+    navigateTo("application-detail")
+  }, [navigateTo])
+  const handleApplicationDetailBack = useCallback(() => {
+    setSelectedApplicationId(null)
+    navigateTo("applications")
+  }, [navigateTo])
+  const handlePreviewCandidateFlow = useCallback((token: string) => {
+    setApplyToken(token)
+    navigateTo("apply")
+  }, [navigateTo])
+  const handleExitCandidatePreview = useCallback(() => {
+    setApplyToken(null)
+    navigateTo("applications")
+  }, [navigateTo])
   const handlePostOutlook = useCallback((payload: OutlookPostPayload) => {
     setComposeInitialProjectId(null)
     setComposeInitialText(payload.text)
@@ -1522,6 +1579,15 @@ export default function Home() {
     ),
     [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter, selectedContextFilter]
   )
+
+  // Applications runs entirely on local mock state in this phase.
+  const applicationsDashboard = useApplicationsDashboard(currentUser?.name ?? "You", firebaseUser?.uid ?? "")
+  const selectedApplication = applicationsDashboard.getApplication(selectedApplicationId)
+  // Activity is a subcollection: the hook only subscribes to the open candidate.
+  const setApplicationsSelection = applicationsDashboard.setSelectedId
+  useEffect(() => {
+    setApplicationsSelection(selectedApplicationId)
+  }, [selectedApplicationId, setApplicationsSelection])
 
   const activeStreamFilters = useMemo(() => ({
     peopleIds: selectedPeopleFilter,
@@ -1712,6 +1778,7 @@ export default function Home() {
               initialIndex={catalogIndex}
               onOpenDetail={goToDirectoryDetail}
               onSwitchToStream={handleDirectorySwitchToStream}
+              onSwitchToApplications={goToApplications}
             />
             {activeScreen === "directory-detail" && selectedDirectoryId && (
               <DirectoryProfileScreen
@@ -1726,6 +1793,46 @@ export default function Home() {
             )}
           </div>
         </DirectoryStateProvider>
+      )}
+
+      {/* Candidate flow — reached by secure link (?apply=…) or previewed from
+          the dashboard. Deliberately usable without an SVC account. */}
+      {!showScreenSkeleton && activeScreen === "apply" && (
+        <CandidateFlowScreen
+          className={entranceClass}
+          token={applyToken ?? applyTokenRef.current ?? "demo"}
+          onExit={applyTokenRef.current ? undefined : handleExitCandidatePreview}
+          // Only a token that arrived in the URL is a real candidate session;
+          // dashboard previews stay on mock so they can't disturb the reviewer.
+          preview={!applyTokenRef.current}
+        />
+      )}
+
+      {!showScreenSkeleton && (activeScreen === "applications" || activeScreen === "application-detail") && firebaseUser && (
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <ApplicationsListScreen
+            className={activeScreen === "applications" ? `${entranceClass} h-full w-full` : "hidden"}
+            dashboard={applicationsDashboard}
+            onOpenApplication={goToApplicationDetail}
+            onSwitchToStream={goToStream}
+            onSwitchToDirectory={goToDirectoryFromStream}
+            onPreviewCandidateFlow={handlePreviewCandidateFlow}
+          />
+          {activeScreen === "application-detail" && selectedApplication && (
+            <ApplicationDetailScreen
+              className={entranceClass}
+              application={selectedApplication}
+              onBack={handleApplicationDetailBack}
+              onRequestInfo={(message) => applicationsDashboard.requestInfo(selectedApplication.id, message)}
+              onApprove={() => applicationsDashboard.approve(selectedApplication.id)}
+              onArchive={() => {
+                applicationsDashboard.archive(selectedApplication.id)
+                handleApplicationDetailBack()
+              }}
+              onPreviewCandidateFlow={handlePreviewCandidateFlow}
+            />
+          )}
+        </div>
       )}
 
       {!showScreenSkeleton && activeScreen === "contexts" && (
@@ -1791,6 +1898,7 @@ export default function Home() {
             onCalendar={goToCalendar}
             onContexts={goToContextsFromStream}
             onDirectory={goToDirectoryFromStream}
+            onApplications={goToApplications}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

@@ -33,5 +33,43 @@ service firebase.storage {
         );
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
+
+    // ── SVC Applications ────────────────────────────────────────────────────
+    // Candidate uploads (documents + intro video), scoped by the same custom
+    // token claim as the Firestore rules: only the candidate for THIS
+    // application may write, any authenticated SVC user (staff) may read.
+    function appIsStaff() {
+      return request.auth != null && !('applicationId' in request.auth.token);
+    }
+    function appIsCandidate(applicationId) {
+      return request.auth != null && request.auth.token.applicationId == applicationId;
+    }
+
+    match /application-uploads/{applicationId}/documents/{allPaths=**} {
+      allow read: if appIsStaff() || appIsCandidate(applicationId);
+      allow create, update: if appIsCandidate(applicationId)
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType != null
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+        );
+      allow delete: if appIsCandidate(applicationId);
+    }
+
+    match /application-uploads/{applicationId}/video/{allPaths=**} {
+      allow read: if appIsStaff() || appIsCandidate(applicationId);
+      allow create, update: if appIsCandidate(applicationId)
+        && request.resource.size < 200 * 1024 * 1024
+        && request.resource.contentType != null
+        && request.resource.contentType.matches('video/.*');
+      allow delete: if appIsCandidate(applicationId);
+    }
+
+    // Sealed agreement PDFs — written by the server (Admin SDK) only; staff read.
+    match /application-agreements/{applicationId}/{allPaths=**} {
+      allow read: if appIsStaff() || appIsCandidate(applicationId);
+      allow write: if false;
+    }
   }
 }

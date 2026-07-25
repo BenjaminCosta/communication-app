@@ -1000,3 +1000,116 @@ body[data-svc-launch-module="directory"] .launch-loading-directory { display: fl
   .directory-ask-generating-orb,
   .directory-ask-generation-copy { animation: none; }
 }
+
+/* ── SVC Applications ────────────────────────────────────────────────────────
+   Applications is the one light module. `@theme inline` resolves every color
+   utility to var(--token) at use-site, so redefining the base tokens on this
+   wrapper re-themes Tailwind utilities AND every shadcn primitive rendered
+   inside it — no forked components, no `dark:` variants. Module-specific
+   tokens (--apps-*) carry the identity colors on top. */
+.applications-scope {
+  --background: #F5F8FC;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #1D4ED8;
+  --secondary: #EDF4FA;
+  --secondary-foreground: #0F172A;
+  --muted: #EDF4FA;
+  --muted-foreground: #64748B;
+  --accent: #EDF4FA;
+  --accent-foreground: #0F172A;
+  --border: #D8E3EE;
+  --input: #D8E3EE;
+  --ring: #2563EB;
+  --destructive: #F97373;
+  --destructive-foreground: #FFFFFF;
+
+  /* Identity */
+  --apps-surface: #FFFFFF;
+  --apps-surface-2: #EDF4FA;
+  --apps-blue: #2563EB;
+  --apps-blue-strong: #1D4ED8;
+  --apps-sky: #38BDF8;
+  --apps-blue-soft: #DBEAFE;
+  --apps-text: #0F172A;
+  --apps-text-muted: #64748B;
+  --apps-border: #D8E3EE;
+
+  /* Semantic states */
+  --apps-ai: #8B5CF6;
+  --apps-ai-soft: #F1EBFE;
+  --apps-complete: #22C55E;
+  --apps-complete-soft: #DCFCE7;
+  --apps-pending: #F59E0B;
+  --apps-pending-soft: #FEF3C7;
+  --apps-missing: #F97373;
+  --apps-missing-soft: #FEE7E7;
+
+  color: var(--apps-text);
+  background-color: #F5F8FC;
+  /* Light surface under a dark app shell: keep text rendering crisp. */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Page background: a barely-there blue wash so cards read as elevated. */
+.applications-canvas {
+  background:
+    radial-gradient(circle at 12% -6%, rgba(56, 189, 248, 0.10), transparent 34%),
+    radial-gradient(circle at 96% 4%, rgba(37, 99, 235, 0.06), transparent 30%),
+    #F5F8FC;
+}
+
+.applications-topbar {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--apps-border);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Single elevation step — subtle, never glassy. */
+.applications-card {
+  background: var(--apps-surface);
+  border: 1px solid var(--apps-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.045);
+}
+
+.applications-card-flat {
+  background: var(--apps-surface);
+  border: 1px solid var(--apps-border);
+}
+
+.applications-primary-button {
+  background: linear-gradient(180deg, var(--apps-blue), var(--apps-blue-strong));
+  box-shadow: 0 1px 2px rgba(29, 78, 216, 0.24), 0 8px 20px rgba(37, 99, 235, 0.22);
+}
+.applications-primary-button:active:not(:disabled) { transform: scale(0.985); }
+.applications-primary-button:disabled {
+  background: #CBD8E6;
+  box-shadow: none;
+}
+
+.applications-tap {
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.applications-tap:active { transform: scale(0.99); }
+
+/* Candidate steps enter as a soft push; reviewers get the same motion budget
+   as the rest of the app (transform + opacity only). */
+@keyframes applications-step-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.applications-step-enter {
+  animation: applications-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .applications-step-enter { animation: none; }
+  .applications-tap:active,
+  .applications-primary-button:active:not(:disabled) { transform: none; }
+}

@@ -29,12 +29,20 @@ interface DirectoryScreenProps {
   initialIndex?: DirectorySearchIndex | null
   onOpenDetail: (directoryId: string) => void
   onSwitchToStream: () => void
+  onSwitchToApplications: () => void
   className?: string
 }
 
 const PAGE_SIZE = 50
 
-export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onSwitchToStream, className }: DirectoryScreenProps) {
+export function DirectoryScreen({
+  userId,
+  initialIndex = null,
+  onOpenDetail,
+  onSwitchToStream,
+  onSwitchToApplications,
+  className,
+}: DirectoryScreenProps) {
   const [draftQuery, setDraftQuery] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
   const [scope, setScope] = useState<DirectoryScope>("all")
@@ -224,7 +232,10 @@ export function DirectoryScreen({ userId, initialIndex = null, onOpenDetail, onS
       <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
         <ModuleSwitcher
           activeModule="directory"
-          onSelect={(module) => { if (module === "communications") onSwitchToStream() }}
+          onSelect={(module) => {
+            if (module === "communications") onSwitchToStream()
+            if (module === "applications") onSwitchToApplications()
+          }}
         />
         <button
           type="button"

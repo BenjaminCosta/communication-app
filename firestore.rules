@@ -256,5 +256,69 @@ service cloud.firestore {
     match /outlookAiUsage/{userHash} {
       allow read, write: if false;
     }
+    // ── Applications ───────────────────────────────────────────────────────
+    // DEPLOYED TO PRODUCTION 2026-07-24. Two audiences over one
+    // collection, decided 2026-07-23:
+    //   * Staff  = any authenticated user with NO applicationId claim. There
+    //     are no reviewer roles, so the activity subcollection (with actorUid)
+    //     is the audit trail.
+    //   * Candidate = a link session, identified by a custom-token claim.
+    // Defining staff by the ABSENCE of the claim is what stops a candidate
+    // session from reviewing (and approving) its own application.
+    function appIsStaff() {
+      return request.auth != null && !('applicationId' in request.auth.token);
+    }
+    function appIsCandidate(applicationId) {
+      return request.auth != null && request.auth.token.applicationId == applicationId;
+    }
+    function appTouchesOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    match /applications/{applicationId} {
+      allow read:   if appIsStaff() || appIsCandidate(applicationId);
+      allow create: if appIsStaff();
+      allow update: if (
+                      appIsStaff()
+                      // The agreement gates payroll: only the server writes it.
+                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['agreement'])
+                    ) || (
+                      appIsCandidate(applicationId)
+                      // Only while the ball is in their court.
+                      && resource.data.status in ['draft', 'needs_information']
+                      && appTouchesOnly(['general', 'video', 'documents', 'status', 'updatedAt', 'submittedAt'])
+                      // Keep the status, or submit. Never anything else —
+                      // this is what stops a candidate approving themselves.
+                      && (
+                        request.resource.data.status == resource.data.status
+                        || request.resource.data.status == 'submitted'
+                      )
+                    );
+      allow delete: if false;
+
+      // Append-only history. Nothing edits or deletes an audit entry.
+      match /activity/{eventId} {
+        allow read:   if appIsStaff() || appIsCandidate(applicationId);
+        allow create: if (appIsStaff() && request.resource.data.actorUid == request.auth.uid)
+                      || appIsCandidate(applicationId);
+        allow update, delete: if false;
+      }
+    }
+
+    // Secure links. Resolving a token happens server-side (Admin SDK), so the
+    // client can read nothing here — otherwise anyone could enumerate live
+    // links and open someone else's application.
+    match /applicationLinks/{tokenHash} {
+      allow read:   if false;
+      allow create, update: if appIsStaff();
+      allow delete: if false;
+    }
+
+    // Signature evidence — written by the server only.
+    match /applicationAgreements/{agreementId} {
+      allow read:  if appIsStaff();
+      allow write: if false;
+    }
+
   }
 }

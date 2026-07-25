@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { BookUser, Check, ChevronDown, MessageCircle, X } from "lucide-react"
+import { BookUser, Check, ChevronDown, ClipboardCheck, MessageCircle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type SvcModule = "communications" | "directory"
+export type SvcModule = "communications" | "directory" | "applications"
 
 interface ModuleSwitcherProps {
   activeModule: SvcModule
@@ -21,6 +21,9 @@ const MODULES: Array<{
   accent: string
   surface: string
   border: string
+  /** Accent for the header trigger. Defaults to `accent` — light modules
+      override it so the label keeps its contrast on a white surface. */
+  labelAccent?: string
 }> = [
   {
     id: "communications",
@@ -41,6 +44,17 @@ const MODULES: Array<{
     accent: "var(--directory-title)",
     surface: "var(--directory-title-soft)",
     border: "rgba(253,186,116,0.38)",
+  },
+  {
+    id: "applications",
+    title: "Applications",
+    description: "Hiring & onboarding",
+    productLabel: "Applications",
+    icon: ClipboardCheck,
+    accent: "#60A5FA",
+    surface: "rgba(56,189,248,0.14)",
+    border: "rgba(56,189,248,0.42)",
+    labelAccent: "#2563EB",
   },
 ]
 
@@ -67,16 +81,18 @@ export function ModuleSwitcher({ activeModule, onSelect }: ModuleSwitcherProps) 
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="group flex items-center gap-2 rounded-lg py-1 pr-1.5 text-left transition-colors hover:bg-white/[0.035] active:scale-[0.98]"
+        className="group flex items-center gap-2 rounded-lg py-1 pr-1.5 text-left transition-colors hover:bg-foreground/4 active:scale-[0.98]"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Current module: ${active.title}. Switch module`}
       >
-        <span className="text-lg font-bold tracking-tight text-white">
-          SVC <span style={{ color: active.accent }}>{active.productLabel}</span>
+        {/* Semantic tokens, not literal white: Applications re-themes them to
+            navy on its light surface. */}
+        <span className="text-lg font-bold tracking-tight text-foreground">
+          SVC <span style={{ color: active.labelAccent ?? active.accent }}>{active.productLabel}</span>
         </span>
         <ChevronDown
-          className={cn("h-4 w-4 text-white/55 transition-transform duration-200 group-hover:text-white/80", open && "rotate-180")}
+          className={cn("h-4 w-4 text-muted-foreground transition-transform duration-200 group-hover:text-foreground/80", open && "rotate-180")}
           strokeWidth={1.8}
         />
       </button>
