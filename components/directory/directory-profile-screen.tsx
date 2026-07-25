@@ -51,6 +51,7 @@ type ProfileTab = "overview" | "outlook" | "related" | "notes" | "files"
 interface DirectoryProfileScreenProps {
   directoryId: string
   userId: string
+  initialView?: "profile" | "outlook"
   onBack: () => void
   onOpenEntity: (directoryId: string) => void
   companies?: Array<{ id: string; name: string }>
@@ -61,6 +62,7 @@ interface DirectoryProfileScreenProps {
 export function DirectoryProfileScreen({
   directoryId,
   userId,
+  initialView = "profile",
   onBack,
   onOpenEntity,
   companies = [],
@@ -109,8 +111,8 @@ export function DirectoryProfileScreen({
     setRelationsCursor(null)
     setHasMoreRelations(false)
     setFullRelationsLoaded(false)
-    setTab("overview")
-    setFullOutlook(false)
+    setTab(initialView === "outlook" ? "outlook" : "overview")
+    setFullOutlook(initialView === "outlook")
     setShowAdmin(false)
     setShowEdit(false)
     loadDirectoryProfileViewModel(directoryId, reloadKey > 0)
@@ -125,7 +127,7 @@ export function DirectoryProfileScreen({
       })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
-  }, [directoryId, userId, reloadKey])
+  }, [directoryId, initialView, reloadKey, userId])
 
   // Resolve safe relationships + recent activity once the entity is known
   // (best-effort, non-blocking — the About narrative refines as they arrive).

@@ -150,11 +150,23 @@ const SCREEN_DEPTH: Record<Screen, number> = {
 // so reopening the app resumes there instead of always defaulting to Comms.
 const LAST_MODULE_KEY = "svc-last-module"
 type SvcModuleName = "communications" | "directory" | "applications"
+type DirectoryDeepLinkView = "profile" | "outlook"
 
 /** Secure candidate link: ?apply=<token>. Works before sign-in. */
 function getApplyDeepLink(): string | null {
   if (typeof window === "undefined") return null
   return new URLSearchParams(window.location.search).get("apply")?.trim() || null
+}
+
+function getDirectoryDeepLink(): { directoryId: string; view: DirectoryDeepLinkView } | null {
+  if (typeof window === "undefined") return null
+  const params = new URLSearchParams(window.location.search)
+  const directoryId = params.get("directory")?.trim()
+  if (!directoryId) return null
+  return {
+    directoryId,
+    view: params.get("view") === "outlook" ? "outlook" : "profile",
+  }
 }
 
 function getLastModule(): SvcModuleName | null {
@@ -265,6 +277,7 @@ export default function Home() {
   const [selectedContextData, setSelectedContextData] = useState<AppContext | null>(null)
   const [selectedContextLoading, setSelectedContextLoading] = useState(false)
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
+  const [directoryDetailView, setDirectoryDetailView] = useState<DirectoryDeepLinkView>("profile")
   // ── Applications (mock data for now — see features/applications) ───────
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [applyToken, setApplyToken] = useState<string | null>(null)
@@ -402,9 +415,18 @@ export default function Home() {
           email: user.email ?? undefined,
           emailNormalized,
         })
-        // Navigate immediately — don't block on Firestore. Default is Compose
-        // (Communications), unless the user's last session was in Directory.
-        navigateTo(getLastModule() === "directory" ? "directory" : "compose")
+        // Navigate immediately — don't block on Firestore. A shared Directory
+        // link takes precedence over the user's last module.
+        const directoryDeepLink = getDirectoryDeepLink()
+        if (directoryDeepLink) {
+          setSelectedDirectoryId(directoryDeepLink.directoryId)
+          setDirectoryDetailView(directoryDeepLink.view)
+          navigateTo("directory-detail")
+        } else {
+          // Default is Compose (Communications), unless the user's last
+          // session was in Directory.
+          navigateTo(getLastModule() === "directory" ? "directory" : "compose")
+        }
         // Background auth metadata update. Do not lead with a one-shot getDoc:
         // it can race the realtime listeners and trip Firebase's ca9/b815 bug.
         // Missing display fields are filled after the persistent users snapshot.
@@ -1375,10 +1397,12 @@ export default function Home() {
   const goToDirectoryFromStream = useCallback(() => navigateTo("directory"), [navigateTo])
   const goToDirectoryDetail = useCallback((directoryId: string) => {
     setSelectedDirectoryId(directoryId)
+    setDirectoryDetailView("profile")
     navigateTo("directory-detail")
   }, [navigateTo])
   const handleDirectoryDetailBack = useCallback(() => {
     setSelectedDirectoryId(null)
+    setDirectoryDetailView("profile")
     navigateTo("directory")
   }, [navigateTo])
   const handleDirectorySwitchToStream = useCallback(() => navigateTo("stream"), [navigateTo])
@@ -1785,6 +1809,7 @@ export default function Home() {
                 className={entranceClass}
                 directoryId={selectedDirectoryId}
                 userId={firebaseUser.uid}
+                initialView={directoryDetailView}
                 onBack={handleDirectoryDetailBack}
                 onOpenEntity={goToDirectoryDetail}
                 companies={directoryCompanies}
