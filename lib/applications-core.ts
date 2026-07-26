@@ -572,6 +572,7 @@ export type ActivityKind =
   | "message_copied"
   | "message_shared"
   | "agreement_signed"
+  | "hired"
   | "note"
 
 export interface ActivityEvent {
@@ -808,7 +809,7 @@ export function nextActionLabel(application: CandidateApplication): string {
     case "agreement_pending":
       return AGREEMENT_STATUS_META[application.agreement.status].label
     case "payroll_in_progress":
-      return "Payroll setup running"
+      return "Finish payroll and mark hired"
     case "hired":
       return "Onboarded"
     case "archived":
@@ -822,7 +823,19 @@ export function canApprove(status: ApplicationStatus): boolean {
 }
 
 export function canRequestInfo(status: ApplicationStatus): boolean {
-  return status !== "archived" && status !== "hired"
+  return (
+    status === "draft" ||
+    status === "submitted" ||
+    status === "needs_information" ||
+    status === "ready_for_review" ||
+    status === "approved" ||
+    status === "agreement_pending"
+  )
+}
+
+/** The internal final step, available once the signed agreement reaches payroll. */
+export function canMarkHired(status: ApplicationStatus): boolean {
+  return status === "payroll_in_progress"
 }
 
 export function canArchive(status: ApplicationStatus): boolean {

@@ -25,6 +25,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
   type Unsubscribe,
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
@@ -263,6 +264,23 @@ export async function archiveApplication(applicationId: string, reviewer: Review
     actorUid: reviewer.uid,
     message: "Archived the application",
   })
+}
+
+/** Final internal onboarding step after the candidate has signed the agreement. */
+export async function markApplicationHired(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
+  const batch = writeBatch(db)
+  batch.update(doc(db, APPLICATIONS_COLLECTION, applicationId), {
+    status: "hired",
+    updatedAt: serverTimestamp(),
+  })
+  batch.set(doc(collection(db, APPLICATIONS_COLLECTION, applicationId, APPLICATION_ACTIVITY_SUBCOLLECTION)), {
+    kind: "hired",
+    actor: reviewer.name,
+    actorUid: reviewer.uid,
+    message: "Completed payroll setup and marked the candidate as hired",
+    at: serverTimestamp(),
+  })
+  await batch.commit()
 }
 
 export async function startApplicationReview(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {

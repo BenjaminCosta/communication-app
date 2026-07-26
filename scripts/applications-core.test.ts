@@ -6,6 +6,7 @@ import {
   applicationLinkUrl,
   blankApplication,
   canApprove,
+  canMarkHired,
   candidateStep,
   candidateUid,
   composeRequestMessage,
@@ -162,6 +163,12 @@ test("approval is only offered on reviewable statuses", () => {
   assert.equal(canApprove("ready_for_review"), true)
   assert.equal(canApprove("archived"), false)
   assert.equal(canApprove("hired"), false)
+})
+
+test("payroll completion is the only path to the hired action", () => {
+  assert.equal(canMarkHired("approved"), false)
+  assert.equal(canMarkHired("payroll_in_progress"), true)
+  assert.equal(canMarkHired("hired"), false)
 })
 
 test("every status has display metadata", () => {

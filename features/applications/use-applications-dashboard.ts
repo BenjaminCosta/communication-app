@@ -27,6 +27,7 @@ import { subscribeMockApplications, updateMockApplication } from "@/features/app
 import {
   approveApplication,
   archiveApplication,
+  markApplicationHired,
   recordApplicationActivity,
   requestApplicationInfo,
   startApplicationReview,
@@ -216,6 +217,31 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     [localEvent, patchLocal, reviewer],
   )
 
+  const markHired = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await markApplicationHired(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The candidate could not be marked as hired.")
+          return false
+        }
+      }
+
+      patchLocal(id, (application) => ({
+        ...application,
+        status: "hired",
+        updatedAt: nowIso(),
+        activity: [
+          ...application.activity,
+          localEvent("hired", "Completed payroll setup and marked the candidate as hired"),
+        ],
+      }))
+      return true
+    },
+    [localEvent, patchLocal, reviewer],
+  )
+
   const startReview = useCallback(
     (id: string) => {
       patchLocal(id, (application) => ({
@@ -287,6 +313,7 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     approve,
     recordActivity,
     archive,
+    markHired,
     startReview,
   }
 }

@@ -41,6 +41,10 @@
   link de acuerdo de 72 h y abre un bottom sheet con Share, SMS, copiar mensaje
   y copiar link. También se auditan link generado/abierto, mensaje compartido o
   copiado y acuerdo firmado.
+- **Post-firma funcional**: cuando el candidato firma, la aplicación pasa a
+  `payroll_in_progress` y el dashboard muestra el siguiente paso: completar
+  payroll y marcarla como `hired`. En mock esa firma se persiste en el mismo
+  registro local que consume el dashboard; en live se escribe con Admin SDK.
 - **Invite usable**: "Invite a candidate" pide nombre + trade + job, crea la
   aplicación real y su link persistido (`/applicationLinks`). Ya no es un draft
   en blanco.
@@ -465,8 +469,9 @@ cambia después.
   nada. La API valida el claim del candidato, embebe el PNG con
   `PDFDocument.embedPng()`, calcula los hashes, sube el PDF y actualiza el
   estado en una sola transacción.
-- **Desbloqueo de payroll**: trigger que reacciona a `signed`, no una escritura
-  del cliente.
+- **Desbloqueo de payroll**: la misma transacción server-side que sella la
+  firma cambia el estado a `payroll_in_progress`; nunca una escritura del
+  cliente candidato.
 
 ### Sobre el valor legal
 
@@ -478,8 +483,9 @@ con gente real.
 
 ### Payroll
 
-Sigue sin sistema destino definido. Hasta que se defina,
-`payroll_in_progress` es un estado que alguien mueve a mano después de la firma.
+Sigue sin sistema destino definido. La firma entra automáticamente a
+`payroll_in_progress`; cuando payroll e onboarding interno terminan, un revisor
+la marca como `hired` desde el dashboard.
 
 ## Fases sugeridas
 

@@ -1850,6 +1850,7 @@ export default function Home() {
               onBack={handleApplicationDetailBack}
               onRequestInfo={(message) => applicationsDashboard.requestInfo(selectedApplication.id, message)}
               onApprove={() => applicationsDashboard.approve(selectedApplication.id)}
+              onMarkHired={() => applicationsDashboard.markHired(selectedApplication.id)}
               reviewer={applicationsDashboard.reviewer}
               onRecordActivity={(kind, message) => applicationsDashboard.recordActivity(selectedApplication.id, kind, message)}
               onArchive={() => {

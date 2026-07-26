@@ -443,34 +443,37 @@ export function useCandidateApplication(token: string, options: CandidateApplica
         return
       }
 
-      setApplication((current) => {
-        if (!current) return current
-        return {
-          ...current,
-          status: "payroll_in_progress",
-          updatedAt: nowIso(),
-          agreement: {
-            ...current.agreement,
-            status: "signed",
-            signedAt: nowIso(),
-            signedVersion: OPERATING_AGREEMENT_TEMPLATE.version,
-            signedName: name,
+      if (!application) return
+      const signedAt = nowIso()
+      const next: CandidateApplication = {
+        ...application,
+        status: "payroll_in_progress",
+        updatedAt: signedAt,
+        agreement: {
+          ...application.agreement,
+          status: "signed",
+          signedAt,
+          signedVersion: OPERATING_AGREEMENT_TEMPLATE.version,
+          signedName: name,
+        },
+        activity: [
+          ...application.activity,
+          {
+            id: `evt-${Date.now()}`,
+            kind: "agreement_signed",
+            actor: "Candidate",
+            message: `Signed the operating agreement (v${OPERATING_AGREEMENT_TEMPLATE.version})`,
+            at: signedAt,
           },
-          activity: [
-            ...current.activity,
-            {
-              id: `evt-${Date.now()}`,
-              kind: "agreement_signed",
-              actor: "Candidate",
-              message: `Signed the operating agreement (v${OPERATING_AGREEMENT_TEMPLATE.version})`,
-              at: nowIso(),
-            },
-          ],
-        }
-      })
+        ],
+      }
+      // The mock dashboard subscribes to this same registry. Without this
+      // write it could not see the signature or its payroll status.
+      setApplication(next)
+      saveMockApplication(next)
       setStep("agreement-signed")
     },
-    [live, signature.consent, signature.typedName],
+    [application, live, signature.consent, signature.typedName],
   )
 
   const goTo = useCallback((next: CandidateStepId) => setStep(next), [])

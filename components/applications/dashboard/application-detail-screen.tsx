@@ -55,6 +55,7 @@ import {
   APPLICATION_STATUS_META,
   canApprove,
   canArchive,
+  canMarkHired,
   canRequestInfo,
   applicationLinkUrl,
   computeApplicationProgress,
@@ -129,6 +130,7 @@ interface ApplicationDetailScreenProps {
   onBack: () => void
   onRequestInfo: (message: string) => void
   onApprove: () => Promise<boolean>
+  onMarkHired: () => Promise<boolean>
   onArchive: () => void
   onPreviewCandidateFlow: (token: string) => void
   reviewer?: ReviewerIdentity
@@ -141,16 +143,18 @@ export function ApplicationDetailScreen({
   onBack,
   onRequestInfo,
   onApprove,
+  onMarkHired,
   onArchive,
   onPreviewCandidateFlow,
   reviewer,
   onRecordActivity,
 }: ApplicationDetailScreenProps) {
-  const [sheet, setSheet] = useState<"approve" | "archive" | "menu" | "documents" | "agreement" | "video" | null>(null)
+  const [sheet, setSheet] = useState<"approve" | "archive" | "hire" | "menu" | "documents" | "agreement" | "video" | null>(null)
   const shareLink = useShareLink(reviewer)
   const [requestOpen, setRequestOpen] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
+  const [isHiring, setIsHiring] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
 
   const progress = computeApplicationProgress(application)
@@ -189,6 +193,13 @@ export function ApplicationDetailScreen({
     if (!approved) return
     closeSheet()
     shareLink.openFor({ applicationId: application.id, purpose: "agreement" })
+  }
+
+  const handleMarkHired = async () => {
+    setIsHiring(true)
+    const completed = await onMarkHired()
+    setIsHiring(false)
+    if (completed) closeSheet()
   }
 
   const copyApplicationLink = () => {
@@ -324,6 +335,38 @@ export function ApplicationDetailScreen({
               </li>
             </ul>
           </AppsCard>
+
+          {application.status === "payroll_in_progress" && (
+            <AppsCard className="mt-4 border-[#FDE68A] bg-[var(--apps-pending-soft)] p-4" flat>
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#B45309]">
+                  <CheckCircle2 className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-[#8A5A08]">Agreement signed</h2>
+                  <p className="mt-1 text-[0.8125rem] leading-relaxed text-[#9A6708]">
+                    The candidate is ready for payroll. Complete your internal setup, then mark them as hired.
+                  </p>
+                </div>
+              </div>
+            </AppsCard>
+          )}
+
+          {application.status === "hired" && (
+            <AppsCard className="mt-4 border-[#BBE8C6] bg-[var(--apps-complete-soft)] p-4" flat>
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#15803D]">
+                  <CheckCircle2 className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-[#15803D]">Candidate hired</h2>
+                  <p className="mt-1 text-[0.8125rem] leading-relaxed text-[#287C42]">
+                    The agreement and payroll setup are complete. This candidate is fully onboarded.
+                  </p>
+                </div>
+              </div>
+            </AppsCard>
+          )}
 
           {/* Missing items */}
           {progress.missingItems.length > 0 && (
@@ -525,23 +568,36 @@ export function ApplicationDetailScreen({
         style={{ paddingBottom: "max(0.875rem, var(--sab))" }}
       >
         <div className="mx-auto flex w-full max-w-2xl gap-2.5">
-          <AppsButton
-            variant="secondary"
-            fullWidth
-            disabled={!canRequestInfo(application.status)}
-            onClick={() => setRequestOpen(true)}
-            icon={<MessageSquare className="h-4 w-4" strokeWidth={2} />}
-          >
-            Request info
-          </AppsButton>
-          <AppsButton
-            fullWidth
-            disabled={!canApprove(application.status)}
-            onClick={() => setSheet("approve")}
-            icon={<CheckCircle2 className="h-4.5 w-4.5" strokeWidth={2} />}
-          >
-            Approve
-          </AppsButton>
+          {canMarkHired(application.status) ? (
+            <AppsButton fullWidth onClick={() => setSheet("hire")} icon={<CheckCircle2 className="h-4.5 w-4.5" strokeWidth={2} />}>
+              Mark hired
+            </AppsButton>
+          ) : application.status === "hired" ? (
+            <div className="flex min-h-[3.25rem] w-full items-center justify-center gap-2 rounded-xl bg-[var(--apps-complete-soft)] px-5 text-[0.9375rem] font-semibold text-[#15803D]">
+              <CheckCircle2 className="h-4.5 w-4.5" strokeWidth={2.2} />
+              Onboarding complete
+            </div>
+          ) : (
+            <>
+              <AppsButton
+                variant="secondary"
+                fullWidth
+                disabled={!canRequestInfo(application.status)}
+                onClick={() => setRequestOpen(true)}
+                icon={<MessageSquare className="h-4 w-4" strokeWidth={2} />}
+              >
+                Request info
+              </AppsButton>
+              <AppsButton
+                fullWidth
+                disabled={!canApprove(application.status)}
+                onClick={() => setSheet("approve")}
+                icon={<CheckCircle2 className="h-4.5 w-4.5" strokeWidth={2} />}
+              >
+                Approve
+              </AppsButton>
+            </>
+          )}
         </div>
       </div>
 
@@ -665,26 +721,29 @@ export function ApplicationDetailScreen({
                 Send agreement link
               </AppsButton>
             )}
-            <AppsButton
-              variant="ghost"
-              fullWidth
-              icon={<FileSignature className="h-4 w-4" strokeWidth={2} />}
-              onClick={() => {
-                closeSheet()
-                // Issue a real link so the preview resolves the same way the
-                // candidate's would.
-                onPreviewCandidateFlow(
-                  issueApplicationLink({ applicationId: application.id, purpose: "agreement" }).token,
-                )
-              }}
-            >
-              Preview the signing screen
-            </AppsButton>
+            {application.agreement.status !== "signed" && (
+              <AppsButton
+                variant="ghost"
+                fullWidth
+                icon={<FileSignature className="h-4 w-4" strokeWidth={2} />}
+                onClick={() => {
+                  closeSheet()
+                  // Issue a real link so the preview resolves the same way the
+                  // candidate's would.
+                  onPreviewCandidateFlow(
+                    issueApplicationLink({ applicationId: application.id, purpose: "agreement" }).token,
+                  )
+                }}
+              >
+                Preview the signing screen
+              </AppsButton>
+            )}
           </div>
         )}
         <p className="mt-4 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3 text-xs leading-relaxed text-[var(--apps-text-muted)]">
-          Sealing the PDF, hashing it and the payroll hand-off happen server-side in a later release. The signing screen
-          itself is real UI on mock data.
+          {application.agreement.status === "signed"
+            ? "The signed agreement is on file. The next internal task is payroll setup."
+            : "The signed PDF and audit evidence are sealed server-side when the candidate signs."}
         </p>
       </AppsSheet>
 
@@ -813,6 +872,28 @@ export function ApplicationDetailScreen({
       >
         <p className="text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
           You can find archived applications again with the Status filter.
+        </p>
+      </AppsSheet>
+
+      {/* Payroll complete → hired */}
+      <AppsSheet
+        open={sheet === "hire"}
+        title={`Mark ${application.candidateName} as hired?`}
+        description="Use this after payroll and internal onboarding are complete."
+        onClose={closeSheet}
+        footer={
+          <div className="flex gap-2.5">
+            <AppsButton variant="secondary" fullWidth onClick={closeSheet}>
+              Cancel
+            </AppsButton>
+            <AppsButton fullWidth disabled={isHiring} onClick={handleMarkHired}>
+              {isHiring ? "Updating…" : "Mark hired"}
+            </AppsButton>
+          </div>
+        }
+      >
+        <p className="text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
+          The operating agreement is signed. This finalizes the candidate’s application as fully onboarded.
         </p>
       </AppsSheet>
 
