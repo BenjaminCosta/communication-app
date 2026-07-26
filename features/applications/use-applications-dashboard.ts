@@ -23,6 +23,7 @@ import {
   type CandidateApplication,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
+import { subscribeMockApplications, updateMockApplication } from "@/features/applications/candidate-links"
 import {
   approveApplication,
   archiveApplication,
@@ -58,9 +59,18 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     [reviewerUid, reviewerName],
   )
 
-  // ── Live data ─────────────────────────────────────────────────────────
+  // ── Data source ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!APPLICATIONS_BACKEND_ENABLED) return
+    if (!APPLICATIONS_BACKEND_ENABLED) {
+      // The mock pipeline is empty until a reviewer creates an invite. Unlike
+      // the retired fixture list, these are real local invite records and the
+      // candidate flow writes back to the same registry on submit.
+      return subscribeMockApplications((next) => {
+        setApplications(next)
+        setIsLoading(false)
+        setLoadError(null)
+      })
+    }
     const unsubscribe = subscribeApplications(
       (next) => {
         setApplications(next)
@@ -98,6 +108,13 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
 
   const patchLocal = useCallback(
     (id: string, patch: (application: CandidateApplication) => CandidateApplication) => {
+      if (!APPLICATIONS_BACKEND_ENABLED) {
+        const next = updateMockApplication(id, patch)
+        if (next) {
+          setApplications((current) => current.map((application) => (application.id === id ? next : application)))
+          return
+        }
+      }
       setApplications((current) => current.map((application) => (application.id === id ? patch(application) : application)))
     },
     [],

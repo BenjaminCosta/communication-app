@@ -19,7 +19,12 @@ import {
   type LinkPurpose,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { generateLinkToken, issueApplicationLink, revokeApplicationLink } from "@/features/applications/candidate-links"
+import {
+  generateLinkToken,
+  issueApplicationLink,
+  NEW_APPLICATION_MARKER,
+  revokeApplicationLink,
+} from "@/features/applications/candidate-links"
 import {
   createApplication,
   revokeApplicationLinkDoc,
@@ -28,7 +33,7 @@ import {
 } from "@/lib/applications-writes"
 
 /** Passed as `applicationId` to invite a brand-new candidate. */
-export const NEW_APPLICATION_MARKER = "new-application"
+export { NEW_APPLICATION_MARKER }
 
 export interface IssueLinkInput {
   applicationId: string
@@ -52,8 +57,12 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
 
       // A new invite needs an application to point at first.
       let applicationId = input.applicationId
+      // The application record and its first share link must use the same
+      // token. Otherwise the link shown later in candidate detail would point
+      // at an unresolvable token even though the original share sheet worked.
+      let token: string | undefined
       if (applicationId === NEW_APPLICATION_MARKER) {
-        const token = generateLinkToken()
+        token = generateLinkToken()
         const draft = blankApplication(`app-${token}`, token, input.invite)
         await createApplication(draft, reviewer ?? { uid: "", name: "You" })
         applicationId = draft.id
@@ -63,7 +72,7 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         applicationId,
         purpose: input.purpose,
         step: input.step ?? null,
-        token: generateLinkToken(),
+        token: token ?? generateLinkToken(),
       })
       await saveApplicationLink(created)
       return created
@@ -118,5 +127,5 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
 
   const close = useCallback(() => setIsOpen(false), [])
 
-  return { link, isOpen, isIssuing, error, openFor, regenerate, revoke, close }
+  return { link, request, isOpen, isIssuing, error, openFor, regenerate, revoke, close }
 }

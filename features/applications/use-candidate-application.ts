@@ -29,7 +29,7 @@ import {
   type SignatureDraft,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { applicationById, applicationByToken, linkForToken } from "@/features/applications/candidate-links"
+import { applicationById, applicationByToken, linkForToken, saveMockApplication } from "@/features/applications/candidate-links"
 import {
   openCandidateSession,
   signCandidateAgreement,
@@ -94,7 +94,7 @@ export function useCandidateApplication(token: string, options: CandidateApplica
   const [mockEntry] = useState(() => {
     if (live) return null
     const link = linkForToken(token)
-    const application = applicationById() ?? applicationByToken(token)
+    const application = applicationById(link.applicationId) ?? applicationByToken(token)
     return { link, application, step: initialStepForLink(link, application) }
   })
 
@@ -179,6 +179,7 @@ export function useCandidateApplication(token: string, options: CandidateApplica
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(() => {
         if (!live) {
+          saveMockApplication(snapshot)
           setSaveState("saved")
           return
         }
@@ -348,36 +349,41 @@ export function useCandidateApplication(token: string, options: CandidateApplica
 
   const submit = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    setApplication((current) => {
-      if (!current) return current
-      const name = current.general.fullName || current.candidateName
-      if (live && applicationIdRef.current) {
-        dirtyRef.current = false
-        // Persist the latest draft, then flip to submitted. The snapshot
-        // listener will reconcile the authoritative doc.
-        saveCandidateDraft(applicationIdRef.current, {
-          general: current.general,
-          video: current.video,
-          documents: current.documents,
-        })
-          .then(() => submitCandidateApplication(applicationIdRef.current as string, name))
-          .catch(() => setSaveState("idle"))
-      }
-      return {
-        ...current,
-        status: "submitted",
-        submittedAt: nowIso(),
-        updatedAt: nowIso(),
-        candidateName: name,
-        trade: current.general.primaryTrade || current.trade,
-        activity: [
-          ...current.activity,
-          { id: `evt-${Date.now()}`, kind: "submitted", actor: "Candidate", message: "Submitted the application", at: nowIso() },
-        ],
-      }
-    })
+    if (!application) return
+    const name = application.general.fullName || application.candidateName
+    const submittedAt = nowIso()
+    const next: CandidateApplication = {
+      ...application,
+      status: "submitted",
+      submittedAt,
+      updatedAt: submittedAt,
+      candidateName: name,
+      trade: application.general.primaryTrade || application.trade,
+      activity: [
+        ...application.activity,
+        { id: `evt-${Date.now()}`, kind: "submitted", actor: "Candidate", message: "Submitted the application", at: submittedAt },
+      ],
+    }
+    setApplication(next)
+
+    if (live && applicationIdRef.current) {
+      dirtyRef.current = false
+      // Persist the latest draft, then flip to submitted. The snapshot
+      // listener will reconcile the authoritative doc.
+      saveCandidateDraft(applicationIdRef.current, {
+        general: application.general,
+        video: application.video,
+        documents: application.documents,
+      })
+        .then(() => submitCandidateApplication(applicationIdRef.current as string, name))
+        .catch(() => setSaveState("idle"))
+    } else {
+      // The local dashboard listens to this registry, so a real mock invite
+      // immediately moves from Draft to Submitted instead of disappearing.
+      saveMockApplication(next)
+    }
     setStep("submitted")
-  }, [live])
+  }, [application, live])
 
   const updateSignature = useCallback((patch: Partial<SignatureDraft>) => {
     setSignature((current) => ({ ...current, ...patch }))

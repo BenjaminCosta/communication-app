@@ -348,6 +348,8 @@ export function ApplicationsListScreen({
         open={shareLink.isOpen}
         link={shareLink.link}
         error={shareLink.error}
+        candidateName={shareLink.request?.invite?.candidateName}
+        jobName={shareLink.request?.invite?.jobName}
         onClose={shareLink.close}
         onRegenerate={shareLink.regenerate}
         onRevoke={shareLink.revoke}

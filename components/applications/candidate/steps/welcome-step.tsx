@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, Lock } from "lucide-react"
+import { BriefcaseBusiness, Check, Lock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { StepLayout } from "@/components/applications/candidate/step-layout"
 import { AppsCard, ProgressRing } from "@/components/applications/ui/apps-primitives"
@@ -46,18 +46,38 @@ function StepNumber({ index, state }: { index: number; state: SectionState }) {
 }
 
 export function WelcomeStep({ application, progress, onContinue }: WelcomeStepProps) {
-  const started = progress.percent > 0
-  const firstName = application.general.fullName.trim().split(/\s+/)[0]
+  const invitedName = application.candidateName.trim() || application.general.fullName.trim()
+  const firstName = invitedName.split(/\s+/)[0]
+  // Name and trade can be prefilled by the reviewer. Those are context for
+  // the candidate, not evidence that they already started the form.
+  const invitedOnly =
+    application.general.fullName.trim() === application.candidateName.trim() &&
+    application.general.primaryTrade.trim() === application.trade.trim() &&
+    !application.general.phone.trim() &&
+    !application.general.email.trim() &&
+    !application.general.cityState.trim() &&
+    !application.general.yearsExperience.trim() &&
+    !application.general.resumeFileName.trim() &&
+    !application.general.workReference.trim() &&
+    application.video.state === "not_started" &&
+    application.documents.every((document) => document.status === "missing")
+  const started = !invitedOnly && progress.percent > 0
+  const displayProgress = invitedOnly ? { ...progress, percent: 0, sections: progress.sections.map((section) => ({ ...section, state: "not_started" as const })) } : progress
+  const hasOpportunityContext = Boolean(application.trade || application.job.name)
 
   const steps: Array<{ label: string; state: SectionState }> = [
-    ...progress.sections.map((section) => ({ label: section.label, state: section.state })),
-    { label: "Review", state: progress.isComplete ? "in_progress" : "not_started" },
+    ...displayProgress.sections.map((section) => ({ label: section.label, state: section.state })),
+    { label: "Review", state: displayProgress.isComplete ? "in_progress" : "not_started" },
   ]
 
   return (
     <StepLayout
-      title={started && firstName ? `Welcome back, ${firstName}` : "Complete your application"}
-      intro={`It takes around ${APPLICATION_TIME_ESTIMATE} and your progress saves automatically.`}
+      title={firstName ? (started ? `Welcome back, ${firstName}` : `Welcome, ${firstName}`) : "Complete your application"}
+      intro={
+        hasOpportunityContext
+          ? `You're applying for ${application.trade || "this opportunity"}${application.job.name ? ` at ${application.job.name}` : ""}. It takes around ${APPLICATION_TIME_ESTIMATE}.`
+          : `It takes around ${APPLICATION_TIME_ESTIMATE} and your progress saves automatically.`
+      }
       primary={{ label: started ? "Continue" : "Start application", onClick: onContinue }}
       note={
         <span className="inline-flex items-center gap-1.5">
@@ -66,18 +86,32 @@ export function WelcomeStep({ application, progress, onContinue }: WelcomeStepPr
         </span>
       }
     >
-      <AppsCard className="p-5">
+      {hasOpportunityContext && (
+        <AppsCard className="flex items-center gap-3 p-4" flat>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-blue-soft)] text-[var(--apps-blue-strong)]">
+            <BriefcaseBusiness className="h-4 w-4" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--apps-text-muted)]">Your opportunity</p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-[var(--apps-text)]">
+              {application.trade || "SVC candidate"}{application.job.name ? ` · ${application.job.name}` : ""}
+            </p>
+          </div>
+        </AppsCard>
+      )}
+
+      <AppsCard className={cn("p-5", hasOpportunityContext && "mt-3.5")}>
         <p className="text-[0.8125rem] font-semibold text-[var(--apps-text)]">Your application</p>
         <div className="mt-3.5 flex items-center gap-5">
-          <ProgressRing percent={progress.percent} />
+          <ProgressRing percent={displayProgress.percent} />
           <div className="min-w-0">
             <p className="text-sm font-bold text-[var(--apps-text)]">
-              {progress.percent === 0 ? "Ready when you are" : progress.isComplete ? "All set" : "Keep going!"}
+              {displayProgress.percent === 0 ? "Ready when you are" : displayProgress.isComplete ? "All set" : "Keep going!"}
             </p>
             <p className="mt-1 text-[0.8125rem] leading-snug text-[var(--apps-text-muted)]">
-              {progress.percent === 0
+              {displayProgress.percent === 0
                 ? "Four short steps, one at a time."
-                : progress.isComplete
+                : displayProgress.isComplete
                   ? "Review your answers and submit."
                   : "You're making great progress."}
             </p>
@@ -112,9 +146,12 @@ export function WelcomeStep({ application, progress, onContinue }: WelcomeStepPr
         </ul>
       </AppsCard>
 
-      <p className="mt-4 px-1 text-xs leading-relaxed text-[var(--apps-text-muted)]">
-        Applying for <span className="font-semibold text-[var(--apps-text)]">{application.job.name}</span> — {application.job.location}
-      </p>
+      {application.job.name && (
+        <p className="mt-4 px-1 text-xs leading-relaxed text-[var(--apps-text-muted)]">
+          Applying for <span className="font-semibold text-[var(--apps-text)]">{application.job.name}</span>
+          {application.job.location ? ` — ${application.job.location}` : ""}
+        </p>
+      )}
     </StepLayout>
   )
 }
