@@ -11,7 +11,7 @@ import "server-only"
  * Reuses the same lazily-initialized Admin app as the AI routes.
  */
 
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import {
   OPERATING_AGREEMENT_TEMPLATE,
@@ -208,47 +208,116 @@ const REQUESTABLE_STATUSES = new Set(["draft", "submitted", "needs_information",
 export type ReviewerApplicationAction = "request_info" | "archive" | "mark_hired" | "start_review"
 
 /**
- * Atomically approve an application and unlock its operating agreement. This
- * is server-only because agreement state is what gates the payroll hand-off.
+ * The raw link token only exists in this process and in the response that the
+ * reviewer immediately shares. Firestore receives its SHA-256 digest as the
+ * document id, never a replayable bearer credential.
  */
-export async function approveApplicationAndUnlockAgreement(
+function createAgreementSigningLink(applicationId: string, now: Date): ApplicationLink {
+  const token = randomBytes(32).toString("base64url")
+  const expiresAt = new Date(now.getTime() + 3 * 86_400_000)
+  return {
+    token,
+    applicationId,
+    purpose: "agreement",
+    step: null,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    revokedAt: null,
+    usedCount: 0,
+  }
+}
+
+function agreementLinkData(link: ApplicationLink, Timestamp: { fromDate(value: Date): unknown }) {
+  return {
+    applicationId: link.applicationId,
+    purpose: "agreement",
+    step: null,
+    createdAt: Timestamp.fromDate(new Date(link.createdAt)),
+    expiresAt: Timestamp.fromDate(new Date(link.expiresAt)),
+    revokedAt: null,
+    usedCount: 0,
+  }
+}
+
+async function issueAgreementSigningLink(
   applicationId: string,
   reviewer: StaffPrincipal,
-): Promise<{ approvedAt: string }> {
+  approve = false,
+): Promise<{ approvedAt: string | null; link: ApplicationLink }> {
   const id = applicationId.trim()
   if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
 
   const db = await adminFirestore()
   const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
   const { FieldValue, Timestamp } = await import("firebase-admin/firestore")
-  const approvedAt = new Date()
+  const now = new Date()
+  const link = createAgreementSigningLink(id, now)
+  const linkHash = createHash("sha256").update(link.token).digest("hex")
+  const linkRef = db.collection(APPLICATION_LINKS_COLLECTION).doc(linkHash)
 
   await db.runTransaction(async (tx) => {
     const snapshot = await tx.get(applicationRef)
     if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
     const currentStatus = String((snapshot.data() ?? {}).status ?? "")
-    if (!APPROVABLE_STATUSES.has(currentStatus)) {
-      throw new ApplicationSessionError("not-approvable", "This application can no longer be approved.", 409)
+    const currentAgreement = ((snapshot.data() ?? {}).agreement ?? {}) as { status?: unknown }
+
+    if (approve) {
+      if (!APPROVABLE_STATUSES.has(currentStatus)) {
+        throw new ApplicationSessionError("not-approvable", "This application can no longer be approved.", 409)
+      }
+    } else {
+      if (!SIGNABLE_STATUSES.has(currentStatus) || currentAgreement.status === "signed") {
+        throw new ApplicationSessionError("not-linkable", "A new agreement link can't be sent at this stage.", 409)
+      }
     }
 
     tx.update(applicationRef, {
-      status: "approved",
-      pendingRequest: null,
+      ...(approve ? { status: "approved", pendingRequest: null } : {}),
       "agreement.status": "awaiting_signature",
-      "agreement.sentAt": Timestamp.fromDate(approvedAt),
-      "agreement.expiresAt": null,
+      "agreement.sentAt": Timestamp.fromDate(now),
+      "agreement.expiresAt": Timestamp.fromDate(new Date(link.expiresAt)),
       updatedAt: FieldValue.serverTimestamp(),
     })
+    tx.create(linkRef, agreementLinkData(link, Timestamp))
+    if (approve) {
+      tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+        kind: "approved",
+        actor: reviewer.name,
+        actorUid: reviewer.uid,
+        message: "Approved the application and unlocked the operating agreement",
+        at: Timestamp.fromDate(now),
+      })
+    }
     tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
-      kind: "approved",
+      kind: "link_generated",
       actor: reviewer.name,
       actorUid: reviewer.uid,
-      message: "Approved the application and unlocked the operating agreement",
-      at: Timestamp.fromDate(approvedAt),
+      message: "Generated a secure operating agreement link",
+      at: Timestamp.fromDate(now),
     })
   })
 
-  return { approvedAt: approvedAt.toISOString() }
+  return { approvedAt: approve ? now.toISOString() : null, link }
+}
+
+/**
+ * Atomically approve an application, unlock its operating agreement, and
+ * create the three-day signing link. There is no approved-without-a-link
+ * intermediate state for a reviewer to clean up.
+ */
+export async function approveApplicationAndUnlockAgreement(
+  applicationId: string,
+  reviewer: StaffPrincipal,
+): Promise<{ approvedAt: string; link: ApplicationLink }> {
+  const result = await issueAgreementSigningLink(applicationId, reviewer, true)
+  if (!result.approvedAt) throw new ApplicationSessionError("approve-failed", "The approval response was incomplete.", 500)
+  return { approvedAt: result.approvedAt, link: result.link }
+}
+
+/** Issue a fresh three-day agreement link without moving the candidate's status. */
+export async function resendAgreementSigningLink(applicationId: string, reviewer: StaffPrincipal): Promise<ApplicationLink> {
+  const result = await issueAgreementSigningLink(applicationId, reviewer)
+  return result.link
 }
 
 /**
@@ -341,6 +410,24 @@ function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex")
 }
 
+function dateFromUnknown(value: unknown): Date | null {
+  if (value instanceof Date) return value
+  if (typeof value === "string") {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const parsed = value.toDate()
+    return parsed instanceof Date ? parsed : null
+  }
+  return null
+}
+
+function agreementSigningExpired(agreement: { expiresAt?: unknown }, now = new Date()): boolean {
+  const expiresAt = dateFromUnknown(agreement.expiresAt)
+  return Boolean(expiresAt && expiresAt.getTime() <= now.getTime())
+}
+
 export interface SignAgreementInput {
   applicationId: string
   linkHash: string
@@ -376,16 +463,19 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
   if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
 
   const data = snapshot.data() ?? {}
-  const agreement = (data.agreement ?? {}) as { status?: unknown }
+  const agreement = (data.agreement ?? {}) as { status?: unknown; expiresAt?: unknown }
   if (agreement.status === "signed") {
     throw new ApplicationSessionError("already-signed", "This agreement is already signed.", 409)
+  }
+  if (agreementSigningExpired(agreement)) {
+    throw new ApplicationSessionError("agreement-expired", "This signing window has expired. Ask SVC for a new link.", 403)
   }
   if (!SIGNABLE_STATUSES.has(String(data.status))) {
     throw new ApplicationSessionError("not-signable", "This agreement can't be signed yet.", 409)
   }
 
   const activeLink = resolveLink(await loadLinkByHash(input.linkHash))
-  if (!activeLink.ok || activeLink.link.applicationId !== input.applicationId) {
+  if (!activeLink.ok || activeLink.link.applicationId !== input.applicationId || activeLink.link.purpose !== "agreement") {
     throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
   }
 
@@ -433,9 +523,12 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
         throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
       }
       const currentData = currentApplication.data() ?? {}
-      const currentAgreement = (currentData.agreement ?? {}) as { status?: unknown }
+      const currentAgreement = (currentData.agreement ?? {}) as { status?: unknown; expiresAt?: unknown }
       if (currentAgreement.status === "signed") {
         throw new ApplicationSessionError("already-signed", "This agreement is already signed.", 409)
+      }
+      if (agreementSigningExpired(currentAgreement, signedAtDate)) {
+        throw new ApplicationSessionError("agreement-expired", "This signing window has expired. Ask SVC for a new link.", 403)
       }
       if (!SIGNABLE_STATUSES.has(String(currentData.status))) {
         throw new ApplicationSessionError("not-signable", "This agreement can't be signed yet.", 409)
@@ -444,7 +537,11 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
         throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
       }
       const currentLinkState = resolveLink(mapLinkDoc(currentLink.id, currentLink.data() ?? {}))
-      if (!currentLinkState.ok || currentLinkState.link.applicationId !== input.applicationId) {
+      if (
+        !currentLinkState.ok ||
+        currentLinkState.link.applicationId !== input.applicationId ||
+        currentLinkState.link.purpose !== "agreement"
+      ) {
         throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
       }
 

@@ -37,9 +37,11 @@
   transacción). El cliente **nunca** escribe ese estado — las reglas lo prohíben.
 - **Post-aprobación funcional**: `POST /api/applications/approve` verifica el
   token del revisor y, en una sola transacción Admin SDK, marca `approved`,
-  desbloquea el acuerdo y deja el evento de auditoría. El dashboard crea el
-  link de acuerdo de 72 h y abre un bottom sheet con Share, SMS, copiar mensaje
-  y copiar link. También se auditan link generado/abierto, mensaje compartido o
+  desbloquea el acuerdo, emite el link de firma de 72 h (sólo se persiste su
+  SHA-256) y deja ambos eventos de auditoría. El dashboard abre ese mismo link
+  en un bottom sheet con Share, SMS, copiar mensaje y copiar link. Un reenvío
+  usa `POST /api/applications/agreement/link` y renueva atómicamente el link y
+  la ventana de firma. También se auditan link generado/abierto, mensaje compartido o
   copiado y acuerdo firmado.
 - **Post-firma funcional**: cuando el candidato firma, la aplicación pasa a
   `payroll_in_progress` y el dashboard muestra el siguiente paso: completar
@@ -52,7 +54,7 @@
 **Falta SÓLO el paso de Vercel (no tengo CLI acá, es tuyo):**
 1. **Deployar el código a Vercel** (commit + push a la branch que auto-deploya).
    Incluye `/api/applications/session`, `/api/applications/approve`,
-   `/api/applications/agreement/sign` y los
+   `/api/applications/agreement/link`, `/api/applications/agreement/sign` y los
    componentes en modo live.
 2. **`NEXT_PUBLIC_APPLICATIONS_BACKEND=true`** — build-time, antes del build.
 3. **`FIREBASE_SERVICE_ACCOUNT_KEY`** — obligatoria para la sesión del candidato,

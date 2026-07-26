@@ -36,6 +36,7 @@ export function AgreementStep({ application, signature, signState, onSignatureCh
   const scrollRef = useRef<HTMLDivElement>(null)
   const padRef = useRef<SignaturePadHandle>(null)
   const [showPending, setShowPending] = useState(false)
+  const isExpired = application.agreement.status === "expired"
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current
@@ -45,6 +46,22 @@ export function AgreementStep({ application, signature, signState, onSignatureCh
       onSignatureChange({ reachedEnd: true })
     }
   }, [onSignatureChange, signature.reachedEnd])
+
+  if (isExpired) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center">
+        <div className="applications-step-enter mx-auto w-full max-w-xl px-5 py-8 md:px-6">
+          <AppsCard className="border-[#FBD0D0] p-5">
+            <StatusPill label="Signing window closed" tone="missing" />
+            <h1 className="mt-4 text-[1.375rem] font-bold tracking-[-0.02em] text-[var(--apps-text)]">This agreement link has expired</h1>
+            <p className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--apps-text-muted)]">
+              Please contact your SVC representative for a new secure signing link.
+            </p>
+          </AppsCard>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

@@ -70,17 +70,11 @@ function initialStepFor(
     return application.agreement.status === "signed" ? "agreement-signed" : "agreement"
   }
   if (purpose === "step" && step) return step
-  // The original application link remains a convenient resume link. Once a
-  // reviewer approves the candidate, it advances to the agreement instead of
-  // returning them to the submitted confirmation screen.
-  if (
-    application.status === "approved" ||
-    application.status === "agreement_pending" ||
-    application.agreement.status === "awaiting_signature" ||
-    application.agreement.status === "expired"
-  ) {
-    return application.agreement.status === "signed" ? "agreement-signed" : "agreement"
-  }
+  // Signing is deliberately entered through the short-lived agreement link.
+  // An older application/resume link can still show the candidate's approved
+  // state, but cannot accidentally become a second signing credential.
+  if (application.agreement.status === "signed") return "agreement-signed"
+  if (application.status === "approved" || application.status === "agreement_pending") return "submitted"
   return "welcome"
 }
 

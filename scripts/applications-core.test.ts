@@ -334,6 +334,18 @@ test("Firestore records never retain raw application link tokens", () => {
   assert.equal(mapApplicationDoc("app-1", { linkToken: "legacy-secret" }).linkToken, "")
 })
 
+test("an elapsed agreement signing window is presented as expired", () => {
+  const mapped = mapApplicationDoc("app-1", {
+    candidateName: "Benjamin Lopez",
+    status: "approved",
+    agreement: {
+      status: "awaiting_signature",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    },
+  })
+  assert.equal(mapped.agreement.status, "expired")
+})
+
 test("candidate uid is stable and namespaced away from real users", () => {
   assert.equal(candidateUid("app-benjamin-lopez"), "cand_app-benjamin-lopez")
   // Stable across calls so reopening a link resumes the same identity.

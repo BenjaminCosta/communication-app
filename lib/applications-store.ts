@@ -113,12 +113,22 @@ function mapDocuments(raw: unknown): RequiredDocument[] {
 function mapAgreement(raw: unknown): OperatingAgreement {
   const source = (raw ?? {}) as Record<string, unknown>
   const status = source.status
+  const expiresAt = toIso(source.expiresAt)
+  const isExpired =
+    status === "awaiting_signature" &&
+    expiresAt !== null &&
+    !Number.isNaN(new Date(expiresAt).getTime()) &&
+    new Date(expiresAt).getTime() <= Date.now()
   return {
     status:
-      status === "awaiting_signature" || status === "signed" || status === "expired" ? status : "locked",
+      isExpired || status === "expired"
+        ? "expired"
+        : status === "awaiting_signature" || status === "signed"
+          ? status
+          : "locked",
     sentAt: toIso(source.sentAt),
     signedAt: toIso(source.signedAt),
-    expiresAt: toIso(source.expiresAt),
+    expiresAt,
     signedVersion: typeof source.signedVersion === "string" ? source.signedVersion : null,
     signedName: typeof source.signedName === "string" ? source.signedName : null,
   }

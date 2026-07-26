@@ -258,7 +258,25 @@ export async function requestApplicationInfo(
  * reserve for the server. The signed-in staff token authorizes this request;
  * the server performs the status + agreement transition atomically.
  */
-export async function approveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<{ approvedAt: string }> {
+function isApplicationLink(value: unknown): value is ApplicationLink {
+  if (!value || typeof value !== "object") return false
+  const link = value as Record<string, unknown>
+  return (
+    typeof link.token === "string" &&
+    typeof link.applicationId === "string" &&
+    (link.purpose === "application" || link.purpose === "step" || link.purpose === "agreement") &&
+    typeof link.createdAt === "string" &&
+    typeof link.expiresAt === "string" &&
+    (link.step === null || link.step === "general" || link.step === "video" || link.step === "documents") &&
+    (link.revokedAt === null || typeof link.revokedAt === "string") &&
+    typeof link.usedCount === "number"
+  )
+}
+
+export async function approveApplication(
+  applicationId: string,
+  reviewer: ReviewerIdentity,
+): Promise<{ approvedAt: string; link: ApplicationLink }> {
   const user = auth.currentUser
   if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
 
@@ -276,12 +294,46 @@ export async function approveApplication(applicationId: string, reviewer: Review
     throw new ApplicationWriteError("We couldn't approve this application right now.")
   }
 
-  const body = (await response.json().catch(() => ({}))) as { error?: unknown; approvedAt?: unknown }
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown; approvedAt?: unknown; link?: unknown }
   if (!response.ok) {
     throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't approve this application right now.")
   }
-  if (typeof body.approvedAt !== "string") throw new ApplicationWriteError("The approval response was incomplete.")
-  return { approvedAt: body.approvedAt }
+  if (typeof body.approvedAt !== "string" || !isApplicationLink(body.link)) {
+    throw new ApplicationWriteError("The approval response was incomplete.")
+  }
+  return { approvedAt: body.approvedAt, link: body.link }
+}
+
+/** Refresh the agreement signing window and create its secure server-side link. */
+export async function createAgreementSigningLink(
+  applicationId: string,
+  reviewer: ReviewerIdentity,
+): Promise<ApplicationLink> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/agreement/link", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't create the agreement link right now.")
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown; link?: unknown }
+  if (!response.ok) {
+    throw new ApplicationWriteError(
+      typeof body.error === "string" ? body.error : "We couldn't create the agreement link right now.",
+    )
+  }
+  if (!isApplicationLink(body.link)) throw new ApplicationWriteError("The agreement link response was incomplete.")
+  return body.link
 }
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {

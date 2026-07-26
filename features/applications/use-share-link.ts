@@ -28,6 +28,7 @@ import {
 } from "@/features/applications/candidate-links"
 import {
   createApplication,
+  createAgreementSigningLink,
   recordApplicationActivity,
   revokeApplicationLinkDoc,
   saveApplicationLink,
@@ -87,6 +88,14 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         return created
       }
 
+      // Agreement links also determine whether the candidate can sign. The
+      // server refreshes the agreement window and persists its digest in the
+      // same transaction, rather than leaving a browser-created link behind.
+      if (input.purpose === "agreement") {
+        if (!reviewer?.uid) throw new Error("A reviewer session is required to create an agreement link.")
+        return createAgreementSigningLink(input.applicationId, reviewer)
+      }
+
       // A new invite needs an application to point at first.
       let applicationId = input.applicationId
       // The application record and its first share link must use the same
@@ -128,6 +137,15 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
     [issue],
   )
 
+  /** Open the share sheet for a link the approval transaction already issued. */
+  const openExisting = useCallback((input: IssueLinkInput, existingLink: ApplicationLink) => {
+    setRequest(input)
+    setLink(existingLink)
+    setError(null)
+    setIsIssuing(false)
+    setIsOpen(true)
+  }, [])
+
   /** A fresh token invalidates nothing by itself — revoke first if it matters. */
   const regenerate = useCallback(() => {
     if (!request) return
@@ -152,5 +170,5 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
 
   const close = useCallback(() => setIsOpen(false), [])
 
-  return { link, request, isOpen, isIssuing, error, openFor, regenerate, revoke, close }
+  return { link, request, isOpen, isIssuing, error, openFor, openExisting, regenerate, revoke, close }
 }

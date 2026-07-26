@@ -20,10 +20,11 @@ import {
   type ActivityEvent,
   type ApplicationFilters,
   type ApplicationStatus,
+  type ApplicationLink,
   type CandidateApplication,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { subscribeMockApplications, updateMockApplication } from "@/features/applications/candidate-links"
+import { issueApplicationLink, subscribeMockApplications, updateMockApplication } from "@/features/applications/candidate-links"
 import {
   approveApplication,
   archiveApplication,
@@ -156,40 +157,44 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const approve = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string): Promise<ApplicationLink | null> => {
       if (APPLICATIONS_BACKEND_ENABLED) {
         try {
-          const { approvedAt } = await approveApplication(id, reviewer)
+          const { approvedAt, link } = await approveApplication(id, reviewer)
           patchLocal(id, (application) => ({
             ...application,
             status: "approved",
             pendingRequest: null,
             updatedAt: approvedAt,
-            agreement: { ...application.agreement, status: "awaiting_signature", sentAt: approvedAt, expiresAt: null },
+            agreement: { ...application.agreement, status: "awaiting_signature", sentAt: approvedAt, expiresAt: link.expiresAt },
             activity: [
               ...application.activity,
               localEvent("approved", "Approved the application and unlocked the operating agreement"),
+              localEvent("link_generated", "Generated a secure operating agreement link"),
             ],
           }))
-          return true
+          return link
         } catch (error) {
           setLoadError(error instanceof Error ? error.message : "The approval could not be saved.")
-          return false
+          return null
         }
       }
 
+      const approvedAt = nowIso()
+      const link = issueApplicationLink({ applicationId: id, purpose: "agreement" })
       patchLocal(id, (application) => ({
         ...application,
         status: "approved",
         pendingRequest: null,
-        updatedAt: nowIso(),
-        agreement: { ...application.agreement, status: "awaiting_signature", sentAt: nowIso(), expiresAt: null },
+        updatedAt: approvedAt,
+        agreement: { ...application.agreement, status: "awaiting_signature", sentAt: approvedAt, expiresAt: link.expiresAt },
         activity: [
           ...application.activity,
           localEvent("approved", "Approved the application"),
+          localEvent("link_generated", "Generated a secure operating agreement link"),
         ],
       }))
-      return true
+      return link
     },
     [localEvent, patchLocal, reviewer],
   )

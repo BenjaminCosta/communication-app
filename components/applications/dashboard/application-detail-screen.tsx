@@ -20,7 +20,6 @@ import {
   Clock,
   FileSignature,
   FileText,
-  Link2,
   Lock,
   Mail,
   MapPin,
@@ -57,7 +56,6 @@ import {
   canArchive,
   canMarkHired,
   canRequestInfo,
-  applicationLinkUrl,
   computeApplicationProgress,
   formatApplicationDate,
   formatRelativeDate,
@@ -129,7 +127,7 @@ interface ApplicationDetailScreenProps {
   className?: string
   onBack: () => void
   onRequestInfo: (message: string) => Promise<boolean>
-  onApprove: () => Promise<boolean>
+  onApprove: () => Promise<import("@/lib/applications-core").ApplicationLink | null>
   onMarkHired: () => Promise<boolean>
   onArchive: () => Promise<boolean>
   onPreviewCandidateFlow: (token: string) => void
@@ -152,7 +150,6 @@ export function ApplicationDetailScreen({
   const [sheet, setSheet] = useState<"approve" | "archive" | "hire" | "menu" | "documents" | "agreement" | "video" | null>(null)
   const shareLink = useShareLink(reviewer)
   const [requestOpen, setRequestOpen] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [isHiring, setIsHiring] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
@@ -164,8 +161,6 @@ export function ApplicationDetailScreen({
   const documentsSection = progress.sections.find((section) => section.id === "documents")
   const videoReady = application.video.state === "ready"
   const videoPlayable = videoReady && Boolean(videoDownloadUrl)
-  const origin = typeof window !== "undefined" ? window.location.origin : ""
-  const applicationUrl = applicationLinkUrl(application.linkToken, origin)
 
   const closeSheet = () => setSheet(null)
 
@@ -189,11 +184,11 @@ export function ApplicationDetailScreen({
 
   const handleApprove = async () => {
     setIsApproving(true)
-    const approved = await onApprove()
+    const agreementLink = await onApprove()
     setIsApproving(false)
-    if (!approved) return
+    if (!agreementLink) return
     closeSheet()
-    shareLink.openFor({ applicationId: application.id, purpose: "agreement" })
+    shareLink.openExisting({ applicationId: application.id, purpose: "agreement" }, agreementLink)
   }
 
   const handleMarkHired = async () => {
@@ -208,12 +203,6 @@ export function ApplicationDetailScreen({
     const archived = await onArchive()
     setIsArchiving(false)
     if (archived) closeSheet()
-  }
-
-  const copyApplicationLink = () => {
-    navigator.clipboard?.writeText(applicationUrl).catch(() => {})
-    setCopiedLink(true)
-    setTimeout(() => setCopiedLink(false), 1800)
   }
 
   return (
@@ -295,11 +284,11 @@ export function ApplicationDetailScreen({
             )}
             <button
               type="button"
-              onClick={copyApplicationLink}
+              onClick={() => shareLink.openFor({ applicationId: application.id, purpose: "application" })}
               className="applications-tap flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-[var(--apps-border)] bg-[var(--apps-surface)] text-[var(--apps-text-muted)] hover:bg-[var(--apps-surface-2)]"
             >
-              {copiedLink ? <Check className="h-4 w-4 text-[var(--apps-complete)]" strokeWidth={2.5} /> : <Link2 className="h-4 w-4 text-[var(--apps-blue-strong)]" strokeWidth={2} />}
-              <span className="text-[0.6875rem] font-semibold">{copiedLink ? "Copied" : "Copy link"}</span>
+              <Share2 className="h-4 w-4 text-[var(--apps-blue-strong)]" strokeWidth={2} />
+              <span className="text-[0.6875rem] font-semibold">Share link</span>
             </button>
           </div>
 
@@ -711,7 +700,9 @@ export function ApplicationDetailScreen({
           <p className="mt-3 px-1 text-xs text-[var(--apps-text-muted)]">
             {application.agreement.signedAt
               ? `Signed ${formatApplicationDate(application.agreement.signedAt)}`
-              : `Sent ${formatApplicationDate(application.agreement.sentAt)}`}
+              : application.agreement.status === "expired"
+                ? `Expired ${formatApplicationDate(application.agreement.expiresAt)}`
+                : `Sent ${formatApplicationDate(application.agreement.sentAt)}`}
           </p>
         )}
         {application.agreement.status !== "locked" && (
