@@ -30,6 +30,7 @@ import {
   mapLinkDoc,
 } from "@/lib/applications-store"
 import { sealAgreementPdf } from "@/features/applications/agreement-pdf"
+import { createApplicationProfilePdf, type ApplicationProfilePdfInput } from "@/features/applications/application-profile-pdf"
 
 const STORAGE_BUCKET = "svc-comms.firebasestorage.app"
 
@@ -421,6 +422,132 @@ function dateFromUnknown(value: unknown): Date | null {
     return parsed instanceof Date ? parsed : null
   }
   return null
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function textFromUnknown(value: unknown): string | null {
+  return typeof value === "string" ? value : null
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function isoFromUnknown(value: unknown): string | null {
+  return dateFromUnknown(value)?.toISOString() ?? null
+}
+
+function applicationProfileFileName(candidateName: string): string {
+  const slug = candidateName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+  return `${slug || "candidate"}-application-profile.pdf`
+}
+
+/**
+ * Build a complete reviewer-only PDF snapshot. We never expose Storage URLs
+ * in the export: the dashboard remains the controlled place to open originals.
+ */
+export async function exportApplicationProfilePdf(
+  applicationId: string,
+  reviewer: StaffPrincipal,
+): Promise<{ bytes: Uint8Array; fileName: string }> {
+  const id = applicationId.trim()
+  if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
+  const [applicationSnapshot, activitySnapshot] = await Promise.all([
+    applicationRef.get(),
+    applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).orderBy("at", "asc").limit(200).get(),
+  ])
+  if (!applicationSnapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+
+  const data = applicationSnapshot.data() ?? {}
+  const general = recordFromUnknown(data.general)
+  const video = recordFromUnknown(data.video)
+  const agreement = recordFromUnknown(data.agreement)
+  const candidateName = textFromUnknown(data.candidateName) ?? ""
+  const profile: ApplicationProfilePdfInput = {
+    generatedAtIso: new Date().toISOString(),
+    candidate: {
+      name: candidateName,
+      trade: textFromUnknown(data.trade) ?? "",
+      status: textFromUnknown(data.status) ?? "draft",
+      submittedAt: isoFromUnknown(data.submittedAt),
+      createdAt: isoFromUnknown(data.createdAt),
+    },
+    job: {
+      name: textFromUnknown(data.jobName) ?? "",
+      location: textFromUnknown(data.jobLocation) ?? "",
+      companyName: textFromUnknown(data.companyName) ?? "",
+    },
+    application: {
+      fullName: textFromUnknown(general.fullName) ?? "",
+      phone: textFromUnknown(general.phone) ?? "",
+      email: textFromUnknown(general.email) ?? "",
+      cityState: textFromUnknown(general.cityState) ?? "",
+      yearsExperience: textFromUnknown(general.yearsExperience) ?? "",
+      primaryTrade: textFromUnknown(general.primaryTrade) ?? "",
+      resumeFileName: textFromUnknown(general.resumeFileName),
+      workReference: textFromUnknown(general.workReference),
+    },
+    video: {
+      state: textFromUnknown(video.state) ?? "not_started",
+      source: textFromUnknown(video.source),
+      fileName: textFromUnknown(video.fileName),
+      durationSeconds: numberFromUnknown(video.durationSeconds),
+      capturedAt: isoFromUnknown(video.capturedAt),
+      transcript: textFromUnknown(video.transcript),
+      summary: textFromUnknown(video.summary),
+    },
+    documents: Array.isArray(data.documents)
+      ? data.documents.map((entry) => {
+          const document = recordFromUnknown(entry)
+          return {
+            label: textFromUnknown(document.label) ?? "Untitled document",
+            status: textFromUnknown(document.status) ?? "missing",
+            required: document.required !== false,
+            fileName: textFromUnknown(document.fileName),
+            uploadedAt: isoFromUnknown(document.uploadedAt),
+            helper: textFromUnknown(document.helper),
+          }
+        })
+      : [],
+    agreement: {
+      status: textFromUnknown(agreement.status) ?? "locked",
+      sentAt: isoFromUnknown(agreement.sentAt),
+      expiresAt: isoFromUnknown(agreement.expiresAt),
+      signedAt: isoFromUnknown(agreement.signedAt),
+      signedName: textFromUnknown(agreement.signedName),
+      signedVersion: textFromUnknown(agreement.signedVersion),
+    },
+    activity: activitySnapshot.docs.map((entry) => {
+      const event = entry.data()
+      return {
+        actor: textFromUnknown(event.actor) ?? "Someone",
+        message: textFromUnknown(event.message) ?? "",
+        at: isoFromUnknown(event.at),
+      }
+    }),
+  }
+
+  const bytes = await createApplicationProfilePdf(profile)
+  await applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).add({
+    kind: "note",
+    actor: reviewer.name,
+    actorUid: reviewer.uid,
+    message: "Downloaded the candidate application profile PDF",
+    at: new Date(),
+  })
+
+  return { bytes, fileName: applicationProfileFileName(candidateName) }
 }
 
 function agreementSigningExpired(agreement: { expiresAt?: unknown }, now = new Date()): boolean {

@@ -49,7 +49,7 @@ import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-s
 import { useShareLink } from "@/features/applications/use-share-link"
 import { issueApplicationLink } from "@/features/applications/candidate-links"
 import { downloadApplicationFile, getApplicationDownloadUrl } from "@/lib/applications-storage"
-import type { ReviewerIdentity } from "@/lib/applications-writes"
+import { downloadApplicationProfilePdf, type ReviewerIdentity } from "@/lib/applications-writes"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
   AGREEMENT_STATUS_META,
@@ -159,6 +159,8 @@ export function ApplicationDetailScreen({
   const [documentDownloadUrls, setDocumentDownloadUrls] = useState<Record<string, string>>({})
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
   const [fileActionError, setFileActionError] = useState<string | null>(null)
+  const [isPreparingProfilePdf, setIsPreparingProfilePdf] = useState(false)
+  const [profilePdfError, setProfilePdfError] = useState<string | null>(null)
 
   const progress = computeApplicationProgress(application)
   const status = APPLICATION_STATUS_META[application.status]
@@ -248,6 +250,23 @@ export function ApplicationDetailScreen({
       setFileActionError("The file could not be downloaded. Please try opening it instead.")
     } finally {
       setDownloadingFile(null)
+    }
+  }
+
+  const handleProfilePdfDownload = async () => {
+    if (!reviewer) {
+      setProfilePdfError("Your reviewer session is required to download this application.")
+      return
+    }
+    setIsPreparingProfilePdf(true)
+    setProfilePdfError(null)
+    try {
+      await downloadApplicationProfilePdf(application.id, reviewer)
+      closeSheet()
+    } catch (error) {
+      setProfilePdfError(error instanceof Error ? error.message : "The application PDF could not be prepared. Please try again.")
+    } finally {
+      setIsPreparingProfilePdf(false)
     }
   }
 
@@ -887,7 +906,32 @@ export function ApplicationDetailScreen({
 
       {/* More actions */}
       <AppsSheet open={sheet === "menu"} title="Application actions" onClose={closeSheet}>
+        {profilePdfError && (
+          <p className="mb-3 rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-3 text-[0.8125rem] font-medium text-[#C24141]">
+            {profilePdfError}
+          </p>
+        )}
         <ul className="flex flex-col gap-2">
+          <li>
+            <button
+              type="button"
+              disabled={isPreparingProfilePdf}
+              onClick={handleProfilePdfDownload}
+              className="applications-tap flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--apps-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--apps-complete-soft)] text-[#15803D]">
+                <Download className="h-4 w-4" strokeWidth={2} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-[var(--apps-text)]">
+                  {isPreparingProfilePdf ? "Preparing application PDF…" : "Download application PDF"}
+                </span>
+                <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">
+                  Includes profile, documents, video transcript and agreement.
+                </span>
+              </span>
+            </button>
+          </li>
           <li>
             <button
               type="button"

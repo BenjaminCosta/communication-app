@@ -58,7 +58,7 @@
     "test:message-feed": "tsx --test scripts/message-feed.test.ts",
     "test:functions": "tsx --test scripts/functions-batches.test.ts",
     "test:outlooks": "tsx --test scripts/outlook-core.test.ts",
-    "test:applications": "tsx --test scripts/applications-core.test.ts scripts/applications-agreement-pdf.test.ts scripts/applications-local-invite.test.ts",
+    "test:applications": "tsx --test scripts/applications-core.test.ts scripts/applications-agreement-pdf.test.ts scripts/applications-profile-pdf.test.ts scripts/applications-local-invite.test.ts",
     "test:outlooks-ai": "tsx --test scripts/outlook-ai.test.ts",
     "test:directory-ai": "tsx --test scripts/directory-ai.test.ts",
     "test:directory-ai-eval": "tsx --test scripts/directory-ai-eval.test.ts",

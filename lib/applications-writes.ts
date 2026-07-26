@@ -304,6 +304,52 @@ export async function approveApplication(
   return { approvedAt: body.approvedAt, link: body.link }
 }
 
+function exportFileName(contentDisposition: string | null): string {
+  const match = contentDisposition?.match(/filename="?([^";]+)"?/i)
+  return match?.[1]?.trim() || "candidate-application-profile.pdf"
+}
+
+/** Download a reviewer-authorized, complete application snapshot as a PDF. */
+export async function downloadApplicationProfilePdf(
+  applicationId: string,
+  reviewer: ReviewerIdentity,
+): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/export", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't prepare this application PDF right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(
+      typeof body.error === "string" ? body.error : "We couldn't prepare this application PDF right now.",
+    )
+  }
+
+  const blob = await response.blob()
+  if (blob.size === 0) throw new ApplicationWriteError("The application PDF was empty. Please try again.")
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = exportFileName(response.headers.get("content-disposition"))
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+}
+
 /** Refresh the agreement signing window and create its secure server-side link. */
 export async function createAgreementSigningLink(
   applicationId: string,

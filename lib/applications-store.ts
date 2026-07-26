@@ -84,6 +84,7 @@ function mapVideo(raw: unknown): IntroVideo {
     capturedAt: toIso(source.capturedAt),
     storagePath: typeof source.storagePath === "string" ? source.storagePath : null,
     downloadUrl: typeof source.downloadUrl === "string" ? source.downloadUrl : null,
+    transcript: typeof source.transcript === "string" ? source.transcript : null,
     summary: typeof source.summary === "string" ? source.summary : null,
   }
 }
