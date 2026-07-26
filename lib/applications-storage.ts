@@ -83,6 +83,17 @@ export async function uploadApplicationVideo(
   return { storagePath, downloadUrl, fileName: file.name }
 }
 
+/**
+ * Older application records may have a Storage path but no persisted download
+ * URL. Resolve one on demand for staff review so a valid upload is still
+ * playable instead of being shown as an inert video card.
+ */
+export async function getApplicationDownloadUrl(storagePath: string): Promise<string> {
+  const { ref, getDownloadURL } = await import("firebase/storage")
+  const storage = await getStorageLazy()
+  return getDownloadURL(ref(storage, storagePath))
+}
+
 export async function deleteApplicationFile(storagePath: string): Promise<void> {
   try {
     const { ref, deleteObject } = await import("firebase/storage")

@@ -24,9 +24,11 @@ import {
   issueApplicationLink,
   NEW_APPLICATION_MARKER,
   revokeApplicationLink,
+  updateMockApplication,
 } from "@/features/applications/candidate-links"
 import {
   createApplication,
+  recordApplicationActivity,
   revokeApplicationLinkDoc,
   saveApplicationLink,
   type ReviewerIdentity,
@@ -51,9 +53,39 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
   const [isIssuing, setIsIssuing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const recordGeneratedLink = useCallback(
+    (link: ApplicationLink) => {
+      const message = `Generated a secure ${link.purpose === "agreement" ? "operating agreement" : link.purpose === "step" ? "direct application" : "application"} link`
+      if (!live) {
+        updateMockApplication(link.applicationId, (application) => ({
+          ...application,
+          updatedAt: new Date().toISOString(),
+          activity: [
+            ...application.activity,
+            {
+              id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              kind: "link_generated",
+              actor: reviewer?.name || "Reviewer",
+              message,
+              at: new Date().toISOString(),
+            },
+          ],
+        }))
+        return
+      }
+      if (!reviewer?.uid) return
+      recordApplicationActivity(link.applicationId, "link_generated", message, reviewer).catch(() => {})
+    },
+    [live, reviewer],
+  )
+
   const issue = useCallback(
     async (input: IssueLinkInput): Promise<ApplicationLink> => {
-      if (!live) return issueApplicationLink(input)
+      if (!live) {
+        const created = issueApplicationLink(input)
+        recordGeneratedLink(created)
+        return created
+      }
 
       // A new invite needs an application to point at first.
       let applicationId = input.applicationId
@@ -75,9 +107,10 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         token: token ?? generateLinkToken(),
       })
       await saveApplicationLink(created)
+      recordGeneratedLink(created)
       return created
     },
-    [live, reviewer],
+    [live, recordGeneratedLink, reviewer],
   )
 
   const openFor = useCallback(
@@ -85,10 +118,6 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
       setRequest(input)
       setIsOpen(true)
       setError(null)
-      if (!live) {
-        setLink(issueApplicationLink(input))
-        return
-      }
       setLink(null)
       setIsIssuing(true)
       issue(input)
@@ -96,23 +125,19 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         .catch(() => setError("The link couldn't be created. Please try again."))
         .finally(() => setIsIssuing(false))
     },
-    [issue, live],
+    [issue],
   )
 
   /** A fresh token invalidates nothing by itself — revoke first if it matters. */
   const regenerate = useCallback(() => {
     if (!request) return
-    if (!live) {
-      setLink(issueApplicationLink(request))
-      return
-    }
     setIsIssuing(true)
     setError(null)
     issue(request)
       .then((created) => setLink(created))
       .catch(() => setError("The link couldn't be regenerated. Please try again."))
       .finally(() => setIsIssuing(false))
-  }, [issue, live, request])
+  }, [issue, request])
 
   const revoke = useCallback(() => {
     if (!link) return

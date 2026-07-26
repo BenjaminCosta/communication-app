@@ -31,9 +31,23 @@ interface ShareLinkSheetProps {
   onClose: () => void
   onRegenerate: () => void
   onRevoke: () => void
+  /** Approval uses a concise, prescribed message and fewer choices. */
+  mode?: "default" | "approval"
+  onMessageCopied?: () => void
+  onMessageShared?: (method: "native" | "sms") => void
 }
 
-function shareMessage(link: ApplicationLink, url: string, candidateName?: string, jobName?: string): string {
+function shareMessage(
+  link: ApplicationLink,
+  url: string,
+  candidateName?: string,
+  jobName?: string,
+  mode: "default" | "approval" = "default",
+): string {
+  if (mode === "approval") {
+    const name = candidateName?.trim() || "there"
+    return `Hi ${name}, you’ve been approved to move forward with SVC. Please use this secure link to review and sign the Operating Agreement and continue your onboarding: ${url}`
+  }
   const greeting = candidateName?.trim() ? `Hi ${candidateName.trim().split(/\s+/)[0]}, ` : ""
   if (link.purpose === "agreement") {
     return `${greeting}your operating agreement is ready to sign:\n${url}`
@@ -54,8 +68,11 @@ export function ShareLinkSheet({
   onClose,
   onRegenerate,
   onRevoke,
+  mode = "default",
+  onMessageCopied,
+  onMessageShared,
 }: ShareLinkSheetProps) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<"link" | "message" | null>(null)
 
   // Live mode creates the link asynchronously — show a status until it lands.
   if (!link) {
@@ -83,29 +100,33 @@ export function ShareLinkSheet({
   const url = applicationLinkUrl(link.token, origin)
   const state = linkState(link)
   const meta = LINK_PURPOSE_META[link.purpose]
-  const message = shareMessage(link, url, candidateName, jobName)
+  const message = shareMessage(link, url, candidateName, jobName, mode)
+  const isApproval = mode === "approval"
 
-  const copy = () => {
-    navigator.clipboard?.writeText(url).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
+  const copy = (value: string, kind: "link" | "message") => {
+    navigator.clipboard?.writeText(value).catch(() => {})
+    setCopied(kind)
+    setTimeout(() => setCopied(null), 1800)
+    if (kind === "message") onMessageCopied?.()
   }
 
   const share = async () => {
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
-        await navigator.share({ title: "SVC Applications", text: message, url })
+        await navigator.share({ title: isApproval ? "SVC Operating Agreement" : "SVC Applications", text: message })
+        onMessageShared?.("native")
         return
       } catch {
-        // Cancelled or unsupported — fall through to copying.
+        // Cancelled or unsupported — fall through to copying the full message.
       }
     }
-    copy()
+    copy(message, "message")
   }
 
   const shareBySms = () => {
     if (typeof window === "undefined") return
     window.location.href = `sms:?&body=${encodeURIComponent(message)}`
+    onMessageShared?.("sms")
   }
 
   const shareByWhatsApp = () => {
@@ -116,18 +137,25 @@ export function ShareLinkSheet({
   return (
     <AppsSheet
       open={open}
-      title={meta.label}
-      description={meta.description}
+      title={isApproval ? "Share approval link" : meta.label}
+      description={isApproval ? "Send the candidate the secure operating agreement link." : meta.description}
       onClose={onClose}
       footer={
-        <AppsButton
-          fullWidth
-          disabled={state !== "active"}
-          onClick={share}
-          icon={<Share2 className="h-4 w-4" strokeWidth={2} />}
-        >
-          Share with other apps
-        </AppsButton>
+        <div className="flex gap-2.5">
+          <AppsButton
+            fullWidth
+            disabled={state !== "active"}
+            onClick={share}
+            icon={<Share2 className="h-4 w-4" strokeWidth={2} />}
+          >
+            Share
+          </AppsButton>
+          {isApproval && (
+            <AppsButton variant="secondary" fullWidth onClick={onClose}>
+              Done
+            </AppsButton>
+          )}
+        </div>
       }
     >
       <div
@@ -150,7 +178,9 @@ export function ShareLinkSheet({
       </div>
 
       <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--apps-text-muted)]">
-        The candidate does not need an account or an app — the link opens straight into the form on their phone.
+        {isApproval
+          ? "This secure link opens the operating agreement directly on the candidate’s phone."
+          : "The candidate does not need an account or an app — the link opens straight into the form on their phone."}
       </p>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--apps-border)]">
@@ -164,54 +194,74 @@ export function ShareLinkSheet({
             <MessageCircle className="h-4 w-4" strokeWidth={2} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-[var(--apps-text)]">Share by text message</span>
+            <span className="block text-sm font-semibold text-[var(--apps-text)]">Send by text</span>
             <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Open SMS with the secure link included.</span>
           </span>
         </button>
+        {!isApproval && (
+          <button
+            type="button"
+            disabled={state !== "active"}
+            onClick={shareByWhatsApp}
+            className="applications-tap flex min-h-[3.5rem] w-full items-center gap-3 border-b border-[var(--apps-border)] px-3.5 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-complete-soft)] text-[#15803D]">
+              <MessageCircle className="h-4 w-4" strokeWidth={2} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-[var(--apps-text)]">Share via WhatsApp</span>
+              <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Open WhatsApp with the secure link included.</span>
+            </span>
+          </button>
+        )}
+        {isApproval && (
+          <button
+            type="button"
+            disabled={state !== "active"}
+            onClick={() => copy(message, "message")}
+            className="applications-tap flex min-h-[3.5rem] w-full items-center gap-3 border-b border-[var(--apps-border)] px-3.5 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-blue-soft)] text-[var(--apps-blue-strong)]">
+              {copied === "message" ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2} />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-[var(--apps-text)]">{copied === "message" ? "Message copied" : "Copy message"}</span>
+              <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Copy the complete approval message and secure link.</span>
+            </span>
+          </button>
+        )}
         <button
           type="button"
           disabled={state !== "active"}
-          onClick={shareByWhatsApp}
-          className="applications-tap flex min-h-[3.5rem] w-full items-center gap-3 border-b border-[var(--apps-border)] px-3.5 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-complete-soft)] text-[#15803D]">
-            <MessageCircle className="h-4 w-4" strokeWidth={2} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-[var(--apps-text)]">Share via WhatsApp</span>
-            <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Open WhatsApp with the secure link included.</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          disabled={state !== "active"}
-          onClick={copy}
+          onClick={() => copy(url, "link")}
           className="applications-tap flex min-h-[3.5rem] w-full items-center gap-3 px-3.5 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-surface-2)] text-[var(--apps-text-muted)]">
-            {copied ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2} />}
+            {copied === "link" ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2} />}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-[var(--apps-text)]">{copied ? "Link copied" : "Copy link"}</span>
+            <span className="block text-sm font-semibold text-[var(--apps-text)]">{copied === "link" ? "Link copied" : "Copy link"}</span>
             <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Paste it in any message or email.</span>
           </span>
         </button>
       </div>
 
-      <div className="mt-4 flex gap-2">
-        <AppsButton variant="secondary" size="md" onClick={onRegenerate} icon={<RefreshCw className="h-4 w-4" strokeWidth={2} />}>
-          Regenerate
-        </AppsButton>
-        <AppsButton
-          variant="ghost"
-          size="md"
-          disabled={state !== "active"}
-          onClick={onRevoke}
-          icon={<ShieldOff className="h-4 w-4" strokeWidth={2} />}
-        >
-          Revoke
-        </AppsButton>
-      </div>
+      {!isApproval && (
+        <div className="mt-4 flex gap-2">
+          <AppsButton variant="secondary" size="md" onClick={onRegenerate} icon={<RefreshCw className="h-4 w-4" strokeWidth={2} />}>
+            Regenerate
+          </AppsButton>
+          <AppsButton
+            variant="ghost"
+            size="md"
+            disabled={state !== "active"}
+            onClick={onRevoke}
+            icon={<ShieldOff className="h-4 w-4" strokeWidth={2} />}
+          >
+            Revoke
+          </AppsButton>
+        </div>
+      )}
 
       <div className="mt-4 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3">
         <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--apps-text-muted)]">

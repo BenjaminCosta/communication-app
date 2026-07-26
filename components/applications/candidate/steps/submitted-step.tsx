@@ -1,8 +1,8 @@
 "use client"
 
-import { Check, Mail } from "lucide-react"
+import { Check } from "lucide-react"
 import { AppsCard } from "@/components/applications/ui/apps-primitives"
-import { formatApplicationDate, type CandidateApplication } from "@/lib/applications-core"
+import { type CandidateApplication } from "@/lib/applications-core"
 
 export function SubmittedStep({ application }: { application: CandidateApplication }) {
   return (
@@ -36,11 +36,6 @@ export function SubmittedStep({ application }: { application: CandidateApplicati
             ))}
           </ol>
         </AppsCard>
-
-        <div className="mt-5 flex items-center gap-2 text-xs text-[var(--apps-text-muted)]">
-          <Mail className="h-3.5 w-3.5" strokeWidth={2} />
-          Confirmation sent to {application.general.email || "your email"} · {formatApplicationDate(application.submittedAt)}
-        </div>
       </div>
     </div>
   )

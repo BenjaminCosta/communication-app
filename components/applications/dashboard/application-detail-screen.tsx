@@ -9,7 +9,7 @@
  * it can't be hit by accident.
  */
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   AlertCircle,
   ArrowLeft,
@@ -47,6 +47,8 @@ import { RequestInfoScreen } from "@/components/applications/dashboard/request-i
 import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-sheet"
 import { useShareLink } from "@/features/applications/use-share-link"
 import { issueApplicationLink } from "@/features/applications/candidate-links"
+import { getApplicationDownloadUrl } from "@/lib/applications-storage"
+import type { ReviewerIdentity } from "@/lib/applications-writes"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
   AGREEMENT_STATUS_META,
@@ -61,6 +63,7 @@ import {
   initialsFor,
   type ApplicationSectionId,
   type ApplicationTone,
+  type ActivityEvent,
   type CandidateApplication,
   type RequiredDocument,
 } from "@/lib/applications-core"
@@ -125,9 +128,11 @@ interface ApplicationDetailScreenProps {
   className?: string
   onBack: () => void
   onRequestInfo: (message: string) => void
-  onApprove: () => void
+  onApprove: () => Promise<boolean>
   onArchive: () => void
   onPreviewCandidateFlow: (token: string) => void
+  reviewer?: ReviewerIdentity
+  onRecordActivity?: (kind: ActivityEvent["kind"], message: string) => void
 }
 
 export function ApplicationDetailScreen({
@@ -138,21 +143,53 @@ export function ApplicationDetailScreen({
   onApprove,
   onArchive,
   onPreviewCandidateFlow,
+  reviewer,
+  onRecordActivity,
 }: ApplicationDetailScreenProps) {
   const [sheet, setSheet] = useState<"approve" | "archive" | "menu" | "documents" | "agreement" | "video" | null>(null)
-  const shareLink = useShareLink()
+  const shareLink = useShareLink(reviewer)
   const [requestOpen, setRequestOpen] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
+  const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
 
   const progress = computeApplicationProgress(application)
   const status = APPLICATION_STATUS_META[application.status]
   const agreement = AGREEMENT_STATUS_META[application.agreement.status]
   const documentsSection = progress.sections.find((section) => section.id === "documents")
   const videoReady = application.video.state === "ready"
+  const videoPlayable = videoReady && Boolean(videoDownloadUrl)
   const origin = typeof window !== "undefined" ? window.location.origin : ""
   const applicationUrl = applicationLinkUrl(application.linkToken, origin)
 
   const closeSheet = () => setSheet(null)
+
+  // A valid upload can predate persisted download URLs. Resolve Storage paths
+  // for staff review instead of leaving a ready video with nothing to play.
+  useEffect(() => {
+    let cancelled = false
+    setVideoDownloadUrl(application.video.downloadUrl)
+    if (application.video.downloadUrl || !application.video.storagePath) return () => {
+      cancelled = true
+    }
+    getApplicationDownloadUrl(application.video.storagePath)
+      .then((url) => {
+        if (!cancelled) setVideoDownloadUrl(url)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [application.video.downloadUrl, application.video.storagePath])
+
+  const handleApprove = async () => {
+    setIsApproving(true)
+    const approved = await onApprove()
+    setIsApproving(false)
+    if (!approved) return
+    closeSheet()
+    shareLink.openFor({ applicationId: application.id, purpose: "agreement" })
+  }
 
   const copyApplicationLink = () => {
     navigator.clipboard?.writeText(applicationUrl).catch(() => {})
@@ -387,7 +424,7 @@ export function ApplicationDetailScreen({
                   variant="secondary"
                   size="md"
                   fullWidth
-                  disabled={!videoReady}
+                  disabled={!videoPlayable}
                   onClick={() => setSheet("video")}
                   icon={<Play className="h-4 w-4" strokeWidth={2} fill="currentColor" />}
                 >
@@ -517,19 +554,18 @@ export function ApplicationDetailScreen({
       >
         {videoReady ? (
           <>
-            {application.video.downloadUrl ? (
+            {videoDownloadUrl ? (
               <video
                 controls
+                playsInline
                 preload="metadata"
-                src={application.video.downloadUrl}
+                src={videoDownloadUrl}
                 className="aspect-video w-full rounded-2xl bg-[#0F172A]"
               />
             ) : (
-              <div className="flex aspect-video items-center justify-center rounded-2xl bg-[#0F172A] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15">
-                  <Play className="ml-0.5 h-5 w-5" strokeWidth={2} fill="currentColor" />
-                </span>
-              </div>
+              <p className="rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-3 text-[0.8125rem] leading-relaxed text-[#9F3030]">
+                The video file is not available to play yet. Ask the candidate to upload it again.
+              </p>
             )}
             <div className="mt-5">
               <SectionLabel className="mb-2 px-1">Transcript</SectionLabel>
@@ -665,12 +701,10 @@ export function ApplicationDetailScreen({
             </AppsButton>
             <AppsButton
               fullWidth
-              onClick={() => {
-                onApprove()
-                closeSheet()
-              }}
+              disabled={isApproving}
+              onClick={handleApprove}
             >
-              Approve
+              {isApproving ? "Approving…" : "Approve"}
             </AppsButton>
           </div>
         }
@@ -788,6 +822,14 @@ export function ApplicationDetailScreen({
         error={shareLink.error}
         candidateName={application.candidateName}
         jobName={application.job.name}
+        mode={shareLink.request?.purpose === "agreement" ? "approval" : "default"}
+        onMessageCopied={() => onRecordActivity?.("message_copied", "Copied the approval message")}
+        onMessageShared={(method) =>
+          onRecordActivity?.(
+            "message_shared",
+            method === "sms" ? "Shared the approval message by text" : "Shared the approval message",
+          )
+        }
         onClose={shareLink.close}
         onRegenerate={shareLink.regenerate}
         onRevoke={shareLink.revoke}

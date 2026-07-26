@@ -27,7 +27,7 @@ import {
   updateDoc,
   type Unsubscribe,
 } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { auth, db } from "@/lib/firebase"
 import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 import {
   APPLICATIONS_COLLECTION,
@@ -180,6 +180,21 @@ async function appendActivity(
   })
 }
 
+/** Record an auditable reviewer interaction without changing application state. */
+export async function recordApplicationActivity(
+  applicationId: string,
+  kind: ActivityKind,
+  message: string,
+  reviewer: ReviewerIdentity,
+): Promise<void> {
+  await appendActivity(applicationId, {
+    kind,
+    actor: reviewer.name,
+    actorUid: reviewer.uid,
+    message,
+  })
+}
+
 // ── Reviewer actions ────────────────────────────────────────────────────
 
 /**
@@ -207,22 +222,34 @@ export async function requestApplicationInfo(
 }
 
 /**
- * Approve. Note what is NOT here: the agreement stays untouched. A Cloud
- * Function reacts to `approved` and unlocks it, so a client can never put a
- * candidate straight into a signable state.
+ * Approving changes `agreement.status`, which Firestore rules deliberately
+ * reserve for the server. The signed-in staff token authorizes this request;
+ * the server performs the status + agreement transition atomically.
  */
-export async function approveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
-    status: "approved",
-    pendingRequest: null,
-    updatedAt: serverTimestamp(),
-  })
-  await appendActivity(applicationId, {
-    kind: "approved",
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message: "Approved the application",
-  })
+export async function approveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<{ approvedAt: string }> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/approve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't approve this application right now.")
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown; approvedAt?: unknown }
+  if (!response.ok) {
+    throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't approve this application right now.")
+  }
+  if (typeof body.approvedAt !== "string") throw new ApplicationWriteError("The approval response was incomplete.")
+  return { approvedAt: body.approvedAt }
 }
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {

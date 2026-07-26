@@ -23,6 +23,7 @@ import {
   type LinkPurpose,
 } from "@/lib/applications-core"
 import {
+  APPLICATION_ACTIVITY_SUBCOLLECTION,
   APPLICATIONS_COLLECTION,
   APPLICATION_LINKS_COLLECTION,
   mapLinkDoc,
@@ -105,6 +106,25 @@ export async function createCandidateSession(rawToken: string): Promise<Candidat
     .update({ usedCount: (link.usedCount ?? 0) + 1, lastUsedAt: new Date() })
     .catch(() => {})
 
+  // The link is the credential, so recording its successful opening gives
+  // reviewers useful visibility without exposing tokens anywhere in Firestore.
+  db.collection(APPLICATIONS_COLLECTION)
+    .doc(link.applicationId)
+    .collection(APPLICATION_ACTIVITY_SUBCOLLECTION)
+    .add({
+      kind: "link_opened",
+      actor: "Candidate",
+      actorUid: uid,
+      message:
+        link.purpose === "agreement"
+          ? "Opened the operating agreement link"
+          : link.purpose === "step"
+            ? "Opened a direct application link"
+            : "Opened the application link",
+      at: new Date(),
+    })
+    .catch(() => {})
+
   return { customToken, applicationId: link.applicationId, purpose: link.purpose, step: link.step }
 }
 
@@ -113,6 +133,11 @@ export async function createCandidateSession(rawToken: string): Promise<Candidat
 export interface CandidatePrincipal {
   uid: string
   applicationId: string
+}
+
+export interface StaffPrincipal {
+  uid: string
+  name: string
 }
 
 /**
@@ -137,6 +162,75 @@ export async function verifyCandidateRequest(request: Request): Promise<Candidat
     throw new ApplicationSessionError("forbidden", "This action isn't available for your session.", 403)
   }
   return { uid: decoded.uid, applicationId }
+}
+
+/** Verify a normal staff token. Candidate custom tokens never pass this gate. */
+export async function verifyStaffRequest(request: Request, requestedName = ""): Promise<StaffPrincipal> {
+  const header = request.headers.get("authorization") ?? request.headers.get("Authorization") ?? ""
+  const match = header.match(/^Bearer\s+(.+)$/i)
+  if (!match) throw new ApplicationSessionError("unauthenticated", "Please sign in again.", 401)
+
+  const auth = await adminAuth()
+  let decoded
+  try {
+    decoded = await auth.verifyIdToken(match[1].trim())
+  } catch {
+    throw new ApplicationSessionError("unauthenticated", "Please sign in again.", 401)
+  }
+  if (typeof decoded.applicationId === "string" && decoded.applicationId) {
+    throw new ApplicationSessionError("forbidden", "This action isn't available for this session.", 403)
+  }
+
+  const supplied = requestedName.trim().slice(0, 120)
+  const tokenName = typeof decoded.name === "string" ? decoded.name.trim() : ""
+  const tokenEmail = typeof decoded.email === "string" ? decoded.email.trim() : ""
+  return { uid: decoded.uid, name: tokenName || supplied || tokenEmail || "SVC reviewer" }
+}
+
+const APPROVABLE_STATUSES = new Set(["submitted", "ready_for_review", "needs_information"])
+
+/**
+ * Atomically approve an application and unlock its operating agreement. This
+ * is server-only because agreement state is what gates the payroll hand-off.
+ */
+export async function approveApplicationAndUnlockAgreement(
+  applicationId: string,
+  reviewer: StaffPrincipal,
+): Promise<{ approvedAt: string }> {
+  const id = applicationId.trim()
+  if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
+  const { FieldValue, Timestamp } = await import("firebase-admin/firestore")
+  const approvedAt = new Date()
+
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(applicationRef)
+    if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+    const currentStatus = String((snapshot.data() ?? {}).status ?? "")
+    if (!APPROVABLE_STATUSES.has(currentStatus)) {
+      throw new ApplicationSessionError("not-approvable", "This application can no longer be approved.", 409)
+    }
+
+    tx.update(applicationRef, {
+      status: "approved",
+      pendingRequest: null,
+      "agreement.status": "awaiting_signature",
+      "agreement.sentAt": Timestamp.fromDate(approvedAt),
+      "agreement.expiresAt": null,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind: "approved",
+      actor: reviewer.name,
+      actorUid: reviewer.uid,
+      message: "Approved the application and unlocked the operating agreement",
+      at: Timestamp.fromDate(approvedAt),
+    })
+  })
+
+  return { approvedAt: approvedAt.toISOString() }
 }
 
 /** Deterministic hash of the exact text the candidate agreed to. */
@@ -249,7 +343,7 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
     })
     const activityRef = applicationRef.collection("activity").doc()
     tx.set(activityRef, {
-      kind: "note",
+      kind: "agreement_signed",
       actor: "Candidate",
       actorUid: candidateUid(input.applicationId),
       message: `Signed the operating agreement (v${template.version})`,

@@ -70,6 +70,17 @@ function initialStepFor(
     return application.agreement.status === "signed" ? "agreement-signed" : "agreement"
   }
   if (purpose === "step" && step) return step
+  // The original application link remains a convenient resume link. Once a
+  // reviewer approves the candidate, it advances to the agreement instead of
+  // returning them to the submitted confirmation screen.
+  if (
+    application.status === "approved" ||
+    application.status === "agreement_pending" ||
+    application.agreement.status === "awaiting_signature" ||
+    application.agreement.status === "expired"
+  ) {
+    return application.agreement.status === "signed" ? "agreement-signed" : "agreement"
+  }
   return "welcome"
 }
 
@@ -239,9 +250,20 @@ export function useCandidateApplication(token: string, options: CandidateApplica
       }
       const capturedAt = nowIso()
       const durationSeconds = await readVideoDurationSeconds(file)
+      // In mock mode there is no Storage upload. Keep a local object URL so
+      // the dashboard preview can still play the file the candidate selected.
+      const localVideoUrl = !live && typeof URL !== "undefined" ? URL.createObjectURL(file) : null
       mutate((current) => ({
         ...current,
-        video: { ...current.video, state: "processing", source, fileName: file.name, durationSeconds, capturedAt },
+        video: {
+          ...current.video,
+          state: "processing",
+          source,
+          fileName: file.name,
+          durationSeconds,
+          capturedAt,
+          downloadUrl: localVideoUrl,
+        },
       }))
 
       if (!live || !applicationIdRef.current) {
@@ -438,7 +460,7 @@ export function useCandidateApplication(token: string, options: CandidateApplica
             ...current.activity,
             {
               id: `evt-${Date.now()}`,
-              kind: "note",
+              kind: "agreement_signed",
               actor: "Candidate",
               message: `Signed the operating agreement (v${OPERATING_AGREEMENT_TEMPLATE.version})`,
               at: nowIso(),

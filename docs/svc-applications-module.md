@@ -35,17 +35,25 @@
   con `bodyHash` (SHA-256 del texto exacto) + `signedPdfHash`, y cambia
   `agreement.status=signed` + `status=payroll_in_progress` con Admin SDK (en
   transacción). El cliente **nunca** escribe ese estado — las reglas lo prohíben.
+- **Post-aprobación funcional**: `POST /api/applications/approve` verifica el
+  token del revisor y, en una sola transacción Admin SDK, marca `approved`,
+  desbloquea el acuerdo y deja el evento de auditoría. El dashboard crea el
+  link de acuerdo de 72 h y abre un bottom sheet con Share, SMS, copiar mensaje
+  y copiar link. También se auditan link generado/abierto, mensaje compartido o
+  copiado y acuerdo firmado.
 - **Invite usable**: "Invite a candidate" pide nombre + trade + job, crea la
   aplicación real y su link persistido (`/applicationLinks`). Ya no es un draft
   en blanco.
 
 **Falta SÓLO el paso de Vercel (no tengo CLI acá, es tuyo):**
 1. **Deployar el código a Vercel** (commit + push a la branch que auto-deploya).
-   Incluye `/api/applications/session`, `/api/applications/agreement/sign` y los
+   Incluye `/api/applications/session`, `/api/applications/approve`,
+   `/api/applications/agreement/sign` y los
    componentes en modo live.
 2. **`NEXT_PUBLIC_APPLICATIONS_BACKEND=true`** — build-time, antes del build.
-3. **`FIREBASE_SERVICE_ACCOUNT_KEY`** — obligatoria para la sesión del candidato
-   Y para sellar la firma (ambos usan Admin SDK). Verificá que esté seteada.
+3. **`FIREBASE_SERVICE_ACCOUNT_KEY`** — obligatoria para la sesión del candidato,
+   aprobar/desbloquear el acuerdo y sellar la firma (todos usan Admin SDK).
+   Verificá que esté seteada.
 4. Redeploy en Vercel.
 
 **Cómo verificar una vez encendido:** SVC Applications → "Invite a candidate" →
@@ -638,6 +646,8 @@ un tercero.
 
 - ✅ **Storage** — documentos y video suben de verdad; el revisor los ve.
 - ✅ **Firma funcional** — sellado server-side + evidencia + estado con Admin SDK.
+- ✅ **Post-aprobación** — aprobación atómica, acuerdo desbloqueado, link y
+  bottom sheet de envío para el candidato.
 - ✅ **Data falsa** — eliminada de prod.
 - ✅ **Invite usable** — nombre + trade + job; crea aplicación y link reales.
 

@@ -27,6 +27,7 @@ import { subscribeMockApplications, updateMockApplication } from "@/features/app
 import {
   approveApplication,
   archiveApplication,
+  recordApplicationActivity,
   requestApplicationInfo,
   startApplicationReview,
   subscribeApplicationActivity,
@@ -148,25 +149,53 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const approve = useCallback(
-    (id: string) => {
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          const { approvedAt } = await approveApplication(id, reviewer)
+          patchLocal(id, (application) => ({
+            ...application,
+            status: "approved",
+            pendingRequest: null,
+            updatedAt: approvedAt,
+            agreement: { ...application.agreement, status: "awaiting_signature", sentAt: approvedAt, expiresAt: null },
+            activity: [
+              ...application.activity,
+              localEvent("approved", "Approved the application and unlocked the operating agreement"),
+            ],
+          }))
+          return true
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The approval could not be saved.")
+          return false
+        }
+      }
+
       patchLocal(id, (application) => ({
         ...application,
         status: "approved",
         pendingRequest: null,
         updatedAt: nowIso(),
-        // Mock only: with the backend on, a Cloud Function owns this
-        // transition, because the agreement is what gates payroll.
-        agreement: APPLICATIONS_BACKEND_ENABLED
-          ? application.agreement
-          : { ...application.agreement, status: "awaiting_signature", sentAt: nowIso() },
+        agreement: { ...application.agreement, status: "awaiting_signature", sentAt: nowIso(), expiresAt: null },
         activity: [
           ...application.activity,
           localEvent("approved", "Approved the application"),
-          ...(APPLICATIONS_BACKEND_ENABLED ? [] : [localEvent("note", "Operating agreement unlocked")]),
         ],
       }))
+      return true
+    },
+    [localEvent, patchLocal, reviewer],
+  )
+
+  const recordActivity = useCallback(
+    (id: string, kind: ActivityEvent["kind"], message: string) => {
+      if (!message.trim()) return
+      patchLocal(id, (application) => ({
+        ...application,
+        activity: [...application.activity, localEvent(kind, message)],
+      }))
       if (APPLICATIONS_BACKEND_ENABLED) {
-        approveApplication(id, reviewer).catch(() => setLoadError("The approval could not be saved."))
+        recordApplicationActivity(id, kind, message, reviewer).catch(() => setLoadError("The activity could not be recorded."))
       }
     },
     [localEvent, patchLocal, reviewer],
@@ -256,6 +285,7 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     setSelectedId,
     requestInfo,
     approve,
+    recordActivity,
     archive,
     startReview,
   }

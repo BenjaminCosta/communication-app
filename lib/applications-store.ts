@@ -174,7 +174,12 @@ export function mapActivityDoc(id: string, data: DocumentData): ActivityEvent {
       kind === "info_requested" ||
       kind === "info_received" ||
       kind === "approved" ||
-      kind === "archived"
+      kind === "archived" ||
+      kind === "link_generated" ||
+      kind === "link_opened" ||
+      kind === "message_copied" ||
+      kind === "message_shared" ||
+      kind === "agreement_signed"
         ? kind
         : "note",
     actor: typeof data.actor === "string" ? data.actor : "Someone",

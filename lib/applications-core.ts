@@ -560,7 +560,19 @@ export function missingDocuments(documents: RequiredDocument[]): RequiredDocumen
 
 // ── Application record ──────────────────────────────────────────────────
 
-export type ActivityKind = "created" | "submitted" | "info_requested" | "info_received" | "approved" | "archived" | "note"
+export type ActivityKind =
+  | "created"
+  | "submitted"
+  | "info_requested"
+  | "info_received"
+  | "approved"
+  | "archived"
+  | "link_generated"
+  | "link_opened"
+  | "message_copied"
+  | "message_shared"
+  | "agreement_signed"
+  | "note"
 
 export interface ActivityEvent {
   id: string
