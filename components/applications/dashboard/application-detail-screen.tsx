@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Download,
+  ExternalLink,
   FileSignature,
   FileText,
   Lock,
@@ -46,7 +48,7 @@ import { RequestInfoScreen } from "@/components/applications/dashboard/request-i
 import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-sheet"
 import { useShareLink } from "@/features/applications/use-share-link"
 import { issueApplicationLink } from "@/features/applications/candidate-links"
-import { getApplicationDownloadUrl } from "@/lib/applications-storage"
+import { downloadApplicationFile, getApplicationDownloadUrl } from "@/lib/applications-storage"
 import type { ReviewerIdentity } from "@/lib/applications-writes"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
@@ -154,6 +156,9 @@ export function ApplicationDetailScreen({
   const [isHiring, setIsHiring] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
+  const [documentDownloadUrls, setDocumentDownloadUrls] = useState<Record<string, string>>({})
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
+  const [fileActionError, setFileActionError] = useState<string | null>(null)
 
   const progress = computeApplicationProgress(application)
   const status = APPLICATION_STATUS_META[application.status]
@@ -182,6 +187,35 @@ export function ApplicationDetailScreen({
     }
   }, [application.video.downloadUrl, application.video.storagePath])
 
+  // Records from before download URLs were persisted still have their Storage
+  // path. Resolve it once so every uploaded document stays reviewable.
+  useEffect(() => {
+    let cancelled = false
+    const suppliedUrls = Object.fromEntries(
+      application.documents
+        .filter((document) => document.downloadUrl)
+        .map((document) => [document.id, document.downloadUrl as string]),
+    )
+    setDocumentDownloadUrls(suppliedUrls)
+
+    const unresolved = application.documents.filter((document) => !document.downloadUrl && document.storagePath)
+    if (unresolved.length === 0) return () => {
+      cancelled = true
+    }
+
+    Promise.all(
+      unresolved.map(async (document) => [document.id, await getApplicationDownloadUrl(document.storagePath as string)] as const),
+    )
+      .then((entries) => {
+        if (!cancelled) setDocumentDownloadUrls((current) => ({ ...current, ...Object.fromEntries(entries) }))
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [application.documents])
+
   const handleApprove = async () => {
     setIsApproving(true)
     const agreementLink = await onApprove()
@@ -203,6 +237,18 @@ export function ApplicationDetailScreen({
     const archived = await onArchive()
     setIsArchiving(false)
     if (archived) closeSheet()
+  }
+
+  const handleFileDownload = async (key: string, downloadUrl: string, fileName: string) => {
+    setDownloadingFile(key)
+    setFileActionError(null)
+    try {
+      await downloadApplicationFile(downloadUrl, fileName)
+    } catch {
+      setFileActionError("The file could not be downloaded. Please try opening it instead.")
+    } finally {
+      setDownloadingFile(null)
+    }
   }
 
   return (
@@ -474,13 +520,16 @@ export function ApplicationDetailScreen({
                   variant="secondary"
                   size="md"
                   fullWidth
-                  disabled={!videoReady}
-                  onClick={() => setSheet("video")}
-                  icon={<FileText className="h-4 w-4" strokeWidth={2} />}
+                  disabled={!videoDownloadUrl || downloadingFile === "video"}
+                  onClick={() => {
+                    if (videoDownloadUrl) handleFileDownload("video", videoDownloadUrl, application.video.fileName ?? "intro-video")
+                  }}
+                  icon={<Download className="h-4 w-4" strokeWidth={2} />}
                 >
-                  Transcript
+                  {downloadingFile === "video" ? "Downloading…" : "Download"}
                 </AppsButton>
               </div>
+              {fileActionError && <p className="mt-3 text-xs font-medium text-[#C24141]">{fileActionError}</p>}
             </AppsCard>
             <AiSummaryCard
               className="mt-3"
@@ -514,6 +563,7 @@ export function ApplicationDetailScreen({
               <ul className="divide-y divide-[var(--apps-border)]">
                 {application.documents.map((document) => {
                   const presentation = documentPresentation(document)
+                  const documentUrl = documentDownloadUrls[document.id]
                   return (
                     <li key={document.id} className="flex min-h-[3.25rem] items-center gap-3 px-4 py-2.5">
                       <FileText className="h-4 w-4 shrink-0 text-[var(--apps-text-muted)]" strokeWidth={2} />
@@ -521,7 +571,18 @@ export function ApplicationDetailScreen({
                         <span className="block truncate text-[0.8125rem] font-semibold text-[var(--apps-text)]">{document.label}</span>
                         <span className="mt-0.5 block truncate text-xs text-[var(--apps-text-muted)]">{presentation.detail}</span>
                       </span>
-                      <StatusPill label={presentation.label} tone={presentation.tone} />
+                      {documentUrl ? (
+                        <a
+                          href={documentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="applications-tap flex h-8 items-center rounded-full border border-[var(--apps-border)] px-2.5 text-xs font-semibold text-[var(--apps-blue-strong)] hover:bg-[var(--apps-blue-soft)]"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        <StatusPill label={presentation.label} tone={presentation.tone} />
+                      )}
                     </li>
                   )
                 })}
@@ -608,13 +669,36 @@ export function ApplicationDetailScreen({
         {videoReady ? (
           <>
             {videoDownloadUrl ? (
-              <video
-                controls
-                playsInline
-                preload="metadata"
-                src={videoDownloadUrl}
-                className="aspect-video w-full rounded-2xl bg-[#0F172A]"
-              />
+              <>
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={videoDownloadUrl}
+                  className="aspect-video w-full rounded-2xl bg-[#0F172A]"
+                />
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  <a
+                    href={videoDownloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="applications-tap inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-[var(--apps-border)] bg-[var(--apps-surface)] px-4 text-sm font-semibold text-[var(--apps-blue-strong)] hover:bg-[var(--apps-surface-2)]"
+                  >
+                    <ExternalLink className="h-4 w-4" strokeWidth={2} />
+                    Open video
+                  </a>
+                  <AppsButton
+                    variant="secondary"
+                    size="md"
+                    fullWidth
+                    disabled={downloadingFile === "video"}
+                    onClick={() => handleFileDownload("video", videoDownloadUrl, application.video.fileName ?? "intro-video")}
+                    icon={<Download className="h-4 w-4" strokeWidth={2} />}
+                  >
+                    {downloadingFile === "video" ? "Downloading…" : "Download"}
+                  </AppsButton>
+                </div>
+              </>
             ) : (
               <p className="rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-3 text-[0.8125rem] leading-relaxed text-[#9F3030]">
                 The video file is not available to play yet. Ask the candidate to upload it again.
@@ -641,9 +725,15 @@ export function ApplicationDetailScreen({
         description={documentsSection?.detail}
         onClose={closeSheet}
       >
+        {fileActionError && (
+          <p className="mb-3 rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-3 text-[0.8125rem] font-medium text-[#C24141]">
+            {fileActionError}
+          </p>
+        )}
         <ul className="flex flex-col gap-2">
           {application.documents.map((document) => {
             const presentation = documentPresentation(document)
+            const documentUrl = documentDownloadUrls[document.id]
             const iconStyle =
               presentation.tone === "complete"
                 ? "bg-[var(--apps-complete-soft)] text-[#15803D]"
@@ -655,7 +745,7 @@ export function ApplicationDetailScreen({
                 key={document.id}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border border-[var(--apps-border)] px-3.5 py-3",
-                  document.downloadUrl && "applications-tap hover:border-[#BFDBFE]",
+                  documentUrl && "hover:border-[#BFDBFE]",
                 )}
               >
                 <span
@@ -667,15 +757,27 @@ export function ApplicationDetailScreen({
                   <span className="block truncate text-sm font-semibold text-[var(--apps-text)]">{document.label}</span>
                   <span className="mt-0.5 block truncate text-xs text-[var(--apps-text-muted)]">{presentation.detail}</span>
                 </span>
-                {document.downloadUrl ? (
-                  <a
-                    href={document.downloadUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="applications-tap flex h-9 items-center rounded-full border border-[var(--apps-border)] px-3 text-xs font-semibold text-[var(--apps-blue-strong)] hover:bg-[var(--apps-blue-soft)]"
-                  >
-                    View
-                  </a>
+                {documentUrl ? (
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <a
+                      href={documentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="applications-tap flex h-9 items-center gap-1.5 rounded-full border border-[var(--apps-border)] px-3 text-xs font-semibold text-[var(--apps-blue-strong)] hover:bg-[var(--apps-blue-soft)]"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} />
+                      View
+                    </a>
+                    <button
+                      type="button"
+                      disabled={downloadingFile === document.id}
+                      onClick={() => handleFileDownload(document.id, documentUrl, document.fileName ?? document.label)}
+                      className="applications-tap flex h-9 w-9 items-center justify-center rounded-full border border-[var(--apps-border)] text-[var(--apps-blue-strong)] hover:bg-[var(--apps-blue-soft)] disabled:opacity-50"
+                      aria-label={`Download ${document.label}`}
+                    >
+                      <Download className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                  </span>
                 ) : (
                   <StatusPill label={presentation.label} tone={presentation.tone} />
                 )}

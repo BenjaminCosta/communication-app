@@ -559,12 +559,53 @@ select.outlook-input {
   animation: load-bar-sweep 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+@keyframes applications-sky-glint {
+  0%, 100% { opacity: 0.42; transform: translate3d(-2%, -1%, 0) scale(1); }
+  50% { opacity: 0.9; transform: translate3d(3%, 2%, 0) scale(1.08); }
+}
+@keyframes applications-logo-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.03); }
+}
+.applications-loading-screen {
+  isolation: isolate;
+  overflow: hidden;
+  color: #0F172A;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(56, 189, 248, 0.24), transparent 22rem),
+    radial-gradient(circle at 82% 76%, rgba(37, 99, 235, 0.14), transparent 25rem),
+    #FFFFFF;
+}
+.applications-loading-screen::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 34%, rgba(255,255,255,0.9) 48%, transparent 61%),
+    radial-gradient(circle at 58% 36%, rgba(186, 230, 253, 0.44), transparent 18rem);
+  animation: applications-sky-glint 3.6s ease-in-out infinite;
+}
+.applications-loading-screen .text-muted-foreground\/50,
+.applications-loading-screen .text-muted-foreground\/40 { color: rgba(71, 85, 105, 0.68); }
+.animate-applications-logo-breathe { animation: applications-logo-breathe 2.2s ease-in-out infinite; }
+
 /* The server cookie chooses the launch module; body is a localStorage migration fallback. */
-.launch-loading-directory { display: none; }
+.launch-loading-directory,
+.launch-loading-applications { display: none; }
 html[data-svc-launch-module="directory"] .launch-loading-stream,
-body[data-svc-launch-module="directory"] .launch-loading-stream { display: none; }
+body[data-svc-launch-module="directory"] .launch-loading-stream,
+html[data-svc-launch-module="directory"] .launch-loading-applications,
+body[data-svc-launch-module="directory"] .launch-loading-applications { display: none; }
 html[data-svc-launch-module="directory"] .launch-loading-directory,
 body[data-svc-launch-module="directory"] .launch-loading-directory { display: flex; }
+html[data-svc-launch-module="applications"] .launch-loading-stream,
+body[data-svc-launch-module="applications"] .launch-loading-stream,
+html[data-svc-launch-module="applications"] .launch-loading-directory,
+body[data-svc-launch-module="applications"] .launch-loading-directory { display: none; }
+html[data-svc-launch-module="applications"] .launch-loading-applications,
+body[data-svc-launch-module="applications"] .launch-loading-applications { display: flex; }
 
 /* Send button — success state */
 @keyframes check-draw {

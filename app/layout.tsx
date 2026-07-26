@@ -44,11 +44,12 @@ export default async function RootLayout({
 }>) {
   const cookieStore = await cookies()
   const launchModule = cookieStore.get('svc-last-module')?.value
+  const launchModuleData = launchModule === 'directory' || launchModule === 'applications' ? launchModule : undefined
   return (
     <html
       lang="en"
       className="bg-background h-full"
-      data-svc-launch-module={launchModule === 'directory' ? 'directory' : undefined}
+      data-svc-launch-module={launchModuleData}
     >
       <head>
         {/* Android PWA: env(safe-area-inset-bottom) often returns 0 on Android.
@@ -68,7 +69,7 @@ export default async function RootLayout({
       >
         {/* Migration fallback for sessions with the older localStorage key but
             not the server-readable cookie yet. */}
-        <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(localStorage.getItem('svc-last-module')==='directory'){document.body.dataset.svcLaunchModule='directory';document.cookie='svc-last-module=directory; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var m=localStorage.getItem('svc-last-module');if(m==='directory'||m==='applications'){document.body.dataset.svcLaunchModule=m;document.cookie='svc-last-module='+m+'; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
         <ViewportSync />
         <ServiceWorkerRegister />
         {children}

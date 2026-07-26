@@ -146,7 +146,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   apply: 0,
 }
 
-// Remembers which module (Communications vs Directory) the user was last in,
+// Remembers which module the user was last in,
 // so reopening the app resumes there instead of always defaulting to Comms.
 const LAST_MODULE_KEY = "svc-last-module"
 type SvcModuleName = "communications" | "directory" | "applications"
@@ -173,8 +173,7 @@ function getLastModule(): SvcModuleName | null {
   if (typeof window === "undefined") return null
   const stored = localStorage.getItem(LAST_MODULE_KEY)
   const lastModule = stored === "directory" ? "directory" : stored === "applications" ? "applications" : null
-  // Only Directory has a launch-splash variant; Applications resumes without one.
-  if (lastModule === "directory") document.cookie = `${LAST_MODULE_KEY}=directory; path=/; max-age=31536000; samesite=lax`
+  if (lastModule) document.cookie = `${LAST_MODULE_KEY}=${lastModule}; path=/; max-age=31536000; samesite=lax`
   return lastModule
 }
 
@@ -423,9 +422,10 @@ export default function Home() {
           setDirectoryDetailView(directoryDeepLink.view)
           navigateTo("directory-detail")
         } else {
-          // Default is Compose (Communications), unless the user's last
-          // session was in Directory.
-          navigateTo(getLastModule() === "directory" ? "directory" : "compose")
+          // Default is Compose (Communications), unless the user last worked
+          // in Directory or Applications.
+          const lastModule = getLastModule()
+          navigateTo(lastModule === "directory" ? "directory" : lastModule === "applications" ? "applications" : "compose")
         }
         // Background auth metadata update. Do not lead with a one-shot getDoc:
         // it can race the realtime listeners and trip Firebase's ca9/b815 bug.

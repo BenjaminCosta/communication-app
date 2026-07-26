@@ -94,6 +94,27 @@ export async function getApplicationDownloadUrl(storagePath: string): Promise<st
   return getDownloadURL(ref(storage, storagePath))
 }
 
+/**
+ * Download a reviewed candidate file without navigating away from the profile.
+ * Firebase's download URLs are cross-origin, so fetch the bytes first and
+ * trigger a same-origin blob download with the candidate's original filename.
+ */
+export async function downloadApplicationFile(downloadUrl: string, fileName: string): Promise<void> {
+  if (typeof window === "undefined" || typeof document === "undefined") return
+  const response = await fetch(downloadUrl)
+  if (!response.ok) throw new Error("The file could not be downloaded.")
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = fileName || "candidate-file"
+  anchor.style.display = "none"
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+}
+
 export async function deleteApplicationFile(storagePath: string): Promise<void> {
   try {
     const { ref, deleteObject } = await import("firebase/storage")
