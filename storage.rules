@@ -44,31 +44,41 @@ service firebase.storage {
     function appIsCandidate(applicationId) {
       return request.auth != null && request.auth.token.applicationId == applicationId;
     }
+    // Mirror the Firestore gate for file bytes: a revoked or expired invite
+    // must immediately lose access to documents and video too.
+    function appHasActiveCandidateLink(applicationId) {
+      return appIsCandidate(applicationId)
+        && request.auth.token.applicationLinkHash is string
+        && firestore.exists(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash))
+        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.applicationId == applicationId
+        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.revokedAt == null
+        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.expiresAt > request.time;
+    }
 
     match /application-uploads/{applicationId}/documents/{allPaths=**} {
-      allow read: if appIsStaff() || appIsCandidate(applicationId);
-      allow create, update: if appIsCandidate(applicationId)
+      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
+      allow create, update: if appHasActiveCandidateLink(applicationId)
         && request.resource.size < 15 * 1024 * 1024
         && request.resource.contentType != null
         && (
           request.resource.contentType.matches('image/.*')
           || request.resource.contentType == 'application/pdf'
         );
-      allow delete: if appIsCandidate(applicationId);
+      allow delete: if appHasActiveCandidateLink(applicationId);
     }
 
     match /application-uploads/{applicationId}/video/{allPaths=**} {
-      allow read: if appIsStaff() || appIsCandidate(applicationId);
-      allow create, update: if appIsCandidate(applicationId)
+      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
+      allow create, update: if appHasActiveCandidateLink(applicationId)
         && request.resource.size < 200 * 1024 * 1024
         && request.resource.contentType != null
         && request.resource.contentType.matches('video/.*');
-      allow delete: if appIsCandidate(applicationId);
+      allow delete: if appHasActiveCandidateLink(applicationId);
     }
 
     // Sealed agreement PDFs — written by the server (Admin SDK) only; staff read.
     match /application-agreements/{applicationId}/{allPaths=**} {
-      allow read: if appIsStaff() || appIsCandidate(applicationId);
+      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
       allow write: if false;
     }
   }

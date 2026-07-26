@@ -35,6 +35,7 @@ import {
   summarizeApplications,
   type CandidateApplication,
 } from "../lib/applications-core"
+import { applicationToFirestore, linkToFirestore, mapApplicationDoc } from "../lib/applications-store"
 
 function application(overrides: Partial<CandidateApplication> = {}): CandidateApplication {
   return {
@@ -319,6 +320,18 @@ test("uploaded documents and video carry their storage metadata", () => {
   const video = emptyIntroVideo()
   assert.equal(video.storagePath, null)
   assert.equal(video.downloadUrl, null)
+})
+
+test("Firestore records never retain raw application link tokens", () => {
+  const storedApplication = applicationToFirestore(application({ linkToken: "bearer-secret" }))
+  assert.equal(Object.hasOwn(storedApplication, "linkToken"), false)
+
+  const link = createApplicationLink({ applicationId: "app-1", purpose: "application", token: "bearer-secret" })
+  const storedLink = linkToFirestore(link)
+  assert.equal(Object.hasOwn(storedLink, "token"), false)
+
+  // Legacy fields are deliberately not exposed by the read mapper either.
+  assert.equal(mapApplicationDoc("app-1", { linkToken: "legacy-secret" }).linkToken, "")
 })
 
 test("candidate uid is stable and namespaced away from real users", () => {

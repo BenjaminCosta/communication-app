@@ -25,7 +25,6 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  writeBatch,
   type Unsubscribe,
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
@@ -60,6 +59,17 @@ const ACTIVITY_PAGE_SIZE = 50
 export interface ReviewerIdentity {
   uid: string
   name: string
+}
+
+/**
+ * Application links are bearer credentials. The client only ever sends the
+ * SHA-256 digest as the Firestore document id, so neither the link collection
+ * nor the application record keeps a replayable token at rest.
+ */
+async function applicationLinkHash(token: string): Promise<string> {
+  const bytes = new TextEncoder().encode(token)
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("")
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────
@@ -196,6 +206,37 @@ export async function recordApplicationActivity(
   })
 }
 
+type ReviewerAction = "request_info" | "archive" | "mark_hired" | "start_review"
+
+async function performReviewerAction(
+  applicationId: string,
+  action: ReviewerAction,
+  reviewer: ReviewerIdentity,
+  message?: string,
+): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/reviewer-action", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, action, message, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't update this application right now.")
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+  if (!response.ok) {
+    throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't update this application right now.")
+  }
+}
+
 // ── Reviewer actions ────────────────────────────────────────────────────
 
 /**
@@ -209,17 +250,7 @@ export async function requestApplicationInfo(
 ): Promise<void> {
   const trimmed = message.trim()
   if (!trimmed) throw new ApplicationWriteError("A request needs a message.")
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
-    status: "needs_information",
-    pendingRequest: trimmed,
-    updatedAt: serverTimestamp(),
-  })
-  await appendActivity(applicationId, {
-    kind: "info_requested",
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message: trimmed,
-  })
+  await performReviewerAction(applicationId, "request_info", reviewer, trimmed)
 }
 
 /**
@@ -254,46 +285,16 @@ export async function approveApplication(applicationId: string, reviewer: Review
 }
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
-    status: "archived",
-    updatedAt: serverTimestamp(),
-  })
-  await appendActivity(applicationId, {
-    kind: "archived",
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message: "Archived the application",
-  })
+  await performReviewerAction(applicationId, "archive", reviewer)
 }
 
 /** Final internal onboarding step after the candidate has signed the agreement. */
 export async function markApplicationHired(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
-  const batch = writeBatch(db)
-  batch.update(doc(db, APPLICATIONS_COLLECTION, applicationId), {
-    status: "hired",
-    updatedAt: serverTimestamp(),
-  })
-  batch.set(doc(collection(db, APPLICATIONS_COLLECTION, applicationId, APPLICATION_ACTIVITY_SUBCOLLECTION)), {
-    kind: "hired",
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message: "Completed payroll setup and marked the candidate as hired",
-    at: serverTimestamp(),
-  })
-  await batch.commit()
+  await performReviewerAction(applicationId, "mark_hired", reviewer)
 }
 
 export async function startApplicationReview(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
-    status: "ready_for_review",
-    updatedAt: serverTimestamp(),
-  })
-  await appendActivity(applicationId, {
-    kind: "note",
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message: "Moved to review",
-  })
+  await performReviewerAction(applicationId, "start_review", reviewer)
 }
 
 // ── Creation ────────────────────────────────────────────────────────────
@@ -323,14 +324,17 @@ export async function createApplication(
  * `linkToFirestore` is the only place that changes when we do.
  */
 export async function saveApplicationLink(link: ApplicationLink): Promise<void> {
-  await setDoc(doc(db, APPLICATION_LINKS_COLLECTION, link.token), linkToFirestore(link))
+  const tokenHash = await applicationLinkHash(link.token)
+  await setDoc(doc(db, APPLICATION_LINKS_COLLECTION, tokenHash), linkToFirestore(link))
 }
 
 export async function revokeApplicationLinkDoc(token: string): Promise<void> {
-  await updateDoc(doc(db, APPLICATION_LINKS_COLLECTION, token), { revokedAt: serverTimestamp() })
+  const tokenHash = await applicationLinkHash(token)
+  await updateDoc(doc(db, APPLICATION_LINKS_COLLECTION, tokenHash), { revokedAt: serverTimestamp() })
 }
 
 export async function loadApplicationLink(token: string): Promise<ApplicationLink | null> {
-  const snapshot = await getDoc(doc(db, APPLICATION_LINKS_COLLECTION, token))
-  return snapshot.exists() ? mapLinkDoc(snapshot.id, snapshot.data()) : null
+  const tokenHash = await applicationLinkHash(token)
+  const snapshot = await getDoc(doc(db, APPLICATION_LINKS_COLLECTION, tokenHash))
+  return snapshot.exists() ? { ...mapLinkDoc(snapshot.id, snapshot.data()), token } : null
 }

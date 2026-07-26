@@ -34,6 +34,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const result = await signAgreement({
       applicationId: principal.applicationId,
+      linkHash: principal.linkHash,
       signatureDataUrl: typeof body.signatureDataUrl === "string" ? body.signatureDataUrl : "",
       typedName: typeof body.typedName === "string" ? body.typedName : "",
       consent: body.consent === true,

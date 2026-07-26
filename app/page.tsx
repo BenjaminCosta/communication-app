@@ -1853,9 +1853,10 @@ export default function Home() {
               onMarkHired={() => applicationsDashboard.markHired(selectedApplication.id)}
               reviewer={applicationsDashboard.reviewer}
               onRecordActivity={(kind, message) => applicationsDashboard.recordActivity(selectedApplication.id, kind, message)}
-              onArchive={() => {
-                applicationsDashboard.archive(selectedApplication.id)
-                handleApplicationDetailBack()
+              onArchive={async () => {
+                const archived = await applicationsDashboard.archive(selectedApplication.id)
+                if (archived) handleApplicationDetailBack()
+                return archived
               }}
               onPreviewCandidateFlow={handlePreviewCandidateFlow}
             />

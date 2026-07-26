@@ -134,7 +134,15 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const requestInfo = useCallback(
-    (id: string, message: string) => {
+    async (id: string, message: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await requestApplicationInfo(id, message, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The request could not be sent.")
+          return false
+        }
+      }
       patchLocal(id, (application) => ({
         ...application,
         status: "needs_information",
@@ -142,9 +150,7 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
         updatedAt: nowIso(),
         activity: [...application.activity, localEvent("info_requested", message)],
       }))
-      if (APPLICATIONS_BACKEND_ENABLED) {
-        requestApplicationInfo(id, message, reviewer).catch(() => setLoadError("The request could not be sent."))
-      }
+      return true
     },
     [localEvent, patchLocal, reviewer],
   )
@@ -203,16 +209,22 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const archive = useCallback(
-    (id: string) => {
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await archiveApplication(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The application could not be archived.")
+          return false
+        }
+      }
       patchLocal(id, (application) => ({
         ...application,
         status: "archived",
         updatedAt: nowIso(),
         activity: [...application.activity, localEvent("archived", "Archived the application")],
       }))
-      if (APPLICATIONS_BACKEND_ENABLED) {
-        archiveApplication(id, reviewer).catch(() => setLoadError("The application could not be archived."))
-      }
+      return true
     },
     [localEvent, patchLocal, reviewer],
   )
@@ -243,16 +255,22 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   const startReview = useCallback(
-    (id: string) => {
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await startApplicationReview(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The status could not be updated.")
+          return false
+        }
+      }
       patchLocal(id, (application) => ({
         ...application,
         status: "ready_for_review",
         updatedAt: nowIso(),
         activity: [...application.activity, localEvent("note", "Moved to review")],
       }))
-      if (APPLICATIONS_BACKEND_ENABLED) {
-        startApplicationReview(id, reviewer).catch(() => setLoadError("The status could not be updated."))
-      }
+      return true
     },
     [localEvent, patchLocal, reviewer],
   )

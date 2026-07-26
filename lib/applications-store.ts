@@ -147,7 +147,10 @@ function mapStatus(value: unknown): ApplicationStatus {
 export function mapApplicationDoc(id: string, data: DocumentData): CandidateApplication {
   return {
     id,
-    linkToken: typeof data.linkToken === "string" ? data.linkToken : "",
+    // Link tokens are bearer credentials, never application data. New records
+    // intentionally omit this field; returning an empty value also prevents a
+    // legacy token from being rendered or copied by the dashboard.
+    linkToken: "",
     candidateName: typeof data.candidateName === "string" ? data.candidateName : "",
     trade: typeof data.trade === "string" ? data.trade : "",
     job: mapJob(data),
@@ -192,7 +195,9 @@ export function mapActivityDoc(id: string, data: DocumentData): ActivityEvent {
 export function mapLinkDoc(id: string, data: DocumentData): ApplicationLink {
   const purpose = data.purpose
   return {
-    token: typeof data.token === "string" ? data.token : id,
+    // Link documents are addressed by SHA-256(token) and never retain the raw
+    // bearer token. Callers that already possess one pass it separately.
+    token: "",
     applicationId: typeof data.applicationId === "string" ? data.applicationId : "",
     purpose: purpose === "step" || purpose === "agreement" ? (purpose as LinkPurpose) : "application",
     step: (["general", "video", "documents"] as ApplicationSectionId[]).includes(data.step)
@@ -214,7 +219,6 @@ export function mapLinkDoc(id: string, data: DocumentData): ApplicationLink {
  */
 export function applicationToFirestore(application: CandidateApplication): DocumentData {
   return {
-    linkToken: application.linkToken,
     candidateName: application.candidateName,
     trade: application.trade,
     jobEntityId: application.job.id,
@@ -250,7 +254,6 @@ export function applicationToFirestore(application: CandidateApplication): Docum
 
 export function linkToFirestore(link: ApplicationLink): DocumentData {
   return {
-    token: link.token,
     applicationId: link.applicationId,
     purpose: link.purpose,
     step: link.step,

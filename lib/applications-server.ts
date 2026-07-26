@@ -16,6 +16,7 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import {
   OPERATING_AGREEMENT_TEMPLATE,
   candidateUid,
+  nameMatches,
   resolveLink,
   type AgreementTemplate,
   type ApplicationLink,
@@ -63,8 +64,15 @@ async function adminAuth() {
 /** Reads the link record for a raw token. */
 async function loadLink(token: string): Promise<ApplicationLink | null> {
   const db = await adminFirestore()
-  // Production hashes the token at rest; the lookup key changes here only.
-  const snapshot = await db.collection(APPLICATION_LINKS_COLLECTION).doc(token).get()
+  const tokenHash = createHash("sha256").update(token).digest("hex")
+  const snapshot = await db.collection(APPLICATION_LINKS_COLLECTION).doc(tokenHash).get()
+  return snapshot.exists ? { ...mapLinkDoc(snapshot.id, snapshot.data() ?? {}), token } : null
+}
+
+/** Resolve a stored digest for an already-authenticated candidate request. */
+async function loadLinkByHash(tokenHash: string): Promise<ApplicationLink | null> {
+  const db = await adminFirestore()
+  const snapshot = await db.collection(APPLICATION_LINKS_COLLECTION).doc(tokenHash).get()
   return snapshot.exists ? mapLinkDoc(snapshot.id, snapshot.data() ?? {}) : null
 }
 
@@ -96,13 +104,18 @@ export async function createCandidateSession(rawToken: string): Promise<Candidat
 
   const uid = candidateUid(link.applicationId)
   const auth = await adminAuth()
-  // The claim is the entire authorization story for the candidate: the rules
-  // read request.auth.token.applicationId and nothing else.
-  const customToken = await auth.createCustomToken(uid, { applicationId: link.applicationId })
+  const tokenHash = createHash("sha256").update(token).digest("hex")
+  // Rules verify this digest against /applicationLinks on every candidate
+  // read/write. A link that expires or is revoked therefore also invalidates
+  // an already-opened candidate session.
+  const customToken = await auth.createCustomToken(uid, {
+    applicationId: link.applicationId,
+    applicationLinkHash: tokenHash,
+  })
 
   // Best-effort usage counter; never blocks issuing the session.
   db.collection(APPLICATION_LINKS_COLLECTION)
-    .doc(token)
+    .doc(tokenHash)
     .update({ usedCount: (link.usedCount ?? 0) + 1, lastUsedAt: new Date() })
     .catch(() => {})
 
@@ -133,6 +146,7 @@ export async function createCandidateSession(rawToken: string): Promise<Candidat
 export interface CandidatePrincipal {
   uid: string
   applicationId: string
+  linkHash: string
 }
 
 export interface StaffPrincipal {
@@ -142,8 +156,8 @@ export interface StaffPrincipal {
 
 /**
  * Verifies the candidate's Firebase ID token and returns the application they
- * are scoped to. The `applicationId` custom claim is the whole authorization
- * story — no claim means "not a candidate session".
+ * are scoped to. The link digest is checked again by the protected operation,
+ * so revoking or expiring a link also terminates sessions minted from it.
  */
 export async function verifyCandidateRequest(request: Request): Promise<CandidatePrincipal> {
   const header = request.headers.get("authorization") ?? request.headers.get("Authorization") ?? ""
@@ -158,10 +172,11 @@ export async function verifyCandidateRequest(request: Request): Promise<Candidat
     throw new ApplicationSessionError("unauthenticated", "Your session ended. Please reopen the link.", 401)
   }
   const applicationId = typeof decoded.applicationId === "string" ? decoded.applicationId : ""
-  if (!applicationId) {
+  const linkHash = typeof decoded.applicationLinkHash === "string" ? decoded.applicationLinkHash : ""
+  if (!applicationId || !/^[a-f0-9]{64}$/.test(linkHash)) {
     throw new ApplicationSessionError("forbidden", "This action isn't available for your session.", 403)
   }
-  return { uid: decoded.uid, applicationId }
+  return { uid: decoded.uid, applicationId, linkHash }
 }
 
 /** Verify a normal staff token. Candidate custom tokens never pass this gate. */
@@ -188,6 +203,9 @@ export async function verifyStaffRequest(request: Request, requestedName = ""): 
 }
 
 const APPROVABLE_STATUSES = new Set(["submitted", "ready_for_review", "needs_information"])
+const REQUESTABLE_STATUSES = new Set(["draft", "submitted", "needs_information", "ready_for_review", "approved", "agreement_pending"])
+
+export type ReviewerApplicationAction = "request_info" | "archive" | "mark_hired" | "start_review"
 
 /**
  * Atomically approve an application and unlock its operating agreement. This
@@ -233,6 +251,80 @@ export async function approveApplicationAndUnlockAgreement(
   return { approvedAt: approvedAt.toISOString() }
 }
 
+/**
+ * Reviewer status changes are server-side transactions. Keeping the state and
+ * its activity event together means a browser cannot silently move a candidate
+ * through the pipeline without leaving an auditable record.
+ */
+export async function applyReviewerApplicationAction(
+  applicationId: string,
+  action: ReviewerApplicationAction,
+  reviewer: StaffPrincipal,
+  message = "",
+): Promise<void> {
+  const id = applicationId.trim()
+  if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+
+  const trimmedMessage = message.trim()
+  if (action === "request_info" && !trimmedMessage) {
+    throw new ApplicationSessionError("message-required", "A request needs a message.", 400)
+  }
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
+  const { FieldValue } = await import("firebase-admin/firestore")
+
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(applicationRef)
+    if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+    const currentStatus = String((snapshot.data() ?? {}).status ?? "")
+
+    let patch: Record<string, unknown>
+    let event: { kind: string; message: string }
+    switch (action) {
+      case "request_info":
+        if (!REQUESTABLE_STATUSES.has(currentStatus)) {
+          throw new ApplicationSessionError("not-requestable", "Information can't be requested at this stage.", 409)
+        }
+        patch = { status: "needs_information", pendingRequest: trimmedMessage }
+        event = { kind: "info_requested", message: trimmedMessage }
+        break
+      case "archive":
+        if (currentStatus === "archived") {
+          throw new ApplicationSessionError("already-archived", "This application is already archived.", 409)
+        }
+        patch = { status: "archived" }
+        event = { kind: "archived", message: "Archived the application" }
+        break
+      case "mark_hired":
+        if (currentStatus !== "payroll_in_progress") {
+          throw new ApplicationSessionError("not-hireable", "Complete the signed agreement and payroll step first.", 409)
+        }
+        patch = { status: "hired" }
+        event = { kind: "hired", message: "Completed payroll setup and marked the candidate as hired" }
+        break
+      case "start_review":
+        if (currentStatus !== "submitted") {
+          throw new ApplicationSessionError("not-reviewable", "This application is not ready to start review.", 409)
+        }
+        patch = { status: "ready_for_review" }
+        event = { kind: "note", message: "Moved to review" }
+        break
+      default:
+        throw new ApplicationSessionError("invalid-request", "Invalid application action.", 400)
+    }
+
+    tx.update(applicationRef, { ...patch, updatedAt: FieldValue.serverTimestamp() })
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind: event.kind,
+      actor: reviewer.name,
+      actorUid: reviewer.uid,
+      message: event.message,
+      at: FieldValue.serverTimestamp(),
+    })
+  })
+}
+
 /** Deterministic hash of the exact text the candidate agreed to. */
 function agreementBodyHash(template: AgreementTemplate): string {
   const canonical = JSON.stringify({
@@ -251,6 +343,7 @@ function sha256(bytes: Uint8Array): string {
 
 export interface SignAgreementInput {
   applicationId: string
+  linkHash: string
   signatureDataUrl: string
   typedName: string
   consent: boolean
@@ -278,6 +371,7 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
 
   const db = await adminFirestore()
   const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(input.applicationId)
+  const linkRef = db.collection(APPLICATION_LINKS_COLLECTION).doc(input.linkHash)
   const snapshot = await applicationRef.get()
   if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
 
@@ -290,8 +384,18 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
     throw new ApplicationSessionError("not-signable", "This agreement can't be signed yet.", 409)
   }
 
+  const activeLink = resolveLink(await loadLinkByHash(input.linkHash))
+  if (!activeLink.ok || activeLink.link.applicationId !== input.applicationId) {
+    throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
+  }
+
   const template = OPERATING_AGREEMENT_TEMPLATE
   const candidateName = typeof data.candidateName === "string" && data.candidateName ? data.candidateName : typedName
+  const general = (data.general ?? {}) as { fullName?: unknown }
+  const expectedName = typeof general.fullName === "string" && general.fullName.trim() ? general.fullName : candidateName
+  if (!nameMatches(typedName, expectedName)) {
+    throw new ApplicationSessionError("name-mismatch", "Type your full name exactly as it appears in your application.", 400)
+  }
   const jobName = typeof data.jobName === "string" ? data.jobName : ""
 
   const { Timestamp, FieldValue } = await import("firebase-admin/firestore")
@@ -320,36 +424,66 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
   const signedPdfHash = sha256(pdfBytes)
 
   const agreementRef = db.collection("applicationAgreements").doc()
-  await db.runTransaction(async (tx) => {
-    tx.set(agreementRef, {
-      applicationId: input.applicationId,
-      templateId: template.id,
-      version: template.version,
-      bodyHash,
-      typedName,
-      consentAt: Timestamp.fromDate(signedAtDate),
-      signedAt: Timestamp.fromDate(signedAtDate),
-      signedPdfPath: pdfPath,
-      signedPdfHash,
+  try {
+    await db.runTransaction(async (tx) => {
+      // Re-read both records inside the transaction. This is the final gate
+      // against a concurrent second signature or a link revoked mid-request.
+      const [currentApplication, currentLink] = await Promise.all([tx.get(applicationRef), tx.get(linkRef)])
+      if (!currentApplication.exists) {
+        throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+      }
+      const currentData = currentApplication.data() ?? {}
+      const currentAgreement = (currentData.agreement ?? {}) as { status?: unknown }
+      if (currentAgreement.status === "signed") {
+        throw new ApplicationSessionError("already-signed", "This agreement is already signed.", 409)
+      }
+      if (!SIGNABLE_STATUSES.has(String(currentData.status))) {
+        throw new ApplicationSessionError("not-signable", "This agreement can't be signed yet.", 409)
+      }
+      if (!currentLink.exists) {
+        throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
+      }
+      const currentLinkState = resolveLink(mapLinkDoc(currentLink.id, currentLink.data() ?? {}))
+      if (!currentLinkState.ok || currentLinkState.link.applicationId !== input.applicationId) {
+        throw new ApplicationSessionError("link-inactive", "This signing link is no longer active. Ask SVC for a new one.", 403)
+      }
+
+      tx.set(agreementRef, {
+        applicationId: input.applicationId,
+        templateId: template.id,
+        version: template.version,
+        bodyHash,
+        typedName,
+        consentAt: Timestamp.fromDate(signedAtDate),
+        signedAt: Timestamp.fromDate(signedAtDate),
+        signedPdfPath: pdfPath,
+        signedPdfHash,
+      })
+      tx.update(applicationRef, {
+        status: "payroll_in_progress",
+        "agreement.status": "signed",
+        "agreement.signedAt": Timestamp.fromDate(signedAtDate),
+        "agreement.signedVersion": template.version,
+        "agreement.signedName": typedName,
+        agreementId: agreementRef.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      const activityRef = applicationRef.collection("activity").doc()
+      tx.set(activityRef, {
+        kind: "agreement_signed",
+        actor: "Candidate",
+        actorUid: candidateUid(input.applicationId),
+        message: `Signed the operating agreement (v${template.version})`,
+        at: Timestamp.fromDate(signedAtDate),
+      })
     })
-    tx.update(applicationRef, {
-      status: "payroll_in_progress",
-      "agreement.status": "signed",
-      "agreement.signedAt": Timestamp.fromDate(signedAtDate),
-      "agreement.signedVersion": template.version,
-      "agreement.signedName": typedName,
-      agreementId: agreementRef.id,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    const activityRef = applicationRef.collection("activity").doc()
-    tx.set(activityRef, {
-      kind: "agreement_signed",
-      actor: "Candidate",
-      actorUid: candidateUid(input.applicationId),
-      message: `Signed the operating agreement (v${template.version})`,
-      at: Timestamp.fromDate(signedAtDate),
-    })
-  })
+  } catch (error) {
+    // The PDF is uploaded before the transaction so its SHA-256 can be stored
+    // atomically with the evidence. If the final gate fails, remove that
+    // unreferenced artifact instead of retaining sensitive data.
+    await bucket.file(pdfPath).delete({ ignoreNotFound: true }).catch(() => {})
+    throw error
+  }
 
   return { signedAt: signedAtIso }
 }

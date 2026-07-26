@@ -8,18 +8,19 @@
  * reviewer types: their words always win.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { ArrowLeft, Check, Copy, Link2, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppsButton, StatusPill } from "@/components/applications/ui/apps-primitives"
 import { AppsTextarea } from "@/components/applications/ui/apps-form"
-import { issueApplicationLink } from "@/features/applications/candidate-links"
+import { generateLinkToken, issueApplicationLink } from "@/features/applications/candidate-links"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import { saveApplicationLink } from "@/lib/applications-writes"
 import {
   REQUEST_MESSAGE_MAX,
   applicationLinkUrl,
   composeRequestMessage,
+  createApplicationLink,
   describeLinkExpiry,
   requestableItems,
   type ApplicationSectionId,
@@ -48,7 +49,7 @@ function stepForItems(itemIds: string[]): ApplicationSectionId {
 interface RequestInfoScreenProps {
   application: CandidateApplication
   onClose: () => void
-  onSend: (message: string) => void
+  onSend: (message: string) => Promise<boolean>
 }
 
 export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoScreenProps) {
@@ -56,23 +57,21 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
   const preselected = useMemo(() => items.filter((item) => item.missing).map((item) => item.id), [items])
   const [selected, setSelected] = useState<string[]>(preselected)
 
-  // One link per visit, pointing at the step the first requested item lives in.
-  // Regenerating on every toggle would invalidate a link the reviewer may have
-  // already copied.
+  // The direct link always follows the final selection. In live mode it stays
+  // local until Send is confirmed, so cancelling this screen leaves no active
+  // credential behind.
+  const targetStep = stepForItems(selected)
   const link = useMemo(
-    () => issueApplicationLink({ applicationId: application.id, purpose: "step", step: stepForItems(preselected) }),
-    [application.id, preselected],
+    () => {
+      const input = { applicationId: application.id, purpose: "step" as const, step: targetStep }
+      return APPLICATIONS_BACKEND_ENABLED
+        ? createApplicationLink({ ...input, token: generateLinkToken() })
+        : issueApplicationLink(input)
+    },
+    [application.id, targetStep],
   )
   const origin = typeof window !== "undefined" ? window.location.origin : ""
   const url = applicationLinkUrl(link.token, origin)
-
-  // In live mode the link must exist in /applicationLinks for the session
-  // endpoint to resolve it. Persist it once per link.
-  useEffect(() => {
-    if (APPLICATIONS_BACKEND_ENABLED) {
-      saveApplicationLink(link).catch(() => {})
-    }
-  }, [link])
 
   const [message, setMessage] = useState(() =>
     composeRequestMessage(
@@ -83,6 +82,8 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
   )
   const [edited, setEdited] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isSending, setIsSending] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
 
   const selectedLabels = items.filter((item) => selected.includes(item.id)).map((item) => item.label)
 
@@ -106,6 +107,33 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
     navigator.clipboard?.writeText(message).catch(() => {})
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
+  }
+
+  const send = async () => {
+    if (!canSend || isSending) return
+    setIsSending(true)
+    setLinkError(null)
+    if (APPLICATIONS_BACKEND_ENABLED) {
+      try {
+        await saveApplicationLink(link)
+      } catch {
+        setIsSending(false)
+        setLinkError("The secure link couldn't be created. Please try again.")
+        return
+      }
+    }
+
+    // An edited message may still contain the preview URL from a previous
+    // selection. Replace it with the final link, or append one if it was
+    // removed, so the candidate always lands on the selected step.
+    const trimmedMessage = message.trim()
+    const messageHasLink = /https?:\/\/\S+\/?\?apply=\S+/.test(trimmedMessage)
+    const finalMessage = messageHasLink
+      ? trimmedMessage.replace(/https?:\/\/\S+\/?\?apply=\S+/g, url)
+      : `${trimmedMessage}\n\n${url}`
+    const sent = await onSend(finalMessage)
+    setIsSending(false)
+    if (sent) onClose()
   }
 
   return (
@@ -195,15 +223,14 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
             )}
           </div>
 
-          {/* The link is the point of this screen: it opens the exact step,
-              so the candidate never restarts the application. */}
+          {/* The link opens the exact step, so the candidate never restarts. */}
           <div className="mt-4 rounded-2xl border border-[#BFDBFE] bg-[var(--apps-blue-soft)]/45 p-4">
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--apps-surface)] text-[var(--apps-blue-strong)]">
                 <Link2 className="h-4 w-4" strokeWidth={2} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[0.8125rem] font-semibold text-[var(--apps-text)]">Direct link included</p>
+                <p className="text-[0.8125rem] font-semibold text-[var(--apps-text)]">Direct link ready</p>
                 <p className="mt-0.5 text-xs leading-snug text-[var(--apps-text-muted)]">
                   Opens straight at {STEP_LABEL[link.step ?? "documents"]} — no app, no restart.
                 </p>
@@ -217,6 +244,11 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
               </span>
             </div>
           </div>
+          {linkError && (
+            <p className="mt-3 rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-2.5 text-[0.8125rem] font-medium text-[#DC5A5A]">
+              {linkError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -227,11 +259,11 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
         <div className="mx-auto flex w-full max-w-xl flex-col gap-2.5">
           <AppsButton
             fullWidth
-            disabled={!canSend}
-            onClick={() => onSend(message.trim())}
+            disabled={!canSend || isSending}
+            onClick={send}
             icon={<Send className="h-4 w-4" strokeWidth={2} />}
           >
-            Send link
+            {isSending ? "Sending…" : "Send link"}
           </AppsButton>
           <AppsButton
             variant="secondary"

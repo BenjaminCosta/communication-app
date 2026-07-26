@@ -17,9 +17,12 @@ import {
 } from "@firebase/rules-unit-testing"
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp } from "firebase/firestore"
 import { readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 
 const HOST_PORT = (process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080").split(":")
 const APPLICATION_ID = "app-rules-test"
+const LINK_TOKEN = "rules-link-token"
+const LINK_HASH = createHash("sha256").update(LINK_TOKEN).digest("hex")
 
 let passed = 0
 let failed = 0
@@ -60,13 +63,22 @@ async function main() {
       agreement: { status: "locked" },
       updatedAt: new Date(),
     })
+    await setDoc(doc(db, "applicationLinks", LINK_HASH), {
+      applicationId: APPLICATION_ID,
+      purpose: "application",
+      step: null,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86_400_000),
+      revokedAt: null,
+      usedCount: 0,
+    })
   })
 
   // Staff = authenticated, no applicationId claim.
   const staff = testEnv.authenticatedContext("user-staff").firestore()
   // Candidate = link session, identified by the custom-token claim.
   const candidate = testEnv
-    .authenticatedContext("cand-app-rules-test", { applicationId: APPLICATION_ID })
+    .authenticatedContext("cand-app-rules-test", { applicationId: APPLICATION_ID, applicationLinkHash: LINK_HASH })
     .firestore()
   const other = testEnv
     .authenticatedContext("cand-someone-else", { applicationId: "app-different" })
@@ -78,8 +90,8 @@ async function main() {
   await check("staff can read an application", () =>
     assertSucceeds(getDoc(doc(staff, "applications", APPLICATION_ID))))
 
-  await check("staff can approve", () =>
-    assertSucceeds(updateDoc(doc(staff, "applications", APPLICATION_ID), { status: "approved" })))
+  await check("staff cannot bypass server-side approval", () =>
+    assertFails(updateDoc(doc(staff, "applications", APPLICATION_ID), { status: "approved" })))
 
   await check("staff cannot write the agreement", () =>
     assertFails(
@@ -132,6 +144,13 @@ async function main() {
   await check("candidate cannot rewrite the candidate name", () =>
     assertFails(updateDoc(doc(candidate, "applications", APPLICATION_ID), { candidateName: "Someone Else" })))
 
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "applicationLinks", LINK_HASH), { revokedAt: new Date() })
+  })
+
+  await check("revoking a link immediately blocks an already-open candidate session", () =>
+    assertFails(getDoc(doc(candidate, "applications", APPLICATION_ID))))
+
   await check("nobody can delete an application", () =>
     assertFails(updateDoc(doc(staff, "applications", "does-not-exist"), { status: "archived" })))
 
@@ -160,6 +179,7 @@ async function main() {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore()
     await deleteDoc(doc(db, "applications", APPLICATION_ID))
+    await deleteDoc(doc(db, "applicationLinks", LINK_HASH))
     await deleteDoc(doc(db, "applicationLinks", "token-abc"))
   })
 

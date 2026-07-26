@@ -251,19 +251,31 @@ service cloud.firestore {
     function appIsCandidate(applicationId) {
       return request.auth != null && request.auth.token.applicationId == applicationId;
     }
+    // A candidate token carries the SHA-256 digest of the link that opened
+    // their session. Check the current link record on every request so expiry
+    // and revocation take effect even after Firebase has minted an ID token.
+    function appHasActiveCandidateLink(applicationId) {
+      return appIsCandidate(applicationId)
+             && request.auth.token.applicationLinkHash is string
+             && exists(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash))
+             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.applicationId == applicationId
+             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.revokedAt == null
+             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.expiresAt > request.time;
+    }
     function appTouchesOnly(fields) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
     }
 
     match /applications/{applicationId} {
-      allow read:   if appIsStaff() || appIsCandidate(applicationId);
+      allow read:   if appIsStaff() || appHasActiveCandidateLink(applicationId);
       allow create: if appIsStaff();
       allow update: if (
                       appIsStaff()
-                      // The agreement gates payroll: only the server writes it.
-                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['agreement'])
+                      // State, identity and agreement transitions run through
+                      // Admin SDK endpoints with an atomic activity event.
+                      && appTouchesOnly(['general', 'video', 'documents', 'updatedAt'])
                     ) || (
-                      appIsCandidate(applicationId)
+                      appHasActiveCandidateLink(applicationId)
                       // Only while the ball is in their court.
                       && resource.data.status in ['draft', 'needs_information']
                       && appTouchesOnly(['general', 'video', 'documents', 'status', 'updatedAt', 'submittedAt'])
@@ -278,9 +290,9 @@ service cloud.firestore {
 
       // Append-only history. Nothing edits or deletes an audit entry.
       match /activity/{eventId} {
-        allow read:   if appIsStaff() || appIsCandidate(applicationId);
+        allow read:   if appIsStaff() || appHasActiveCandidateLink(applicationId);
         allow create: if (appIsStaff() && request.resource.data.actorUid == request.auth.uid)
-                      || appIsCandidate(applicationId);
+                      || appHasActiveCandidateLink(applicationId);
         allow update, delete: if false;
       }
     }

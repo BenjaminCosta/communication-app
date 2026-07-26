@@ -132,14 +132,15 @@ export function updateMockApplication(
 
 // ── Links ───────────────────────────────────────────────────────────────
 
-/** Tokens look like the real thing: short, opaque, URL-safe. */
+/**
+ * Opaque, URL-safe bearer token. The alphabet has 32 characters, so masking
+ * five random bits per character is uniform and gives 160 bits of entropy.
+ */
 export function generateLinkToken(): string {
   const alphabet = "abcdefghijkmnopqrstuvwxyz23456789"
-  let token = ""
-  for (let index = 0; index < 10; index += 1) {
-    token += alphabet[Math.floor(Math.random() * alphabet.length)]
-  }
-  return token
+  const random = new Uint8Array(32)
+  crypto.getRandomValues(random)
+  return Array.from(random, (value) => alphabet[value & 31]).join("")
 }
 
 export function issueApplicationLink(input: {

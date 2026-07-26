@@ -638,15 +638,10 @@ Las tres piezas ya están construidas, siempre sobre estado local:
    consentimiento, nombre (validado contra el nombre en ficha, tolerante a
    mayúsculas/acentos) y trazo son obligatorios. Al firmar: estado `signed`,
    versión y nombre guardados, y la aplicación pasa a `payroll_in_progress`.
-3. **Request info** — genera un link `purpose: "step"` apuntando al primer ítem
-   pendiente, lo muestra con su vencimiento y lo agrega al mensaje. El link se
-   emite una vez por visita: regenerarlo en cada toggle invalidaría uno que el
-   revisor quizá ya copió.
-
-Lo que **sigue siendo mock** en estas piezas: el token no se valida contra nada,
-el PNG de la firma no se sube, no hay PDF sellado ni hash ni `signedAt` de
-servidor, y `navigator.share()` comparte una URL que todavía no resuelve para
-un tercero.
+3. **Request info** — arma un link `purpose: "step"` a partir de la selección
+   final, lo muestra con su vencimiento y lo agrega al mensaje. En live el link
+   sólo se persiste al confirmar Send; cancelar la pantalla no deja un
+   credential activo.
 
 ## Temas cerrados (2026-07-25)
 
@@ -659,10 +654,9 @@ un tercero.
 
 ## Temas que quedan (menores)
 
-1. **Endpoint de sesión sin endurecer.** Falta rate-limit y hashear el token en
-   reposo (`/applicationLinks/{tokenHash}`) antes de uso público intenso. Hoy el
-   token se guarda tal cual bajo su propio id. Mitigado en parte por vencimiento
-   corto + revocación.
+1. **Endpoint de sesión: rate-limit.** Los tokens se guardan como SHA-256 y
+   una sesión candidata consulta el link activo en cada acceso; falta limitar
+   intentos del endpoint público antes de uso intenso.
 2. **Reasignar el job de una aplicación existente** no tiene UI todavía (el
    invite lo setea al crear; editarlo después queda pendiente). Idealmente el
    job saldría de Directory (`/directoryIndex`) en vez de texto libre.

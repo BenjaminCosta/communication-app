@@ -128,10 +128,10 @@ interface ApplicationDetailScreenProps {
   application: CandidateApplication
   className?: string
   onBack: () => void
-  onRequestInfo: (message: string) => void
+  onRequestInfo: (message: string) => Promise<boolean>
   onApprove: () => Promise<boolean>
   onMarkHired: () => Promise<boolean>
-  onArchive: () => void
+  onArchive: () => Promise<boolean>
   onPreviewCandidateFlow: (token: string) => void
   reviewer?: ReviewerIdentity
   onRecordActivity?: (kind: ActivityEvent["kind"], message: string) => void
@@ -155,6 +155,7 @@ export function ApplicationDetailScreen({
   const [copiedLink, setCopiedLink] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [isHiring, setIsHiring] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
 
   const progress = computeApplicationProgress(application)
@@ -200,6 +201,13 @@ export function ApplicationDetailScreen({
     const completed = await onMarkHired()
     setIsHiring(false)
     if (completed) closeSheet()
+  }
+
+  const handleArchive = async () => {
+    setIsArchiving(true)
+    const archived = await onArchive()
+    setIsArchiving(false)
+    if (archived) closeSheet()
   }
 
   const copyApplicationLink = () => {
@@ -860,12 +868,10 @@ export function ApplicationDetailScreen({
             <AppsButton
               variant="danger"
               fullWidth
-              onClick={() => {
-                onArchive()
-                closeSheet()
-              }}
+              disabled={isArchiving}
+              onClick={handleArchive}
             >
-              Archive
+              {isArchiving ? "Archiving…" : "Archive"}
             </AppsButton>
           </div>
         }
@@ -921,10 +927,7 @@ export function ApplicationDetailScreen({
         <RequestInfoScreen
           application={application}
           onClose={() => setRequestOpen(false)}
-          onSend={(message) => {
-            onRequestInfo(message)
-            setRequestOpen(false)
-          }}
+          onSend={onRequestInfo}
         />
       )}
     </div>

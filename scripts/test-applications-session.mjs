@@ -18,6 +18,7 @@
 import { initializeApp as initAdmin } from "firebase-admin/app"
 import { getAuth as getAdminAuth } from "firebase-admin/auth"
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore"
+import { createHash } from "node:crypto"
 import { initializeApp as initClient } from "firebase/app"
 import { getAuth as getClientAuth, signInWithCustomToken, connectAuthEmulator } from "firebase/auth"
 import {
@@ -38,6 +39,8 @@ if (!FS || !AUTH) {
 
 const APP_ID = "app-session-test"
 const CAND_UID = `cand_${APP_ID}`
+const LINK_TOKEN = "session-link-token"
+const LINK_HASH = createHash("sha256").update(LINK_TOKEN).digest("hex")
 
 let passed = 0
 let failed = 0
@@ -79,9 +82,21 @@ async function main() {
     agreement: { status: "locked" },
     updatedAt: new Date(),
   })
+  await adminDb.collection("applicationLinks").doc(LINK_HASH).set({
+    applicationId: APP_ID,
+    purpose: "application",
+    step: null,
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 86_400_000),
+    revokedAt: null,
+    usedCount: 0,
+  })
 
   // 1) The server side: mint a custom token with the applicationId claim.
-  const customToken = await getAdminAuth(admin).createCustomToken(CAND_UID, { applicationId: APP_ID })
+  const customToken = await getAdminAuth(admin).createCustomToken(CAND_UID, {
+    applicationId: APP_ID,
+    applicationLinkHash: LINK_HASH,
+  })
   console.log("\ncandidate session (real custom token)\n")
   await ok("server mints a custom token with the applicationId claim", async () => {
     if (!customToken || typeof customToken !== "string") throw new Error("no token")
@@ -100,6 +115,7 @@ async function main() {
     if (credential.user.uid !== CAND_UID) throw new Error(`uid ${credential.user.uid}`)
     const claims = (await credential.user.getIdTokenResult()).claims
     if (claims.applicationId !== APP_ID) throw new Error(`claim ${claims.applicationId}`)
+    if (claims.applicationLinkHash !== LINK_HASH) throw new Error(`link claim ${claims.applicationLinkHash}`)
   })
 
   const ref = doc(clientDb, "applications", APP_ID)
@@ -128,6 +144,7 @@ async function main() {
 
   // Cleanup.
   await adminDb.collection("applications").doc(APP_ID).delete()
+  await adminDb.collection("applicationLinks").doc(LINK_HASH).delete()
 
   console.log(`\n${passed} passed, ${failed} failed\n`)
   process.exit(failed === 0 ? 0 : 1)
