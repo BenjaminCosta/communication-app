@@ -29,6 +29,7 @@ import {
 } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
+import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import {
   APPLICATIONS_COLLECTION,
   APPLICATION_ACTIVITY_SUBCOLLECTION,
@@ -309,11 +310,105 @@ function exportFileName(contentDisposition: string | null): string {
   return match?.[1]?.trim() || "candidate-application-profile.pdf"
 }
 
-/** Download a reviewer-authorized, complete application snapshot as a PDF. */
+function localProfileFileName(candidateName: string): string {
+  const slug = candidateName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+  return `${slug || "candidate"}-application-profile.pdf`
+}
+
+function triggerPdfDownload(blob: Blob, fileName: string): void {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = fileName
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+}
+
+/**
+ * Preview mode intentionally has no Firestore record to look up. Render the
+ * exact local application instead of posting its device-only id to the server.
+ * The PDF renderer is loaded only on demand, so normal dashboard startup stays
+ * lightweight.
+ */
+async function downloadLocalApplicationProfilePdf(application: CandidateApplication): Promise<void> {
+  const { createApplicationProfilePdf } = await import("@/features/applications/application-profile-pdf")
+  const bytes = await createApplicationProfilePdf({
+    generatedAtIso: new Date().toISOString(),
+    candidate: {
+      name: application.candidateName,
+      trade: application.trade,
+      status: application.status,
+      submittedAt: application.submittedAt,
+      createdAt: application.createdAt,
+    },
+    job: {
+      name: application.job.name,
+      location: application.job.location,
+      companyName: application.job.companyName,
+    },
+    application: {
+      fullName: application.general.fullName,
+      phone: application.general.phone,
+      email: application.general.email,
+      cityState: application.general.cityState,
+      yearsExperience: application.general.yearsExperience,
+      primaryTrade: application.general.primaryTrade,
+      resumeFileName: application.general.resumeFileName || null,
+      workReference: application.general.workReference || null,
+    },
+    video: {
+      state: application.video.state,
+      source: application.video.source,
+      fileName: application.video.fileName,
+      durationSeconds: application.video.durationSeconds,
+      capturedAt: application.video.capturedAt,
+      transcript: application.video.transcript ?? null,
+      summary: application.video.summary,
+    },
+    documents: application.documents.map((document) => ({
+      label: document.label,
+      status: document.status,
+      required: document.required,
+      fileName: document.fileName,
+      uploadedAt: document.uploadedAt,
+      helper: document.helper,
+    })),
+    agreement: {
+      status: application.agreement.status,
+      sentAt: application.agreement.sentAt,
+      expiresAt: application.agreement.expiresAt,
+      signedAt: application.agreement.signedAt,
+      signedName: application.agreement.signedName ?? null,
+      signedVersion: application.agreement.signedVersion ?? null,
+    },
+    activity: application.activity.map((event) => ({ actor: event.actor, message: event.message, at: event.at })),
+  })
+  triggerPdfDownload(new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }), localProfileFileName(application.candidateName))
+}
+
+/**
+ * Download a complete application snapshot as a PDF.
+ *
+ * The real backend produces an auditable staff-only export. The local preview
+ * has no shared record by definition, so it produces the same view from the
+ * device state rather than failing with "application not found".
+ */
 export async function downloadApplicationProfilePdf(
-  applicationId: string,
+  application: CandidateApplication,
   reviewer: ReviewerIdentity,
-): Promise<void> {
+): Promise<"local" | "server"> {
+  if (!APPLICATIONS_BACKEND_ENABLED) {
+    await downloadLocalApplicationProfilePdf(application)
+    return "local"
+  }
+
   const user = auth.currentUser
   if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
 
@@ -325,7 +420,7 @@ export async function downloadApplicationProfilePdf(
         "content-type": "application/json",
         authorization: `Bearer ${await user.getIdToken()}`,
       },
-      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+      body: JSON.stringify({ applicationId: application.id, reviewerName: reviewer.name }),
     })
   } catch {
     throw new ApplicationWriteError("We couldn't prepare this application PDF right now.")
@@ -340,14 +435,8 @@ export async function downloadApplicationProfilePdf(
 
   const blob = await response.blob()
   if (blob.size === 0) throw new ApplicationWriteError("The application PDF was empty. Please try again.")
-  const objectUrl = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = objectUrl
-  anchor.download = exportFileName(response.headers.get("content-disposition"))
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+  triggerPdfDownload(blob, exportFileName(response.headers.get("content-disposition")))
+  return "server"
 }
 
 /** Refresh the agreement signing window and create its secure server-side link. */

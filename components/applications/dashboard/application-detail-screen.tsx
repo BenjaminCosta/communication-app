@@ -261,7 +261,10 @@ export function ApplicationDetailScreen({
     setIsPreparingProfilePdf(true)
     setProfilePdfError(null)
     try {
-      await downloadApplicationProfilePdf(application.id, reviewer)
+      const source = await downloadApplicationProfilePdf(application, reviewer)
+      if (source === "local") {
+        onRecordActivity?.("note", "Downloaded the candidate application profile PDF")
+      }
       closeSheet()
     } catch (error) {
       setProfilePdfError(error instanceof Error ? error.message : "The application PDF could not be prepared. Please try again.")
