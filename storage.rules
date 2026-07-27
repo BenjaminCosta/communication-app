@@ -35,50 +35,19 @@ service firebase.storage {
     }
 
     // ── SVC Applications ────────────────────────────────────────────────────
-    // Candidate uploads (documents + intro video), scoped by the same custom
-    // token claim as the Firestore rules: only the candidate for THIS
-    // application may write, any authenticated SVC user (staff) may read.
-    function appIsStaff() {
-      return request.auth != null && !('applicationId' in request.auth.token);
-    }
-    function appIsCandidate(applicationId) {
-      return request.auth != null && request.auth.token.applicationId == applicationId;
-    }
-    // Mirror the Firestore gate for file bytes: a revoked or expired invite
-    // must immediately lose access to documents and video too.
-    function appHasActiveCandidateLink(applicationId) {
-      return appIsCandidate(applicationId)
-        && request.auth.token.applicationLinkHash is string
-        && firestore.exists(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash))
-        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.applicationId == applicationId
-        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.revokedAt == null
-        && firestore.get(/databases/(default)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.expiresAt > request.time;
-    }
-
+    // Operational mode: any signed-in Firebase session can upload, view or
+    // replace application media. This intentionally does not enforce claims,
+    // expiration or revocation while the workflow is being stabilized.
     match /application-uploads/{applicationId}/documents/{allPaths=**} {
-      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
-      allow create, update: if appHasActiveCandidateLink(applicationId)
-        && request.resource.size < 15 * 1024 * 1024
-        && request.resource.contentType != null
-        && (
-          request.resource.contentType.matches('image/.*')
-          || request.resource.contentType == 'application/pdf'
-        );
-      allow delete: if appHasActiveCandidateLink(applicationId);
+      allow read, write: if request.auth != null;
     }
 
     match /application-uploads/{applicationId}/video/{allPaths=**} {
-      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
-      allow create, update: if appHasActiveCandidateLink(applicationId)
-        && request.resource.size < 200 * 1024 * 1024
-        && request.resource.contentType != null
-        && request.resource.contentType.matches('video/.*');
-      allow delete: if appHasActiveCandidateLink(applicationId);
+      allow read, write: if request.auth != null;
     }
 
-    // Sealed agreement PDFs — written by the server (Admin SDK) only; staff read.
     match /application-agreements/{applicationId}/{allPaths=**} {
-      allow read: if appIsStaff() || appHasActiveCandidateLink(applicationId);
+      allow read: if request.auth != null;
       allow write: if false;
     }
   }

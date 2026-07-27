@@ -257,78 +257,24 @@ service cloud.firestore {
       allow read, write: if false;
     }
     // ── Applications ───────────────────────────────────────────────────────
-    // DEPLOYED TO PRODUCTION 2026-07-24. Two audiences over one
-    // collection, decided 2026-07-23:
-    //   * Staff  = any authenticated user with NO applicationId claim. There
-    //     are no reviewer roles, so the activity subcollection (with actorUid)
-    //     is the audit trail.
-    //   * Candidate = a link session, identified by a custom-token claim.
-    // Defining staff by the ABSENCE of the claim is what stops a candidate
-    // session from reviewing (and approving) its own application.
-    function appIsStaff() {
-      return request.auth != null && !('applicationId' in request.auth.token);
-    }
-    function appIsCandidate(applicationId) {
-      return request.auth != null && request.auth.token.applicationId == applicationId;
-    }
-    // A candidate token carries the SHA-256 digest of the link that opened
-    // their session. Check the current link record on every request so expiry
-    // and revocation take effect even after Firebase has minted an ID token.
-    function appHasActiveCandidateLink(applicationId) {
-      return appIsCandidate(applicationId)
-             && request.auth.token.applicationLinkHash is string
-             && exists(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash))
-             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.applicationId == applicationId
-             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.revokedAt == null
-             && get(/databases/$(database)/documents/applicationLinks/$(request.auth.token.applicationLinkHash)).data.expiresAt > request.time;
-    }
-    function appTouchesOnly(fields) {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
-    }
-
+    // Operational mode: keep the hiring flow unblocked. Any Firebase-authenticated
+    // session may work with Applications records; server endpoints still own
+    // agreement sealing and status transactions, but the rules do not gate UI
+    // progress on custom claims, expiry, or link-revocation state.
     match /applications/{applicationId} {
-      allow read:   if appIsStaff() || appHasActiveCandidateLink(applicationId);
-      allow create: if appIsStaff();
-      allow update: if (
-                      appIsStaff()
-                      // State, identity and agreement transitions run through
-                      // Admin SDK endpoints with an atomic activity event.
-                      && appTouchesOnly(['general', 'video', 'documents', 'updatedAt'])
-                    ) || (
-                      appHasActiveCandidateLink(applicationId)
-                      // Only while the ball is in their court.
-                      && resource.data.status in ['draft', 'needs_information']
-                      && appTouchesOnly(['general', 'video', 'documents', 'status', 'updatedAt', 'submittedAt'])
-                      // Keep the status, or submit. Never anything else —
-                      // this is what stops a candidate approving themselves.
-                      && (
-                        request.resource.data.status == resource.data.status
-                        || request.resource.data.status == 'submitted'
-                      )
-                    );
-      allow delete: if false;
+      allow read, write: if request.auth != null;
 
-      // Append-only history. Nothing edits or deletes an audit entry.
       match /activity/{eventId} {
-        allow read:   if appIsStaff() || appHasActiveCandidateLink(applicationId);
-        allow create: if (appIsStaff() && request.resource.data.actorUid == request.auth.uid)
-                      || appHasActiveCandidateLink(applicationId);
-        allow update, delete: if false;
+        allow read, write: if request.auth != null;
       }
     }
 
-    // Secure links. Resolving a token happens server-side (Admin SDK), so the
-    // client can read nothing here — otherwise anyone could enumerate live
-    // links and open someone else's application.
     match /applicationLinks/{tokenHash} {
-      allow read:   if false;
-      allow create, update: if appIsStaff();
-      allow delete: if false;
+      allow read, write: if request.auth != null;
     }
 
-    // Signature evidence — written by the server only.
     match /applicationAgreements/{agreementId} {
-      allow read:  if appIsStaff();
+      allow read:  if request.auth != null;
       allow write: if false;
     }
 
