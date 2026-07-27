@@ -13,6 +13,7 @@ import { Timestamp, type DocumentData } from "firebase/firestore"
 import {
   emptyGeneralApplication,
   emptyIntroVideo,
+  INTRO_VIDEO_MISSING_FIELDS,
   standardDocuments,
   type ActivityEvent,
   type ApplicationLink,
@@ -21,10 +22,13 @@ import {
   type CandidateApplication,
   type GeneralApplication,
   type IntroVideo,
+  type IntroVideoMissingField,
   type LinkedJob,
   type LinkPurpose,
   type OperatingAgreement,
   type RequiredDocument,
+  type TranscriptionStatus,
+  type VideoSummary,
 } from "@/lib/applications-core"
 
 export const APPLICATIONS_COLLECTION = "applications"
@@ -81,6 +85,34 @@ function mapGeneral(raw: unknown): GeneralApplication {
   return base
 }
 
+function mapMissingFields(raw: unknown): IntroVideoMissingField[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((value): value is IntroVideoMissingField =>
+    (INTRO_VIDEO_MISSING_FIELDS as readonly string[]).includes(value),
+  )
+}
+
+/** The video summary is written wholesale by the transcription pipeline in one shot. */
+function mapVideoSummary(raw: unknown): VideoSummary | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  if (typeof source.summary !== "string") return null
+  return {
+    name: typeof source.name === "string" ? source.name : null,
+    town: typeof source.town === "string" ? source.town : null,
+    yearsOfExperience: typeof source.yearsOfExperience === "number" ? source.yearsOfExperience : null,
+    summary: source.summary,
+    missingFields: mapMissingFields(source.missingFields),
+    needsReview: source.needsReview === true,
+  }
+}
+
+const KNOWN_TRANSCRIPTION_STATUSES: TranscriptionStatus[] = ["pending", "processing", "completed", "failed"]
+
+function mapTranscriptionStatus(value: unknown): TranscriptionStatus | null {
+  return KNOWN_TRANSCRIPTION_STATUSES.includes(value as TranscriptionStatus) ? (value as TranscriptionStatus) : null
+}
+
 function mapVideo(raw: unknown): IntroVideo {
   const base = emptyIntroVideo()
   if (!raw || typeof raw !== "object") return base
@@ -93,8 +125,16 @@ function mapVideo(raw: unknown): IntroVideo {
     capturedAt: toIso(source.capturedAt),
     storagePath: typeof source.storagePath === "string" ? source.storagePath : null,
     downloadUrl: typeof source.downloadUrl === "string" ? source.downloadUrl : null,
+    mimeType: typeof source.mimeType === "string" ? source.mimeType : null,
+    sizeBytes: typeof source.sizeBytes === "number" ? source.sizeBytes : null,
+    transcriptionStatus: mapTranscriptionStatus(source.transcriptionStatus),
     transcript: typeof source.transcript === "string" ? source.transcript : null,
-    summary: typeof source.summary === "string" ? source.summary : null,
+    summary: mapVideoSummary(source.summary),
+    transcriptionModel: typeof source.transcriptionModel === "string" ? source.transcriptionModel : null,
+    summaryModel: typeof source.summaryModel === "string" ? source.summaryModel : null,
+    processedAt: toIso(source.processedAt),
+    processingError: typeof source.processingError === "string" ? source.processingError : null,
+    processedStoragePath: typeof source.processedStoragePath === "string" ? source.processedStoragePath : null,
   }
 }
 
@@ -258,6 +298,7 @@ export function applicationToFirestore(application: CandidateApplication): Docum
     video: {
       ...application.video,
       capturedAt: toTimestamp(application.video.capturedAt),
+      processedAt: toTimestamp(application.video.processedAt),
     },
     documents: application.documents.map((document) => ({
       ...document,

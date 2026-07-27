@@ -216,7 +216,13 @@ export async function verifyStaffRequest(request: Request, requestedName = ""): 
 const APPROVABLE_STATUSES = new Set(["submitted", "ready_for_review", "needs_information"])
 const REQUESTABLE_STATUSES = new Set(["draft", "submitted", "needs_information", "ready_for_review", "approved", "agreement_pending"])
 
-export type ReviewerApplicationAction = "request_info" | "archive" | "unarchive" | "mark_hired" | "start_review"
+export type ReviewerApplicationAction =
+  | "request_info"
+  | "archive"
+  | "unarchive"
+  | "mark_hired"
+  | "start_review"
+  | "retry_transcription"
 
 /**
  * The raw link token only exists in this process and in the response that the
@@ -604,6 +610,21 @@ export async function applyReviewerApplicationAction(
         patch = { status: "ready_for_review" }
         event = { kind: "note", message: "Moved to review" }
         break
+      case "retry_transcription": {
+        const video = recordFromUnknown((snapshot.data() ?? {}).video)
+        if (typeof video.storagePath !== "string" || !video.storagePath) {
+          throw new ApplicationSessionError("no-video", "There is no video to retry.", 409)
+        }
+        if (video.transcriptionStatus !== "failed") {
+          throw new ApplicationSessionError("not-retryable", "This video isn't in a failed state.", 409)
+        }
+        // Dot-paths only — a full `video` replace here would blow away
+        // storagePath/fileName/etc. This is the one write path where a
+        // reviewer (not the candidate) is allowed to move transcriptionStatus.
+        patch = { "video.transcriptionStatus": "pending", "video.processingError": null }
+        event = { kind: "note", message: "Requested a transcript retry" }
+        break
+      }
       default:
         throw new ApplicationSessionError("invalid-request", "Invalid application action.", 400)
     }
@@ -865,7 +886,9 @@ export async function exportApplicationProfilePdf(
       durationSeconds: numberFromUnknown(video.durationSeconds),
       capturedAt: isoFromUnknown(video.capturedAt),
       transcript: textFromUnknown(video.transcript),
-      summary: textFromUnknown(video.summary),
+      // The structured summary object's one-sentence field — the PDF only ever
+      // renders prose, never the raw name/town/years/missingFields breakdown.
+      summary: textFromUnknown(recordFromUnknown(video.summary).summary),
     },
     documents: Array.isArray(data.documents)
       ? data.documents.map((entry) => {

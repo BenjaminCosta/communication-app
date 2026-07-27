@@ -30,6 +30,7 @@ import {
   MoreVertical,
   Phone,
   Play,
+  RefreshCw,
   Share2,
   Trash2,
   User,
@@ -70,14 +71,22 @@ import {
   computeApplicationProgress,
   formatApplicationDate,
   formatRelativeDate,
+  describeTranscriptionStatus,
   initialsFor,
   needsAgreementAttention,
   type ApplicationSectionId,
   type ApplicationTone,
   type ActivityEvent,
   type CandidateApplication,
+  type IntroVideoMissingField,
   type RequiredDocument,
 } from "@/lib/applications-core"
+
+const MISSING_FIELD_LABEL: Record<IntroVideoMissingField, string> = {
+  name: "name",
+  town: "town",
+  yearsOfExperience: "years of experience",
+}
 
 const SECTION_ICON: Record<ApplicationSectionId, typeof User> = {
   general: User,
@@ -147,6 +156,7 @@ interface ApplicationDetailScreenProps {
   onArchive: () => Promise<boolean>
   onUnarchive: () => Promise<boolean>
   onDelete: () => Promise<boolean>
+  onRetryTranscription: () => Promise<boolean>
   onPreviewCandidateFlow: (token: string) => void
   reviewer?: ReviewerIdentity
   onRecordActivity?: (kind: ActivityEvent["kind"], message: string) => void
@@ -162,6 +172,7 @@ export function ApplicationDetailScreen({
   onArchive,
   onUnarchive,
   onDelete,
+  onRetryTranscription,
   onPreviewCandidateFlow,
   reviewer,
   onRecordActivity,
@@ -176,6 +187,7 @@ export function ApplicationDetailScreen({
   const [isArchiving, setIsArchiving] = useState(false)
   const [isUnarchiving, setIsUnarchiving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isRetryingTranscription, setIsRetryingTranscription] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
   const [documentDownloadUrls, setDocumentDownloadUrls] = useState<Record<string, string>>({})
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
@@ -202,6 +214,8 @@ export function ApplicationDetailScreen({
   const documentsSection = progress.sections.find((section) => section.id === "documents")
   const videoReady = application.video.state === "ready"
   const videoPlayable = videoReady && Boolean(videoDownloadUrl)
+  const transcriptionMeta = describeTranscriptionStatus(application.video.transcriptionStatus)
+  const transcriptionFailed = application.video.transcriptionStatus === "failed"
 
   const closeSheet = () => setSheet(null)
 
@@ -287,6 +301,12 @@ export function ApplicationDetailScreen({
     const deleted = await onDelete()
     setIsDeleting(false)
     if (deleted) closeSheet()
+  }
+
+  const handleRetryTranscription = async () => {
+    setIsRetryingTranscription(true)
+    await onRetryTranscription()
+    setIsRetryingTranscription(false)
   }
 
   const handleFileDownload = async (key: string, downloadUrl: string, fileName: string) => {
@@ -667,7 +687,7 @@ export function ApplicationDetailScreen({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <p className="min-w-0 truncate text-sm font-semibold text-[var(--apps-text)]">{videoReady ? application.video.fileName : "No video uploaded"}</p>
-                    <StatusPill label={videoReady ? "Uploaded" : "Missing"} tone={videoReady ? "complete" : "missing"} />
+                    <StatusPill label={transcriptionMeta.label} tone={transcriptionMeta.tone} />
                   </div>
                   {videoReady ? (
                     <p className="mt-1 text-xs text-[var(--apps-text-muted)]">
@@ -708,17 +728,47 @@ export function ApplicationDetailScreen({
               className="mt-3"
               title="AI Video Summary"
               body={
-                application.video.summary ??
-                (videoReady
-                  ? `${application.candidateName.split(" ")[0]} recorded a ${Math.round((application.video.durationSeconds ?? 0) / 60) || 1}-minute intro. The review summary will appear here when processing is connected.`
-                  : "No intro video yet. The summary generates automatically after the candidate uploads one.")
+                !videoReady
+                  ? "No intro video yet. The summary generates automatically after the candidate uploads one."
+                  : application.video.transcriptionStatus === "completed" && application.video.summary
+                    ? application.video.summary.summary
+                    : application.video.transcriptionStatus === "processing"
+                      ? "Transcribing the intro video…"
+                      : application.video.transcriptionStatus === "failed"
+                        ? application.video.processingError ?? "The video could not be transcribed."
+                        : "Queued for transcription…"
               }
               footer={
                 videoReady ? (
-                  <button type="button" onClick={() => setSheet("video")} className="applications-tap inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D3EE0]">
-                    <FileText className="h-3.5 w-3.5" strokeWidth={2} />
-                    View transcript
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {application.video.transcriptionStatus === "completed" && (
+                      <button
+                        type="button"
+                        onClick={() => setSheet("video")}
+                        className="applications-tap inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D3EE0]"
+                      >
+                        <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+                        View transcript
+                      </button>
+                    )}
+                    {transcriptionFailed && (
+                      <button
+                        type="button"
+                        disabled={isRetryingTranscription}
+                        onClick={handleRetryTranscription}
+                        className="applications-tap inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D3EE0] disabled:opacity-50"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                        {isRetryingTranscription ? "Retrying…" : "Retry transcription"}
+                      </button>
+                    )}
+                    {(application.video.transcriptionStatus === "pending" || application.video.transcriptionStatus === "processing") && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D3EE0] opacity-70">
+                        <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                        {application.video.transcriptionStatus === "processing" ? "Processing…" : "Queued…"}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D3EE0] opacity-60">
                     <Clock className="h-3.5 w-3.5" strokeWidth={2} />
@@ -727,6 +777,14 @@ export function ApplicationDetailScreen({
                 )
               }
             />
+            {videoReady && application.video.summary && application.video.summary.missingFields.length > 0 && (
+              <p className="mt-2 px-1 text-xs font-medium text-[#B45309]">
+                Missing from the video: {application.video.summary.missingFields.map((field) => MISSING_FIELD_LABEL[field]).join(", ")}
+              </p>
+            )}
+            {videoReady && application.video.summary?.needsReview && (
+              <p className="mt-1 px-1 text-xs font-medium text-[#B45309]">Flagged for manual review.</p>
+            )}
           </div>
 
           {/* Documents */}
@@ -877,11 +935,82 @@ export function ApplicationDetailScreen({
                 The video file is not available to play yet. Ask the candidate to upload it again.
               </p>
             )}
+            {application.video.summary && (
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <SectionLabel>Extracted from the video</SectionLabel>
+                  {transcriptionFailed && (
+                    <button
+                      type="button"
+                      disabled={isRetryingTranscription}
+                      onClick={handleRetryTranscription}
+                      className="applications-tap inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--apps-blue-strong)] disabled:opacity-50"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                      {isRetryingTranscription ? "Retrying…" : "Retry"}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-[var(--apps-surface-2)] px-3 py-2.5">
+                    <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--apps-text-muted)]">Name</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[var(--apps-text)]">{application.video.summary.name ?? "—"}</p>
+                  </div>
+                  <div className="rounded-xl bg-[var(--apps-surface-2)] px-3 py-2.5">
+                    <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--apps-text-muted)]">Town</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[var(--apps-text)]">{application.video.summary.town ?? "—"}</p>
+                  </div>
+                  <div className="rounded-xl bg-[var(--apps-surface-2)] px-3 py-2.5">
+                    <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--apps-text-muted)]">Experience</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[var(--apps-text)]">
+                      {application.video.summary.yearsOfExperience != null ? `${application.video.summary.yearsOfExperience} yr` : "—"}
+                    </p>
+                  </div>
+                </div>
+                {application.video.summary.missingFields.length > 0 && (
+                  <p className="mt-2 px-1 text-xs font-medium text-[#B45309]">
+                    Missing from the video: {application.video.summary.missingFields.map((field) => MISSING_FIELD_LABEL[field]).join(", ")}
+                  </p>
+                )}
+                {application.video.summary.needsReview && (
+                  <p className="mt-1 px-1 text-xs font-medium text-[#B45309]">Flagged for manual review — verify with the candidate.</p>
+                )}
+              </div>
+            )}
             <div className="mt-5">
-              <SectionLabel className="mb-2 px-1">Transcript</SectionLabel>
-              <p className="rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3 text-[0.8125rem] leading-relaxed text-[var(--apps-text)]">
-                {application.video.transcript ?? "The transcript will appear here once video processing is connected."}
-              </p>
+              <div className="flex items-center justify-between gap-2 px-1">
+                <SectionLabel>Transcript</SectionLabel>
+                {transcriptionFailed && !application.video.summary && (
+                  <button
+                    type="button"
+                    disabled={isRetryingTranscription}
+                    onClick={handleRetryTranscription}
+                    className="applications-tap inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--apps-blue-strong)] disabled:opacity-50"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                    {isRetryingTranscription ? "Retrying…" : "Retry"}
+                  </button>
+                )}
+              </div>
+              {application.video.transcript ? (
+                <details className="group mt-2 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3">
+                  <summary className="flex cursor-pointer list-none items-center justify-between text-[0.8125rem] font-semibold text-[var(--apps-text)]">
+                    Full transcript
+                    <ChevronRight className="h-4 w-4 shrink-0 text-[var(--apps-text-muted)] transition-transform group-open:rotate-90" strokeWidth={2} />
+                  </summary>
+                  <p className="mt-2.5 whitespace-pre-line text-[0.8125rem] leading-relaxed text-[var(--apps-text)]">
+                    {application.video.transcript}
+                  </p>
+                </details>
+              ) : (
+                <p className="mt-2 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3 text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
+                  {application.video.transcriptionStatus === "processing"
+                    ? "Transcribing the intro video…"
+                    : application.video.transcriptionStatus === "failed"
+                      ? application.video.processingError ?? "The video could not be transcribed."
+                      : "The transcript will appear here once processing finishes."}
+                </p>
+              )}
             </div>
           </>
         ) : (

@@ -14,6 +14,7 @@ import {
   createApplicationLink,
   daysUntilExpiry,
   describeLinkExpiry,
+  describeTranscriptionStatus,
   emptyGeneralApplication,
   emptyIntroVideo,
   emptySignatureDraft,
@@ -322,6 +323,65 @@ test("uploaded documents and video carry their storage metadata", () => {
   const video = emptyIntroVideo()
   assert.equal(video.storagePath, null)
   assert.equal(video.downloadUrl, null)
+})
+
+test("a fresh intro video has no transcription in flight", () => {
+  const video = emptyIntroVideo()
+  assert.equal(video.transcriptionStatus, null)
+  assert.equal(video.transcript, null)
+  assert.equal(video.summary, null)
+  assert.equal(video.transcriptionModel, null)
+  assert.equal(video.summaryModel, null)
+  assert.equal(video.processedAt, null)
+  assert.equal(video.processingError, null)
+  assert.equal(video.processedStoragePath, null)
+})
+
+test("transcription status maps to the dashboard's Uploaded/Processing/Ready/Failed labels", () => {
+  assert.equal(describeTranscriptionStatus(null).label, "Missing")
+  assert.equal(describeTranscriptionStatus("pending").label, "Uploaded")
+  assert.equal(describeTranscriptionStatus("processing").label, "Processing")
+  assert.equal(describeTranscriptionStatus("completed").label, "Ready")
+  assert.equal(describeTranscriptionStatus("failed").label, "Failed")
+})
+
+test("a completed transcription round-trips through Firestore with its structured summary", () => {
+  const mapped = mapApplicationDoc("app-1", {
+    video: {
+      state: "ready",
+      storagePath: "application-uploads/app-1/video/intro.webm",
+      mimeType: "video/webm",
+      sizeBytes: 4_200_000,
+      transcriptionStatus: "completed",
+      transcript: "Hi, I'm Sam from Dalton, six years in framing.",
+      summary: {
+        name: "Sam",
+        town: "Dalton",
+        yearsOfExperience: 6,
+        summary: "Sam from Dalton has six years of framing experience.",
+        // "trade" is not a real missing-field key — the reader must drop it.
+        missingFields: ["town", "trade"],
+        needsReview: true,
+      },
+      transcriptionModel: "gpt-4o-mini-transcribe",
+      summaryModel: "gpt-5-mini",
+      processingError: null,
+      processedStoragePath: "application-uploads/app-1/video/intro.webm",
+    },
+  }).video
+
+  assert.equal(mapped.transcriptionStatus, "completed")
+  assert.equal(mapped.transcriptionModel, "gpt-4o-mini-transcribe")
+  assert.ok(mapped.summary)
+  assert.equal(mapped.summary?.name, "Sam")
+  assert.equal(mapped.summary?.yearsOfExperience, 6)
+  assert.deepEqual(mapped.summary?.missingFields, ["town"])
+  assert.equal(mapped.summary?.needsReview, true)
+})
+
+test("an unrecognized transcriptionStatus reads back as no-video rather than crashing", () => {
+  const mapped = mapApplicationDoc("app-1", { video: { transcriptionStatus: "queued" } }).video
+  assert.equal(mapped.transcriptionStatus, null)
 })
 
 test("Firestore records never retain raw application link tokens", () => {

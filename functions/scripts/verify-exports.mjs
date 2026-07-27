@@ -13,6 +13,7 @@ const expected = [
   "onMessageUpdated",
   "syncDirectoryOnContactWrite",
   "syncDirectoryOnContextWrite",
+  "transcribeApplicationVideoOnWrite",
 ].sort()
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)

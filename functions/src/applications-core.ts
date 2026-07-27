@@ -1,3 +1,7 @@
+// ⚠️ GENERATED FILE — DO NOT EDIT.
+// Source of truth: lib/applications-core.ts (repo root).
+// Regenerate with: pnpm --prefix functions build  (or node functions/scripts/copy-shared-core.mjs)
+
 /**
  * SVC Applications — framework-free core model.
  *

@@ -35,7 +35,12 @@ import {
   signCandidateAgreement,
   CandidateSessionError,
 } from "@/features/applications/candidate-session"
-import { saveCandidateDraft, submitCandidateApplication, subscribeApplication } from "@/lib/applications-writes"
+import {
+  requestVideoTranscription,
+  saveCandidateDraft,
+  submitCandidateApplication,
+  subscribeApplication,
+} from "@/lib/applications-writes"
 import {
   deleteApplicationFile,
   readVideoDurationSeconds,
@@ -256,6 +261,37 @@ export function useCandidateApplication(token: string, options: CandidateApplica
     [setGeneralField],
   )
 
+  /** Mock-only: no Cloud Function exists in preview, so fake its progression locally. */
+  const simulateMockTranscription = useCallback(() => {
+    mutate((current) => ({ ...current, video: { ...current.video, transcriptionStatus: "pending" } }))
+    setTimeout(() => {
+      mutate((current) => ({ ...current, video: { ...current.video, transcriptionStatus: "processing" } }))
+      setTimeout(() => {
+        mutate((current) => ({
+          ...current,
+          video: {
+            ...current.video,
+            transcriptionStatus: "completed",
+            transcript:
+              "Hi, my name is Alex Rivera. I'm from Marietta, Georgia, and I've got about six years of construction experience, mostly framing and concrete work.",
+            summary: {
+              name: "Alex Rivera",
+              town: "Marietta, Georgia",
+              yearsOfExperience: 6,
+              summary: "Alex Rivera from Marietta, Georgia has about six years of construction experience in framing and concrete work.",
+              missingFields: [],
+              needsReview: false,
+            },
+            transcriptionModel: "mock",
+            summaryModel: "mock",
+            processedAt: nowIso(),
+            processingError: null,
+          },
+        }))
+      }, 1200)
+    }, 900)
+  }, [mutate])
+
   /**
    * Real capture. Live mode uploads the file to Storage (resumable, with
    * progress) and stores its path + URL; mock fakes the round-trip so the
@@ -291,6 +327,10 @@ export function useCandidateApplication(token: string, options: CandidateApplica
         if (videoTimer.current) clearTimeout(videoTimer.current)
         videoTimer.current = setTimeout(() => {
           mutate((current) => ({ ...current, video: { ...current.video, state: "ready" } }))
+          // Mock/preview has no Cloud Function behind it — fake the same
+          // pending → processing → completed progression so the dashboard
+          // UI can be exercised end to end without a live backend.
+          simulateMockTranscription()
         }, 900)
         return
       }
@@ -309,14 +349,24 @@ export function useCandidateApplication(token: string, options: CandidateApplica
             storagePath: stored.storagePath,
             downloadUrl: stored.downloadUrl,
             fileName: stored.fileName,
+            mimeType: file.type || null,
+            sizeBytes: file.size,
+            // Optimistic — the Cloud Function claim confirms this via the
+            // snapshot listener within moments; showing it immediately avoids
+            // a flash of "no transcription yet" right after upload.
+            transcriptionStatus: "pending",
           },
         }))
+        // Fire-and-forget: the candidate continues immediately (see step
+        // requirement — never wait on this). A Cloud Function triggered by
+        // the write above does the actual transcription + summary.
+        void requestVideoTranscription(applicationIdRef.current)
       } catch {
         setVideoUpload({ percent: null, error: "The video didn't upload. Check your connection and try again." })
         mutate((current) => ({ ...current, video: { ...current.video, state: "not_started" } }))
       }
     },
-    [live, mutate],
+    [live, mutate, simulateMockTranscription],
   )
 
   const removeVideo = useCallback(() => {

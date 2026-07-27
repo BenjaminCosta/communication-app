@@ -37,6 +37,7 @@ import {
   markApplicationHired,
   recordApplicationActivity,
   requestApplicationInfo,
+  retryVideoTranscription,
   startApplicationReview,
   subscribeApplicationActivity,
   subscribeApplications,
@@ -284,6 +285,47 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     [reviewer],
   )
 
+  const retryTranscription = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await retryVideoTranscription(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The transcript could not be retried.")
+          return false
+        }
+        return true
+      }
+      // Mock has no Cloud Function behind it — fake a successful retry so the
+      // dashboard demonstrates the full pending → processing → completed arc.
+      patchLocal(id, (application) => ({
+        ...application,
+        video: { ...application.video, transcriptionStatus: "pending", processingError: null },
+      }))
+      setTimeout(() => {
+        patchLocal(id, (application) => ({
+          ...application,
+          video: { ...application.video, transcriptionStatus: "processing" },
+        }))
+        setTimeout(() => {
+          patchLocal(id, (application) => ({
+            ...application,
+            video: {
+              ...application.video,
+              transcriptionStatus: "completed",
+              transcriptionModel: "mock",
+              summaryModel: "mock",
+              processedAt: nowIso(),
+              processingError: null,
+            },
+          }))
+        }, 1200)
+      }, 900)
+      return true
+    },
+    [patchLocal, reviewer],
+  )
+
   const markHired = useCallback(
     async (id: string): Promise<boolean> => {
       if (APPLICATIONS_BACKEND_ENABLED) {
@@ -388,6 +430,7 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     archive,
     unarchive,
     deleteApplication,
+    retryTranscription,
     markHired,
     startReview,
   }

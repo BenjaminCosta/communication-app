@@ -1879,6 +1879,7 @@ export default function Home() {
                 if (deleted) handleApplicationDetailBack()
                 return deleted
               }}
+              onRetryTranscription={() => applicationsDashboard.retryTranscription(selectedApplication.id)}
               onPreviewCandidateFlow={handlePreviewCandidateFlow}
             />
           )}

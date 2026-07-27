@@ -144,6 +144,15 @@ export function subscribeApplication(
  * touch; the mappers convert ISO/Date back to Timestamps. Video and document
  * FILE bytes are not uploaded yet (Storage is a later phase) — only the
  * metadata the candidate has entered is persisted.
+ *
+ * `video.*` is written as individual dot-path fields rather than replacing
+ * the whole map: the transcription pipeline (Cloud Function) owns transcript,
+ * summary, transcriptionModel/summaryModel, processedAt, processingError and
+ * processedStoragePath, and writes them on its own schedule. If this autosave
+ * ever replaced the whole `video` object, a debounced save built from a stale
+ * local copy could land after the pipeline's write and erase a transcript the
+ * candidate never touched. Dot-paths make that impossible — this function
+ * simply never mentions those fields.
  */
 export async function saveCandidateDraft(
   applicationId: string,
@@ -151,11 +160,33 @@ export async function saveCandidateDraft(
 ): Promise<void> {
   await updateDoc(doc(candidateDb, APPLICATIONS_COLLECTION, applicationId), {
     general: { ...draft.general },
-    video: { ...draft.video, capturedAt: toTimestamp(draft.video.capturedAt) },
+    "video.state": draft.video.state,
+    "video.source": draft.video.source,
+    "video.fileName": draft.video.fileName,
+    "video.durationSeconds": draft.video.durationSeconds,
+    "video.capturedAt": toTimestamp(draft.video.capturedAt),
+    "video.storagePath": draft.video.storagePath,
+    "video.downloadUrl": draft.video.downloadUrl,
+    "video.mimeType": draft.video.mimeType,
+    "video.sizeBytes": draft.video.sizeBytes,
     documents: draft.documents.map((document) => ({
       ...document,
       uploadedAt: toTimestamp(document.uploadedAt),
     })),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
+ * One-shot: tell the transcription pipeline a fresh video is ready. Fired
+ * exactly once, right after upload succeeds — never folded into the
+ * recurring autosave above, so a later debounced save working off a stale
+ * local copy can never accidentally resend "pending" and re-open a job the
+ * Cloud Function has already moved past.
+ */
+export async function requestVideoTranscription(applicationId: string): Promise<void> {
+  await updateDoc(doc(candidateDb, APPLICATIONS_COLLECTION, applicationId), {
+    "video.transcriptionStatus": "pending",
     updatedAt: serverTimestamp(),
   })
 }
@@ -224,7 +255,7 @@ export async function recordApplicationActivity(
   }
 }
 
-type ReviewerAction = "request_info" | "archive" | "unarchive" | "mark_hired" | "start_review"
+type ReviewerAction = "request_info" | "archive" | "unarchive" | "mark_hired" | "start_review" | "retry_transcription"
 
 async function performReviewerAction(
   applicationId: string,
@@ -428,7 +459,7 @@ async function downloadLocalApplicationProfilePdf(application: CandidateApplicat
       durationSeconds: application.video.durationSeconds,
       capturedAt: application.video.capturedAt,
       transcript: application.video.transcript ?? null,
-      summary: application.video.summary,
+      summary: application.video.summary?.summary ?? null,
     },
     documents: application.documents.map((document) => ({
       label: document.label,
@@ -593,6 +624,11 @@ export async function archiveApplication(applicationId: string, reviewer: Review
 /** Puts an archived application back where it was before — see `previousStatus`. */
 export async function unarchiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
   await performReviewerAction(applicationId, "unarchive", reviewer)
+}
+
+/** Re-queues a failed intro video for transcription — the Cloud Function picks it back up. */
+export async function retryVideoTranscription(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
+  await performReviewerAction(applicationId, "retry_transcription", reviewer)
 }
 
 /**

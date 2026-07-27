@@ -21,6 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url)) // functions/scripts
 const SHARED = [
   { source: "../../lib/directory-core.ts", target: "../src/directory-core.ts" },
   { source: "../../lib/directory-ask-context.ts", target: "../src/directory-ask-context.ts" },
+  { source: "../../lib/applications-core.ts", target: "../src/applications-core.ts" },
 ]
 
 const banner = `// ⚠️ GENERATED FILE — DO NOT EDIT.

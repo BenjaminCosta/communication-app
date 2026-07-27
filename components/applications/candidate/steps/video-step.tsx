@@ -133,7 +133,7 @@ export function VideoStep({ video, upload, onCapture, onRemove, onContinue, onSk
                     ? uploadingPercent !== null
                       ? `Uploading… ${uploadingPercent}%`
                       : "Uploading…"
-                    : `${Math.floor((video.durationSeconds ?? 0) / 60)}:${String((video.durationSeconds ?? 0) % 60).padStart(2, "0")} · ready to send`}
+                    : `Video uploaded · ${Math.floor((video.durationSeconds ?? 0) / 60)}:${String((video.durationSeconds ?? 0) % 60).padStart(2, "0")}`}
                 </p>
               </div>
               {isReady && (

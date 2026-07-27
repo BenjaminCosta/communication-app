@@ -8,7 +8,14 @@ import {
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const ACTIONS = new Set<ReviewerApplicationAction>(["request_info", "archive", "unarchive", "mark_hired", "start_review"])
+const ACTIONS = new Set<ReviewerApplicationAction>([
+  "request_info",
+  "archive",
+  "unarchive",
+  "mark_hired",
+  "start_review",
+  "retry_transcription",
+])
 
 /**
  * POST /api/applications/reviewer-action

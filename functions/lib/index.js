@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.embedDirectoryAskContextOnWrite = exports.syncDirectoryOnContextWrite = exports.syncDirectoryOnContactWrite = exports.onMessageUpdated = exports.onMessageCreated = exports.onDailyCalendarReminders = exports.autoLinkOnUserEmailUpdate = exports.autoLinkOnRegister = void 0;
+exports.transcribeApplicationVideoOnWrite = exports.embedDirectoryAskContextOnWrite = exports.syncDirectoryOnContextWrite = exports.syncDirectoryOnContactWrite = exports.onMessageUpdated = exports.onMessageCreated = exports.onDailyCalendarReminders = exports.autoLinkOnUserEmailUpdate = exports.autoLinkOnRegister = void 0;
 require("./shared/admin");
 var contact_linking_1 = require("./auth/contact-linking");
 Object.defineProperty(exports, "autoLinkOnRegister", { enumerable: true, get: function () { return contact_linking_1.autoLinkOnRegister; } });
@@ -15,4 +15,6 @@ Object.defineProperty(exports, "syncDirectoryOnContactWrite", { enumerable: true
 Object.defineProperty(exports, "syncDirectoryOnContextWrite", { enumerable: true, get: function () { return sync_1.syncDirectoryOnContextWrite; } });
 var embeddings_1 = require("./directory/embeddings");
 Object.defineProperty(exports, "embedDirectoryAskContextOnWrite", { enumerable: true, get: function () { return embeddings_1.embedDirectoryAskContextOnWrite; } });
+var video_transcription_1 = require("./applications/video-transcription");
+Object.defineProperty(exports, "transcribeApplicationVideoOnWrite", { enumerable: true, get: function () { return video_transcription_1.transcribeApplicationVideoOnWrite; } });
 //# sourceMappingURL=index.js.map
