@@ -1873,6 +1873,12 @@ export default function Home() {
                 if (archived) handleApplicationDetailBack()
                 return archived
               }}
+              onUnarchive={() => applicationsDashboard.unarchive(selectedApplication.id)}
+              onDelete={async () => {
+                const deleted = await applicationsDashboard.deleteApplication(selectedApplication.id)
+                if (deleted) handleApplicationDetailBack()
+                return deleted
+              }}
               onPreviewCandidateFlow={handlePreviewCandidateFlow}
             />
           )}

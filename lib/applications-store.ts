@@ -159,6 +159,10 @@ function mapStatus(value: unknown): ApplicationStatus {
   return KNOWN_STATUSES.includes(value as ApplicationStatus) ? (value as ApplicationStatus) : "draft"
 }
 
+function mapPreviousStatus(value: unknown): ApplicationStatus | null {
+  return KNOWN_STATUSES.includes(value as ApplicationStatus) && value !== "archived" ? (value as ApplicationStatus) : null
+}
+
 /**
  * Activity lives in a subcollection, so an application read on its own has an
  * empty history until `subscribeApplicationActivity` fills it in.
@@ -183,6 +187,7 @@ export function mapApplicationDoc(id: string, data: DocumentData): CandidateAppl
     updatedAt: isoOrNow(data.updatedAt),
     submittedAt: toIso(data.submittedAt),
     pendingRequest: typeof data.pendingRequest === "string" ? data.pendingRequest : null,
+    previousStatus: mapPreviousStatus(data.previousStatus),
   }
 }
 
@@ -268,6 +273,7 @@ export function applicationToFirestore(application: CandidateApplication): Docum
     updatedAt: toTimestamp(application.updatedAt),
     submittedAt: toTimestamp(application.submittedAt),
     pendingRequest: application.pendingRequest,
+    previousStatus: application.previousStatus,
   }
 }
 

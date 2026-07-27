@@ -14,6 +14,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Archive,
+  ArchiveRestore,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -30,6 +31,7 @@ import {
   Phone,
   Play,
   Share2,
+  Trash2,
   User,
   Video,
 } from "lucide-react"
@@ -58,6 +60,7 @@ import {
   canArchive,
   canMarkHired,
   canRequestInfo,
+  canUnarchive,
   computeApplicationProgress,
   formatApplicationDate,
   formatRelativeDate,
@@ -132,6 +135,8 @@ interface ApplicationDetailScreenProps {
   onApprove: () => Promise<import("@/lib/applications-core").ApplicationLink | null>
   onMarkHired: () => Promise<boolean>
   onArchive: () => Promise<boolean>
+  onUnarchive: () => Promise<boolean>
+  onDelete: () => Promise<boolean>
   onPreviewCandidateFlow: (token: string) => void
   reviewer?: ReviewerIdentity
   onRecordActivity?: (kind: ActivityEvent["kind"], message: string) => void
@@ -145,16 +150,22 @@ export function ApplicationDetailScreen({
   onApprove,
   onMarkHired,
   onArchive,
+  onUnarchive,
+  onDelete,
   onPreviewCandidateFlow,
   reviewer,
   onRecordActivity,
 }: ApplicationDetailScreenProps) {
-  const [sheet, setSheet] = useState<"approve" | "archive" | "hire" | "menu" | "documents" | "agreement" | "video" | null>(null)
+  const [sheet, setSheet] = useState<
+    "approve" | "archive" | "unarchive" | "delete" | "hire" | "menu" | "documents" | "agreement" | "video" | null
+  >(null)
   const shareLink = useShareLink(reviewer)
   const [requestOpen, setRequestOpen] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [isHiring, setIsHiring] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
+  const [isUnarchiving, setIsUnarchiving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
   const [documentDownloadUrls, setDocumentDownloadUrls] = useState<Record<string, string>>({})
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
@@ -241,6 +252,20 @@ export function ApplicationDetailScreen({
     const archived = await onArchive()
     setIsArchiving(false)
     if (archived) closeSheet()
+  }
+
+  const handleUnarchive = async () => {
+    setIsUnarchiving(true)
+    const restored = await onUnarchive()
+    setIsUnarchiving(false)
+    if (restored) closeSheet()
+  }
+
+  const handleDelete = async () => {
+    setIsDeleting(true)
+    const deleted = await onDelete()
+    setIsDeleting(false)
+    if (deleted) closeSheet()
   }
 
   const handleFileDownload = async (key: string, downloadUrl: string, fileName: string) => {
@@ -977,19 +1002,52 @@ export function ApplicationDetailScreen({
               </button>
             </li>
           )}
+          {canUnarchive(application.status) ? (
+            <li>
+              <button
+                type="button"
+                onClick={() => setSheet("unarchive")}
+                className="applications-tap flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--apps-surface-2)]"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--apps-blue-soft)] text-[var(--apps-blue-strong)]">
+                  <ArchiveRestore className="h-4 w-4" strokeWidth={2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-[var(--apps-text)]">Unarchive application</span>
+                  <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Puts it back in the active pipeline.</span>
+                </span>
+              </button>
+            </li>
+          ) : (
+            <li>
+              <button
+                type="button"
+                disabled={!canArchive(application.status)}
+                onClick={() => setSheet("archive")}
+                className="applications-tap flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--apps-missing-soft)] text-[#DC5A5A]">
+                  <Archive className="h-4 w-4" strokeWidth={2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-[var(--apps-text)]">Archive application</span>
+                  <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Closes it without hiring.</span>
+                </span>
+              </button>
+            </li>
+          )}
           <li>
             <button
               type="button"
-              disabled={!canArchive(application.status)}
-              onClick={() => setSheet("archive")}
-              className="applications-tap flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--apps-surface-2)] disabled:opacity-45"
+              onClick={() => setSheet("delete")}
+              className="applications-tap flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--apps-surface-2)]"
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--apps-missing-soft)] text-[#DC5A5A]">
-                <Archive className="h-4 w-4" strokeWidth={2} />
+                <Trash2 className="h-4 w-4" strokeWidth={2} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-[var(--apps-text)]">Archive application</span>
-                <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Closes it without hiring.</span>
+                <span className="block text-sm font-semibold text-[var(--apps-text)]">Delete application</span>
+                <span className="mt-0.5 block text-xs text-[var(--apps-text-muted)]">Permanently removes it. Cannot be undone.</span>
               </span>
             </button>
           </li>
@@ -1020,6 +1078,53 @@ export function ApplicationDetailScreen({
       >
         <p className="text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
           You can find archived applications again with the Status filter.
+        </p>
+      </AppsSheet>
+
+      {/* Unarchive confirm */}
+      <AppsSheet
+        open={sheet === "unarchive"}
+        title={`Unarchive ${application.candidateName}?`}
+        description="Puts the candidate back in the active pipeline."
+        onClose={closeSheet}
+        footer={
+          <div className="flex gap-2.5">
+            <AppsButton variant="secondary" fullWidth onClick={closeSheet}>
+              Cancel
+            </AppsButton>
+            <AppsButton fullWidth disabled={isUnarchiving} onClick={handleUnarchive}>
+              {isUnarchiving ? "Restoring…" : "Unarchive"}
+            </AppsButton>
+          </div>
+        }
+      >
+        <p className="text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
+          {application.previousStatus
+            ? `Returns to ${APPLICATION_STATUS_META[application.previousStatus].label}.`
+            : "Returns to the review pipeline."}
+        </p>
+      </AppsSheet>
+
+      {/* Delete confirm — permanent, so it gets the strongest warning in this menu */}
+      <AppsSheet
+        open={sheet === "delete"}
+        title={`Delete ${application.candidateName}?`}
+        description="This permanently removes the application. It cannot be undone."
+        onClose={closeSheet}
+        footer={
+          <div className="flex gap-2.5">
+            <AppsButton variant="secondary" fullWidth onClick={closeSheet}>
+              Cancel
+            </AppsButton>
+            <AppsButton variant="danger" fullWidth disabled={isDeleting} onClick={handleDelete}>
+              {isDeleting ? "Deleting…" : "Delete permanently"}
+            </AppsButton>
+          </div>
+        }
+      >
+        <p className="text-[0.8125rem] leading-relaxed text-[var(--apps-text-muted)]">
+          Deletes the candidate&rsquo;s profile, uploaded documents, intro video and signed agreement, and revokes
+          every secure link tied to it.
         </p>
       </AppsSheet>
 

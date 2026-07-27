@@ -20,6 +20,7 @@ import {
   createApplicationLink,
   nameMatches,
   resolveLink,
+  resolveUnarchiveStatus,
   type AgreementTemplate,
   type ActivityKind,
   type ApplicationLink,
@@ -214,7 +215,7 @@ export async function verifyStaffRequest(request: Request, requestedName = ""): 
 const APPROVABLE_STATUSES = new Set(["submitted", "ready_for_review", "needs_information"])
 const REQUESTABLE_STATUSES = new Set(["draft", "submitted", "needs_information", "ready_for_review", "approved", "agreement_pending"])
 
-export type ReviewerApplicationAction = "request_info" | "archive" | "mark_hired" | "start_review"
+export type ReviewerApplicationAction = "request_info" | "archive" | "unarchive" | "mark_hired" | "start_review"
 
 /**
  * The raw link token only exists in this process and in the response that the
@@ -291,6 +292,7 @@ function newApplicationData(application: CandidateApplication, Timestamp: { from
     updatedAt: Timestamp.fromDate(new Date(application.updatedAt)),
     submittedAt: null,
     pendingRequest: null,
+    previousStatus: null,
   }
 }
 
@@ -571,9 +573,21 @@ export async function applyReviewerApplicationAction(
         if (currentStatus === "archived") {
           throw new ApplicationSessionError("already-archived", "This application is already archived.", 409)
         }
-        patch = { status: "archived" }
+        // Remembered so unarchive can put the candidate back where they left off.
+        patch = { status: "archived", previousStatus: currentStatus }
         event = { kind: "archived", message: "Archived the application" }
         break
+      case "unarchive": {
+        if (currentStatus !== "archived") {
+          throw new ApplicationSessionError("not-archived", "This application is not archived.", 409)
+        }
+        const restoredStatus = resolveUnarchiveStatus(
+          (snapshot.data() ?? {}).previousStatus as Parameters<typeof resolveUnarchiveStatus>[0],
+        )
+        patch = { status: restoredStatus, previousStatus: null }
+        event = { kind: "note", message: "Restored the application from archive" }
+        break
+      }
       case "mark_hired":
         if (currentStatus !== "payroll_in_progress") {
           throw new ApplicationSessionError("not-hireable", "Complete the signed agreement and payroll step first.", 409)
@@ -601,6 +615,45 @@ export async function applyReviewerApplicationAction(
       at: FieldValue.serverTimestamp(),
     })
   })
+}
+
+/**
+ * Permanently remove an application: every uploaded document and video,
+ * the sealed agreement PDF (if any), every link and agreement record that
+ * ever pointed at it, its activity log, and the application doc itself.
+ * There is no undo — the reviewer confirms this in the UI before it's called.
+ */
+export async function hardDeleteApplication(applicationId: string): Promise<void> {
+  const id = applicationId.trim()
+  if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
+  const snapshot = await applicationRef.get()
+  if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+
+  const { getStorage } = await import("firebase-admin/storage")
+  const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
+  // force: true skips a file that's already gone instead of failing the whole
+  // delete — an application with no uploads yet has nothing under these prefixes.
+  await Promise.all([
+    bucket.deleteFiles({ prefix: `application-uploads/${id}/documents/`, force: true }).catch(() => {}),
+    bucket.deleteFiles({ prefix: `application-uploads/${id}/video/`, force: true }).catch(() => {}),
+    bucket.deleteFiles({ prefix: `application-agreements/${id}/`, force: true }).catch(() => {}),
+  ])
+
+  const [activitySnapshot, linksSnapshot, agreementsSnapshot] = await Promise.all([
+    applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).get(),
+    db.collection(APPLICATION_LINKS_COLLECTION).where("applicationId", "==", id).get(),
+    db.collection("applicationAgreements").where("applicationId", "==", id).get(),
+  ])
+
+  const batch = db.batch()
+  activitySnapshot.docs.forEach((doc) => batch.delete(doc.ref))
+  linksSnapshot.docs.forEach((doc) => batch.delete(doc.ref))
+  agreementsSnapshot.docs.forEach((doc) => batch.delete(doc.ref))
+  batch.delete(applicationRef)
+  await batch.commit()
 }
 
 /** Deterministic hash of the exact text the candidate agreed to. */

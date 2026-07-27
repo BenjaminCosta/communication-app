@@ -24,16 +24,23 @@ import {
   type CandidateApplication,
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { issueApplicationLink, subscribeMockApplications, updateMockApplication } from "@/features/applications/candidate-links"
+import {
+  deleteMockApplication,
+  issueApplicationLink,
+  subscribeMockApplications,
+  updateMockApplication,
+} from "@/features/applications/candidate-links"
 import {
   approveApplication,
   archiveApplication,
+  deleteApplication as deleteApplicationRequest,
   markApplicationHired,
   recordApplicationActivity,
   requestApplicationInfo,
   startApplicationReview,
   subscribeApplicationActivity,
   subscribeApplications,
+  unarchiveApplication,
   type ReviewerIdentity,
 } from "@/lib/applications-writes"
 
@@ -226,12 +233,55 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
       patchLocal(id, (application) => ({
         ...application,
         status: "archived",
+        previousStatus: application.status,
         updatedAt: nowIso(),
         activity: [...application.activity, localEvent("archived", "Archived the application")],
       }))
       return true
     },
     [localEvent, patchLocal, reviewer],
+  )
+
+  const unarchive = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await unarchiveApplication(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The application could not be restored.")
+          return false
+        }
+      }
+      patchLocal(id, (application) => ({
+        ...application,
+        status: application.previousStatus ?? "submitted",
+        previousStatus: null,
+        updatedAt: nowIso(),
+        activity: [...application.activity, localEvent("note", "Restored the application from archive")],
+      }))
+      return true
+    },
+    [localEvent, patchLocal, reviewer],
+  )
+
+  /** Irreversible — the caller confirms with the reviewer before calling this. */
+  const deleteApplication = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (APPLICATIONS_BACKEND_ENABLED) {
+        try {
+          await deleteApplicationRequest(id, reviewer)
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : "The application could not be deleted.")
+          return false
+        }
+      } else {
+        deleteMockApplication(id)
+      }
+      setApplications((current) => current.filter((application) => application.id !== id))
+      setSelectedId((current) => (current === id ? null : current))
+      return true
+    },
+    [reviewer],
   )
 
   const markHired = useCallback(
@@ -336,6 +386,8 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
     approve,
     recordActivity,
     archive,
+    unarchive,
+    deleteApplication,
     markHired,
     startReview,
   }

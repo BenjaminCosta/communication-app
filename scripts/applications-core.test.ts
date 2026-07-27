@@ -54,6 +54,7 @@ function application(overrides: Partial<CandidateApplication> = {}): CandidateAp
     updatedAt: "2026-07-01T00:00:00.000Z",
     submittedAt: null,
     pendingRequest: null,
+    previousStatus: null,
     ...overrides,
   }
 }

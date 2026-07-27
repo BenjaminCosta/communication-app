@@ -627,6 +627,8 @@ export interface CandidateApplication {
   submittedAt: string | null
   /** Latest outstanding question sent to the candidate. */
   pendingRequest: string | null
+  /** Status to restore on unarchive. Only ever set while `status` is "archived". */
+  previousStatus: ApplicationStatus | null
 }
 
 export function emptyLinkedJob(): LinkedJob {
@@ -665,6 +667,7 @@ export function blankApplication(id: string, token: string, invite?: Partial<Inv
     updatedAt: now,
     submittedAt: null,
     pendingRequest: null,
+    previousStatus: null,
   }
 }
 
@@ -867,6 +870,20 @@ export function canMarkHired(status: ApplicationStatus): boolean {
 
 export function canArchive(status: ApplicationStatus): boolean {
   return status !== "archived"
+}
+
+export function canUnarchive(status: ApplicationStatus): boolean {
+  return status === "archived"
+}
+
+/** Where an unarchive lands when there is no (or an unrecognized) saved `previousStatus`. */
+export const UNARCHIVE_FALLBACK_STATUS: ApplicationStatus = "submitted"
+
+/** Guards a persisted `previousStatus` before it is trusted as a restore target. */
+export function resolveUnarchiveStatus(previousStatus: ApplicationStatus | null | undefined): ApplicationStatus {
+  return previousStatus && APPLICATION_STATUS_ORDER.includes(previousStatus) && previousStatus !== "archived"
+    ? previousStatus
+    : UNARCHIVE_FALLBACK_STATUS
 }
 
 // ── Secure links ────────────────────────────────────────────────────────

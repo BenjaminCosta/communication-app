@@ -130,6 +130,17 @@ export function updateMockApplication(
   return saveMockApplication(patch(current))
 }
 
+/** Permanently drops a local invite and every link that ever pointed at it. */
+export function deleteMockApplication(applicationId: string): boolean {
+  hydrate()
+  const existed = applications.delete(applicationId)
+  for (const [token, link] of links) {
+    if (link.applicationId === applicationId) links.delete(token)
+  }
+  if (existed) persist()
+  return existed
+}
+
 // ── Links ───────────────────────────────────────────────────────────────
 
 /**

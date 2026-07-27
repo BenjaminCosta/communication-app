@@ -224,7 +224,7 @@ export async function recordApplicationActivity(
   }
 }
 
-type ReviewerAction = "request_info" | "archive" | "mark_hired" | "start_review"
+type ReviewerAction = "request_info" | "archive" | "unarchive" | "mark_hired" | "start_review"
 
 async function performReviewerAction(
   applicationId: string,
@@ -531,6 +531,39 @@ export async function createAgreementSigningLink(
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
   await performReviewerAction(applicationId, "archive", reviewer)
+}
+
+/** Puts an archived application back where it was before — see `previousStatus`. */
+export async function unarchiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
+  await performReviewerAction(applicationId, "unarchive", reviewer)
+}
+
+/**
+ * Permanently delete an application: uploads, agreement PDF, links and the
+ * record itself. Irreversible — the caller confirms with the reviewer first.
+ */
+export async function deleteApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/delete", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't delete this application right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't delete this application right now.")
+  }
 }
 
 /** Final internal onboarding step after the candidate has signed the agreement. */
