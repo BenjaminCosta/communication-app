@@ -4,9 +4,10 @@ type LoadingProduct = "stream" | "directory" | "applications"
 
 interface ProductLoadingScreenProps {
   product: LoadingProduct
+  className?: string
 }
 
-function ProductLoadingScreen({ product }: ProductLoadingScreenProps) {
+function ProductLoadingScreen({ product, className }: ProductLoadingScreenProps) {
   const config =
     product === "directory"
       ? {
@@ -66,7 +67,7 @@ function ProductLoadingScreen({ product }: ProductLoadingScreenProps) {
           }
 
   return (
-    <div className={`relative flex flex-1 flex-col items-center justify-center gap-10 ${config.screenClass} animate-fade-in`}>
+    <div className={`relative flex flex-1 flex-col items-center justify-center gap-10 ${config.screenClass} animate-fade-in ${className ?? ""}`}>
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="relative animate-spring-pop">
           <div
@@ -108,8 +109,8 @@ export function DirectoryLoadingScreen() {
   return <ProductLoadingScreen product="directory" />
 }
 
-export function ApplicationsLoadingScreen() {
-  return <ProductLoadingScreen product="applications" />
+export function ApplicationsLoadingScreen({ className }: { className?: string }) {
+  return <ProductLoadingScreen product="applications" className={className} />
 }
 
 /**

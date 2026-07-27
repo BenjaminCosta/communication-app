@@ -11,6 +11,7 @@ import { useState } from "react"
 import { AlertCircle, ArrowLeft, Check, CircleHelp, Cloud } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCandidateApplication } from "@/features/applications/use-candidate-application"
+import { ApplicationsLoadingScreen } from "@/components/app-loading-screen"
 import { AppsSheet } from "@/components/applications/ui/apps-sheet"
 import { AppsButton } from "@/components/applications/ui/apps-primitives"
 import { WelcomeStep } from "@/components/applications/candidate/steps/welcome-step"
@@ -44,7 +45,7 @@ export function CandidateFlowScreen({ token, className, onExit, preview = false 
 
   // Live mode opens a session first; until it resolves, or if the link is
   // invalid, the flow shows a full-screen status instead of the form.
-  if (sessionState !== "ready" || !application) {
+  if (sessionState === "error") {
     return (
       <div
         className={cn(
@@ -52,27 +53,19 @@ export function CandidateFlowScreen({ token, className, onExit, preview = false 
           className,
         )}
       >
-        {sessionState === "error" ? (
-          <>
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--apps-missing-soft)] text-[#DC5A5A]">
-              <AlertCircle className="h-7 w-7" strokeWidth={2} />
-            </span>
-            <h1 className="mt-4 text-lg font-bold text-[var(--apps-text)]">This link can't be opened</h1>
-            <p className="mt-1.5 max-w-xs text-[0.875rem] leading-relaxed text-[var(--apps-text-muted)]">
-              {sessionError ?? "Ask your SVC contact for a new link."}
-            </p>
-          </>
-        ) : (
-          <>
-            <span
-              className="h-9 w-9 animate-spin rounded-full border-[3px] border-[var(--apps-blue-soft)] border-t-[var(--apps-blue)]"
-              aria-hidden="true"
-            />
-            <p className="mt-4 text-[0.875rem] font-medium text-[var(--apps-text-muted)]">Opening your application…</p>
-          </>
-        )}
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--apps-missing-soft)] text-[#DC5A5A]">
+          <AlertCircle className="h-7 w-7" strokeWidth={2} />
+        </span>
+        <h1 className="mt-4 text-lg font-bold text-[var(--apps-text)]">This link can't be opened</h1>
+        <p className="mt-1.5 max-w-xs text-[0.875rem] leading-relaxed text-[var(--apps-text-muted)]">
+          {sessionError ?? "Ask your SVC contact for a new link."}
+        </p>
       </div>
     )
+  }
+
+  if (!application) {
+    return <ApplicationsLoadingScreen className={className} />
   }
 
   return (
