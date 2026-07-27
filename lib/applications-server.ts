@@ -713,6 +713,88 @@ function applicationProfileFileName(candidateName: string): string {
   return `${slug || "candidate"}-application-profile.pdf`
 }
 
+function signedAgreementFileName(candidateName: string): string {
+  const slug = candidateName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+  return `${slug || "candidate"}-signed-operating-agreement.pdf`
+}
+
+/**
+ * Read the sealed agreement through the Admin SDK instead of handing the
+ * dashboard a Storage URL. This keeps preview and download on the app origin
+ * and avoids browser CORS/token failures on Firebase Storage URLs.
+ */
+export async function readSignedAgreementPdf(
+  applicationId: string,
+): Promise<{ bytes: Uint8Array; fileName: string }> {
+  const id = applicationId.trim()
+  if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+
+  const db = await adminFirestore()
+  const applicationSnapshot = await db.collection(APPLICATIONS_COLLECTION).doc(id).get()
+  if (!applicationSnapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+
+  const application = applicationSnapshot.data() ?? {}
+  const agreement = recordFromUnknown(application.agreement)
+  if (textFromUnknown(agreement.status) !== "signed") {
+    throw new ApplicationSessionError("agreement-not-signed", "This operating agreement has not been signed yet.", 409)
+  }
+
+  const agreementId = textFromUnknown(application.agreementId)
+  let agreementSnapshot = agreementId
+    ? await db.collection(APPLICATION_AGREEMENTS_COLLECTION).doc(agreementId).get()
+    : null
+
+  // The signing transaction now writes agreementId on the application. This
+  // fallback keeps already-signed records from before that field was present
+  // viewable and downloadable as well.
+  if (
+    !agreementSnapshot?.exists ||
+    textFromUnknown((agreementSnapshot.data() ?? {}).applicationId) !== id
+  ) {
+    const legacyMatches = await db
+      .collection(APPLICATION_AGREEMENTS_COLLECTION)
+      .where("applicationId", "==", id)
+      .limit(1)
+      .get()
+    agreementSnapshot = legacyMatches.docs[0] ?? null
+  }
+
+  if (
+    !agreementSnapshot?.exists ||
+    textFromUnknown((agreementSnapshot.data() ?? {}).applicationId) !== id
+  ) {
+    throw new ApplicationSessionError("agreement-not-found", "The signed agreement record is not available yet.", 404)
+  }
+
+  const storagePath = textFromUnknown((agreementSnapshot.data() ?? {}).signedPdfPath)
+  if (!storagePath) {
+    throw new ApplicationSessionError("agreement-file-not-found", "The signed agreement PDF is not available yet.", 404)
+  }
+
+  const { getStorage } = await import("firebase-admin/storage")
+  const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
+  let bytes: Uint8Array
+  try {
+    ;[bytes] = await bucket.file(storagePath).download()
+  } catch {
+    throw new ApplicationSessionError("agreement-file-not-found", "The signed agreement PDF could not be found.", 404)
+  }
+
+  if (bytes.byteLength === 0) {
+    throw new ApplicationSessionError("agreement-file-empty", "The signed agreement PDF is empty. Please try again.", 500)
+  }
+
+  return {
+    bytes,
+    fileName: signedAgreementFileName(textFromUnknown(application.candidateName) ?? ""),
+  }
+}
+
 /**
  * Build a complete reviewer-only PDF snapshot. We never expose Storage URLs
  * in the export: the dashboard remains the controlled place to open originals.

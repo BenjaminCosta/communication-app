@@ -33,7 +33,6 @@ import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import {
   APPLICATIONS_COLLECTION,
   APPLICATION_ACTIVITY_SUBCOLLECTION,
-  APPLICATION_AGREEMENTS_COLLECTION,
   APPLICATION_LINKS_COLLECTION,
   applicationToFirestore,
   linkToFirestore,
@@ -42,7 +41,6 @@ import {
   mapLinkDoc,
   toTimestamp,
 } from "@/lib/applications-store"
-import { getApplicationDownloadUrl } from "@/lib/applications-storage"
 import { candidateUid } from "@/lib/applications-core"
 import type {
   ActivityEvent,
@@ -365,9 +363,9 @@ export async function approveApplication(
   return { approvedAt: body.approvedAt, link: body.link }
 }
 
-function exportFileName(contentDisposition: string | null): string {
+function exportFileName(contentDisposition: string | null, fallback = "candidate-application-profile.pdf"): string {
   const match = contentDisposition?.match(/filename="?([^";]+)"?/i)
-  return match?.[1]?.trim() || "candidate-application-profile.pdf"
+  return match?.[1]?.trim() || fallback
 }
 
 function localProfileFileName(candidateName: string): string {
@@ -531,36 +529,58 @@ export async function createAgreementSigningLink(
   return body.link
 }
 
-export interface SignedAgreementFile {
-  downloadUrl: string
+export interface SignedAgreementPdf {
+  blob: Blob
   fileName: string
 }
 
-function signedAgreementFileName(candidateName: string): string {
-  const slug = candidateName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80)
-  return `${slug || "candidate"}-signed-operating-agreement.pdf`
+/**
+ * Resolve the sealed PDF through the app server. Firebase Storage download
+ * URLs are cross-origin, which made an otherwise valid agreement fail in the
+ * browser before a preview or download could start.
+ */
+export async function loadSignedAgreementPdf(
+  applicationId: string,
+  reviewer: ReviewerIdentity,
+): Promise<SignedAgreementPdf> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/agreement/file", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't load the signed agreement right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(
+      typeof body.error === "string" ? body.error : "We couldn't load the signed agreement right now.",
+    )
+  }
+
+  const blob = await response.blob()
+  if (blob.size === 0) throw new ApplicationWriteError("The signed agreement PDF was empty. Please try again.")
+  return {
+    blob,
+    fileName: exportFileName(response.headers.get("content-disposition"), "signed-operating-agreement.pdf"),
+  }
 }
 
-/**
- * Resolve the sealed PDF for a signed application. `/applicationAgreements`
- * is server-write-only (see firestore.rules), so this is a read of the record
- * `signAgreement` created, not a reconstruction of it.
- */
-export async function loadSignedAgreementFile(
-  agreementId: string,
-  candidateName: string,
-): Promise<SignedAgreementFile | null> {
-  const snapshot = await getDoc(doc(db, APPLICATION_AGREEMENTS_COLLECTION, agreementId))
-  if (!snapshot.exists()) return null
-  const storagePath = snapshot.data().signedPdfPath
-  if (typeof storagePath !== "string" || !storagePath) return null
-  const downloadUrl = await getApplicationDownloadUrl(storagePath)
-  return { downloadUrl, fileName: signedAgreementFileName(candidateName) }
+export async function downloadSignedAgreementPdf(
+  applicationId: string,
+  reviewer: ReviewerIdentity,
+): Promise<void> {
+  const file = await loadSignedAgreementPdf(applicationId, reviewer)
+  triggerPdfDownload(file.blob, file.fileName)
 }
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {

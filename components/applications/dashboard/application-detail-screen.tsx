@@ -52,7 +52,12 @@ import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-s
 import { useShareLink } from "@/features/applications/use-share-link"
 import { issueApplicationLink } from "@/features/applications/candidate-links"
 import { downloadApplicationFile, getApplicationDownloadUrl } from "@/lib/applications-storage"
-import { downloadApplicationProfilePdf, loadSignedAgreementFile, type ReviewerIdentity } from "@/lib/applications-writes"
+import {
+  downloadApplicationProfilePdf,
+  downloadSignedAgreementPdf,
+  loadSignedAgreementPdf,
+  type ReviewerIdentity,
+} from "@/lib/applications-writes"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
   AGREEMENT_STATUS_META,
@@ -178,7 +183,16 @@ export function ApplicationDetailScreen({
   const [isPreparingProfilePdf, setIsPreparingProfilePdf] = useState(false)
   const [profilePdfError, setProfilePdfError] = useState<string | null>(null)
   const [isDownloadingAgreement, setIsDownloadingAgreement] = useState(false)
+  const [isOpeningAgreementPreview, setIsOpeningAgreementPreview] = useState(false)
   const [agreementDownloadError, setAgreementDownloadError] = useState<string | null>(null)
+  const [agreementPreview, setAgreementPreview] = useState<{ url: string; fileName: string } | null>(null)
+
+  useEffect(
+    () => () => {
+      if (agreementPreview) URL.revokeObjectURL(agreementPreview.url)
+    },
+    [agreementPreview],
+  )
 
   // The detail re-renders on every sheet toggle and file-action tick; the
   // progress only depends on the application itself.
@@ -288,20 +302,35 @@ export function ApplicationDetailScreen({
   }
 
   const handleDownloadSignedAgreement = async () => {
-    if (!application.agreementId) {
-      setAgreementDownloadError("The signed agreement isn't linked to this application yet.")
+    if (!reviewer) {
+      setAgreementDownloadError("Your reviewer session is required to download the signed agreement.")
       return
     }
     setIsDownloadingAgreement(true)
     setAgreementDownloadError(null)
     try {
-      const file = await loadSignedAgreementFile(application.agreementId, application.candidateName)
-      if (!file) throw new Error("not-found")
-      await downloadApplicationFile(file.downloadUrl, file.fileName)
-    } catch {
-      setAgreementDownloadError("The signed agreement could not be downloaded. Please try again.")
+      await downloadSignedAgreementPdf(application.id, reviewer)
+    } catch (error) {
+      setAgreementDownloadError(error instanceof Error ? error.message : "The signed agreement could not be downloaded. Please try again.")
     } finally {
       setIsDownloadingAgreement(false)
+    }
+  }
+
+  const handlePreviewSignedAgreement = async () => {
+    if (!reviewer) {
+      setAgreementDownloadError("Your reviewer session is required to preview the signed agreement.")
+      return
+    }
+    setIsOpeningAgreementPreview(true)
+    setAgreementDownloadError(null)
+    try {
+      const file = await loadSignedAgreementPdf(application.id, reviewer)
+      setAgreementPreview({ url: URL.createObjectURL(file.blob), fileName: file.fileName })
+    } catch (error) {
+      setAgreementDownloadError(error instanceof Error ? error.message : "The signed agreement could not be previewed. Please try again.")
+    } finally {
+      setIsOpeningAgreementPreview(false)
     }
   }
 
@@ -980,15 +1009,26 @@ export function ApplicationDetailScreen({
               </AppsButton>
             )}
             {application.agreement.status === "signed" && (
-              <AppsButton
-                variant="secondary"
-                fullWidth
-                disabled={isDownloadingAgreement}
-                icon={<Download className="h-4 w-4" strokeWidth={2} />}
-                onClick={handleDownloadSignedAgreement}
-              >
-                {isDownloadingAgreement ? "Preparing…" : "Download signed agreement"}
-              </AppsButton>
+              <>
+                <AppsButton
+                  variant="secondary"
+                  fullWidth
+                  disabled={isOpeningAgreementPreview}
+                  icon={<FileText className="h-4 w-4" strokeWidth={2} />}
+                  onClick={handlePreviewSignedAgreement}
+                >
+                  {isOpeningAgreementPreview ? "Opening…" : "Preview signed agreement"}
+                </AppsButton>
+                <AppsButton
+                  variant="ghost"
+                  fullWidth
+                  disabled={isDownloadingAgreement}
+                  icon={<Download className="h-4 w-4" strokeWidth={2} />}
+                  onClick={handleDownloadSignedAgreement}
+                >
+                  {isDownloadingAgreement ? "Preparing…" : "Download signed agreement"}
+                </AppsButton>
+              </>
             )}
           </div>
         )}
@@ -999,9 +1039,36 @@ export function ApplicationDetailScreen({
         )}
         <p className="mt-4 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3 text-xs leading-relaxed text-[var(--apps-text-muted)]">
           {application.agreement.status === "signed"
-            ? "The signed PDF and audit evidence are sealed server-side and never leave a copy in the browser."
+            ? "The signed PDF and audit evidence are sealed server-side. You can preview or download the sealed copy here."
             : "The signed PDF and audit evidence are sealed server-side when the candidate signs."}
         </p>
+      </AppsSheet>
+
+      <AppsSheet
+        open={agreementPreview !== null}
+        title="Signed operating agreement"
+        description={agreementPreview?.fileName}
+        onClose={() => setAgreementPreview(null)}
+        className="md:max-w-4xl"
+        footer={
+          <AppsButton
+            fullWidth
+            variant="secondary"
+            disabled={isDownloadingAgreement}
+            icon={<Download className="h-4 w-4" strokeWidth={2} />}
+            onClick={handleDownloadSignedAgreement}
+          >
+            {isDownloadingAgreement ? "Preparing…" : "Download PDF"}
+          </AppsButton>
+        }
+      >
+        {agreementPreview && (
+          <iframe
+            title="Signed operating agreement PDF"
+            src={agreementPreview.url}
+            className="h-[66vh] w-full rounded-xl border border-[var(--apps-border)] bg-white"
+          />
+        )}
       </AppsSheet>
 
       {/* Approve */}
