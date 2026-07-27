@@ -35,6 +35,14 @@ export const APPLICATION_LINKS_COLLECTION = "applicationLinks"
 
 export function toIso(value: unknown): string | null {
   if (value instanceof Timestamp) return value.toDate().toISOString()
+  // Server routes read documents through firebase-admin, whose Timestamp is a
+  // different class from the browser SDK Timestamp above. Both expose toDate;
+  // accepting that shape keeps server-issued links from being parsed with an
+  // expiry of "now" (which made every freshly generated production link 403).
+  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const date = value.toDate()
+    if (date instanceof Date && !Number.isNaN(date.getTime())) return date.toISOString()
+  }
   if (value instanceof Date) return value.toISOString()
   if (typeof value === "string" && value) return value
   return null

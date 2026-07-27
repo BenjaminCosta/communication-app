@@ -35,7 +35,7 @@ import {
   summarizeApplications,
   type CandidateApplication,
 } from "../lib/applications-core"
-import { applicationToFirestore, linkToFirestore, mapApplicationDoc } from "../lib/applications-store"
+import { applicationToFirestore, linkToFirestore, mapApplicationDoc, mapLinkDoc } from "../lib/applications-store"
 
 function application(overrides: Partial<CandidateApplication> = {}): CandidateApplication {
   return {
@@ -332,6 +332,26 @@ test("Firestore records never retain raw application link tokens", () => {
 
   // Legacy fields are deliberately not exposed by the read mapper either.
   assert.equal(mapApplicationDoc("app-1", { linkToken: "legacy-secret" }).linkToken, "")
+})
+
+test("server-issued link timestamps preserve their actual expiry", () => {
+  // firebase-admin Timestamp is not an instance of the browser SDK Timestamp,
+  // but both have toDate(). Production session resolution reads Admin SDK docs.
+  const createdAt = new Date("2026-07-26T12:00:00.000Z")
+  const expiresAt = new Date("2026-08-02T12:00:00.000Z")
+  const mapped = mapLinkDoc("link-hash", {
+    applicationId: "app-1",
+    purpose: "application",
+    step: null,
+    createdAt: { toDate: () => createdAt },
+    expiresAt: { toDate: () => expiresAt },
+    revokedAt: null,
+    usedCount: 0,
+  })
+
+  assert.equal(mapped.createdAt, createdAt.toISOString())
+  assert.equal(mapped.expiresAt, expiresAt.toISOString())
+  assert.equal(resolveLink(mapped, new Date("2026-07-27T12:00:00.000Z")).ok, true)
 })
 
 test("an elapsed agreement signing window is presented as expired", () => {
