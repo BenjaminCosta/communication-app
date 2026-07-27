@@ -140,14 +140,19 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
 
   const revoke = useCallback(() => {
     if (!link) return
-    const revokedAt = new Date().toISOString()
-    setLink({ ...link, revokedAt })
     if (!live) {
       revokeApplicationLink(link.token)
+      setLink({ ...link, revokedAt: new Date().toISOString() })
       return
     }
-    revokeApplicationLinkDoc(link.token).catch(() => setError("The link couldn't be revoked."))
-  }, [link, live])
+    if (!reviewer?.uid) {
+      setError("Your reviewer session ended. Please sign in again.")
+      return
+    }
+    revokeApplicationLinkDoc(link.token, reviewer)
+      .then(() => setLink({ ...link, revokedAt: new Date().toISOString() }))
+      .catch((error) => setError(error instanceof Error ? error.message : "The link couldn't be revoked."))
+  }, [link, live, reviewer])
 
   const close = useCallback(() => setIsOpen(false), [])
 

@@ -21,6 +21,7 @@ import {
   nameMatches,
   resolveLink,
   type AgreementTemplate,
+  type ActivityKind,
   type ApplicationLink,
   type ApplicationSectionId,
   type CandidateApplication,
@@ -379,6 +380,69 @@ export async function issueReviewerApplicationLink(
   })
 
   return link
+}
+
+const REVIEWER_ACTIVITY_KINDS = new Set<ActivityKind>(["info_received", "message_copied", "message_shared", "note"])
+
+/** Append a small, reviewer-authenticated audit event without exposing a direct Firestore write. */
+export async function recordReviewerApplicationActivity(
+  applicationId: string,
+  kind: ActivityKind,
+  message: string,
+  reviewer: StaffPrincipal,
+): Promise<void> {
+  const id = applicationId.trim()
+  const text = message.trim()
+  if (!id || id.length > 160 || !REVIEWER_ACTIVITY_KINDS.has(kind) || !text || text.length > 2_000) {
+    throw new ApplicationSessionError("invalid-request", "Invalid activity.", 400)
+  }
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
+  const { Timestamp } = await import("firebase-admin/firestore")
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(applicationRef)
+    if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind,
+      actor: reviewer.name,
+      actorUid: reviewer.uid,
+      message: text,
+      at: Timestamp.fromDate(new Date()),
+    })
+  })
+}
+
+/** Revoke a bearer link and record the action atomically on the server. */
+export async function revokeReviewerApplicationLink(token: string, reviewer: StaffPrincipal): Promise<void> {
+  const rawToken = token.trim()
+  if (!rawToken || rawToken.length > 128) {
+    throw new ApplicationSessionError("invalid-request", "Invalid secure link.", 400)
+  }
+
+  const db = await adminFirestore()
+  const { Timestamp } = await import("firebase-admin/firestore")
+  const linkRef = db.collection(APPLICATION_LINKS_COLLECTION).doc(createHash("sha256").update(rawToken).digest("hex"))
+  await db.runTransaction(async (tx) => {
+    const linkSnapshot = await tx.get(linkRef)
+    if (!linkSnapshot.exists) throw new ApplicationSessionError("not_found", "This secure link no longer exists.", 404)
+    const link = mapLinkDoc(linkSnapshot.id, linkSnapshot.data() ?? {})
+    if (link.revokedAt) return
+
+    const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(link.applicationId)
+    const applicationSnapshot = await tx.get(applicationRef)
+    if (!applicationSnapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+
+    const now = new Date()
+    tx.update(linkRef, { revokedAt: Timestamp.fromDate(now) })
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind: "note",
+      actor: reviewer.name,
+      actorUid: reviewer.uid,
+      message: `Revoked a secure ${link.purpose === "agreement" ? "operating agreement" : link.purpose === "step" ? "direct application" : "application"} link`,
+      at: Timestamp.fromDate(now),
+    })
+  })
 }
 
 async function issueAgreementSigningLink(

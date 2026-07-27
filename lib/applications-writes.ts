@@ -201,12 +201,27 @@ export async function recordApplicationActivity(
   message: string,
   reviewer: ReviewerIdentity,
 ): Promise<void> {
-  await appendActivity(applicationId, {
-    kind,
-    actor: reviewer.name,
-    actorUid: reviewer.uid,
-    message,
-  })
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/activity", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ applicationId, kind, message, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't record this activity right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't record this activity right now.")
+  }
 }
 
 type ReviewerAction = "request_info" | "archive" | "mark_hired" | "start_review"
@@ -558,9 +573,28 @@ export async function saveApplicationLink(link: ApplicationLink): Promise<void> 
   await setDoc(doc(db, APPLICATION_LINKS_COLLECTION, tokenHash), linkToFirestore(link))
 }
 
-export async function revokeApplicationLinkDoc(token: string): Promise<void> {
-  const tokenHash = await applicationLinkHash(token)
-  await updateDoc(doc(db, APPLICATION_LINKS_COLLECTION, tokenHash), { revokedAt: serverTimestamp() })
+export async function revokeApplicationLinkDoc(token: string, reviewer: ReviewerIdentity): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/link/revoke", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ token, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't revoke the secure link right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(typeof body.error === "string" ? body.error : "We couldn't revoke the secure link right now.")
+  }
 }
 
 export async function loadApplicationLink(token: string): Promise<ApplicationLink | null> {
