@@ -8,7 +8,7 @@
  * reviewer types: their words always win.
  */
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, Check, Copy, Link2, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AppsButton, StatusPill } from "@/components/applications/ui/apps-primitives"
@@ -22,9 +22,17 @@ import {
   composeRequestMessage,
   createApplicationLink,
   requestableItems,
+  type ApplicationLink,
   type ApplicationSectionId,
   type CandidateApplication,
 } from "@/lib/applications-core"
+
+/** Swaps in the real link, or appends one if the reviewer stripped it while editing. */
+function withFinalUrl(text: string, finalUrl: string): string {
+  const trimmed = text.trim()
+  const hasLink = /https?:\/\/\S+\/?\?apply=\S+/.test(trimmed)
+  return hasLink ? trimmed.replace(/https?:\/\/\S+\/?\?apply=\S+/g, finalUrl) : `${trimmed}\n\n${finalUrl}`
+}
 
 /** Which step a requested item belongs to — decides where the link lands. */
 const ITEM_STEP: Record<string, ApplicationSectionId> = {
@@ -82,7 +90,27 @@ export function RequestInfoScreen({ application, reviewer, onClose, onSend }: Re
   const [edited, setEdited] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isCreatingLink, setIsCreatingLink] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
+  // Cached once a real server link is issued for the current step, so Copy
+  // and Send never mint two different live links for the same request.
+  const [issuedLink, setIssuedLink] = useState<ApplicationLink | null>(null)
+
+  useEffect(() => {
+    setIssuedLink(null)
+  }, [targetStep])
+
+  const ensureLiveLink = useCallback(async (): Promise<string> => {
+    if (!APPLICATIONS_BACKEND_ENABLED) return previewUrl
+    if (issuedLink) return applicationLinkUrl(issuedLink.token, origin)
+    if (!reviewer?.uid) throw new Error("Your reviewer session ended. Please sign in again.")
+    const link = await createReviewerApplicationLink(
+      { applicationId: application.id, purpose: "step", step: targetStep },
+      reviewer,
+    )
+    setIssuedLink(link)
+    return applicationLinkUrl(link.token, origin)
+  }, [issuedLink, reviewer, application.id, targetStep, origin, previewUrl])
 
   const selectedLabels = items.filter((item) => selected.includes(item.id)).map((item) => item.label)
 
@@ -102,44 +130,45 @@ export function RequestInfoScreen({ application, reviewer, onClose, onSend }: Re
 
   const canSend = selected.length > 0 && message.trim().length > 0
 
-  const copyMessage = () => {
-    navigator.clipboard?.writeText(message).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
+  // Copy must mint the same real, persisted link Send would use — copying the
+  // client-only preview token here was the source of the candidate's 403s: a
+  // reviewer would copy this message into SMS/WhatsApp, and the pasted link
+  // pointed at a token that was never written to `/applicationLinks`.
+  const copyMessage = async () => {
+    if (isSending || isCreatingLink) return
+    setLinkError(null)
+    setIsCreatingLink(true)
+    try {
+      const finalUrl = await ensureLiveLink()
+      const finalMessage = withFinalUrl(message, finalUrl)
+      setMessage(finalMessage)
+      navigator.clipboard?.writeText(finalMessage).catch(() => {})
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch (error) {
+      setLinkError(error instanceof Error ? error.message : "The secure link couldn't be created. Please try again.")
+    } finally {
+      setIsCreatingLink(false)
+    }
   }
 
   const send = async () => {
-    if (!canSend || isSending) return
+    if (!canSend || isSending || isCreatingLink) return
     setIsSending(true)
     setLinkError(null)
-    let finalUrl = previewUrl
-    if (APPLICATIONS_BACKEND_ENABLED) {
-      if (!reviewer?.uid) {
-        setIsSending(false)
-        setLinkError("Your reviewer session ended. Please sign in again.")
-        return
-      }
-      try {
-        const link = await createReviewerApplicationLink(
-          { applicationId: application.id, purpose: "step", step: targetStep },
-          reviewer,
-        )
-        finalUrl = applicationLinkUrl(link.token, origin)
-      } catch (error) {
-        setIsSending(false)
-        setLinkError(error instanceof Error ? error.message : "The secure link couldn't be created. Please try again.")
-        return
-      }
+    let finalUrl: string
+    try {
+      finalUrl = await ensureLiveLink()
+    } catch (error) {
+      setIsSending(false)
+      setLinkError(error instanceof Error ? error.message : "The secure link couldn't be created. Please try again.")
+      return
     }
 
     // An edited message may still contain the preview URL from a previous
     // selection. Replace it with the final link, or append one if it was
     // removed, so the candidate always lands on the selected step.
-    const trimmedMessage = message.trim()
-    const messageHasLink = /https?:\/\/\S+\/?\?apply=\S+/.test(trimmedMessage)
-    const finalMessage = messageHasLink
-      ? trimmedMessage.replace(/https?:\/\/\S+\/?\?apply=\S+/g, finalUrl)
-      : `${trimmedMessage}\n\n${finalUrl}`
+    const finalMessage = withFinalUrl(message, finalUrl)
     const sent = await onSend(finalMessage)
     setIsSending(false)
     if (sent) onClose()
@@ -270,7 +299,7 @@ export function RequestInfoScreen({ application, reviewer, onClose, onSend }: Re
         <div className="mx-auto flex w-full max-w-xl flex-col gap-2.5">
           <AppsButton
             fullWidth
-            disabled={!canSend || isSending}
+            disabled={!canSend || isSending || isCreatingLink}
             onClick={send}
             icon={<Send className="h-4 w-4" strokeWidth={2} />}
           >
@@ -279,10 +308,11 @@ export function RequestInfoScreen({ application, reviewer, onClose, onSend }: Re
           <AppsButton
             variant="secondary"
             fullWidth
+            disabled={isSending || isCreatingLink}
             onClick={copyMessage}
             icon={copied ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2} />}
           >
-            {copied ? "Copied" : "Copy message"}
+            {isCreatingLink ? "Creating link…" : copied ? "Copied" : "Copy message"}
           </AppsButton>
         </div>
       </div>
