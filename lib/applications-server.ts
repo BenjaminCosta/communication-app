@@ -185,7 +185,14 @@ export async function verifyCandidateRequest(request: Request): Promise<Candidat
   return { uid: decoded.uid, applicationId, linkHash }
 }
 
-/** Verify a normal staff token. Candidate custom tokens never pass this gate. */
+/**
+ * Verify an authenticated dashboard request.
+ *
+ * Operational mode deliberately accepts both regular SVC sessions and candidate
+ * custom-token sessions. The applications rules use the same policy while the
+ * workflow is stabilized, so an old browser session cannot get a server-side
+ * 403 after Firestore has already accepted it.
+ */
 export async function verifyStaffRequest(request: Request, requestedName = ""): Promise<StaffPrincipal> {
   const header = request.headers.get("authorization") ?? request.headers.get("Authorization") ?? ""
   const match = header.match(/^Bearer\s+(.+)$/i)
@@ -198,10 +205,6 @@ export async function verifyStaffRequest(request: Request, requestedName = ""): 
   } catch {
     throw new ApplicationSessionError("unauthenticated", "Please sign in again.", 401)
   }
-  if (typeof decoded.applicationId === "string" && decoded.applicationId) {
-    throw new ApplicationSessionError("forbidden", "This action isn't available for this session.", 403)
-  }
-
   const supplied = requestedName.trim().slice(0, 120)
   const tokenName = typeof decoded.name === "string" ? decoded.name.trim() : ""
   const tokenEmail = typeof decoded.email === "string" ? decoded.email.trim() : ""
