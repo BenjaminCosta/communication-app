@@ -1,6 +1,12 @@
-import { initializeApp, getApps } from "firebase/app"
-import { getAuth, connectAuthEmulator } from "firebase/auth"
-import { initializeFirestore, connectFirestoreEmulator, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore"
+import { getApp, getApps, initializeApp } from "firebase/app"
+import { connectAuthEmulator, getAuth } from "firebase/auth"
+import {
+  connectFirestoreEmulator,
+  initializeFirestore,
+  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore"
 import { getFirestore as getFirestoreLite } from "firebase/firestore/lite"
 
 const firebaseConfig = {
@@ -13,9 +19,21 @@ const firebaseConfig = {
   measurementId: "G-46JMV7LQCP",
 }
 
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+export const app = getApps().some((existing) => existing.name === "[DEFAULT]") ? getApp() : initializeApp(firebaseConfig)
+
+// Candidate application links run on a second Firebase app. A candidate custom
+// token must never replace the internal user's primary Firebase session: staff
+// often open a link to check it before sharing it, and replacing `auth` made
+// subsequent dashboard writes fail the staff-only Firestore rules with 403.
+// The candidate app deliberately uses in-memory Firestore data; reopening a
+// secure link always starts a fresh, server-verified candidate session.
+const CANDIDATE_APP_NAME = "svc-applications-candidate"
+export const candidateApp = getApps().some((existing) => existing.name === CANDIDATE_APP_NAME)
+  ? getApp(CANDIDATE_APP_NAME)
+  : initializeApp(firebaseConfig, CANDIDATE_APP_NAME)
 
 export const auth = getAuth(app)
+export const candidateAuth = getAuth(candidateApp)
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),
@@ -25,6 +43,10 @@ export const db = initializeFirestore(app, {
   // iOS PWA/WebView networks). This is Firebase's recommended remedy for the
   // "Could not reach Cloud Firestore backend / Backend didn't respond within
   // 10 seconds" error, and is a no-op on healthy connections.
+  experimentalAutoDetectLongPolling: true,
+})
+export const candidateDb = initializeFirestore(candidateApp, {
+  localCache: memoryLocalCache(),
   experimentalAutoDetectLongPolling: true,
 })
 
@@ -45,6 +67,18 @@ export async function getStorageLazy() {
   return _storage
 }
 
+// Candidate uploads use the same isolated app as their Firestore session, so
+// Storage rules receive the candidate's application-scoped custom claim.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _candidateStorage: any = null
+export async function getCandidateStorageLazy() {
+  if (!_candidateStorage) {
+    const { getStorage } = await import("firebase/storage")
+    _candidateStorage = getStorage(candidateApp)
+  }
+  return _candidateStorage
+}
+
 // Connect to Firebase Emulators only when NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true.
 // typeof window check prevents SSR issues (emulators are browser-only).
 // __EMULATORS_INITIALIZED__ guard prevents double-connecting on hot-reload.
@@ -58,7 +92,9 @@ if (
   if (!w.__EMULATORS_INITIALIZED__) {
     w.__EMULATORS_INITIALIZED__ = true
     connectAuthEmulator(auth, "http://localhost:9099", { disableWarnings: true })
+    connectAuthEmulator(candidateAuth, "http://localhost:9099", { disableWarnings: true })
     connectFirestoreEmulator(db, "localhost", 8080)
+    connectFirestoreEmulator(candidateDb, "localhost", 8080)
     // Lazy-load functions SDK (only needed for emulator, not production)
     import("firebase/functions").then(({ getFunctions, connectFunctionsEmulator }) => {
       connectFunctionsEmulator(getFunctions(app), "localhost", 5001)

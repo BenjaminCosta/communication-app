@@ -11,8 +11,6 @@
 
 import { useCallback, useState } from "react"
 import {
-  blankApplication,
-  createApplicationLink,
   type ApplicationLink,
   type ApplicationSectionId,
   type InviteDetails,
@@ -20,18 +18,15 @@ import {
 } from "@/lib/applications-core"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import {
-  generateLinkToken,
   issueApplicationLink,
   NEW_APPLICATION_MARKER,
   revokeApplicationLink,
   updateMockApplication,
 } from "@/features/applications/candidate-links"
 import {
-  createApplication,
   createAgreementSigningLink,
-  recordApplicationActivity,
+  createReviewerApplicationLink,
   revokeApplicationLinkDoc,
-  saveApplicationLink,
   type ReviewerIdentity,
 } from "@/lib/applications-writes"
 
@@ -74,8 +69,9 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         }))
         return
       }
-      if (!reviewer?.uid) return
-      recordApplicationActivity(link.applicationId, "link_generated", message, reviewer).catch(() => {})
+      // Live link issuance is an Admin SDK transaction, which writes this
+      // activity entry alongside the credential. Do not append a duplicate
+      // event from the browser.
     },
     [live, reviewer],
   )
@@ -96,28 +92,13 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
         return createAgreementSigningLink(input.applicationId, reviewer)
       }
 
-      // A new invite needs an application to point at first.
-      let applicationId = input.applicationId
-      // The application record and its first share link must use the same
-      // token. Otherwise the link shown later in candidate detail would point
-      // at an unresolvable token even though the original share sheet worked.
-      let token: string | undefined
-      if (applicationId === NEW_APPLICATION_MARKER) {
-        token = generateLinkToken()
-        const draft = blankApplication(`app-${token}`, token, input.invite)
-        await createApplication(draft, reviewer ?? { uid: "", name: "You" })
-        applicationId = draft.id
-      }
-
-      const created = createApplicationLink({
-        applicationId,
+      if (!reviewer?.uid) throw new Error("A reviewer session is required to create a secure link.")
+      return createReviewerApplicationLink({
+        applicationId: input.applicationId,
         purpose: input.purpose,
         step: input.step ?? null,
-        token: token ?? generateLinkToken(),
-      })
-      await saveApplicationLink(created)
-      recordGeneratedLink(created)
-      return created
+        invite: input.invite,
+      }, reviewer)
     },
     [live, recordGeneratedLink, reviewer],
   )
@@ -131,7 +112,7 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
       setIsIssuing(true)
       issue(input)
         .then((created) => setLink(created))
-        .catch(() => setError("The link couldn't be created. Please try again."))
+        .catch((error) => setError(error instanceof Error ? error.message : "The link couldn't be created. Please try again."))
         .finally(() => setIsIssuing(false))
     },
     [issue],
@@ -153,7 +134,7 @@ export function useShareLink(reviewer?: ReviewerIdentity) {
     setError(null)
     issue(request)
       .then((created) => setLink(created))
-      .catch(() => setError("The link couldn't be regenerated. Please try again."))
+      .catch((error) => setError(error instanceof Error ? error.message : "The link couldn't be regenerated. Please try again."))
       .finally(() => setIsIssuing(false))
   }, [issue, request])
 

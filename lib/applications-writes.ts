@@ -27,7 +27,7 @@ import {
   updateDoc,
   type Unsubscribe,
 } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
+import { auth, candidateDb, db } from "@/lib/firebase"
 import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import {
@@ -46,9 +46,11 @@ import type {
   ActivityEvent,
   ActivityKind,
   ApplicationLink,
+  ApplicationSectionId,
   CandidateApplication,
   GeneralApplication,
   IntroVideo,
+  InviteDetails,
   RequiredDocument,
 } from "@/lib/applications-core"
 
@@ -129,7 +131,7 @@ export function subscribeApplication(
   onError?: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    doc(db, APPLICATIONS_COLLECTION, applicationId),
+    doc(candidateDb, APPLICATIONS_COLLECTION, applicationId),
     (snapshot) => onChange(snapshot.exists() ? mapApplicationDoc(snapshot.id, snapshot.data()) : null),
     (error) => onError?.(error),
   )
@@ -147,7 +149,7 @@ export async function saveCandidateDraft(
   applicationId: string,
   draft: { general: GeneralApplication; video: IntroVideo; documents: RequiredDocument[] },
 ): Promise<void> {
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
+  await updateDoc(doc(candidateDb, APPLICATIONS_COLLECTION, applicationId), {
     general: { ...draft.general },
     video: { ...draft.video, capturedAt: toTimestamp(draft.video.capturedAt) },
     documents: draft.documents.map((document) => ({
@@ -162,13 +164,13 @@ export async function submitCandidateApplication(
   applicationId: string,
   candidateName: string,
 ): Promise<void> {
-  await updateDoc(doc(db, APPLICATIONS_COLLECTION, applicationId), {
+  await updateDoc(doc(candidateDb, APPLICATIONS_COLLECTION, applicationId), {
     status: "submitted",
     submittedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
   // A candidate may write their own activity (rules allow it for the session).
-  await addDoc(collection(db, APPLICATIONS_COLLECTION, applicationId, APPLICATION_ACTIVITY_SUBCOLLECTION), {
+  await addDoc(collection(candidateDb, APPLICATIONS_COLLECTION, applicationId, APPLICATION_ACTIVITY_SUBCOLLECTION), {
     kind: "submitted",
     actor: candidateName || "Candidate",
     actorUid: candidateUid(applicationId),
@@ -272,6 +274,47 @@ function isApplicationLink(value: unknown): value is ApplicationLink {
     (link.revokedAt === null || typeof link.revokedAt === "string") &&
     typeof link.usedCount === "number"
   )
+}
+
+/**
+ * Issue a non-agreement candidate link through the server. The Admin SDK owns
+ * bearer credential persistence, so this never depends on a browser Firestore
+ * write being accepted by staff-only security rules.
+ */
+export async function createReviewerApplicationLink(
+  input: {
+    applicationId: string
+    purpose: "application" | "step"
+    step?: ApplicationSectionId | null
+    invite?: InviteDetails
+  },
+  reviewer: ReviewerIdentity,
+): Promise<ApplicationLink> {
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please sign in again.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/link", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ ...input, reviewerName: reviewer.name }),
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't create the secure link right now.")
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown; link?: unknown }
+  if (!response.ok) {
+    throw new ApplicationWriteError(
+      typeof body.error === "string" ? body.error : "We couldn't create the secure link right now.",
+    )
+  }
+  if (!isApplicationLink(body.link)) throw new ApplicationWriteError("The secure link response was incomplete.")
+  return body.link
 }
 
 export async function approveApplication(

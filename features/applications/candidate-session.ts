@@ -8,13 +8,13 @@
  * security rules let them read/write their own application — nothing else.
  */
 
-import { signInWithCustomToken } from "firebase/auth"
-import { auth } from "@/lib/firebase"
+import { inMemoryPersistence, setPersistence, signInWithCustomToken } from "firebase/auth"
+import { candidateAuth } from "@/lib/firebase"
 import type { ApplicationSectionId, LinkPurpose } from "@/lib/applications-core"
 
 /** The candidate's Firebase ID token — proves the applicationId claim server-side. */
 async function candidateAuthHeader(): Promise<string> {
-  const user = auth.currentUser
+  const user = candidateAuth.currentUser
   if (!user) throw new CandidateSessionError("unauthenticated", "Your session ended. Please reopen the link.")
   return `Bearer ${await user.getIdToken()}`
 }
@@ -70,7 +70,11 @@ export async function openCandidateSession(token: string): Promise<CandidateSess
   }
 
   try {
-    await signInWithCustomToken(auth, body.customToken)
+    // Candidate credentials are only needed while this link is open. Keeping
+    // them in memory also prevents an old candidate session from being reused
+    // if this device later opens the internal dashboard.
+    await setPersistence(candidateAuth, inMemoryPersistence)
+    await signInWithCustomToken(candidateAuth, body.customToken)
   } catch {
     throw new CandidateSessionError("sign-in-failed", "We couldn't start your session. Please try the link again.")
   }

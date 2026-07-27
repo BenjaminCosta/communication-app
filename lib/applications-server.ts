@@ -15,12 +15,16 @@ import { createHash, randomBytes } from "node:crypto"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import {
   OPERATING_AGREEMENT_TEMPLATE,
+  blankApplication,
   candidateUid,
+  createApplicationLink,
   nameMatches,
   resolveLink,
   type AgreementTemplate,
   type ApplicationLink,
   type ApplicationSectionId,
+  type CandidateApplication,
+  type InviteDetails,
   type LinkPurpose,
 } from "@/lib/applications-core"
 import {
@@ -238,6 +242,143 @@ function agreementLinkData(link: ApplicationLink, Timestamp: { fromDate(value: D
     revokedAt: null,
     usedCount: 0,
   }
+}
+
+const APPLICATION_LINK_STEPS = new Set<ApplicationSectionId>(["general", "video", "documents"])
+
+/** The one client-only marker that asks the server to create a new invite. */
+const NEW_APPLICATION_MARKER = "new-application"
+
+function applicationLinkData(link: ApplicationLink, Timestamp: { fromDate(value: Date): unknown }) {
+  return {
+    applicationId: link.applicationId,
+    purpose: link.purpose,
+    step: link.step,
+    createdAt: Timestamp.fromDate(new Date(link.createdAt)),
+    expiresAt: Timestamp.fromDate(new Date(link.expiresAt)),
+    revokedAt: null,
+    usedCount: 0,
+  }
+}
+
+/** Server-side equivalent of the browser Firestore mapper for a new invite. */
+function newApplicationData(application: CandidateApplication, Timestamp: { fromDate(value: Date): unknown }) {
+  return {
+    candidateName: application.candidateName,
+    trade: application.trade,
+    jobEntityId: application.job.id,
+    jobName: application.job.name,
+    jobLocation: application.job.location,
+    companyName: application.job.companyName,
+    entityIds: [application.job.id].filter(Boolean),
+    status: application.status,
+    general: { ...application.general },
+    video: { ...application.video, capturedAt: null },
+    documents: application.documents.map((document) => ({ ...document, uploadedAt: null })),
+    agreement: {
+      status: application.agreement.status,
+      sentAt: null,
+      signedAt: null,
+      expiresAt: null,
+      signedVersion: null,
+      signedName: null,
+    },
+    createdAt: Timestamp.fromDate(new Date(application.createdAt)),
+    updatedAt: Timestamp.fromDate(new Date(application.updatedAt)),
+    submittedAt: null,
+    pendingRequest: null,
+  }
+}
+
+function parseInvite(value: unknown): InviteDetails {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {}
+  const field = (key: "candidateName" | "trade" | "jobName", max: number): string => {
+    const resolved = typeof source[key] === "string" ? source[key].trim() : ""
+    if (!resolved || resolved.length > max) {
+      throw new ApplicationSessionError("invalid-invite", "Enter a candidate name, trade, and job before creating the link.", 400)
+    }
+    return resolved
+  }
+  return {
+    candidateName: field("candidateName", 120),
+    trade: field("trade", 120),
+    jobName: field("jobName", 160),
+  }
+}
+
+export interface ReviewerApplicationLinkInput {
+  applicationId: string
+  purpose: "application" | "step"
+  step?: ApplicationSectionId | null
+  invite?: unknown
+}
+
+/**
+ * Issue an application or direct-step link as one Admin SDK transaction.
+ *
+ * Links are bearer credentials, so the browser must never need direct write
+ * access to `/applicationLinks`. This also makes an invite atomic: an active
+ * link can never point at an application that failed halfway through creation.
+ */
+export async function issueReviewerApplicationLink(
+  input: ReviewerApplicationLinkInput,
+  reviewer: StaffPrincipal,
+): Promise<ApplicationLink> {
+  const requestedId = input.applicationId.trim()
+  const creatingInvite = requestedId === NEW_APPLICATION_MARKER
+  if (!requestedId || requestedId.length > 160) {
+    throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
+  }
+  if (input.purpose !== "application" && input.purpose !== "step") {
+    throw new ApplicationSessionError("invalid-request", "Invalid link type.", 400)
+  }
+  const step = input.purpose === "step" ? input.step ?? null : null
+  if (input.purpose === "step" && (!step || !APPLICATION_LINK_STEPS.has(step))) {
+    throw new ApplicationSessionError("invalid-request", "Invalid application step.", 400)
+  }
+
+  const invite = creatingInvite ? parseInvite(input.invite) : undefined
+  const applicationId = creatingInvite ? `app_${randomBytes(16).toString("hex")}` : requestedId
+  const now = new Date()
+  const link = createApplicationLink({
+    applicationId,
+    purpose: input.purpose,
+    step,
+    token: randomBytes(32).toString("base64url"),
+    now,
+  })
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(applicationId)
+  const linkRef = db.collection(APPLICATION_LINKS_COLLECTION).doc(createHash("sha256").update(link.token).digest("hex"))
+  const { Timestamp } = await import("firebase-admin/firestore")
+
+  await db.runTransaction(async (tx) => {
+    if (creatingInvite) {
+      const draft = blankApplication(applicationId, link.token, invite)
+      tx.create(applicationRef, newApplicationData(draft, Timestamp))
+      tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+        kind: "created",
+        actor: reviewer.name,
+        actorUid: reviewer.uid,
+        message: "Created the application link",
+        at: Timestamp.fromDate(now),
+      })
+    } else {
+      const snapshot = await tx.get(applicationRef)
+      if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+    }
+
+    tx.create(linkRef, applicationLinkData(link, Timestamp))
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind: "link_generated",
+      actor: reviewer.name,
+      actorUid: reviewer.uid,
+      message: `Generated a secure ${link.purpose === "step" ? "direct application" : "application"} link`,
+      at: Timestamp.fromDate(now),
+    })
+  })
+
+  return link
 }
 
 async function issueAgreementSigningLink(

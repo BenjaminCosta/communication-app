@@ -1068,6 +1068,7 @@ export function ApplicationDetailScreen({
       {requestOpen && (
         <RequestInfoScreen
           application={application}
+          reviewer={reviewer}
           onClose={() => setRequestOpen(false)}
           onSend={onRequestInfo}
         />

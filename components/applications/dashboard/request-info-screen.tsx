@@ -15,13 +15,12 @@ import { AppsButton, StatusPill } from "@/components/applications/ui/apps-primit
 import { AppsTextarea } from "@/components/applications/ui/apps-form"
 import { generateLinkToken, issueApplicationLink } from "@/features/applications/candidate-links"
 import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
-import { saveApplicationLink } from "@/lib/applications-writes"
+import { createReviewerApplicationLink, type ReviewerIdentity } from "@/lib/applications-writes"
 import {
   REQUEST_MESSAGE_MAX,
   applicationLinkUrl,
   composeRequestMessage,
   createApplicationLink,
-  describeLinkExpiry,
   requestableItems,
   type ApplicationSectionId,
   type CandidateApplication,
@@ -48,20 +47,20 @@ function stepForItems(itemIds: string[]): ApplicationSectionId {
 
 interface RequestInfoScreenProps {
   application: CandidateApplication
+  reviewer?: ReviewerIdentity
   onClose: () => void
   onSend: (message: string) => Promise<boolean>
 }
 
-export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoScreenProps) {
+export function RequestInfoScreen({ application, reviewer, onClose, onSend }: RequestInfoScreenProps) {
   const items = useMemo(() => requestableItems(application), [application])
   const preselected = useMemo(() => items.filter((item) => item.missing).map((item) => item.id), [items])
   const [selected, setSelected] = useState<string[]>(preselected)
 
-  // The direct link always follows the final selection. In live mode it stays
-  // local until Send is confirmed, so cancelling this screen leaves no active
-  // credential behind.
+  // The direct link always follows the final selection. In live mode it is
+  // issued only when Send is confirmed, so cancelling leaves no credential.
   const targetStep = stepForItems(selected)
-  const link = useMemo(
+  const previewLink = useMemo(
     () => {
       const input = { applicationId: application.id, purpose: "step" as const, step: targetStep }
       return APPLICATIONS_BACKEND_ENABLED
@@ -71,13 +70,13 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
     [application.id, targetStep],
   )
   const origin = typeof window !== "undefined" ? window.location.origin : ""
-  const url = applicationLinkUrl(link.token, origin)
+  const previewUrl = applicationLinkUrl(previewLink.token, origin)
 
   const [message, setMessage] = useState(() =>
     composeRequestMessage(
       application.candidateName,
       items.filter((item) => item.missing).map((item) => item.label),
-      url,
+      previewUrl,
     ),
   )
   const [edited, setEdited] = useState(false)
@@ -95,7 +94,7 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
         composeRequestMessage(
           application.candidateName,
           items.filter((item) => next.includes(item.id)).map((item) => item.label),
-          url,
+          previewUrl,
         ),
       )
     }
@@ -113,12 +112,22 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
     if (!canSend || isSending) return
     setIsSending(true)
     setLinkError(null)
+    let finalUrl = previewUrl
     if (APPLICATIONS_BACKEND_ENABLED) {
-      try {
-        await saveApplicationLink(link)
-      } catch {
+      if (!reviewer?.uid) {
         setIsSending(false)
-        setLinkError("The secure link couldn't be created. Please try again.")
+        setLinkError("Your reviewer session ended. Please sign in again.")
+        return
+      }
+      try {
+        const link = await createReviewerApplicationLink(
+          { applicationId: application.id, purpose: "step", step: targetStep },
+          reviewer,
+        )
+        finalUrl = applicationLinkUrl(link.token, origin)
+      } catch (error) {
+        setIsSending(false)
+        setLinkError(error instanceof Error ? error.message : "The secure link couldn't be created. Please try again.")
         return
       }
     }
@@ -129,8 +138,8 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
     const trimmedMessage = message.trim()
     const messageHasLink = /https?:\/\/\S+\/?\?apply=\S+/.test(trimmedMessage)
     const finalMessage = messageHasLink
-      ? trimmedMessage.replace(/https?:\/\/\S+\/?\?apply=\S+/g, url)
-      : `${trimmedMessage}\n\n${url}`
+      ? trimmedMessage.replace(/https?:\/\/\S+\/?\?apply=\S+/g, finalUrl)
+      : `${trimmedMessage}\n\n${finalUrl}`
     const sent = await onSend(finalMessage)
     setIsSending(false)
     if (sent) onClose()
@@ -232,15 +241,17 @@ export function RequestInfoScreen({ application, onClose, onSend }: RequestInfoS
               <div className="min-w-0 flex-1">
                 <p className="text-[0.8125rem] font-semibold text-[var(--apps-text)]">Direct link ready</p>
                 <p className="mt-0.5 text-xs leading-snug text-[var(--apps-text-muted)]">
-                  Opens straight at {STEP_LABEL[link.step ?? "documents"]} — no app, no restart.
+                  Opens straight at {STEP_LABEL[targetStep]} — no app, no restart.
                 </p>
               </div>
               <StatusPill label={canSend ? "Ready to send" : "Pick an item"} tone={canSend ? "complete" : "neutral"} />
             </div>
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-[var(--apps-surface)] px-3 py-2">
-              <p className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-[var(--apps-text)]">{url}</p>
+              <p className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-[var(--apps-text)]">
+                Secure link created when you send
+              </p>
               <span className="shrink-0 text-[0.625rem] font-semibold text-[var(--apps-text-muted)]">
-                {describeLinkExpiry(link)}
+                Expires in 7 days
               </span>
             </div>
           </div>

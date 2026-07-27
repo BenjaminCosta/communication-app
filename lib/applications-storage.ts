@@ -9,7 +9,7 @@
  * custom-token claim.
  */
 
-import { getStorageLazy } from "@/lib/firebase"
+import { getCandidateStorageLazy, getStorageLazy } from "@/lib/firebase"
 import { compressImageFile } from "@/lib/image-upload"
 
 export const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024
@@ -47,7 +47,7 @@ export async function uploadApplicationDocument(
 ): Promise<StoredFile> {
   const payload = file.type.startsWith("image/") ? await compressImageFile(file) : file
   const { ref, uploadBytes, getDownloadURL } = await import("firebase/storage")
-  const storage = await getStorageLazy()
+  const storage = await getCandidateStorageLazy()
   const storagePath = `application-uploads/${applicationId}/documents/${documentId}-${safeName(payload.name)}`
   const storageRef = ref(storage, storagePath)
   await uploadBytes(storageRef, payload, { contentType: payload.type || "application/octet-stream" })
@@ -61,7 +61,7 @@ export async function uploadApplicationVideo(
   onProgress?: (percent: number) => void,
 ): Promise<StoredFile> {
   const { ref, uploadBytesResumable, getDownloadURL } = await import("firebase/storage")
-  const storage = await getStorageLazy()
+  const storage = await getCandidateStorageLazy()
   const storagePath = `application-uploads/${applicationId}/video/intro-${Date.now()}-${safeName(file.name)}`
   const storageRef = ref(storage, storagePath)
   const task = uploadBytesResumable(storageRef, file, { contentType: file.type || "video/mp4" })
@@ -118,7 +118,7 @@ export async function downloadApplicationFile(downloadUrl: string, fileName: str
 export async function deleteApplicationFile(storagePath: string): Promise<void> {
   try {
     const { ref, deleteObject } = await import("firebase/storage")
-    const storage = await getStorageLazy()
+    const storage = await getCandidateStorageLazy()
     await deleteObject(ref(storage, storagePath))
   } catch {
     // A missing object is fine — the metadata is what the UI reads.

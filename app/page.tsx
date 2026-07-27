@@ -399,49 +399,64 @@ export default function Home() {
         return
       }
       if (user) {
-        setFirebaseUser(user)
-        // Build preliminary currentUser from auth token (instant, no network)
-        // The users collection listener will overwrite with Firestore data once it arrives
-        const authName = user.displayName || deriveNameFromEmail(user.email ?? "")
-        const authInitials = deriveInitials(authName)
-        const authColor = getUserAvatarColor(user.uid)
-        const emailNormalized = normalizeEmail(user.email)
-        setCurrentUser({
-          id: user.uid,
-          name: authName,
-          initials: authInitials,
-          color: authColor,
-          email: user.email ?? undefined,
-          emailNormalized,
+        // Builds released before the isolated candidate Firebase app signed a
+        // candidate into the primary auth instance. Do not let that legacy
+        // token render the internal dashboard: it fails staff-only writes
+        // (notably secure-link creation) with Firestore 403s. The candidate
+        // screen itself is exempt above and keeps the staff session intact.
+        void user.getIdTokenResult().then((tokenResult) => {
+          if (applyTokenRef.current) return
+          if (typeof tokenResult.claims.applicationId === "string" && tokenResult.claims.applicationId) {
+            void signOut(auth)
+            return
+          }
+          setFirebaseUser(user)
+          // Build preliminary currentUser from auth token (instant, no network)
+          // The users collection listener will overwrite with Firestore data once it arrives
+          const authName = user.displayName || deriveNameFromEmail(user.email ?? "")
+          const authInitials = deriveInitials(authName)
+          const authColor = getUserAvatarColor(user.uid)
+          const emailNormalized = normalizeEmail(user.email)
+          setCurrentUser({
+            id: user.uid,
+            name: authName,
+            initials: authInitials,
+            color: authColor,
+            email: user.email ?? undefined,
+            emailNormalized,
+          })
+          // Navigate immediately — don't block on Firestore. A shared Directory
+          // link takes precedence over the user's last module.
+          const directoryDeepLink = getDirectoryDeepLink()
+          if (directoryDeepLink) {
+            setSelectedDirectoryId(directoryDeepLink.directoryId)
+            setDirectoryDetailView(directoryDeepLink.view)
+            navigateTo("directory-detail")
+          } else {
+            // Default is Compose (Communications), unless the user last worked
+            // in Directory or Applications.
+            const lastModule = getLastModule()
+            navigateTo(lastModule === "directory" ? "directory" : lastModule === "applications" ? "applications" : "compose")
+          }
+          // Background auth metadata update. Do not lead with a one-shot getDoc:
+          // it can race the realtime listeners and trip Firebase's ca9/b815 bug.
+          // Missing display fields are filled after the persistent users snapshot.
+          const userRef = doc(db, "users", user.uid)
+          setDoc(userRef, {
+            id: user.uid,
+            email: user.email ?? "",
+            emailNormalized,
+            emailVerified: user.emailVerified === true,
+            authProviderIds: user.providerData.map((p) => p.providerId),
+          }, { merge: true }).catch(() => {})
+          // Register FCM token if notification permission was already granted
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            registerFCMToken(user.uid).catch(() => {})
+          }
+        }).catch(() => {
+          void signOut(auth)
         })
-        // Navigate immediately — don't block on Firestore. A shared Directory
-        // link takes precedence over the user's last module.
-        const directoryDeepLink = getDirectoryDeepLink()
-        if (directoryDeepLink) {
-          setSelectedDirectoryId(directoryDeepLink.directoryId)
-          setDirectoryDetailView(directoryDeepLink.view)
-          navigateTo("directory-detail")
-        } else {
-          // Default is Compose (Communications), unless the user last worked
-          // in Directory or Applications.
-          const lastModule = getLastModule()
-          navigateTo(lastModule === "directory" ? "directory" : lastModule === "applications" ? "applications" : "compose")
-        }
-        // Background auth metadata update. Do not lead with a one-shot getDoc:
-        // it can race the realtime listeners and trip Firebase's ca9/b815 bug.
-        // Missing display fields are filled after the persistent users snapshot.
-        const userRef = doc(db, "users", user.uid)
-        setDoc(userRef, {
-          id: user.uid,
-          email: user.email ?? "",
-          emailNormalized,
-          emailVerified: user.emailVerified === true,
-          authProviderIds: user.providerData.map((p) => p.providerId),
-        }, { merge: true }).catch(() => {})
-        // Register FCM token if notification permission was already granted
-        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-          registerFCMToken(user.uid).catch(() => {})
-        }
+        return
       } else {
         setFirebaseUser(null)
         setCurrentUser(null)
