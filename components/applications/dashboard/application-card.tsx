@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import { AlertCircle, BadgeCheck, ChevronRight, Sparkles } from "lucide-react"
 import { Avatar, ProgressBar, StatusPill } from "@/components/applications/ui/apps-primitives"
 import {
@@ -10,14 +11,19 @@ import {
   type CandidateApplication,
 } from "@/lib/applications-core"
 
-export function ApplicationCard({
+/**
+ * Memoized: the list re-renders on every keystroke in search and every sheet
+ * toggle, but a card only needs to re-render when ITS application changes. The
+ * `onOpen(id)` shape keeps the callback stable so memo actually holds.
+ */
+export const ApplicationCard = memo(function ApplicationCard({
   application,
   onOpen,
 }: {
   application: CandidateApplication
-  onOpen: () => void
+  onOpen: (id: string) => void
 }) {
-  const progress = computeApplicationProgress(application)
+  const progress = useMemo(() => computeApplicationProgress(application), [application])
   const status = APPLICATION_STATUS_META[application.status]
   const blocked = application.status === "needs_information" || progress.missingItems.length > 0
   const isHired = application.status === "hired"
@@ -26,7 +32,7 @@ export function ApplicationCard({
   return (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={() => onOpen(application.id)}
       className={`applications-card applications-tap flex w-full flex-col gap-3 rounded-2xl p-4 text-left hover:border-[#BFDBFE] ${
         isHired
           ? "border-[#86EFAC] bg-[linear-gradient(135deg,#FFFFFF_0%,#F0FDF4_100%)] shadow-[0_8px_18px_rgba(22,163,74,0.08)]"
@@ -80,7 +86,7 @@ export function ApplicationCard({
           ) : (
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--apps-blue)]" aria-hidden="true" />
           )}
-          <span className="truncate">{isHired ? "Hired - onboarding complete" : isApproved ? "Approved - operating agreement sent" : nextActionLabel(application)}</span>
+          <span className="truncate">{isHired ? "Hired - onboarding complete" : isApproved ? "Approved - operating agreement sent" : nextActionLabel(application, progress)}</span>
         </span>
 
         {application.video.state === "ready" && (
@@ -92,4 +98,4 @@ export function ApplicationCard({
       </div>
     </button>
   )
-}
+})

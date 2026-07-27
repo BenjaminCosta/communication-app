@@ -464,8 +464,25 @@ export function emptyGeneralApplication(): GeneralApplication {
   }, {} as GeneralApplication)
 }
 
+/**
+ * The required general fields, resolved once at module load. The progress
+ * math runs per candidate card, so recomputing this filter on every call
+ * (previously up to 5× per progress calculation) was pure waste.
+ */
+export const REQUIRED_GENERAL_FIELDS: GeneralFieldMeta[] = GENERAL_FIELDS.filter((field) => field.required)
+export const REQUIRED_GENERAL_FIELD_COUNT = REQUIRED_GENERAL_FIELDS.length
+
 export function missingGeneralFields(general: GeneralApplication): GeneralFieldMeta[] {
-  return GENERAL_FIELDS.filter((field) => field.required && !general[field.id]?.trim())
+  return REQUIRED_GENERAL_FIELDS.filter((field) => !general[field.id]?.trim())
+}
+
+/** How many required general fields are filled — cheap, single pass. */
+function filledRequiredGeneralCount(general: GeneralApplication): number {
+  let filled = 0
+  for (const field of REQUIRED_GENERAL_FIELDS) {
+    if (general[field.id]?.trim()) filled += 1
+  }
+  return filled
 }
 
 // ── Intro video ─────────────────────────────────────────────────────────
@@ -682,10 +699,9 @@ const SECTION_WEIGHTS: Record<ApplicationSectionId, number> = {
 }
 
 export function generalState(general: GeneralApplication): SectionState {
-  const missing = missingGeneralFields(general)
-  if (missing.length === 0) return "complete"
-  const filled = GENERAL_FIELDS.filter((field) => general[field.id]?.trim()).length
-  return filled === 0 ? "not_started" : "in_progress"
+  if (filledRequiredGeneralCount(general) === REQUIRED_GENERAL_FIELD_COUNT) return "complete"
+  // Any field filled (including optional ones) counts as "in progress".
+  return GENERAL_FIELDS.some((field) => general[field.id]?.trim()) ? "in_progress" : "not_started"
 }
 
 export function videoState(video: IntroVideo): SectionState {
@@ -707,21 +723,28 @@ function sectionRatio(state: SectionState): number {
 }
 
 export function computeApplicationProgress(application: CandidateApplication): ApplicationProgress {
-  const general = generalState(application.general)
+  // Compute the missing general fields ONCE — it drives the general state, the
+  // ratio and the missing-item labels below. (This used to run the same filter
+  // ~5 times per call, and this whole function runs per candidate card.)
+  const missingGeneral = missingGeneralFields(application.general)
+  const general: SectionState =
+    missingGeneral.length === 0
+      ? "complete"
+      : GENERAL_FIELDS.some((field) => application.general[field.id]?.trim())
+        ? "in_progress"
+        : "not_started"
   const video = videoState(application.video)
   const documents = documentsState(application.documents)
 
   const requiredDocuments = application.documents.filter((document) => document.required)
   const uploadedDocuments = requiredDocuments.filter((document) => document.status !== "missing")
-  const missingGeneral = missingGeneralFields(application.general)
 
   // General is scored per-field so the bar moves while the candidate types;
   // the other two sections are coarse (not started / in progress / complete).
   const generalRatio =
-    GENERAL_FIELDS.filter((field) => field.required).length === 0
+    REQUIRED_GENERAL_FIELD_COUNT === 0
       ? 1
-      : (GENERAL_FIELDS.filter((field) => field.required).length - missingGeneral.length) /
-        GENERAL_FIELDS.filter((field) => field.required).length
+      : (REQUIRED_GENERAL_FIELD_COUNT - missingGeneral.length) / REQUIRED_GENERAL_FIELD_COUNT
 
   const documentsRatio =
     requiredDocuments.length === 0 ? 1 : uploadedDocuments.length / requiredDocuments.length
@@ -791,13 +814,17 @@ export function resumeStep(application: CandidateApplication): CandidateStepId {
  * Short line shown on dashboard cards: what the reviewer should do next, or
  * what is blocking the candidate.
  */
-export function nextActionLabel(application: CandidateApplication): string {
-  const progress = computeApplicationProgress(application)
+export function nextActionLabel(application: CandidateApplication, progress?: ApplicationProgress): string {
+  // Only the draft branch needs progress; callers that already have it (the
+  // card, the detail) pass it in to avoid a second full computation.
+  const resolved = application.status === "draft" ? (progress ?? computeApplicationProgress(application)) : null
   switch (application.status) {
-    case "draft":
-      return progress.missingItems.length > 0
-        ? `Candidate has ${progress.missingItems.length} item${progress.missingItems.length === 1 ? "" : "s"} left`
+    case "draft": {
+      const missingCount = resolved?.missingItems.length ?? 0
+      return missingCount > 0
+        ? `Candidate has ${missingCount} item${missingCount === 1 ? "" : "s"} left`
         : "Waiting for the candidate to submit"
+    }
     case "needs_information":
       return application.pendingRequest ?? "Waiting on the candidate"
     case "submitted":

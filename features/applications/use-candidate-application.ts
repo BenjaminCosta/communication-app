@@ -11,7 +11,7 @@
  *    debounced autosave; documents and the intro video upload to Storage.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   computeApplicationProgress,
   emptyIntroVideo,
@@ -480,9 +480,15 @@ export function useCandidateApplication(token: string, options: CandidateApplica
     if (application) setStep(resumeStep(application))
   }, [application])
 
-  const progress = application
-    ? computeApplicationProgress(application)
-    : { percent: 0, sections: [], missingItems: [], isComplete: false }
+  // Recomputed only when the application changes, not on every unrelated
+  // re-render (e.g. save-state or upload-progress ticks while typing).
+  const progress = useMemo(
+    () =>
+      application
+        ? computeApplicationProgress(application)
+        : { percent: 0, sections: [], missingItems: [], isComplete: false },
+    [application],
+  )
 
   return {
     application,

@@ -9,7 +9,7 @@
  * it can't be hit by accident.
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowLeft,
@@ -162,7 +162,9 @@ export function ApplicationDetailScreen({
   const [isPreparingProfilePdf, setIsPreparingProfilePdf] = useState(false)
   const [profilePdfError, setProfilePdfError] = useState<string | null>(null)
 
-  const progress = computeApplicationProgress(application)
+  // The detail re-renders on every sheet toggle and file-action tick; the
+  // progress only depends on the application itself.
+  const progress = useMemo(() => computeApplicationProgress(application), [application])
   const status = APPLICATION_STATUS_META[application.status]
   const agreement = AGREEMENT_STATUS_META[application.agreement.status]
   const documentsSection = progress.sections.find((section) => section.id === "documents")

@@ -218,7 +218,10 @@ export function ApplicationsListScreen({
 
           <div className="mt-4 flex flex-col gap-2.5">
             {visibleApplications.map((application) => (
-              <ApplicationCard key={application.id} application={application} onOpen={() => onOpenApplication(application.id)} />
+              // onOpen is passed by reference (id-based) so ApplicationCard's
+              // memo holds — typing in search re-renders neither the surviving
+              // cards nor recomputes their progress.
+              <ApplicationCard key={application.id} application={application} onOpen={onOpenApplication} />
             ))}
           </div>
 
