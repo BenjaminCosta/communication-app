@@ -30,6 +30,7 @@ import {
 export const APPLICATIONS_COLLECTION = "applications"
 export const APPLICATION_ACTIVITY_SUBCOLLECTION = "activity"
 export const APPLICATION_LINKS_COLLECTION = "applicationLinks"
+export const APPLICATION_AGREEMENTS_COLLECTION = "applicationAgreements"
 
 // ── Timestamp ↔ ISO ─────────────────────────────────────────────────────
 
@@ -188,6 +189,7 @@ export function mapApplicationDoc(id: string, data: DocumentData): CandidateAppl
     submittedAt: toIso(data.submittedAt),
     pendingRequest: typeof data.pendingRequest === "string" ? data.pendingRequest : null,
     previousStatus: mapPreviousStatus(data.previousStatus),
+    agreementId: typeof data.agreementId === "string" ? data.agreementId : null,
   }
 }
 
@@ -274,6 +276,7 @@ export function applicationToFirestore(application: CandidateApplication): Docum
     submittedAt: toTimestamp(application.submittedAt),
     pendingRequest: application.pendingRequest,
     previousStatus: application.previousStatus,
+    agreementId: application.agreementId,
   }
 }
 

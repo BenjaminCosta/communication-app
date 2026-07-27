@@ -2,11 +2,12 @@
 
 import { memo, useMemo } from "react"
 import { AlertCircle, BadgeCheck, ChevronRight, Sparkles } from "lucide-react"
-import { Avatar, ProgressBar, StatusPill } from "@/components/applications/ui/apps-primitives"
+import { Avatar, NoticeBadge, ProgressBar, StatusPill } from "@/components/applications/ui/apps-primitives"
 import {
   APPLICATION_STATUS_META,
   computeApplicationProgress,
   initialsFor,
+  needsAgreementAttention,
   nextActionLabel,
   type CandidateApplication,
 } from "@/lib/applications-core"
@@ -42,10 +43,15 @@ export const ApplicationCard = memo(function ApplicationCard({
       }`}
     >
       <div className="flex items-start gap-3">
-        <Avatar
-          initials={initialsFor(application.candidateName || "New candidate")}
-          className={isHired ? "bg-[var(--apps-complete-soft)] text-[#15803D]" : undefined}
-        />
+        <div className="relative shrink-0">
+          <Avatar
+            initials={initialsFor(application.candidateName || "New candidate")}
+            className={isHired ? "bg-[var(--apps-complete-soft)] text-[#15803D]" : undefined}
+          />
+          {needsAgreementAttention(application) && (
+            <NoticeBadge tone="pending" className="absolute -right-0.5 -top-0.5" />
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3 className="min-w-0 truncate text-[0.9375rem] font-bold text-[var(--apps-text)]">

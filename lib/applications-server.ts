@@ -31,6 +31,7 @@ import {
 } from "@/lib/applications-core"
 import {
   APPLICATION_ACTIVITY_SUBCOLLECTION,
+  APPLICATION_AGREEMENTS_COLLECTION,
   APPLICATIONS_COLLECTION,
   APPLICATION_LINKS_COLLECTION,
   mapLinkDoc,
@@ -293,6 +294,7 @@ function newApplicationData(application: CandidateApplication, Timestamp: { from
     submittedAt: null,
     pendingRequest: null,
     previousStatus: null,
+    agreementId: null,
   }
 }
 
@@ -645,7 +647,7 @@ export async function hardDeleteApplication(applicationId: string): Promise<void
   const [activitySnapshot, linksSnapshot, agreementsSnapshot] = await Promise.all([
     applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).get(),
     db.collection(APPLICATION_LINKS_COLLECTION).where("applicationId", "==", id).get(),
-    db.collection("applicationAgreements").where("applicationId", "==", id).get(),
+    db.collection(APPLICATION_AGREEMENTS_COLLECTION).where("applicationId", "==", id).get(),
   ])
 
   const batch = db.batch()
@@ -901,7 +903,7 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
   const bodyHash = agreementBodyHash(template)
   const signedPdfHash = sha256(pdfBytes)
 
-  const agreementRef = db.collection("applicationAgreements").doc()
+  const agreementRef = db.collection(APPLICATION_AGREEMENTS_COLLECTION).doc()
   try {
     await db.runTransaction(async (tx) => {
       // Re-read both records inside the transaction. This is the final gate

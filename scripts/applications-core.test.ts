@@ -55,6 +55,7 @@ function application(overrides: Partial<CandidateApplication> = {}): CandidateAp
     submittedAt: null,
     pendingRequest: null,
     previousStatus: null,
+    agreementId: null,
     ...overrides,
   }
 }

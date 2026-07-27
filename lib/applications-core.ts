@@ -629,6 +629,8 @@ export interface CandidateApplication {
   pendingRequest: string | null
   /** Status to restore on unarchive. Only ever set while `status` is "archived". */
   previousStatus: ApplicationStatus | null
+  /** Points at the `/applicationAgreements` doc holding the sealed, signed PDF. */
+  agreementId: string | null
 }
 
 export function emptyLinkedJob(): LinkedJob {
@@ -668,6 +670,7 @@ export function blankApplication(id: string, token: string, invite?: Partial<Inv
     submittedAt: null,
     pendingRequest: null,
     previousStatus: null,
+    agreementId: null,
   }
 }
 
@@ -866,6 +869,15 @@ export function canRequestInfo(status: ApplicationStatus): boolean {
 /** The internal final step, available once the signed agreement reaches payroll. */
 export function canMarkHired(status: ApplicationStatus): boolean {
   return status === "payroll_in_progress"
+}
+
+/**
+ * True once a candidate is approved but hasn't signed yet — the reviewer's
+ * next step is to make sure they got the link, or send a fresh one if it
+ * expired. Drives the "needs attention" badge on the card and detail screen.
+ */
+export function needsAgreementAttention(application: CandidateApplication): boolean {
+  return application.status === "approved" && application.agreement.status !== "signed"
 }
 
 export function canArchive(status: ApplicationStatus): boolean {

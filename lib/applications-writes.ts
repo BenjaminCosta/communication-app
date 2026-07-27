@@ -33,6 +33,7 @@ import { APPLICATIONS_BACKEND_ENABLED } from "@/lib/applications-flags"
 import {
   APPLICATIONS_COLLECTION,
   APPLICATION_ACTIVITY_SUBCOLLECTION,
+  APPLICATION_AGREEMENTS_COLLECTION,
   APPLICATION_LINKS_COLLECTION,
   applicationToFirestore,
   linkToFirestore,
@@ -41,6 +42,7 @@ import {
   mapLinkDoc,
   toTimestamp,
 } from "@/lib/applications-store"
+import { getApplicationDownloadUrl } from "@/lib/applications-storage"
 import { candidateUid } from "@/lib/applications-core"
 import type {
   ActivityEvent,
@@ -527,6 +529,38 @@ export async function createAgreementSigningLink(
   }
   if (!isApplicationLink(body.link)) throw new ApplicationWriteError("The agreement link response was incomplete.")
   return body.link
+}
+
+export interface SignedAgreementFile {
+  downloadUrl: string
+  fileName: string
+}
+
+function signedAgreementFileName(candidateName: string): string {
+  const slug = candidateName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+  return `${slug || "candidate"}-signed-operating-agreement.pdf`
+}
+
+/**
+ * Resolve the sealed PDF for a signed application. `/applicationAgreements`
+ * is server-write-only (see firestore.rules), so this is a read of the record
+ * `signAgreement` created, not a reconstruction of it.
+ */
+export async function loadSignedAgreementFile(
+  agreementId: string,
+  candidateName: string,
+): Promise<SignedAgreementFile | null> {
+  const snapshot = await getDoc(doc(db, APPLICATION_AGREEMENTS_COLLECTION, agreementId))
+  if (!snapshot.exists()) return null
+  const storagePath = snapshot.data().signedPdfPath
+  if (typeof storagePath !== "string" || !storagePath) return null
+  const downloadUrl = await getApplicationDownloadUrl(storagePath)
+  return { downloadUrl, fileName: signedAgreementFileName(candidateName) }
 }
 
 export async function archiveApplication(applicationId: string, reviewer: ReviewerIdentity): Promise<void> {

@@ -224,3 +224,30 @@ export function Avatar({ initials, className }: { initials: string; className?: 
     </span>
   )
 }
+
+/**
+ * "You have something to deal with" — same idea as an app icon's badge count,
+ * not a real push notification. Meant to sit absolutely positioned on a
+ * corner (an avatar, an icon) via `className`.
+ */
+export function NoticeBadge({
+  count = 1,
+  tone = "missing",
+  className,
+}: {
+  count?: number
+  tone?: ApplicationTone
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-white ring-2 ring-[var(--apps-surface)]",
+        TONE_STYLES[tone].solid,
+        className,
+      )}
+    >
+      {count}
+    </span>
+  )
+}

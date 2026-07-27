@@ -42,6 +42,7 @@ import {
   AppsButton,
   AppsCard,
   Avatar,
+  NoticeBadge,
   ProgressBar,
   SectionLabel,
   StatusPill,
@@ -51,7 +52,7 @@ import { ShareLinkSheet } from "@/components/applications/dashboard/share-link-s
 import { useShareLink } from "@/features/applications/use-share-link"
 import { issueApplicationLink } from "@/features/applications/candidate-links"
 import { downloadApplicationFile, getApplicationDownloadUrl } from "@/lib/applications-storage"
-import { downloadApplicationProfilePdf, type ReviewerIdentity } from "@/lib/applications-writes"
+import { downloadApplicationProfilePdf, loadSignedAgreementFile, type ReviewerIdentity } from "@/lib/applications-writes"
 import { TONE_STYLES, toneForSectionState } from "@/components/applications/ui/tone"
 import {
   AGREEMENT_STATUS_META,
@@ -65,6 +66,7 @@ import {
   formatApplicationDate,
   formatRelativeDate,
   initialsFor,
+  needsAgreementAttention,
   type ApplicationSectionId,
   type ApplicationTone,
   type ActivityEvent,
@@ -85,9 +87,11 @@ interface ChecklistRowProps {
   tone: ApplicationTone
   onClick?: () => void
   trailing?: "chevron" | "lock"
+  /** Small notice count next to the trailing icon — e.g. "needs a signature". */
+  badge?: boolean
 }
 
-function ChecklistRow({ icon: Icon, label, detail, tone, onClick, trailing }: ChecklistRowProps) {
+function ChecklistRow({ icon: Icon, label, detail, tone, onClick, trailing, badge }: ChecklistRowProps) {
   const body = (
     <>
       <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full", TONE_STYLES[tone].soft, TONE_STYLES[tone].text)}>
@@ -95,6 +99,7 @@ function ChecklistRow({ icon: Icon, label, detail, tone, onClick, trailing }: Ch
       </span>
       <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--apps-text)]">{label}</span>
       <span className={cn("shrink-0 text-[0.8125rem] font-semibold", TONE_STYLES[tone].text)}>{detail}</span>
+      {badge && <NoticeBadge tone={tone} />}
       {trailing === "chevron" && <ChevronRight className="h-4 w-4 shrink-0 text-[var(--apps-text-muted)]" strokeWidth={2} />}
       {trailing === "lock" && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--apps-text-muted)]" strokeWidth={2} />}
     </>
@@ -172,6 +177,8 @@ export function ApplicationDetailScreen({
   const [fileActionError, setFileActionError] = useState<string | null>(null)
   const [isPreparingProfilePdf, setIsPreparingProfilePdf] = useState(false)
   const [profilePdfError, setProfilePdfError] = useState<string | null>(null)
+  const [isDownloadingAgreement, setIsDownloadingAgreement] = useState(false)
+  const [agreementDownloadError, setAgreementDownloadError] = useState<string | null>(null)
 
   // The detail re-renders on every sheet toggle and file-action tick; the
   // progress only depends on the application itself.
@@ -280,6 +287,24 @@ export function ApplicationDetailScreen({
     }
   }
 
+  const handleDownloadSignedAgreement = async () => {
+    if (!application.agreementId) {
+      setAgreementDownloadError("The signed agreement isn't linked to this application yet.")
+      return
+    }
+    setIsDownloadingAgreement(true)
+    setAgreementDownloadError(null)
+    try {
+      const file = await loadSignedAgreementFile(application.agreementId, application.candidateName)
+      if (!file) throw new Error("not-found")
+      await downloadApplicationFile(file.downloadUrl, file.fileName)
+    } catch {
+      setAgreementDownloadError("The signed agreement could not be downloaded. Please try again.")
+    } finally {
+      setIsDownloadingAgreement(false)
+    }
+  }
+
   const handleProfilePdfDownload = async () => {
     if (!reviewer) {
       setProfilePdfError("Your reviewer session is required to download this application.")
@@ -333,7 +358,12 @@ export function ApplicationDetailScreen({
         <div className="applications-step-enter mx-auto w-full max-w-2xl px-4 pb-8 pt-4 md:px-6">
           {/* Summary */}
           <div className="flex items-start gap-3.5">
-            <Avatar initials={initialsFor(application.candidateName)} className="h-14 w-14 text-base" />
+            <div className="relative shrink-0">
+              <Avatar initials={initialsFor(application.candidateName)} className="h-14 w-14 text-base" />
+              {needsAgreementAttention(application) && (
+                <NoticeBadge tone={agreement.tone} className="absolute -right-0.5 -top-0.5" />
+              )}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <p className="min-w-0 truncate text-[0.9375rem] font-semibold text-[var(--apps-text)]">{application.trade}</p>
@@ -423,10 +453,71 @@ export function ApplicationDetailScreen({
                   tone={agreement.tone}
                   onClick={() => setSheet("agreement")}
                   trailing={application.agreement.status === "locked" ? "lock" : "chevron"}
+                  badge={needsAgreementAttention(application)}
                 />
               </li>
             </ul>
           </AppsCard>
+
+          {/* Needs signature — the next step after approval, made hard to miss */}
+          {needsAgreementAttention(application) && (
+            <div className="mt-4">
+              <AppsCard
+                className={cn(
+                  "overflow-hidden",
+                  application.agreement.status === "expired"
+                    ? "border-[#FBD0D0] bg-[var(--apps-missing-soft)]/45"
+                    : "border-[#FDE68A] bg-[var(--apps-pending-soft)]/60",
+                )}
+                flat
+              >
+                <button
+                  type="button"
+                  onClick={() => setSheet("agreement")}
+                  className={cn(
+                    "applications-tap flex w-full items-center gap-3 px-4 py-3.5 text-left",
+                    application.agreement.status === "expired"
+                      ? "hover:bg-[var(--apps-missing-soft)]"
+                      : "hover:bg-[var(--apps-pending-soft)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white",
+                      application.agreement.status === "expired" ? "text-[#DC5A5A]" : "text-[#B45309]",
+                    )}
+                  >
+                    <FileSignature className="h-4 w-4" strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block text-sm font-semibold",
+                        application.agreement.status === "expired" ? "text-[#9F3030]" : "text-[#8A5A08]",
+                      )}
+                    >
+                      {application.agreement.status === "expired" ? "Signing link expired" : "Waiting on signature"}
+                    </span>
+                    <span
+                      className={cn(
+                        "mt-0.5 block text-xs",
+                        application.agreement.status === "expired" ? "text-[#B44C4C]" : "text-[#9A6708]",
+                      )}
+                    >
+                      {application.agreement.status === "expired"
+                        ? "Send a new link so the candidate can sign."
+                        : "Resend the link if the candidate hasn't signed yet."}
+                    </span>
+                  </span>
+                  <NoticeBadge tone={agreement.tone} />
+                  <ChevronRight
+                    className={cn("h-4 w-4 shrink-0", application.agreement.status === "expired" ? "text-[#DC5A5A]" : "text-[#B45309]")}
+                    strokeWidth={2}
+                  />
+                </button>
+              </AppsCard>
+            </div>
+          )}
 
           {application.status === "payroll_in_progress" && (
             <AppsCard className="mt-4 border-[#FDE68A] bg-[var(--apps-pending-soft)] p-4" flat>
@@ -868,7 +959,7 @@ export function ApplicationDetailScreen({
                   shareLink.openFor({ applicationId: application.id, purpose: "agreement" })
                 }}
               >
-                Send agreement link
+                {application.agreement.sentAt ? "Resend agreement link" : "Send agreement link"}
               </AppsButton>
             )}
             {application.agreement.status !== "signed" && (
@@ -888,11 +979,27 @@ export function ApplicationDetailScreen({
                 Preview the signing screen
               </AppsButton>
             )}
+            {application.agreement.status === "signed" && (
+              <AppsButton
+                variant="secondary"
+                fullWidth
+                disabled={isDownloadingAgreement}
+                icon={<Download className="h-4 w-4" strokeWidth={2} />}
+                onClick={handleDownloadSignedAgreement}
+              >
+                {isDownloadingAgreement ? "Preparing…" : "Download signed agreement"}
+              </AppsButton>
+            )}
           </div>
+        )}
+        {agreementDownloadError && (
+          <p className="mt-3 rounded-xl border border-[#FBD0D0] bg-[var(--apps-missing-soft)] px-3.5 py-2.5 text-[0.8125rem] font-medium text-[#DC5A5A]">
+            {agreementDownloadError}
+          </p>
         )}
         <p className="mt-4 rounded-xl bg-[var(--apps-surface-2)] px-3.5 py-3 text-xs leading-relaxed text-[var(--apps-text-muted)]">
           {application.agreement.status === "signed"
-            ? "The signed agreement is on file. The next internal task is payroll setup."
+            ? "The signed PDF and audit evidence are sealed server-side and never leave a copy in the browser."
             : "The signed PDF and audit evidence are sealed server-side when the candidate signs."}
         </p>
       </AppsSheet>
