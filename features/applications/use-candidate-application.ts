@@ -126,6 +126,22 @@ export function useCandidateApplication(token: string, options: CandidateApplica
   // by a snapshot that arrives mid-typing.
   const dirtyRef = useRef(false)
   const bootstrappedStepRef = useRef(false)
+  // Every save for this application runs through this chain, one at a time,
+  // in the order it was enqueued. Without this, a slow mobile round trip for
+  // an older keystroke can resolve (and land server-side) after a newer one,
+  // silently reverting text the candidate already typed past.
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  // The most recent snapshot handed to scheduleSave. A completed save only
+  // clears `dirtyRef` when it was saving THIS object — if a newer edit has
+  // since replaced it, the flag (correctly) stays dirty until that one lands.
+  const latestDraftRef = useRef<CandidateApplication | null>(null)
+
+  /** Runs `job` after every previously queued save has settled. */
+  const enqueueSave = useCallback((job: () => Promise<void>): Promise<void> => {
+    const run = saveQueueRef.current.catch(() => {}).then(job)
+    saveQueueRef.current = run
+    return run
+  }, [])
 
   useEffect(
     () => () => {
@@ -181,28 +197,38 @@ export function useCandidateApplication(token: string, options: CandidateApplica
   const scheduleSave = useCallback(
     (snapshot: CandidateApplication) => {
       setSaveState("saving")
+      latestDraftRef.current = snapshot
       if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(() => {
-        if (!live) {
+      if (!live) {
+        saveTimer.current = setTimeout(() => {
           saveMockApplication(snapshot)
           setSaveState("saved")
-          return
-        }
+        }, 420)
+        return
+      }
+      saveTimer.current = setTimeout(() => {
         const id = applicationIdRef.current
         if (!id) return
-        saveCandidateDraft(id, {
-          general: snapshot.general,
-          video: snapshot.video,
-          documents: snapshot.documents,
-        })
-          .then(() => {
-            dirtyRef.current = false
-            setSaveState("saved")
+        void enqueueSave(() =>
+          saveCandidateDraft(id, {
+            general: snapshot.general,
+            video: snapshot.video,
+            documents: snapshot.documents,
           })
-          .catch(() => setSaveState("idle"))
-      }, live ? SAVE_DEBOUNCE_MS : 420)
+            .then(() => {
+              // Only the save for the CURRENT latest draft is allowed to mark
+              // things clean — an older, slower save resolving after a newer
+              // one must not tell the reconciler it's safe to accept a snapshot.
+              if (latestDraftRef.current === snapshot) {
+                dirtyRef.current = false
+                setSaveState("saved")
+              }
+            })
+            .catch(() => setSaveState("idle")),
+        )
+      }, SAVE_DEBOUNCE_MS)
     },
-    [live],
+    [live, enqueueSave],
   )
 
   const mutate = useCallback(
@@ -383,23 +409,30 @@ export function useCandidateApplication(token: string, options: CandidateApplica
     setApplication(next)
 
     if (live && applicationIdRef.current) {
-      dirtyRef.current = false
-      // Persist the latest draft, then flip to submitted. The snapshot
-      // listener will reconcile the authoritative doc.
-      saveCandidateDraft(applicationIdRef.current, {
-        general: application.general,
-        video: application.video,
-        documents: application.documents,
-      })
-        .then(() => submitCandidateApplication(applicationIdRef.current as string, name))
-        .catch(() => setSaveState("idle"))
+      const id = applicationIdRef.current
+      latestDraftRef.current = next
+      // Goes through the same queue as autosave — an autosave still in
+      // flight for an earlier keystroke is waited out instead of racing it,
+      // so the final draft is always what actually lands last.
+      void enqueueSave(() =>
+        saveCandidateDraft(id, {
+          general: next.general,
+          video: next.video,
+          documents: next.documents,
+        })
+          .then(() => {
+            if (latestDraftRef.current === next) dirtyRef.current = false
+            return submitCandidateApplication(id, name)
+          })
+          .catch(() => setSaveState("idle")),
+      )
     } else {
       // The local dashboard listens to this registry, so a real mock invite
       // immediately moves from Draft to Submitted instead of disappearing.
       saveMockApplication(next)
     }
     setStep("submitted")
-  }, [application, live])
+  }, [application, live, enqueueSave])
 
   const updateSignature = useCallback((patch: Partial<SignatureDraft>) => {
     setSignature((current) => ({ ...current, ...patch }))
