@@ -730,7 +730,7 @@ function signedAgreementFileName(candidateName: string): string {
  */
 export async function readSignedAgreementPdf(
   applicationId: string,
-): Promise<{ bytes: Uint8Array; fileName: string }> {
+): Promise<{ bytes: Uint8Array; fileName: string; previewPage: number }> {
   const id = applicationId.trim()
   if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
 
@@ -771,7 +771,8 @@ export async function readSignedAgreementPdf(
     throw new ApplicationSessionError("agreement-not-found", "The signed agreement record is not available yet.", 404)
   }
 
-  const storagePath = textFromUnknown((agreementSnapshot.data() ?? {}).signedPdfPath)
+  const agreementRecord = agreementSnapshot.data() ?? {}
+  const storagePath = textFromUnknown(agreementRecord.signedPdfPath)
   if (!storagePath) {
     throw new ApplicationSessionError("agreement-file-not-found", "The signed agreement PDF is not available yet.", 404)
   }
@@ -789,9 +790,23 @@ export async function readSignedAgreementPdf(
     throw new ApplicationSessionError("agreement-file-empty", "The signed agreement PDF is empty. Please try again.", 500)
   }
 
+  // PDFs sealed before the candidate record was moved to page one leave the
+  // signature on their final page. Open those previews there so old and new
+  // agreements are equally reviewable from the dashboard.
+  let previewPage = 1
+  if (agreementRecord.pdfLayoutVersion !== 2) {
+    try {
+      const { PDFDocument } = await import("pdf-lib")
+      previewPage = Math.max(1, (await PDFDocument.load(bytes)).getPageCount())
+    } catch {
+      previewPage = 1
+    }
+  }
+
   return {
     bytes,
     fileName: signedAgreementFileName(textFromUnknown(application.candidateName) ?? ""),
+    previewPage,
   }
 }
 
@@ -953,12 +968,15 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
 
   const template = OPERATING_AGREEMENT_TEMPLATE
   const candidateName = typeof data.candidateName === "string" && data.candidateName ? data.candidateName : typedName
-  const general = (data.general ?? {}) as { fullName?: unknown }
+  const general = (data.general ?? {}) as { fullName?: unknown; cityState?: unknown }
   const expectedName = typeof general.fullName === "string" && general.fullName.trim() ? general.fullName : candidateName
   if (!nameMatches(typedName, expectedName)) {
     throw new ApplicationSessionError("name-mismatch", "Type your full name exactly as it appears in your application.", 400)
   }
   const jobName = typeof data.jobName === "string" ? data.jobName : ""
+  const candidateTrade = typeof data.trade === "string" ? data.trade : null
+  const candidateLocation = typeof general.cityState === "string" ? general.cityState : null
+  const companyName = typeof data.companyName === "string" ? data.companyName : null
 
   const { Timestamp, FieldValue } = await import("firebase-admin/firestore")
   const signedAtDate = new Date()
@@ -967,6 +985,9 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
   const pdfBytes = await sealAgreementPdf({
     template,
     candidateName,
+    candidateTrade,
+    candidateLocation,
+    companyName,
     jobName,
     typedName,
     signedAtIso,
@@ -1027,6 +1048,7 @@ export async function signAgreement(input: SignAgreementInput): Promise<{ signed
         signedAt: Timestamp.fromDate(signedAtDate),
         signedPdfPath: pdfPath,
         signedPdfHash,
+        pdfLayoutVersion: 2,
       })
       tx.update(applicationRef, {
         status: "payroll_in_progress",

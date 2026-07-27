@@ -532,6 +532,7 @@ export async function createAgreementSigningLink(
 export interface SignedAgreementPdf {
   blob: Blob
   fileName: string
+  previewPage: number
 }
 
 /**
@@ -569,9 +570,11 @@ export async function loadSignedAgreementPdf(
 
   const blob = await response.blob()
   if (blob.size === 0) throw new ApplicationWriteError("The signed agreement PDF was empty. Please try again.")
+  const previewPage = Number(response.headers.get("x-svc-pdf-preview-page"))
   return {
     blob,
     fileName: exportFileName(response.headers.get("content-disposition"), "signed-operating-agreement.pdf"),
+    previewPage: Number.isInteger(previewPage) && previewPage > 0 ? previewPage : 1,
   }
 }
 

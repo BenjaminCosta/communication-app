@@ -185,7 +185,7 @@ export function ApplicationDetailScreen({
   const [isDownloadingAgreement, setIsDownloadingAgreement] = useState(false)
   const [isOpeningAgreementPreview, setIsOpeningAgreementPreview] = useState(false)
   const [agreementDownloadError, setAgreementDownloadError] = useState<string | null>(null)
-  const [agreementPreview, setAgreementPreview] = useState<{ url: string; fileName: string } | null>(null)
+  const [agreementPreview, setAgreementPreview] = useState<{ url: string; fileName: string; previewPage: number } | null>(null)
 
   useEffect(
     () => () => {
@@ -326,7 +326,11 @@ export function ApplicationDetailScreen({
     setAgreementDownloadError(null)
     try {
       const file = await loadSignedAgreementPdf(application.id, reviewer)
-      setAgreementPreview({ url: URL.createObjectURL(file.blob), fileName: file.fileName })
+      setAgreementPreview({
+        url: URL.createObjectURL(file.blob),
+        fileName: file.fileName,
+        previewPage: file.previewPage,
+      })
     } catch (error) {
       setAgreementDownloadError(error instanceof Error ? error.message : "The signed agreement could not be previewed. Please try again.")
     } finally {
@@ -1063,11 +1067,37 @@ export function ApplicationDetailScreen({
         }
       >
         {agreementPreview && (
-          <iframe
-            title="Signed operating agreement PDF"
-            src={agreementPreview.url}
-            className="h-[66vh] w-full rounded-xl border border-[var(--apps-border)] bg-white"
-          />
+          <div className="flex flex-col gap-3">
+            <div className="rounded-xl border border-[var(--apps-border)] bg-[var(--apps-surface-2)] px-3.5 py-3">
+              <div className="flex items-center gap-3">
+                <Avatar initials={initialsFor(application.candidateName)} className="h-10 w-10 text-sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--apps-text)]">{application.general.fullName || application.candidateName}</p>
+                  <p className="truncate text-xs text-[var(--apps-text-muted)]">
+                    {[application.trade, application.job.name].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                <StatusPill label="Signed" tone="complete" />
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[var(--apps-border)] pt-3 text-xs">
+                <div>
+                  <dt className="text-[var(--apps-text-muted)]">Signed by</dt>
+                  <dd className="mt-0.5 truncate font-medium text-[var(--apps-text)]">
+                    {application.agreement.signedName || application.general.fullName || application.candidateName}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--apps-text-muted)]">Signed</dt>
+                  <dd className="mt-0.5 truncate font-medium text-[var(--apps-text)]">{formatApplicationDate(application.agreement.signedAt)}</dd>
+                </div>
+              </dl>
+            </div>
+            <iframe
+              title="Signed operating agreement PDF"
+              src={`${agreementPreview.url}#page=${agreementPreview.previewPage}`}
+              className="h-[52vh] w-full rounded-xl border border-[var(--apps-border)] bg-white"
+            />
+          </div>
         )}
       </AppsSheet>
 

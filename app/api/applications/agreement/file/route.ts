@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     await verifyStaffRequest(request, typeof body.reviewerName === "string" ? body.reviewerName : "")
-    const { bytes, fileName } = await readSignedAgreementPdf(
+    const { bytes, fileName, previewPage } = await readSignedAgreementPdf(
       typeof body.applicationId === "string" ? body.applicationId : "",
     )
     return new Response(Buffer.from(bytes), {
@@ -32,6 +32,7 @@ export async function POST(request: Request): Promise<Response> {
         "content-type": "application/pdf",
         "content-disposition": `inline; filename="${fileName}"`,
         "cache-control": "private, no-store, max-age=0",
+        "x-svc-pdf-preview-page": String(previewPage),
       },
     })
   } catch (error) {
