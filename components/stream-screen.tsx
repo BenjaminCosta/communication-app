@@ -104,6 +104,7 @@ interface StreamScreenProps {
   onContexts: () => void
   onDirectory: () => void
   onApplications: () => void
+  onQuestCoral: () => void
   onCopyMessage: (text: string) => void
   contexts?: AppContext[]
   onSendMessage: (draft: MessageDraft) => Promise<void>
@@ -150,6 +151,7 @@ export function StreamScreen({
   onContexts,
   onDirectory,
   onApplications,
+  onQuestCoral,
   onCopyMessage,
   contexts = [],
   onSendMessage,
@@ -500,6 +502,7 @@ export function StreamScreen({
           onSelect={(module) => {
             if (module === "directory") onDirectory()
             if (module === "applications") onApplications()
+            if (module === "quest-coral") onQuestCoral()
           }}
         />
         <div className="flex items-center gap-2">

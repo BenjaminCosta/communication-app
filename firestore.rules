@@ -278,5 +278,90 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Quest Coral ──────────────────────────────────────────────────────────
+    // Projects are shared/global like contacts: any authenticated user reads
+    // every project (this is a team-wide tracker, not per-user private data),
+    // and any authenticated user may update one (logging progress/status is
+    // the whole point). Only the creator can delete a project. Updates (the
+    // append-only Update/Feedback/Blocker/Red Team Review feed) are
+    // global-read, author-scoped write, and never editable once posted.
+    //
+    // NEXT_PUBLIC_QUEST_CORAL_BACKEND is live in production (svc-comms) as of
+    // 2026-07-29 — see docs/svc-quest-coral-module.md.
+    match /questCoralProjects/{projectId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.ownerUserId;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.ownerUserId;
+    }
+
+    match /questCoralUpdates/{updateId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.authorId;
+      allow update: if false;
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.authorId;
+    }
+
+    // One Markdown orientation brief per project. It is intentionally separate
+    // from the append-only update log: authenticated teammates may keep a
+    // shared context current without rewriting history. The document id and
+    // projectId must agree so contexts cannot be silently reassigned.
+    match /questCoralProjectContexts/{projectId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/questCoralProjects/$(projectId))
+                    && request.resource.data.projectId == projectId
+                    && request.resource.data.markdown is string
+                    && request.resource.data.markdown.size() <= 12000
+                    && request.resource.data.updatedBy is string
+                    && request.resource.data.source in ['manual', 'upload'];
+      allow update: if request.auth != null
+                    && request.resource.data.projectId == resource.data.projectId
+                    && request.resource.data.projectId == projectId
+                    && request.resource.data.markdown is string
+                    && request.resource.data.markdown.size() <= 12000
+                    && request.resource.data.updatedBy is string
+                    && request.resource.data.source in ['manual', 'upload'];
+      allow delete: if false;
+    }
+
+    // One private read marker per user/project. The count is materialized from
+    // the append-only activity feed, while lastReadAt prevents replayed
+    // snapshots from creating duplicate unread activity.
+    match /questCoralProjectUnreadStates/{stateId} {
+      allow read: if request.auth != null
+                  && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/questCoralProjects/$(request.resource.data.projectId))
+                    && stateId == request.auth.uid + "__" + request.resource.data.projectId
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.projectId is string
+                    && request.resource.data.unreadCount is int
+                    && request.resource.data.unreadCount >= 0
+                    && request.resource.data.unreadCount <= 10000
+                    && (request.resource.data.lastReadAt == null || request.resource.data.lastReadAt is timestamp);
+      allow update: if request.auth != null
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.projectId == resource.data.projectId
+                    && stateId == request.auth.uid + "__" + request.resource.data.projectId
+                    && request.resource.data.unreadCount is int
+                    && request.resource.data.unreadCount >= 0
+                    && request.resource.data.unreadCount <= 10000
+                    && (request.resource.data.lastReadAt == null || request.resource.data.lastReadAt is timestamp);
+      allow delete: if false;
+    }
+
+    // Distributed AI rate limits, idempotency fingerprints and active leases
+    // for Quest Coral's Ask AI. Server/Admin SDK only, same posture as
+    // outlookAiUsage above; no question text or answer is stored here.
+    match /questCoralAiUsage/{userHash} {
+      allow read, write: if false;
+    }
+
   }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-type LoadingProduct = "stream" | "directory" | "applications"
+type LoadingProduct = "stream" | "directory" | "applications" | "quest-coral"
 
 interface ProductLoadingScreenProps {
   product: LoadingProduct
@@ -49,7 +49,27 @@ function ProductLoadingScreen({ product, className }: ProductLoadingScreenProps)
             },
             trackStyle: { background: "rgba(37,99,235,0.12)" },
           }
-        : {
+        : product === "quest-coral"
+          ? {
+              title: "Quest Coral",
+              subtitle: "PROJECTS · PROGRESS · FEEDBACK",
+              emoji: "🎯",
+              emojiLabel: "target",
+              screenClass: "quest-coral-loading-screen",
+              logoClass: "animate-quest-coral-logo-breathe",
+              accent: "#FF7A59",
+              logoStyle: {
+                background: "linear-gradient(145deg, #FFF3EF 0%, #FFFFFF 100%)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 1px rgba(255,122,89,0.22), 0 0 34px rgba(255,122,89,0.20), 0 10px 30px rgba(232,89,58,0.13)",
+              },
+              ringStyle: { boxShadow: "0 0 0 1px rgba(255,122,89,0.22)" },
+              barStyle: {
+                background: "linear-gradient(90deg, transparent, #FF7A59, #14B8A6, #FF7A59, transparent)",
+                boxShadow: "0 0 12px rgba(255,122,89,0.45)",
+              },
+              trackStyle: { background: "rgba(255,122,89,0.12)" },
+            }
+          : {
             title: "Stream",
             subtitle: "Team Communication",
             emoji: "🤔",
@@ -113,10 +133,14 @@ export function ApplicationsLoadingScreen({ className }: { className?: string })
   return <ProductLoadingScreen product="applications" className={className} />
 }
 
+export function QuestCoralLoadingScreen({ className }: { className?: string }) {
+  return <ProductLoadingScreen product="quest-coral" className={className} />
+}
+
 /**
- * Both variants are present in the initial HTML so a tiny head script can
+ * Every variant is present in the initial HTML so a tiny head script can
  * choose the persisted module before React hydrates. That prevents a Stream
- * splash from flashing before Directory or Applications on reload.
+ * splash from flashing before Directory, Applications or Quest Coral on reload.
  */
 export function LaunchLoadingScreen() {
   return (
@@ -129,6 +153,9 @@ export function LaunchLoadingScreen() {
       </div>
       <div className="launch-loading-applications min-h-0 w-full flex-1">
         <ApplicationsLoadingScreen />
+      </div>
+      <div className="launch-loading-quest-coral min-h-0 w-full flex-1">
+        <QuestCoralLoadingScreen />
       </div>
     </div>
   )

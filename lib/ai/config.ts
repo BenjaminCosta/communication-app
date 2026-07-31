@@ -12,7 +12,7 @@
  * exists. Setting `OUTLOOK_AI_MODE=mock` forces mock even when a key is present.
  */
 
-import { DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS } from "@/lib/ai/config-public"
+import { DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS, QUEST_CORAL_AI_LIMITS } from "@/lib/ai/config-public"
 
 export type OutlookAiMode = "mock" | "live"
 /** Shared alias — both AI features use the same mock/live semantics. */
@@ -25,7 +25,7 @@ const DEFAULT_ASK_MODEL = "gpt-5-mini"
 const DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 
 // Re-export the client-safe limits so server code has one import site.
-export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS }
+export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS }
 
 function readMode(hasKey: boolean): OutlookAiMode {
   const raw = (process.env.OUTLOOK_AI_MODE ?? "").trim().toLowerCase()
@@ -92,6 +92,39 @@ export function getDirectoryAiConfig(): DirectoryAiConfig {
     askModel: (process.env.DIRECTORY_AI_ASK_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
     transcribeModel: (process.env.DIRECTORY_AI_TRANSCRIBE_MODEL ?? "").trim() || DEFAULT_TRANSCRIBE_MODEL,
     embedModel: (process.env.DIRECTORY_AI_EMBED_MODEL ?? "").trim() || DEFAULT_EMBED_MODEL,
+    baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
+  }
+}
+
+export interface QuestCoralAiConfig {
+  mode: AiMode
+  apiKey: string | null
+  askModel: string
+  baseUrl: string
+}
+
+/**
+ * Resolve the Quest Coral "Ask AI" / "AI Project Brief" config at request time.
+ * Mirrors `getDirectoryAiConfig()` and reuses the same `OPENAI_API_KEY` secret +
+ * base URL, but keeps its own mode flag and model env so Quest Coral can be
+ * tuned (or forced to mock) independently of Outlook and Directory.
+ *
+ * Quest Coral needs no embedding/transcription model: the question is always
+ * bounded to a single project (or the caller's own project list) that the
+ * client already holds in full, so there is no retrieval step and no voice
+ * input in this feature.
+ */
+export function getQuestCoralAiConfig(): QuestCoralAiConfig {
+  if (typeof window !== "undefined") {
+    throw new Error("getQuestCoralAiConfig() must only run on the server.")
+  }
+  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim() || null
+  const raw = (process.env.QUEST_CORAL_AI_MODE ?? "").trim().toLowerCase()
+  const mode: AiMode = raw === "mock" ? "mock" : raw === "live" ? "live" : apiKey ? "live" : "mock"
+  return {
+    mode,
+    apiKey,
+    askModel: (process.env.QUEST_CORAL_AI_ASK_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
     baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
   }
 }

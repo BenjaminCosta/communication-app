@@ -42,3 +42,8 @@ export function logOutlookAi(metadata: SafeOutlookAiLog): void {
 export function logDirectoryAi(metadata: SafeOutlookAiLog): void {
   console.info("[directory-ai]", JSON.stringify(metadata))
 }
+
+/** Same allowlisted metadata shape, tagged for Quest Coral's Ask AI flow. */
+export function logQuestCoralAi(metadata: SafeOutlookAiLog): void {
+  console.info("[quest-coral-ai]", JSON.stringify(metadata))
+}

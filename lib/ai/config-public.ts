@@ -61,3 +61,34 @@ export const DIRECTORY_AI_LIMITS = {
   /** Upstream provider timeout (ms) for a single request. */
   providerTimeoutMs: 30_000,
 } as const
+
+/**
+ * Client-safe limits for Quest Coral's "Ask AI" and "AI Project Brief".
+ *
+ * The question is always answered from a small, already-loaded slice of data
+ * the client sends along (one project + its updates, or the caller's own
+ * project list for the portfolio-wide question) — never a server-side
+ * retrieval step. Caps here bound both the question and the payload describing
+ * that project data.
+ */
+export const QUEST_CORAL_AI_LIMITS = {
+  /** Max characters accepted for a single question. */
+  maxQuestionChars: 400,
+  /** Max updates (of one project, or across the portfolio) sent per request. */
+  maxUpdates: 40,
+  /** Max projects sent for a portfolio-wide question. */
+  maxPortfolioProjects: 40,
+  /** Per-field text budget on project/update fields sent to the model. */
+  maxFieldChars: 600,
+  /** Full human-authored Markdown brief allowed for one project. */
+  maxContextChars: 12_000,
+  /** Bounds portfolio prompts even when several projects have full briefs. */
+  maxPortfolioContextChars: 40_000,
+  /** Upper bound on completion tokens for an answer. */
+  maxAnswerTokens: 500,
+  /** Per-user rolling application limits. Enforced transactionally server-side. */
+  askRequestsPerWindow: 30,
+  requestWindowMs: 10 * 60 * 1000,
+  /** Upstream provider timeout (ms) for a single request. */
+  providerTimeoutMs: 30_000,
+} as const

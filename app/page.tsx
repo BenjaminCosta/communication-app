@@ -43,6 +43,7 @@ import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
 import { useApplicationsDashboard } from "@/features/applications/use-applications-dashboard"
+import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-dashboard"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
@@ -65,6 +66,8 @@ const HelpScreen = dynamic(() => import("@/components/help-screen").then((m) => 
 const ApplicationsListScreen = dynamic(() => import("@/components/applications/dashboard/applications-list-screen").then((m) => ({ default: m.ApplicationsListScreen })), { ssr: false })
 const ApplicationDetailScreen = dynamic(() => import("@/components/applications/dashboard/application-detail-screen").then((m) => ({ default: m.ApplicationDetailScreen })), { ssr: false })
 const CandidateFlowScreen = dynamic(() => import("@/components/applications/candidate/candidate-flow-screen").then((m) => ({ default: m.CandidateFlowScreen })), { ssr: false })
+const QuestCoralScreen = dynamic(() => import("@/components/quest-coral/quest-coral-screen").then((m) => ({ default: m.QuestCoralScreen })), { ssr: false })
+const QuestCoralProjectDetailScreen = dynamic(() => import("@/components/quest-coral/project-detail-screen").then((m) => ({ default: m.ProjectDetailScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -119,6 +122,8 @@ type Screen =
   | "application-detail"
   | "apply"
   | "help"
+  | "quest-coral"
+  | "quest-coral-detail"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -144,12 +149,14 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "application-detail": 2,
   // The candidate flow is its own root: it is reached by link, not by drilling in.
   apply: 0,
+  "quest-coral": 1,
+  "quest-coral-detail": 2,
 }
 
 // Remembers which module the user was last in,
 // so reopening the app resumes there instead of always defaulting to Comms.
 const LAST_MODULE_KEY = "svc-last-module"
-type SvcModuleName = "communications" | "directory" | "applications"
+type SvcModuleName = "communications" | "directory" | "applications" | "quest-coral"
 type DirectoryDeepLinkView = "profile" | "outlook"
 
 /** Secure candidate link: ?apply=<token>. Works before sign-in. */
@@ -172,7 +179,8 @@ function getDirectoryDeepLink(): { directoryId: string; view: DirectoryDeepLinkV
 function getLastModule(): SvcModuleName | null {
   if (typeof window === "undefined") return null
   const stored = localStorage.getItem(LAST_MODULE_KEY)
-  const lastModule = stored === "directory" ? "directory" : stored === "applications" ? "applications" : null
+  const lastModule =
+    stored === "directory" || stored === "applications" || stored === "quest-coral" ? stored : null
   if (lastModule) document.cookie = `${LAST_MODULE_KEY}=${lastModule}; path=/; max-age=31536000; samesite=lax`
   return lastModule
 }
@@ -184,6 +192,8 @@ function persistLastModule(screen: Screen): void {
     module = "directory"
   } else if (screen === "applications" || screen === "application-detail") {
     module = "applications"
+  } else if (screen === "quest-coral" || screen === "quest-coral-detail") {
+    module = "quest-coral"
   } else if (screen === "apply") {
     // Candidate sessions must never change what an internal user resumes into.
     return
@@ -282,6 +292,8 @@ export default function Home() {
   const [applyToken, setApplyToken] = useState<string | null>(null)
   // Read once at mount so the candidate link survives the auth round-trip.
   const applyTokenRef = useRef<string | null>(getApplyDeepLink())
+  // ── Quest Coral ───────────────────────────────────────────────────────
+  const [selectedQuestCoralProjectId, setSelectedQuestCoralProjectId] = useState<string | null>(null)
   // Loading flags — false until first snapshot arrives (prevents empty-state flash)
   const [contactsLoaded, setContactsLoaded] = useState(false)
   const [contextsLoaded, setContextsLoaded] = useState(false)
@@ -434,9 +446,17 @@ export default function Home() {
             navigateTo("directory-detail")
           } else {
             // Default is Compose (Communications), unless the user last worked
-            // in Directory or Applications.
+            // in Directory, Applications or Quest Coral.
             const lastModule = getLastModule()
-            navigateTo(lastModule === "directory" ? "directory" : lastModule === "applications" ? "applications" : "compose")
+            navigateTo(
+              lastModule === "directory"
+                ? "directory"
+                : lastModule === "applications"
+                  ? "applications"
+                  : lastModule === "quest-coral"
+                    ? "quest-coral"
+                    : "compose",
+            )
           }
           // Background auth metadata update. Do not lead with a one-shot getDoc:
           // it can race the realtime listeners and trip Firebase's ca9/b815 bug.
@@ -1440,6 +1460,17 @@ export default function Home() {
     setApplyToken(null)
     navigateTo("applications")
   }, [navigateTo])
+
+  // ── Quest Coral navigation ──────────────────────────────────────────────
+  const goToQuestCoral = useCallback(() => navigateTo("quest-coral"), [navigateTo])
+  const goToQuestCoralDetail = useCallback((projectId: string) => {
+    setSelectedQuestCoralProjectId(projectId)
+    navigateTo("quest-coral-detail")
+  }, [navigateTo])
+  const handleQuestCoralDetailBack = useCallback(() => {
+    setSelectedQuestCoralProjectId(null)
+    navigateTo("quest-coral")
+  }, [navigateTo])
   const handlePostOutlook = useCallback((payload: OutlookPostPayload) => {
     setComposeInitialProjectId(null)
     setComposeInitialText(payload.text)
@@ -1627,6 +1658,16 @@ export default function Home() {
   useEffect(() => {
     setApplicationsSelection(selectedApplicationId)
   }, [selectedApplicationId, setApplicationsSelection])
+
+  // Quest Coral selects its Firestore or local demo adapter from the public flag.
+  const questCoralDashboard = useQuestCoralDashboard(firebaseUser?.uid ?? "", currentUser?.name ?? "You")
+  const selectedQuestCoralProject = questCoralDashboard.getProject(selectedQuestCoralProjectId)
+  const selectedQuestCoralUpdates = selectedQuestCoralProject
+    ? questCoralDashboard.updatesForProject(selectedQuestCoralProject.id)
+    : []
+  const selectedQuestCoralCoverage = selectedQuestCoralProject
+    ? questCoralDashboard.coverageFor(selectedQuestCoralProject)
+    : null
 
   const activeStreamFilters = useMemo(() => ({
     peopleIds: selectedPeopleFilter,
@@ -1818,6 +1859,7 @@ export default function Home() {
               onOpenDetail={goToDirectoryDetail}
               onSwitchToStream={handleDirectorySwitchToStream}
               onSwitchToApplications={goToApplications}
+              onSwitchToQuestCoral={goToQuestCoral}
             />
             {activeScreen === "directory-detail" && selectedDirectoryId && (
               <DirectoryProfileScreen
@@ -1856,6 +1898,7 @@ export default function Home() {
             onOpenApplication={goToApplicationDetail}
             onSwitchToStream={goToStream}
             onSwitchToDirectory={goToDirectoryFromStream}
+            onSwitchToQuestCoral={goToQuestCoral}
             onPreviewCandidateFlow={handlePreviewCandidateFlow}
           />
           {activeScreen === "application-detail" && selectedApplication && (
@@ -1881,6 +1924,38 @@ export default function Home() {
               }}
               onRetryTranscription={() => applicationsDashboard.retryTranscription(selectedApplication.id)}
               onPreviewCandidateFlow={handlePreviewCandidateFlow}
+            />
+          )}
+        </div>
+      )}
+
+      {!showScreenSkeleton && (activeScreen === "quest-coral" || activeScreen === "quest-coral-detail") && firebaseUser && (
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <QuestCoralScreen
+            className={activeScreen === "quest-coral" ? `${entranceClass} h-full w-full` : "hidden"}
+            dashboard={questCoralDashboard}
+            contacts={contacts}
+            importedContacts={importedContacts}
+            onOpenProject={goToQuestCoralDetail}
+            onSwitchToStream={goToStream}
+            onSwitchToDirectory={goToDirectoryFromStream}
+            onSwitchToApplications={goToApplications}
+          />
+          {activeScreen === "quest-coral-detail" && selectedQuestCoralProject && selectedQuestCoralCoverage && (
+            <QuestCoralProjectDetailScreen
+              className={entranceClass}
+              project={selectedQuestCoralProject}
+              updates={selectedQuestCoralUpdates}
+              activityLoaded={questCoralDashboard.updatesLoaded}
+              coverage={selectedQuestCoralCoverage}
+              contacts={contacts}
+              importedContacts={importedContacts}
+              currentUserName={questCoralDashboard.currentUserName}
+              onBack={handleQuestCoralDetailBack}
+              onAddUpdate={(input) => questCoralDashboard.addUpdate(selectedQuestCoralProject.id, input)}
+              onPatchProject={(patch) => questCoralDashboard.patchProject(selectedQuestCoralProject.id, patch)}
+              onDeleteProject={() => questCoralDashboard.deleteProject(selectedQuestCoralProject.id)}
+              onMarkProjectRead={() => questCoralDashboard.markProjectRead(selectedQuestCoralProject.id)}
             />
           )}
         </div>
@@ -1950,6 +2025,7 @@ export default function Home() {
             onContexts={goToContextsFromStream}
             onDirectory={goToDirectoryFromStream}
             onApplications={goToApplications}
+            onQuestCoral={goToQuestCoral}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

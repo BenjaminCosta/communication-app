@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { BookUser, Check, ChevronDown, ClipboardCheck, MessageCircle, X } from "lucide-react"
+import { BookUser, Check, ChevronDown, ClipboardCheck, FolderKanban, MessageCircle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type SvcModule = "communications" | "directory" | "applications"
+export type SvcModule = "communications" | "directory" | "applications" | "quest-coral"
 
 interface ModuleSwitcherProps {
   activeModule: SvcModule
@@ -55,6 +55,17 @@ const MODULES: Array<{
     surface: "rgba(56,189,248,0.14)",
     border: "rgba(56,189,248,0.42)",
     labelAccent: "#2563EB",
+  },
+  {
+    id: "quest-coral",
+    title: "Quest Coral",
+    description: "Projects & progress",
+    productLabel: "Quest Coral",
+    icon: FolderKanban,
+    accent: "#FF7A59",
+    surface: "rgba(255,122,89,0.14)",
+    border: "rgba(255,122,89,0.42)",
+    labelAccent: "#E8593A",
   },
 ]
 

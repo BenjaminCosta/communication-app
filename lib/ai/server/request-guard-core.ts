@@ -201,7 +201,7 @@ function normalizeActive(value: unknown): ActiveRequest | null {
   const raw = value as Record<string, unknown>
   if (
     typeof raw.leaseId !== "string" ||
-    (raw.operation !== "generation" && raw.operation !== "transcription") ||
+    (raw.operation !== "generation" && raw.operation !== "transcription" && raw.operation !== "ask") ||
     typeof raw.requestHash !== "string" ||
     typeof raw.keyHash !== "string" ||
     typeof raw.expiresAtMs !== "number"

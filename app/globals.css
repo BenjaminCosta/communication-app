@@ -591,21 +591,66 @@ select.outlook-input {
 .applications-loading-screen .text-muted-foreground\/40 { color: rgba(71, 85, 105, 0.68); }
 .animate-applications-logo-breathe { animation: applications-logo-breathe 2.2s ease-in-out infinite; }
 
+@keyframes quest-coral-sky-glint {
+  0%, 100% { opacity: 0.42; transform: translate3d(-2%, -1%, 0) scale(1); }
+  50% { opacity: 0.9; transform: translate3d(3%, 2%, 0) scale(1.08); }
+}
+@keyframes quest-coral-logo-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.03); }
+}
+.quest-coral-loading-screen {
+  isolation: isolate;
+  overflow: hidden;
+  color: #0F172A;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(255, 122, 89, 0.20), transparent 22rem),
+    radial-gradient(circle at 82% 76%, rgba(20, 184, 166, 0.12), transparent 25rem),
+    #FFFFFF;
+}
+.quest-coral-loading-screen::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 34%, rgba(255,255,255,0.9) 48%, transparent 61%),
+    radial-gradient(circle at 58% 36%, rgba(255, 205, 178, 0.44), transparent 18rem);
+  animation: quest-coral-sky-glint 3.6s ease-in-out infinite;
+}
+.quest-coral-loading-screen .text-muted-foreground\/50,
+.quest-coral-loading-screen .text-muted-foreground\/40 { color: rgba(71, 85, 105, 0.68); }
+.animate-quest-coral-logo-breathe { animation: quest-coral-logo-breathe 2.2s ease-in-out infinite; }
+
 /* The server cookie chooses the launch module; body is a localStorage migration fallback. */
 .launch-loading-directory,
-.launch-loading-applications { display: none; }
+.launch-loading-applications,
+.launch-loading-quest-coral { display: none; }
 html[data-svc-launch-module="directory"] .launch-loading-stream,
 body[data-svc-launch-module="directory"] .launch-loading-stream,
 html[data-svc-launch-module="directory"] .launch-loading-applications,
-body[data-svc-launch-module="directory"] .launch-loading-applications { display: none; }
+body[data-svc-launch-module="directory"] .launch-loading-applications,
+html[data-svc-launch-module="directory"] .launch-loading-quest-coral,
+body[data-svc-launch-module="directory"] .launch-loading-quest-coral { display: none; }
 html[data-svc-launch-module="directory"] .launch-loading-directory,
 body[data-svc-launch-module="directory"] .launch-loading-directory { display: flex; }
 html[data-svc-launch-module="applications"] .launch-loading-stream,
 body[data-svc-launch-module="applications"] .launch-loading-stream,
 html[data-svc-launch-module="applications"] .launch-loading-directory,
-body[data-svc-launch-module="applications"] .launch-loading-directory { display: none; }
+body[data-svc-launch-module="applications"] .launch-loading-directory,
+html[data-svc-launch-module="applications"] .launch-loading-quest-coral,
+body[data-svc-launch-module="applications"] .launch-loading-quest-coral { display: none; }
 html[data-svc-launch-module="applications"] .launch-loading-applications,
 body[data-svc-launch-module="applications"] .launch-loading-applications { display: flex; }
+html[data-svc-launch-module="quest-coral"] .launch-loading-stream,
+body[data-svc-launch-module="quest-coral"] .launch-loading-stream,
+html[data-svc-launch-module="quest-coral"] .launch-loading-directory,
+body[data-svc-launch-module="quest-coral"] .launch-loading-directory,
+html[data-svc-launch-module="quest-coral"] .launch-loading-applications,
+body[data-svc-launch-module="quest-coral"] .launch-loading-applications { display: none; }
+html[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral,
+body[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral { display: flex; }
 
 /* Send button — success state */
 @keyframes check-draw {
@@ -1153,4 +1198,190 @@ body[data-svc-launch-module="applications"] .launch-loading-applications { displ
   .applications-step-enter { animation: none; }
   .applications-tap:active,
   .applications-primary-button:active:not(:disabled) { transform: none; }
+}
+
+/* ── SVC Quest Coral ─────────────────────────────────────────────────────────
+   Second light module — same mechanism as .applications-scope above. Coral is
+   the primary identity colour; soft warm neutrals keep the project screens calm. */
+.quest-coral-scope {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #FF7A59;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #E8593A;
+  --secondary: #F7F8FA;
+  --secondary-foreground: #0F172A;
+  --muted: #F7F8FA;
+  --muted-foreground: #64748B;
+  --accent: #F7F8FA;
+  --accent-foreground: #0F172A;
+  --border: #E7E2DF;
+  --input: #E7E2DF;
+  --ring: #FF7A59;
+  --destructive: #F97373;
+  --destructive-foreground: #FFFFFF;
+
+  /* Identity — a soft, warm coral (closer to salmon than to a saturated
+     red-orange), matching the reference mockup rather than a vivid brand red. */
+  --coral-surface: #FFFFFF;
+  --coral-surface-2: #F7F8FA;
+  --coral: #FF7A59;
+  --coral-strong: #E8593A;
+  --coral-soft: #FFF8F5;
+  --coral-teal: #14B8A6;
+  --coral-teal-soft: #CCFBF1;
+  --coral-violet: #FF7A59;
+  --coral-violet-soft: #FFFFFF;
+  --coral-text: #0F172A;
+  --coral-text-muted: #64748B;
+  --coral-border: #E7E2DF;
+
+  /* Semantic states. AI keeps the coral identity in this module rather than
+     introducing a second, competing accent colour. */
+  --coral-ai: #FF7A59;
+  --coral-ai-soft: #FFFFFF;
+  --coral-complete: #22C55E;
+  --coral-complete-soft: #DCFCE7;
+  --coral-pending: #F59E0B;
+  --coral-pending-soft: #FEF3C7;
+  --coral-missing: #F97373;
+  --coral-missing-soft: #FEE7E7;
+
+  color: var(--coral-text);
+  background-color: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Same technique as .applications-canvas (two soft radial washes over a flat
+   base) — coral instead of blue, and kept deliberately subtle. */
+.quest-coral-canvas {
+  background:
+    radial-gradient(circle at 12% -6%, rgba(255, 122, 89, 0.07), transparent 34%),
+    radial-gradient(circle at 96% 4%, rgba(255, 122, 89, 0.05), transparent 30%),
+    #FFFFFF;
+}
+
+.quest-coral-topbar {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--coral-border);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.quest-coral-card {
+  background: var(--coral-surface);
+  border: 1px solid var(--coral-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025), 0 10px 24px rgba(15, 23, 42, 0.035);
+}
+
+.quest-coral-card-flat {
+  background: var(--coral-surface);
+  border: 1px solid var(--coral-border);
+}
+
+.quest-coral-primary-button {
+  background: linear-gradient(180deg, var(--coral), var(--coral-strong));
+  box-shadow: 0 1px 2px rgba(232, 89, 58, 0.24), 0 8px 20px rgba(255, 122, 89, 0.22);
+}
+.quest-coral-primary-button:active:not(:disabled) { transform: scale(0.985); }
+.quest-coral-primary-button:disabled {
+  background: #E6D9D4;
+  box-shadow: none;
+}
+
+.quest-coral-tap {
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.quest-coral-tap:active { transform: scale(0.99); }
+
+@keyframes quest-coral-step-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.quest-coral-step-enter {
+  animation: quest-coral-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.quest-coral-form-reveal {
+  animation: quest-coral-step-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.quest-coral-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--coral) 0 var(--range-value), var(--coral-surface-2) var(--range-value) 100%);
+  outline: none;
+}
+.quest-coral-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  border: 4px solid var(--coral);
+  border-radius: 999px;
+  background: #FFFFFF;
+  box-shadow: 0 2px 5px rgba(232, 89, 58, 0.22);
+}
+.quest-coral-range::-moz-range-thumb {
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 4px solid var(--coral);
+  border-radius: 999px;
+  background: #FFFFFF;
+  box-shadow: 0 2px 5px rgba(232, 89, 58, 0.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-coral-step-enter,
+  .quest-coral-form-reveal { animation: none; }
+  .quest-coral-tap:active,
+  .quest-coral-primary-button:active:not(:disabled) { transform: none; }
+}
+
+/* ── Quest Coral "AI generating" treatment ───────────────────────────────────
+   Same role as .directory-ai-shimmer / .directory-ask-generating-orb (a sweep
+   that reads as "being generated" + a pulsing orb + a fade-in for rotating
+   status copy), re-skinned for Quest Coral's light, coral-only AI accent
+   instead of Directory's dark amber/violet/cyan treatment. */
+@keyframes quest-coral-ai-sweep {
+  0%   { background-position: 175% 0; }
+  100% { background-position: -75% 0; }
+}
+.quest-coral-ai-shimmer {
+  background-color: var(--coral-surface-2);
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 122, 89, 0) 8%,
+    rgba(255, 122, 89, 0.16) 30%,
+    rgba(255, 122, 89, 0.32) 50%,
+    rgba(255, 122, 89, 0.16) 70%,
+    rgba(255, 122, 89, 0) 92%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: quest-coral-ai-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes quest-coral-ask-generation-orb {
+  0%, 100% { transform: scale(0.92); box-shadow: 0 4px 10px rgba(255, 122, 89, 0.22); }
+  50%      { transform: scale(1);    box-shadow: 0 6px 14px rgba(255, 122, 89, 0.32); }
+}
+.quest-coral-ask-generating-orb {
+  background: linear-gradient(145deg, #FF7458, #FF5C43);
+  animation: quest-coral-ask-generation-orb 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes quest-coral-ask-generation-copy {
+  from { opacity: 0; transform: translate3d(0, 4px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.quest-coral-ask-generation-copy {
+  animation: quest-coral-ask-generation-copy 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-coral-ai-shimmer,
+  .quest-coral-ask-generating-orb,
+  .quest-coral-ask-generation-copy { animation: none; }
 }

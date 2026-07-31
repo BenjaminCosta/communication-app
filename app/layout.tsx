@@ -44,7 +44,8 @@ export default async function RootLayout({
 }>) {
   const cookieStore = await cookies()
   const launchModule = cookieStore.get('svc-last-module')?.value
-  const launchModuleData = launchModule === 'directory' || launchModule === 'applications' ? launchModule : undefined
+  const launchModuleData =
+    launchModule === 'directory' || launchModule === 'applications' || launchModule === 'quest-coral' ? launchModule : undefined
   return (
     <html
       lang="en"
@@ -69,7 +70,7 @@ export default async function RootLayout({
       >
         {/* Migration fallback for sessions with the older localStorage key but
             not the server-readable cookie yet. */}
-        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var m=localStorage.getItem('svc-last-module');if(m==='directory'||m==='applications'){document.body.dataset.svcLaunchModule=m;document.cookie='svc-last-module='+m+'; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var m=localStorage.getItem('svc-last-module');if(m==='directory'||m==='applications'||m==='quest-coral'){document.body.dataset.svcLaunchModule=m;document.cookie='svc-last-module='+m+'; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
         <ViewportSync />
         <ServiceWorkerRegister />
         {children}
