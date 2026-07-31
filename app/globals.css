@@ -1237,7 +1237,10 @@ body[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral { display
   --coral-violet: #FF7A59;
   --coral-violet-soft: #FFFFFF;
   --coral-text: #0F172A;
-  --coral-text-muted: #64748B;
+  /* Secondary text remains distinct from headings, but clears a more
+     comfortable contrast threshold at the compact sizes used in this module. */
+  --coral-text-muted: #52657A;
+  --coral-text-reading: #334155;
   --coral-border: #E7E2DF;
 
   /* Semantic states. AI keeps the coral identity in this module rather than
@@ -1291,6 +1294,16 @@ body[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral { display
 .quest-coral-primary-button:disabled {
   background: #E6D9D4;
   box-shadow: none;
+}
+
+/* Long-form content is intentionally not larger than the surrounding UI.
+   A darker neutral, modest weight and a little more leading make AI answers
+   and written project context easier to scan on compact screens. */
+.quest-coral-reading-copy {
+  color: var(--coral-text-reading);
+  font-weight: 500;
+  line-height: 1.65;
+  text-wrap: pretty;
 }
 
 .quest-coral-tap {

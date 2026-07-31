@@ -183,6 +183,20 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
     [unreadStates],
   )
 
+  // Single O(updates) grouping pass, reused by every per-project lookup below
+  // (unread counts, updatesForProject, coverageFor, blockerCountFor) instead
+  // of each of them re-scanning the full updates array — with P projects and
+  // U updates that turns O(P×U) work into O(U + P).
+  const updatesByProjectId = useMemo(() => {
+    const map = new Map<string, ProjectUpdate[]>()
+    for (const update of updates) {
+      const bucket = map.get(update.projectId)
+      if (bucket) bucket.push(update)
+      else map.set(update.projectId, [update])
+    }
+    return map
+  }, [updates])
+
   // Count from the immutable feed and a per-user read marker rather than
   // incrementing from listener events. Snapshot replays therefore cannot
   // duplicate activities, and the value is always non-negative.
@@ -193,12 +207,12 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
       counts.set(
         project.id,
         updatesLoaded
-          ? countUnreadProjectActivities(updates, project.id, currentUserId, state?.lastReadAt)
+          ? countUnreadProjectActivities(updatesByProjectId.get(project.id) ?? [], project.id, currentUserId, state?.lastReadAt)
           : state?.unreadCount ?? 0,
       )
     }
     return counts
-  }, [projects, updates, unreadStatesByProjectId, currentUserId, updatesLoaded])
+  }, [projects, updatesByProjectId, unreadStatesByProjectId, currentUserId, updatesLoaded])
 
   // Persist the exact derived value as a convenience for future sessions.
   // Each transaction compares the last-read marker first, so a stale
@@ -264,12 +278,18 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
   )
 
   const updatesForProject = useCallback(
-    (projectId: string) => updates.filter((update) => update.projectId === projectId),
-    [updates],
+    (projectId: string) => updatesByProjectId.get(projectId) ?? [],
+    [updatesByProjectId],
   )
 
-  const coverageFor = useCallback((project: Project) => computeProjectCoverage(project, updates), [updates])
-  const blockerCountFor = useCallback((projectId: string) => openBlockerCount(projectId, updates), [updates])
+  const coverageFor = useCallback(
+    (project: Project) => computeProjectCoverage(project, updatesByProjectId.get(project.id) ?? []),
+    [updatesByProjectId],
+  )
+  const blockerCountFor = useCallback(
+    (projectId: string) => openBlockerCount(projectId, updatesByProjectId.get(projectId) ?? []),
+    [updatesByProjectId],
+  )
   const unreadCountFor = useCallback(
     (projectId: string) => unreadCountsByProjectId.get(projectId) ?? 0,
     [unreadCountsByProjectId],

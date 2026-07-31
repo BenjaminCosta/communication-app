@@ -7,7 +7,7 @@
  * line-scanner is enough and keeps this dependency-free.
  */
 
-import { Fragment } from "react"
+import { Fragment, memo, useMemo } from "react"
 import { cn } from "@/lib/utils"
 
 type Block =
@@ -90,8 +90,13 @@ function renderInline(text: string, keyPrefix: string) {
   })
 }
 
-export function MarkdownView({ markdown, className }: { markdown: string; className?: string }) {
-  const blocks = parseMarkdown(markdown)
+export const MarkdownView = memo(function MarkdownView({ markdown, className }: { markdown: string; className?: string }) {
+  // This is shared, multi-user data — a teammate posting an update elsewhere
+  // in the project re-renders this component too (new `updates` prop from
+  // the parent's Firestore listener), even though the context text itself
+  // didn't change. Re-parsing only when `markdown` actually changes avoids
+  // redoing the line-scan on every unrelated re-render.
+  const blocks = useMemo(() => parseMarkdown(markdown), [markdown])
 
   if (blocks.length === 0) {
     return <p className={cn("text-[0.8125rem] text-[var(--coral-text-muted)]", className)}>Nothing written yet.</p>
@@ -125,7 +130,7 @@ export function MarkdownView({ markdown, className }: { markdown: string; classN
           return (
             <ul key={key} className="flex flex-col gap-1.5">
               {block.items.map((item, itemIndex) => (
-                <li key={itemIndex} className="flex items-start gap-2 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">
+                <li key={itemIndex} className="quest-coral-reading-copy flex items-start gap-2 text-[0.8125rem]">
                   <span className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-[#94A3B8]" aria-hidden="true" />
                   <span>{renderInline(item, `${key}-li-${itemIndex}`)}</span>
                 </li>
@@ -137,7 +142,7 @@ export function MarkdownView({ markdown, className }: { markdown: string; classN
           return (
             <ol key={key} className="flex flex-col gap-1.5">
               {block.items.map((item, itemIndex) => (
-                <li key={itemIndex} className="flex items-start gap-2 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">
+                <li key={itemIndex} className="quest-coral-reading-copy flex items-start gap-2 text-[0.8125rem]">
                   <span className="shrink-0 text-[0.75rem] font-semibold text-[var(--coral-text)]">{itemIndex + 1}.</span>
                   <span>{renderInline(item, `${key}-ol-${itemIndex}`)}</span>
                 </li>
@@ -146,11 +151,11 @@ export function MarkdownView({ markdown, className }: { markdown: string; classN
           )
         }
         return (
-          <p key={key} className="text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">
+          <p key={key} className="quest-coral-reading-copy text-[0.8125rem]">
             {renderInline(block.text, key)}
           </p>
         )
       })}
     </div>
   )
-}
+})

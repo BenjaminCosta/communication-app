@@ -2,7 +2,7 @@
 
 /** Quest Coral — the project decision surface. */
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useGeneratingReveal } from "@/hooks/use-generating-reveal"
 import {
   ArrowLeft,
@@ -142,16 +142,16 @@ function initialsFromName(name: string): string {
     .toUpperCase()
 }
 
-function ActivityBadge({ type }: { type: UpdateType }) {
+const ActivityBadge = memo(function ActivityBadge({ type }: { type: UpdateType }) {
   const visual = ACTIVITY_VISUALS[type]
   return (
     <span className={cn("inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[0.625rem] font-semibold leading-none", visual.badge)}>
       {UPDATE_TYPE_META[type].label}
     </span>
   )
-}
+})
 
-function ActivityRow({ update, previousProgress }: { update: ProjectUpdate; previousProgress?: number }) {
+const ActivityRow = memo(function ActivityRow({ update, previousProgress }: { update: ProjectUpdate; previousProgress?: number }) {
   const visual = ACTIVITY_VISUALS[update.type]
   const Icon = visual.Icon
   const progressChanged = update.type === "update" && update.progress !== undefined && previousProgress !== undefined && update.progress !== previousProgress
@@ -183,9 +183,9 @@ function ActivityRow({ update, previousProgress }: { update: ProjectUpdate; prev
       </div>
     </article>
   )
-}
+})
 
-function ActivityFilterTabs({ value, onChange }: { value: ActivityFilter; onChange: (value: ActivityFilter) => void }) {
+const ActivityFilterTabs = memo(function ActivityFilterTabs({ value, onChange }: { value: ActivityFilter; onChange: (value: ActivityFilter) => void }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" role="tablist" aria-label="Filter project activity">
       {ACTIVITY_FILTERS.map((filter) => {
@@ -208,9 +208,9 @@ function ActivityFilterTabs({ value, onChange }: { value: ActivityFilter; onChan
       })}
     </div>
   )
-}
+})
 
-function ActivityEntries({
+const ActivityEntries = memo(function ActivityEntries({
   updates,
   emptyLabel,
   actionLabel,
@@ -262,9 +262,9 @@ function ActivityEntries({
       ))}
     </>
   )
-}
+})
 
-function AlertsCard({
+const AlertsCard = memo(function AlertsCard({
   blockerCount,
   redTeamCount,
   onShowActivity,
@@ -302,9 +302,9 @@ function AlertsCard({
       </div>
     </QcCard>
   )
-}
+})
 
-function EventCoverageCard({ coverage, timeline, onOpenTimeline }: { coverage: CoverageResult; timeline: ProjectTimeline | null; onOpenTimeline: () => void }) {
+const EventCoverageCard = memo(function EventCoverageCard({ coverage, timeline, onOpenTimeline }: { coverage: CoverageResult; timeline: ProjectTimeline | null; onOpenTimeline: () => void }) {
   const events = timeline
     ? [
         { label: timeline.past.items[0] ?? "Project started", detail: timeline.past.range, state: "done" },
@@ -358,7 +358,7 @@ function EventCoverageCard({ coverage, timeline, onOpenTimeline }: { coverage: C
       </div>
     </QcCard>
   )
-}
+})
 
 export function ProjectDetailScreen({ project, updates, activityLoaded, coverage, contacts, importedContacts, currentUserName, onBack, onAddUpdate, onPatchProject, onDeleteProject, onMarkProjectRead, className }: ProjectDetailScreenProps) {
   const [addOpen, setAddOpen] = useState(false)
@@ -430,10 +430,24 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
   const accent = useMemo(() => projectAccent(project), [project])
   const editableTimeline = project.timeline ?? EMPTY_TIMELINE
 
-  const openActivity = (filter: ActivityFilter = "all") => {
+  // Stable references so AlertsCard/EventCoverageCard/ActivityEntries (all
+  // React.memo'd) can actually skip re-rendering when unrelated state
+  // changes elsewhere on the screen (typing in Ask AI, the timeline form,
+  // etc.) — an inline arrow here would give them a new prop identity, and
+  // therefore a full re-render, on every keystroke.
+  const openActivity = useCallback((filter: ActivityFilter = "all") => {
     setActivityFilter(filter)
     setActiveView("activity")
-  }
+  }, [])
+  const openTimeline = useCallback(() => setTimelineOpen(true), [])
+  const handleActivityAction = useCallback(() => {
+    if (activityFilter === "all") setAddOpen(true)
+    else setActivityFilter("all")
+  }, [activityFilter])
+  const activitySecondaryAction = useMemo(
+    () => (activityFilter !== "all" ? { label: "Add update", onClick: () => setAddOpen(true) } : undefined),
+    [activityFilter],
+  )
 
   const openContextEditor = (mode: "write" | "upload") => {
     setContextEditorMode(mode)
@@ -594,11 +608,8 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
                   updates={visibleUpdates}
                   emptyLabel={activityEmptyLabel}
                   actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
-                  onAction={() => {
-                    if (activityFilter === "all") setAddOpen(true)
-                    else setActivityFilter("all")
-                  }}
-                  secondaryAction={activityFilter !== "all" ? { label: "Add update", onClick: () => setAddOpen(true) } : undefined}
+                  onAction={handleActivityAction}
+                  secondaryAction={activitySecondaryAction}
                 />
               </div>
             </QcCard>
@@ -647,7 +658,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
               <ProgressRing percent={project.progress} size={86} label="" color={accent.ring} trackColor={accent.track} />
               <div className="min-w-0 flex-1">
                 <StatusPill label={meta.label} tone={meta.tone} dot />
-                <p className="mt-2 text-[0.875rem] leading-snug text-[var(--coral-text-muted)]">{project.description}</p>
+                <p className="mt-2 text-[0.875rem] font-medium leading-[1.45] text-[var(--coral-text-muted)]">{project.description}</p>
               </div>
             </div>
             <div className="relative mt-3 grid grid-cols-2 gap-2 border-t border-[var(--coral-border)] pt-3">
@@ -729,7 +740,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
                 </p>
               </div>
             </div>
-            <p className="mt-3 line-clamp-3 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">
+            <p className="quest-coral-reading-copy mt-3 line-clamp-3 text-[0.8125rem]">
               {context
                 ? summarizeMarkdown(context.markdown, 220)
                 : "Capture the purpose, users, flows and open questions for this project so anyone can get oriented fast."}
@@ -807,7 +818,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
                     </button>
                   </div>
                   {askGenerating && <QuestCoralAskGenerating question={ask.question} />}
-                  {!askGenerating && ask.phase === "answered" && ask.answer && <p className="mt-2 text-[0.75rem] leading-relaxed text-[var(--coral-text-muted)]">{ask.answer.text}</p>}
+                  {!askGenerating && ask.phase === "answered" && ask.answer && <p className="quest-coral-reading-copy mt-2 text-[0.75rem]">{ask.answer.text}</p>}
                   {!askGenerating && ask.phase === "error" && (
                     <p className="mt-2 text-[0.6875rem] font-medium text-[var(--coral-missing)]">{ask.error ?? "Something went wrong. Please try again."}</p>
                   )}
@@ -840,11 +851,8 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
                 updates={latestUpdates}
                 emptyLabel={activityEmptyLabel}
                 actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
-                onAction={() => {
-                  if (activityFilter === "all") setAddOpen(true)
-                  else setActivityFilter("all")
-                }}
-                secondaryAction={activityFilter !== "all" ? { label: "Add update", onClick: () => setAddOpen(true) } : undefined}
+                onAction={handleActivityAction}
+                secondaryAction={activitySecondaryAction}
               />
             </div>
           </QcCard>
@@ -867,7 +875,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
             </div>
           </QcCard>
 
-          <EventCoverageCard coverage={coverage} timeline={project.timeline} onOpenTimeline={() => setTimelineOpen(true)} />
+          <EventCoverageCard coverage={coverage} timeline={project.timeline} onOpenTimeline={openTimeline} />
         </div>
         )}
       </div>

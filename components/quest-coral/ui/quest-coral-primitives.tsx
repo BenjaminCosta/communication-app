@@ -236,9 +236,9 @@ export function AiBriefCard({
         {headerAction}
       </div>
       {typeof body === "string" ? (
-        <p className="mt-2.5 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">{body}</p>
+        <p className="quest-coral-reading-copy mt-2.5 text-[0.8125rem]">{body}</p>
       ) : (
-        <div className="mt-2.5 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">{body}</div>
+        <div className="quest-coral-reading-copy mt-2.5 text-[0.8125rem]">{body}</div>
       )}
       {footer && <div className="mt-3">{footer}</div>}
     </div>

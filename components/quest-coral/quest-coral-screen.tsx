@@ -134,7 +134,7 @@ const ProjectCard = memo(function ProjectCard({
               <h3 className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-[-0.025em] text-[var(--coral-text)]">{project.name}</h3>
               <ProjectStatusBadge project={project} accent={accent} />
             </div>
-            <p className="mt-1 line-clamp-2 text-[0.75rem] leading-snug text-[var(--coral-text-muted)]">{project.description}</p>
+            <p className="mt-1 line-clamp-2 text-[0.75rem] font-medium leading-[1.45] text-[var(--coral-text-muted)]">{project.description}</p>
 
             <div className="mt-2.5 flex items-center gap-2">
               <div className="flex -space-x-2">
@@ -421,7 +421,7 @@ export function QuestCoralScreen({
                 </div>
                 {askGenerating && <QuestCoralAskGenerating question={askQuestion} />}
                 {!askGenerating && askAnswer && (
-                  <p className="mt-3 text-[0.8125rem] leading-relaxed text-[var(--coral-text-muted)]">{askAnswer}</p>
+                  <p className="quest-coral-reading-copy mt-3 text-[0.8125rem]">{askAnswer}</p>
                 )}
                 {!askGenerating && askError && (
                   <p className="mt-2 text-[0.75rem] font-medium text-[var(--coral-missing)]">{askError}</p>
