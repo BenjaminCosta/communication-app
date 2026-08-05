@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Bell, X } from "lucide-react"
 import { requestNotificationPermission } from "@/lib/fcm"
+import { usePwaInstall } from "@/components/pwa-install"
 
 const SNOOZE_KEY = "svc_notif_prompt_snoozed_until"
 
@@ -50,18 +51,20 @@ export function NotificationPromptBanner({
   userId: string
   onNavigateToNotifications: () => void
 }) {
+  const { status: pwaInstallStatus } = usePwaInstall()
   const [type, setType] = useState<BannerType | null>(null)
   const [visible, setVisible] = useState(false)
   const [requesting, setRequesting] = useState(false)
 
   useEffect(() => {
+    if (pwaInstallStatus === "available" || pwaInstallStatus === "ios" || pwaInstallStatus === "macos-safari") return
     if (isSnoozed()) return
     const detected = detectBannerType()
     if (!detected) return
     setType(detected)
     const t = setTimeout(() => setVisible(true), 800)
     return () => clearTimeout(t)
-  }, [])
+  }, [pwaInstallStatus])
 
   const handleDismiss = () => {
     snooze(7)
@@ -92,7 +95,14 @@ export function NotificationPromptBanner({
     // "default" = dialog dismissed without choosing → do nothing, let them decide later
   }
 
-  if (!type) return null
+  // Installation is the first required action on these platforms. Avoid
+  // stacking the notification banner beneath the centered install promotion.
+  if (
+    !type ||
+    pwaInstallStatus === "available" ||
+    pwaInstallStatus === "ios" ||
+    pwaInstallStatus === "macos-safari"
+  ) return null
 
   return (
     <div className="fixed bottom-20 left-4 right-4 z-30 flex justify-center pointer-events-none">

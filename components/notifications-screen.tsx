@@ -213,10 +213,10 @@ function IOSInstallGuide({ isSafari }: { isSafari: boolean }) {
         <div className="rounded-2xl bg-amber-500/8 border border-amber-500/20 px-4 py-3.5 flex items-center gap-3">
           <Globe className="w-5 h-5 text-amber-400 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-300 leading-tight">Open in Safari first</p>
+            <p className="text-sm font-semibold text-amber-300 leading-tight">Use Add to Home Screen</p>
             <p className="text-xs text-amber-400/70 leading-relaxed mt-0.5">
-              iOS notifications only work via Safari.
-              Copy the URL and paste it into Safari, then follow the steps below.
+              If your browser offers it in the Share menu, use it here.
+              Otherwise, open this page in Safari and follow the steps below.
             </p>
           </div>
         </div>
@@ -244,7 +244,7 @@ function IOSInstallGuide({ isSafari }: { isSafari: boolean }) {
             iconBg="bg-blue-500/10 border-blue-500/20"
             iconColor="text-blue-400"
             title="Tap the Share button"
-            detail="The square with an arrow pointing up, in Safari's toolbar"
+            detail={isSafari ? "The square with an arrow pointing up, in Safari's toolbar" : "In your browser toolbar, or in Safari if needed"}
           />
           <InstallStep
             number={2}

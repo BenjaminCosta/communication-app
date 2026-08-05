@@ -47,6 +47,7 @@ import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-d
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
+import { PwaInstallAutoPrompt } from "@/components/pwa-install"
 import type { OutlookPostPayload } from "@/components/directory/outlooks/three-week-outlook-tab"
 // Secondary screens — lazy-loaded on demand (code splitting)
 const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
@@ -2039,12 +2040,16 @@ export default function Home() {
             isLoadingOlderMessages={isLoadingOlderMessages}
             onLoadOlderMessages={loadOlderMessages}
           />
-          {/* Notification prompt banner — only on stream, fades in after 800ms if not yet enabled */}
+          {/* The install promotion waits until Stream is ready; notification setup
+              follows after installation when that is the prerequisite. */}
           {activeScreen === "stream" && firebaseUser && (
-            <NotificationPromptBanner
-              userId={firebaseUser.uid}
-              onNavigateToNotifications={goToNotificationsFromStream}
-            />
+            <>
+              <PwaInstallAutoPrompt />
+              <NotificationPromptBanner
+                userId={firebaseUser.uid}
+                onNavigateToNotifications={goToNotificationsFromStream}
+              />
+            </>
           )}
 
           {/* Persistent compose backdrop — never unmounts, toggles via CSS (iOS hit-test fix) */}

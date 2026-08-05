@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { Analytics } from '@vercel/analytics/next'
 import { ServiceWorkerRegister } from '@/components/ui/ServiceWorkerRegister'
 import { ViewportSync } from '@/components/ui/ViewportSync'
+import { PwaInstallProvider } from '@/components/pwa-install'
 import '@fontsource/sora/300.css'
 import '@fontsource/sora/400.css'
 import '@fontsource/sora/500.css'
@@ -53,6 +54,9 @@ export default async function RootLayout({
       data-svc-launch-module={launchModuleData}
     >
       <head>
+        {/* Capture the install event before React hydrates. The client provider
+            reads this deferred event and renders the app's own install UI. */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__svcDeferredInstallPrompt=e;window.dispatchEvent(new Event('svc-pwa-install-available'));});})();` }} />
         {/* Android PWA: env(safe-area-inset-bottom) often returns 0 on Android.
             Measure it with a test element; if < 20px, override --sab to cover the nav bar. */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){if(!/android/i.test(navigator.userAgent))return;if(!window.matchMedia('(display-mode: standalone)').matches)return;var e=document.createElement('div');e.style.cssText='position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);width:0;pointer-events:none';document.documentElement.appendChild(e);var h=e.offsetHeight;document.documentElement.removeChild(e);if(h<20)document.documentElement.style.setProperty('--sab','48px');})();` }} />
@@ -71,10 +75,12 @@ export default async function RootLayout({
         {/* Migration fallback for sessions with the older localStorage key but
             not the server-readable cookie yet. */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var m=localStorage.getItem('svc-last-module');if(m==='directory'||m==='applications'||m==='quest-coral'){document.body.dataset.svcLaunchModule=m;document.cookie='svc-last-module='+m+'; path=/; max-age=31536000; samesite=lax';}}catch(_){}})();` }} />
-        <ViewportSync />
-        <ServiceWorkerRegister />
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        <PwaInstallProvider>
+          <ViewportSync />
+          <ServiceWorkerRegister />
+          {children}
+          {process.env.NODE_ENV === 'production' && <Analytics />}
+        </PwaInstallProvider>
       </body>
     </html>
   )

@@ -2,11 +2,13 @@
   "name": "SVC Messaging",
   "short_name": "SVC",
   "description": "Capture messages fast, organize later.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "lang": "en",
+  "categories": ["productivity"],
+  "prefer_related_applications": false,
   "background_color": "#0B0F14",
   "theme_color": "#0B0F14",
   "icons": [
@@ -17,7 +19,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icon-192x192.png",
+      "src": "/icon-maskable-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
@@ -29,7 +31,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/icon-maskable-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

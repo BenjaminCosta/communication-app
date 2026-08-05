@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, HelpCircle } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { usePwaInstall } from "@/components/pwa-install"
 
 interface ProfileScreenProps {
   userName: string
@@ -22,6 +23,7 @@ interface ProfileScreenProps {
 
 export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const { openInstall, status: pwaInstallStatus } = usePwaInstall()
   return (
     <div className={`flex-1 min-h-0 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
@@ -68,6 +70,9 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
+        {pwaInstallStatus !== "checking" && pwaInstallStatus !== "installed" && (
+          <SettingsRow icon={<Download className="w-4 h-4" />} label="Install app" onClick={openInstall} />
+        )}
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
         <SettingsRow icon={<HelpCircle className="w-4 h-4" />} label="How it works" onClick={onHelp} />
         {isAdmin && onAdmin && (

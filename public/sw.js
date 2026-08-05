@@ -27,24 +27,56 @@ messaging.onBackgroundMessage((payload) => {
   });
 });
 
+// Bring an existing SVC window forward when a notification is tapped. If there
+// is no app window yet, open the app instead of leaving the notification inert.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const requestedUrl = event.notification.data?.link || '/';
+  let targetUrl = new URL('/', self.location.origin);
+  try {
+    const candidate = new URL(requestedUrl, self.location.origin);
+    if (candidate.origin === self.location.origin) targetUrl = candidate;
+  } catch {
+    // Invalid notification data falls back safely to the SVC home screen.
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const existingClient = clientList.find((client) => new URL(client.url).origin === self.location.origin);
+      if (existingClient) return existingClient.focus();
+      return self.clients.openWindow(targetUrl.href);
+    })
+  );
+});
+
 // ── PWA caching ─────────────────────────────────────────────────────────────
-const CACHE_NAME = 'svc-v4';
-const OFFLINE_URL = '/';
+const CACHE_PREFIX = 'svc-';
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const OFFLINE_URL = '/offline.html';
+const PRECACHE_URLS = [
+  OFFLINE_URL,
+  '/icon-192x192.png',
+  '/icon-512x512.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll([OFFLINE_URL]);
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+            .map((key) => caches.delete(key))
+        )
       )
       .then(() => self.clients.claim())
   );
@@ -71,20 +103,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static assets
+  // Stale-while-revalidate for static assets. This keeps the UI quick without
+  // pinning logo/icon updates forever as the former cache-first policy did.
   if (
     url.pathname.match(/\.(png|jpg|jpeg|svg|ico|webp|woff2?)$/)
   ) {
+    const updateCache = fetch(event.request)
+      .then((response) => {
+        if (!response.ok || response.type !== 'basic') return response;
+        const clone = response.clone();
+        return caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, clone);
+          return response;
+        });
+      });
+
     event.respondWith(
-      caches.match(event.request).then(
-        (cached) =>
-          cached ||
-          fetch(event.request).then((response) => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-            return response;
-          })
-      )
+      caches.match(event.request).then((cached) => cached || updateCache)
     );
+    event.waitUntil(updateCache.catch(() => undefined));
   }
 });
