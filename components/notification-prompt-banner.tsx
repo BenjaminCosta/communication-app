@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Bell, X } from "lucide-react"
 import { requestNotificationPermission } from "@/lib/fcm"
-import { usePwaInstall } from "@/components/pwa-install"
+import { usePwaInstall } from "@/components/use-pwa-install"
 
 const SNOOZE_KEY = "svc_notif_prompt_snoozed_until"
 

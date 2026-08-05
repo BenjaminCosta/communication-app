@@ -1,7 +1,10 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Check, ChevronRight, Copy, Download, ExternalLink, MonitorDown, Plus, Share2, X } from "lucide-react"
+import { PwaInstallContext, usePwaInstall, type PwaInstallStatus } from "@/components/use-pwa-install"
+
+export type { PwaInstallStatus }
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -17,15 +20,6 @@ declare global {
   }
 }
 
-export type PwaInstallStatus = "checking" | "available" | "ios" | "macos-safari" | "manual" | "installed"
-
-interface PwaInstallContextValue {
-  status: PwaInstallStatus
-  openInstall: () => void
-  requestInstallPromotion: () => void
-}
-
-const PwaInstallContext = createContext<PwaInstallContextValue | null>(null)
 const PROMOTION_SNOOZE_KEY = "svc_pwa_install_prompt_snoozed_until"
 
 function isPromotionSnoozed(): boolean {
@@ -77,14 +71,6 @@ function fallbackStatus(): Exclude<PwaInstallStatus, "checking" | "available" | 
   if (macosSafari) return "macos-safari"
 
   return "manual"
-}
-
-export function usePwaInstall(): PwaInstallContextValue {
-  const context = useContext(PwaInstallContext)
-  if (!context) {
-    throw new Error("usePwaInstall must be used inside PwaInstallProvider")
-  }
-  return context
 }
 
 export function PwaInstallProvider({ children }: { children: React.ReactNode }) {

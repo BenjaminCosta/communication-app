@@ -15,7 +15,12 @@ export function ServiceWorkerRegister() {
       return
     }
 
-    navigator.serviceWorker.register('/sw.js').then((registration) => {
+    navigator.serviceWorker.register('/sw.js', {
+      scope: '/',
+      // The worker imports Firebase scripts. Bypass the HTTP cache for both
+      // the worker and its imports so an app update cannot retain old logic.
+      updateViaCache: 'none',
+    }).then((registration) => {
       registration.update().catch(() => {
         // SW update check failed silently
       })

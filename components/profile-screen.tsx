@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { usePwaInstall } from "@/components/pwa-install"
+import { usePwaInstall } from "@/components/use-pwa-install"
 
 interface ProfileScreenProps {
   userName: string

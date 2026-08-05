@@ -1,34 +1,5 @@
-// ── Firebase Messaging (background push notifications) ─────────────────────
-// Uses the compat CDN build so it works in Service Worker context (no ES modules needed).
-importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging-compat.js');
-
-firebase.initializeApp({
-  apiKey: "AIzaSyAt2oVZ9ec3bc_b6QjCBn6ZZ-4IxgVpn8o",
-  authDomain: "svc-comms.firebaseapp.com",
-  projectId: "svc-comms",
-  storageBucket: "svc-comms.firebasestorage.app",
-  messagingSenderId: "56869436768",
-  appId: "1:56869436768:web:c19a0c0d6825fc309af205",
-});
-
-const messaging = firebase.messaging();
-
-// Handle messages received while the app is in the background.
-messaging.onBackgroundMessage((payload) => {
-  const title = payload.notification?.title || 'SVC';
-  const body  = payload.notification?.body  || 'New message';
-  return self.registration.showNotification(title, {
-    body,
-    icon : '/icon-192x192.png',
-    badge: '/icon-192x192.png',
-    tag  : payload.data?.messageId || 'svc-message',
-    data : payload.data,
-  });
-});
-
-// Bring an existing SVC window forward when a notification is tapped. If there
-// is no app window yet, open the app instead of leaving the notification inert.
+// Firebase can attach its own notification click listener while it loads. This
+// must be registered first, otherwise Firebase may replace this behavior.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
@@ -50,9 +21,39 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
+// ── Firebase Messaging (background push notifications) ─────────────────────
+// Uses the compat CDN build so it works in Service Worker context (no ES modules needed).
+importScripts('https://www.gstatic.com/firebasejs/12.16.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.16.0/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyAt2oVZ9ec3bc_b6QjCBn6ZZ-4IxgVpn8o",
+  authDomain: "svc-comms.firebaseapp.com",
+  projectId: "svc-comms",
+  storageBucket: "svc-comms.firebasestorage.app",
+  messagingSenderId: "56869436768",
+  appId: "1:56869436768:web:c19a0c0d6825fc309af205",
+});
+
+const messaging = firebase.messaging();
+
+// Handle messages received while the app is in the background.
+messaging.onBackgroundMessage((payload) => {
+  const title = payload.notification?.title || 'SVC';
+  const body  = payload.notification?.body  || 'New message';
+  const link = payload.fcmOptions?.link || payload.data?.link || '/';
+  return self.registration.showNotification(title, {
+    body,
+    icon : '/icon-192x192.png',
+    badge: '/icon-192x192.png',
+    tag  : payload.data?.messageId || 'svc-message',
+    data : { ...(payload.data || {}), link },
+  });
+});
+
 // ── PWA caching ─────────────────────────────────────────────────────────────
 const CACHE_PREFIX = 'svc-';
-const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const CACHE_NAME = `${CACHE_PREFIX}v6`;
 const OFFLINE_URL = '/offline.html';
 const PRECACHE_URLS = [
   OFFLINE_URL,
