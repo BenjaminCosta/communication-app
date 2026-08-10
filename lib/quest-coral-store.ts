@@ -141,6 +141,16 @@ export function mapUpdateDoc(id: string, data: DocumentData): ProjectUpdate {
     nextStepDue: typeof data.nextStepDue === "string" ? data.nextStepDue : data.nextStepDue === null ? null : undefined,
     isBlocker: data.isBlocker === true,
     createdAt: isoOrNow(data.createdAt),
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    imagePath: typeof data.imagePath === "string" ? data.imagePath : undefined,
+    imageName: typeof data.imageName === "string" ? data.imageName : undefined,
+    imageContentType: typeof data.imageContentType === "string" ? data.imageContentType : undefined,
+    imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
+    fileUrl: typeof data.fileUrl === "string" ? data.fileUrl : undefined,
+    filePath: typeof data.filePath === "string" ? data.filePath : undefined,
+    fileName: typeof data.fileName === "string" ? data.fileName : undefined,
+    fileContentType: typeof data.fileContentType === "string" ? data.fileContentType : undefined,
+    fileSize: typeof data.fileSize === "number" ? data.fileSize : undefined,
   }
 }
 
@@ -233,6 +243,16 @@ export function updateToFirestore(update: Omit<ProjectUpdate, "id">): DocumentDa
     nextStepDue: update.nextStepDue ?? null,
     isBlocker: update.isBlocker,
     createdAt: toTimestamp(update.createdAt),
+    imageUrl: update.imageUrl ?? null,
+    imagePath: update.imagePath ?? null,
+    imageName: update.imageName ?? null,
+    imageContentType: update.imageContentType ?? null,
+    imageSize: update.imageSize ?? null,
+    fileUrl: update.fileUrl ?? null,
+    filePath: update.filePath ?? null,
+    fileName: update.fileName ?? null,
+    fileContentType: update.fileContentType ?? null,
+    fileSize: update.fileSize ?? null,
   }
 }
 

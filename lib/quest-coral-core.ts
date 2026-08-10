@@ -109,6 +109,34 @@ export interface ProjectUpdate {
   nextStepDue?: string | null
   isBlocker: boolean
   createdAt: string
+  /** Optional media attached to the activity itself. Kept as links so the
+   * activity feed remains compact, matching Feedback reply attachments. */
+  imageUrl?: string
+  imagePath?: string
+  imageName?: string
+  imageContentType?: string
+  imageSize?: number
+  fileUrl?: string
+  filePath?: string
+  fileName?: string
+  fileContentType?: string
+  fileSize?: number
+}
+
+export interface ProjectUpdateImage {
+  url: string
+  path?: string
+  name?: string
+  contentType?: string
+  size?: number
+}
+
+export interface ProjectUpdateAttachment {
+  url: string
+  path?: string
+  name?: string
+  contentType?: string
+  size?: number
 }
 
 /**

@@ -297,6 +297,20 @@ export async function createQuestCoralUpdate(
       projectId: update.projectId,
       body: update.body,
       authorName: update.authorName,
+      image: update.imageUrl ? {
+        url: update.imageUrl,
+        path: update.imagePath,
+        name: update.imageName,
+        contentType: update.imageContentType,
+        size: update.imageSize,
+      } : undefined,
+      attachment: update.fileUrl ? {
+        url: update.fileUrl,
+        path: update.filePath,
+        name: update.fileName,
+        contentType: update.fileContentType,
+        size: update.fileSize,
+      } : undefined,
     })
   }
   const fullUpdate: Omit<ProjectUpdate, "id"> = { ...update, createdAt: new Date().toISOString() }

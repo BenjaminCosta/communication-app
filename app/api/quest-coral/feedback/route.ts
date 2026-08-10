@@ -14,6 +14,20 @@ const feedbackRequestSchema = z.object({
   projectId: z.string().trim().min(1).max(256),
   body: z.string().trim().min(1).max(1000),
   authorName: z.string().trim().max(120).optional(),
+  image: z.object({
+    url: z.string().url().max(12_000),
+    path: z.string().trim().max(1_500).optional(),
+    name: z.string().trim().max(500).optional(),
+    contentType: z.string().trim().max(150).optional(),
+    size: z.number().int().min(0).max(15 * 1024 * 1024).optional(),
+  }).strict().optional(),
+  attachment: z.object({
+    url: z.string().url().max(12_000),
+    path: z.string().trim().max(1_500).optional(),
+    name: z.string().trim().max(500).optional(),
+    contentType: z.string().trim().max(150).optional(),
+    size: z.number().int().min(0).max(15 * 1024 * 1024).optional(),
+  }).strict().optional(),
 })
 
 /**
@@ -30,7 +44,7 @@ export async function POST(request: Request): Promise<Response> {
       throw new QuestCoralFeedbackPublicationError("invalid-request", "Please send valid feedback.", 400)
     }
     const contentLength = Number(request.headers.get("content-length"))
-    if (Number.isFinite(contentLength) && contentLength > 32 * 1024) {
+    if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
       throw new QuestCoralFeedbackPublicationError("invalid-request", "This feedback is too large.", 400)
     }
 

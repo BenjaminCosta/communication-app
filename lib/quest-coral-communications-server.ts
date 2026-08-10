@@ -39,6 +39,20 @@ export interface QuestCoralFeedbackPublicationInput {
   body: string
   authorId: string
   authorName?: string
+  image?: {
+    url: string
+    path?: string
+    name?: string
+    contentType?: string
+    size?: number
+  }
+  attachment?: {
+    url: string
+    path?: string
+    name?: string
+    contentType?: string
+    size?: number
+  }
 }
 
 export interface PublishedQuestCoralFeedback {
@@ -51,6 +65,16 @@ export interface PublishedQuestCoralFeedback {
     body: string
     isBlocker: false
     createdAt: string
+    imageUrl?: string
+    imagePath?: string
+    imageName?: string
+    imageContentType?: string
+    imageSize?: number
+    fileUrl?: string
+    filePath?: string
+    fileName?: string
+    fileContentType?: string
+    fileSize?: number
   }
   communicationMessageId: string
   replayed: boolean
@@ -116,6 +140,23 @@ function feedbackMatches(data: Record<string, unknown>, input: QuestCoralFeedbac
     && data.authorId === input.authorId
     && data.body === input.body
     && data.isBlocker === false
+    && asNonEmptyString(data.imageUrl) === (input.image?.url ?? "")
+    && asNonEmptyString(data.fileUrl) === (input.attachment?.url ?? "")
+}
+
+function feedbackMediaFromData(data: Record<string, unknown>) {
+  return {
+    imageUrl: asNonEmptyString(data.imageUrl) || undefined,
+    imagePath: asNonEmptyString(data.imagePath) || undefined,
+    imageName: asNonEmptyString(data.imageName) || undefined,
+    imageContentType: asNonEmptyString(data.imageContentType) || undefined,
+    imageSize: typeof data.imageSize === "number" ? data.imageSize : undefined,
+    fileUrl: asNonEmptyString(data.fileUrl) || undefined,
+    filePath: asNonEmptyString(data.filePath) || undefined,
+    fileName: asNonEmptyString(data.fileName) || undefined,
+    fileContentType: asNonEmptyString(data.fileContentType) || undefined,
+    fileSize: typeof data.fileSize === "number" ? data.fileSize : undefined,
+  }
 }
 
 function feedbackReplyMatches(data: Record<string, unknown>, input: QuestCoralFeedbackReplyPublicationInput): boolean {
@@ -207,6 +248,7 @@ export async function publishQuestCoralFeedback(
           body: input.body,
           isBlocker: false as const,
           createdAt: createdAtIso(updateData.createdAt, now),
+          ...feedbackMediaFromData(updateData),
         },
         communicationMessageId: messageId,
         replayed: true,
@@ -243,6 +285,21 @@ export async function publishQuestCoralFeedback(
       registeredPeople.keys(),
     )
     const visibleToUserIds = [...new Set([input.authorId, ...recipientIds])]
+    const imageFields = input.image ? {
+      imageUrl: input.image.url,
+      ...(input.image.path ? { imagePath: input.image.path } : {}),
+      ...(input.image.name ? { imageName: input.image.name } : {}),
+      ...(input.image.contentType ? { imageContentType: input.image.contentType } : {}),
+      ...(input.image.size !== undefined ? { imageSize: input.image.size } : {}),
+      imageUploadedAt: FieldValue.serverTimestamp(),
+    } : {}
+    const attachmentFields = input.attachment ? {
+      fileUrl: input.attachment.url,
+      ...(input.attachment.path ? { filePath: input.attachment.path } : {}),
+      ...(input.attachment.name ? { fileName: input.attachment.name } : {}),
+      ...(input.attachment.contentType ? { fileContentType: input.attachment.contentType } : {}),
+      ...(input.attachment.size !== undefined ? { fileSize: input.attachment.size } : {}),
+    } : {}
 
     transaction.create(updateRef, {
       projectId: input.projectId,
@@ -256,6 +313,8 @@ export async function publishQuestCoralFeedback(
       nextStepDue: null,
       isBlocker: false,
       createdAt: FieldValue.serverTimestamp(),
+      ...imageFields,
+      ...attachmentFields,
     })
     transaction.update(projectRef, { updatedAt: FieldValue.serverTimestamp() })
     if (!contextSnapshot.exists) {
@@ -292,6 +351,8 @@ export async function publishQuestCoralFeedback(
       sourceModule: QUEST_CORAL_COMMUNICATIONS_SOURCE,
       sourceQuestCoralProjectId: input.projectId,
       sourceQuestCoralFeedbackId: input.feedbackId,
+      ...imageFields,
+      ...attachmentFields,
     })
 
     return {
@@ -304,6 +365,7 @@ export async function publishQuestCoralFeedback(
         body: input.body,
         isBlocker: false as const,
         createdAt: now,
+        ...feedbackMediaFromData({ ...imageFields, ...attachmentFields }),
       },
       communicationMessageId: messageId,
       replayed: false,

@@ -8,7 +8,7 @@
  * contracts into a compact type switcher and only relevant fields remain.
  */
 
-import { useEffect, useState, type ComponentType, type CSSProperties } from "react"
+import { useEffect, useRef, useState, type ComponentType, type CSSProperties } from "react"
 import {
   AlertTriangle,
   CalendarDays,
@@ -17,7 +17,9 @@ import {
   Flag,
   LayoutDashboard,
   MessageCircle,
+  Paperclip,
   Users,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { QcSheet } from "@/components/quest-coral/ui/quest-coral-sheet"
@@ -31,6 +33,7 @@ import {
   type UpdateType,
 } from "@/lib/quest-coral-core"
 import type { NewUpdateInput } from "@/features/quest-coral/use-quest-coral-dashboard"
+import { QUEST_CORAL_ATTACHMENT_ACCEPT, validateQuestCoralAttachment } from "@/lib/quest-coral-media"
 
 const UPDATE_TYPE_ICON: Record<UpdateType, ComponentType<{ className?: string; strokeWidth?: number }>> = {
   update: LayoutDashboard,
@@ -102,8 +105,11 @@ export function AddUpdateSheet({ open, currentStatus, currentProgress, onClose, 
   const [challenge, setChallenge] = useState("")
   const [recommendedAction, setRecommendedAction] = useState("")
   const [severity, setSeverity] = useState<"Observation" | "Concern" | "Critical">("Concern")
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -122,12 +128,15 @@ export function AddUpdateSheet({ open, currentStatus, currentProgress, onClose, 
     setChallenge("")
     setRecommendedAction("")
     setSeverity("Concern")
+    setAttachmentFile(null)
+    setAttachmentError(null)
+    if (attachmentInputRef.current) attachmentInputRef.current.value = ""
     setIsSaving(false)
     setSubmitError(null)
   }, [open, currentStatus, currentProgress])
 
   const copy = FORM_COPY[type]
-  const canSave = body.trim().length > 0 && !isSaving
+  const canSave = body.trim().length > 0 && !attachmentError && !isSaving
 
   const serialisedBody = () => {
     const parts = [body.trim()]
@@ -162,6 +171,7 @@ export function AddUpdateSheet({ open, currentStatus, currentProgress, onClose, 
         nextStep: type === "update" && nextStep.trim() ? nextStep.trim() : undefined,
         nextStepDue: type === "update" && nextStep.trim() ? nextStepDue || null : undefined,
         isBlocker: type === "blocker",
+        attachmentFile,
       })
     } catch {
       setSubmitError("Your entry could not be saved. Please try again.")
@@ -172,6 +182,30 @@ export function AddUpdateSheet({ open, currentStatus, currentProgress, onClose, 
   const selectType = (candidate: UpdateType) => {
     setType(candidate)
     setSubmitError(null)
+  }
+
+  const chooseAttachment = (file: File | null) => {
+    if (!file) {
+      setAttachmentFile(null)
+      setAttachmentError(null)
+      return
+    }
+    const validationError = validateQuestCoralAttachment(file)
+    if (validationError) {
+      setAttachmentFile(null)
+      setAttachmentError(validationError)
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ""
+      return
+    }
+    setAttachmentFile(file)
+    setAttachmentError(null)
+    setSubmitError(null)
+  }
+
+  const clearAttachment = () => {
+    setAttachmentFile(null)
+    setAttachmentError(null)
+    if (attachmentInputRef.current) attachmentInputRef.current.value = ""
   }
 
   return (
@@ -243,6 +277,45 @@ export function AddUpdateSheet({ open, currentStatus, currentProgress, onClose, 
             />
             <span className="text-right text-[0.6875rem] text-[var(--coral-text-muted)]">{body.length}/{MAX_BODY_CHARS}</span>
           </label>
+
+          <div className="quest-coral-form-reveal flex flex-col gap-2">
+            <span className={labelClassName}>Attachment <span className="font-normal text-[var(--coral-text-muted)]">(optional)</span></span>
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept={QUEST_CORAL_ATTACHMENT_ACCEPT}
+              className="sr-only"
+              onChange={(event) => chooseAttachment(event.target.files?.[0] ?? null)}
+            />
+            {attachmentFile ? (
+              <div className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--coral-border)] bg-[var(--coral-surface)] px-3.5 text-sm text-[var(--coral-text)]">
+                <Paperclip className="h-4 w-4 shrink-0 text-[var(--coral-strong)]" strokeWidth={2} />
+                <span className="min-w-0 flex-1 truncate font-medium">{attachmentFile.name}</span>
+                <button
+                  type="button"
+                  onClick={clearAttachment}
+                  className="quest-coral-tap -mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--coral-text-muted)] hover:bg-[var(--coral-surface-2)] hover:text-[var(--coral-text)]"
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-4 w-4" strokeWidth={2} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => attachmentInputRef.current?.click()}
+                className="quest-coral-tap flex min-h-11 items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--coral-border)] bg-[var(--coral-surface)] px-3.5 text-sm font-semibold text-[var(--coral-text-muted)] hover:border-[var(--coral)] hover:text-[var(--coral-strong)]"
+              >
+                <Paperclip className="h-4 w-4" strokeWidth={2} />
+                Add image or file
+              </button>
+            )}
+            {attachmentError ? (
+              <p role="alert" className="text-xs font-medium text-[#C84E4E]">{attachmentError}</p>
+            ) : (
+              <p className="text-[0.6875rem] text-[var(--coral-text-muted)]">Images, PDF, text, CSV, ZIP, Word, Excel or PowerPoint · up to 15 MB</p>
+            )}
+          </div>
 
           {type === "update" && (
             <div className="quest-coral-form-reveal flex flex-col gap-5">

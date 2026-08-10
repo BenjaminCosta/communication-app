@@ -33,6 +33,7 @@ import {
   type UpdateType,
 } from "@/lib/quest-coral-core"
 import { QUEST_CORAL_BACKEND_ENABLED } from "@/lib/quest-coral-flags"
+import { mockQuestCoralAttachment, uploadQuestCoralAttachment } from "@/lib/quest-coral-media"
 import {
   addMockUpdate,
   createMockProject,
@@ -94,6 +95,8 @@ export interface NewUpdateInput {
   nextStep?: string
   nextStepDue?: string | null
   isBlocker: boolean
+  /** One compact link attachment per activity, either an image or a document. */
+  attachmentFile?: File | null
 }
 
 export function useQuestCoralDashboard(currentUserId: string, currentUserName: string, enabled = true) {
@@ -382,6 +385,11 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
       // as active.
       const completingProject = input.status === "completed" || progressValue === 100
       const resolvedStatus = completingProject ? "completed" : input.status
+      const media = input.attachmentFile
+        ? QUEST_CORAL_BACKEND_ENABLED
+          ? await uploadQuestCoralAttachment(currentUserId, input.attachmentFile)
+          : mockQuestCoralAttachment(input.attachmentFile)
+        : {}
       const update: Omit<ProjectUpdate, "id"> = {
         projectId,
         type: input.type,
@@ -394,6 +402,16 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
         nextStepDue: input.nextStepDue ?? null,
         isBlocker: input.isBlocker,
         createdAt: new Date().toISOString(),
+        imageUrl: media.image?.url,
+        imagePath: media.image?.path,
+        imageName: media.image?.name,
+        imageContentType: media.image?.contentType,
+        imageSize: media.image?.size,
+        fileUrl: media.attachment?.url,
+        filePath: media.attachment?.path,
+        fileName: media.attachment?.name,
+        fileContentType: media.attachment?.contentType,
+        fileSize: media.attachment?.size,
       }
       // Completing a project always clears any leftover next step — otherwise
       // an update that marks a project "Completed" without retyping the next

@@ -1,7 +1,7 @@
 "use client"
 
 import { auth } from "@/lib/firebase"
-import type { ProjectUpdate } from "@/lib/quest-coral-core"
+import type { ProjectUpdate, ProjectUpdateAttachment, ProjectUpdateImage } from "@/lib/quest-coral-core"
 
 export class QuestCoralFeedbackClientError extends Error {
   constructor(readonly code: string, message: string) {
@@ -15,6 +15,8 @@ interface PublishQuestCoralFeedbackInput {
   projectId: string
   body: string
   authorName: string
+  image?: ProjectUpdateImage
+  attachment?: ProjectUpdateAttachment
 }
 
 export interface PublishQuestCoralFeedbackReplyInput {

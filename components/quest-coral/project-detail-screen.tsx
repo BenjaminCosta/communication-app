@@ -186,6 +186,24 @@ const FeedbackReplyRows = memo(function FeedbackReplyRows({ replies }: { replies
   )
 })
 
+const ActivityMediaLinks = memo(function ActivityMediaLinks({ update }: { update: ProjectUpdate }) {
+  if (!update.imageUrl && !update.fileUrl) return null
+  return (
+    <div className="ml-9 mt-2 flex flex-wrap gap-x-3 gap-y-1">
+      {update.imageUrl && (
+        <a href={update.imageUrl} target="_blank" rel="noreferrer" className="inline-flex text-[0.6875rem] font-semibold text-[var(--coral-strong)]">
+          {update.imageName || "View image"}
+        </a>
+      )}
+      {update.fileUrl && (
+        <a href={update.fileUrl} target="_blank" rel="noreferrer" className="inline-flex text-[0.6875rem] font-semibold text-[var(--coral-strong)]">
+          {update.fileName || "View attachment"}
+        </a>
+      )}
+    </div>
+  )
+})
+
 const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedbackReplies }: { update: ProjectUpdate; previousProgress?: number; feedbackReplies: FeedbackReply[] }) {
   const visual = ACTIVITY_VISUALS[update.type]
   const Icon = visual.Icon
@@ -207,6 +225,7 @@ const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedba
           {update.type === "blocker" && <span className="text-[0.625rem] font-medium text-[var(--coral-missing)]">Active</span>}
         </div>
         <p className="ml-9 mt-1.5 whitespace-pre-line text-[0.75rem] leading-relaxed text-[var(--coral-text-muted)]">{update.body}</p>
+        <ActivityMediaLinks update={update} />
         {progressChanged && (
           <p className="ml-9 mt-2 flex items-center gap-2 text-[0.6875rem] font-medium text-[var(--coral-text-muted)]">
             <span>Progress</span>
