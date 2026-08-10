@@ -1034,7 +1034,7 @@ function nameSegment(value?: string | null): string | null {
   return String(value).split("/")[0].trim() || null
 }
 
-function getFieldValue(fields: CoreContextField[], label: string): string | null {
+export function getFieldValue(fields: CoreContextField[], label: string): string | null {
   if (!Array.isArray(fields)) return null
   const field = fields.find(f => f.label?.toLowerCase() === label.toLowerCase())
   return field?.value?.trim() || null

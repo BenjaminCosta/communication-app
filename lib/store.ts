@@ -26,6 +26,7 @@ export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   report:     { label: "Report",     order: 4,  hint: "Reporting or analytics tag" },
   task:       { label: "Task",       order: 5,  hint: "Actionable item or to-do" },
   custom:     { label: "Custom",     order: 6,  hint: "User-defined tag" },
+  byeByeDpr:  { label: "ByeByeDPR",  order: 7,  hint: "Clock-in/out and field reports" },
   // Legacy — hidden from picker but kept for backward compat
   priority:   { label: "Priority",   order: 100 },
   department: { label: "Department", order: 101 },
@@ -81,6 +82,7 @@ export const CATEGORY_ORDER: TagCategory[] = [
   "report",
   "task",
   "custom",
+  "byeByeDpr",
   // Legacy — appear at end if tags exist with these categories
   "priority",
   "department",
@@ -282,6 +284,11 @@ export interface Message {
   contextIds?: string[]           // IDs from /contexts collection — business context (never affects visibility)
   replyToId?: string              // ID of the message being replied to
   replyPreview?: ReplyPreview     // denormalized preview of the original message
+  /** Provenance for messages mirrored from Quest Coral feedback threads. */
+  sourceModule?: string
+  sourceQuestCoralProjectId?: string
+  sourceQuestCoralFeedbackId?: string
+  sourceQuestCoralFeedbackReplyId?: string
 }
 
 export interface MessageDraft {

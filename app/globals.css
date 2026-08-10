@@ -1398,3 +1398,198 @@ body[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral { display
   .quest-coral-ask-generating-orb,
   .quest-coral-ask-generation-copy { animation: none; }
 }
+
+/* ── ByeByeDPR ─────────────────────────────────────────────────────────────
+   Third light module, same mechanism as .applications-scope /
+   .quest-coral-scope above. Worker-facing, used one-handed on a job site for
+   seconds at a time — restrained purple identity, never a brand moment. */
+.byebye-dpr-scope {
+  --background: #FAFAFC;
+  --foreground: #18142B;
+  --card: #FFFFFF;
+  --card-foreground: #18142B;
+  --popover: #FFFFFF;
+  --popover-foreground: #18142B;
+  --primary: #6D5BD0;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #5C4BB8;
+  --secondary: #F3F1FA;
+  --secondary-foreground: #18142B;
+  --muted: #F3F1FA;
+  --muted-foreground: #6B6580;
+  --accent: #F3F1FA;
+  --accent-foreground: #18142B;
+  --border: #E7E5F0;
+  --input: #E7E5F0;
+  --ring: #6D5BD0;
+  --destructive: #F97373;
+  --destructive-foreground: #FFFFFF;
+
+  /* Identity */
+  --bd-surface: #FFFFFF;
+  --bd-surface-2: #F3F1FA;
+  --bd-purple: #6D5BD0;
+  --bd-purple-strong: #5C4BB8;
+  --bd-purple-soft: #F1EEFB;
+  --bd-sky: #2563EB;
+  --bd-sky-soft: #DBEAFE;
+  --bd-text: #18142B;
+  --bd-text-muted: #6B6580;
+  --bd-border: #E7E5F0;
+
+  /* Semantic states — same hex values as Applications/Quest Coral's
+     pending/missing/complete (app-wide constants); AI keeps this module's
+     own purple identity rather than a second competing accent. */
+  --bd-ai: #6D5BD0;
+  --bd-ai-soft: #F1EEFB;
+  --bd-complete: #22C55E;
+  --bd-complete-soft: #DCFCE7;
+  --bd-pending: #F59E0B;
+  --bd-pending-soft: #FEF3C7;
+  --bd-missing: #F97373;
+  --bd-missing-soft: #FEE7E7;
+
+  color: var(--bd-text);
+  background-color: #FAFAFC;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Same two-wash technique as .applications-canvas / .quest-coral-canvas —
+   purple instead of blue/coral — plus a soft top-to-bottom lavender-to-white
+   sweep underneath for a smoother, more seamless "premium" canvas than a
+   flat fill. Still well within the "never glassy" rule: no blur, no
+   translucency, just a softer gradient base. */
+.byebye-dpr-canvas {
+  background:
+    radial-gradient(circle at 18% -8%, rgba(109, 91, 208, 0.11), transparent 40%),
+    radial-gradient(circle at 100% 2%, rgba(139, 92, 246, 0.07), transparent 36%),
+    linear-gradient(180deg, #F6F4FD 0%, #FAFAFC 55%, #FCFBFE 100%);
+}
+
+.byebye-dpr-topbar {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--bd-border);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Single elevation step — subtle, never glassy (the base screen never gets
+   glass; see .byebye-dpr-sheet-glass below for the one deliberate exception).
+   The inset top highlight is a "minimal glass feel" nod — a soft edge-light,
+   not blur/translucency — so cards read as premium without breaking the
+   flat-elevation rule. */
+.byebye-dpr-card {
+  background: var(--bd-surface);
+  border: 1px solid var(--bd-border);
+  box-shadow: 0 1px 2px rgba(24, 20, 43, 0.04), 0 8px 22px rgba(24, 20, 43, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.byebye-dpr-card-flat {
+  background: var(--bd-surface);
+  border: 1px solid var(--bd-border);
+}
+
+/* Bright, glossy violet gradient — the "start" action. */
+.byebye-dpr-primary-button {
+  background: linear-gradient(150deg, #8B7AE8 0%, var(--bd-purple) 45%, var(--bd-purple-strong) 100%);
+  box-shadow: 0 1px 2px rgba(92, 75, 184, 0.28), 0 14px 28px rgba(109, 91, 208, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.byebye-dpr-primary-button:active:not(:disabled) { transform: scale(0.985); }
+.byebye-dpr-primary-button:disabled {
+  background: #D9D5E8;
+  box-shadow: none;
+}
+
+/* Deep indigo — deliberately the visual opposite of the bright primary
+   gradient, so "Clock Out" never reads as just a relabeled "Clock In". The
+   "end" action, not a destructive one — dark and calm, not red/alarming. */
+.byebye-dpr-clockout-button {
+  background: linear-gradient(150deg, #3A3266 0%, #241D42 55%, #15111F 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 14px 28px rgba(21, 17, 31, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.byebye-dpr-clockout-button:active:not(:disabled) { transform: scale(0.985); }
+.byebye-dpr-clockout-button:disabled {
+  background: #D9D5E8;
+  box-shadow: none;
+}
+
+.byebye-dpr-tap {
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.byebye-dpr-tap:active { transform: scale(0.99); }
+
+@keyframes byebye-dpr-step-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.byebye-dpr-step-enter {
+  animation: byebye-dpr-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The "minimal touch of glass" lives here only — sheet backdrops/handles,
+   never the base screen. Mirrors the drawer's own overlay but frosted. */
+.byebye-dpr-sheet-glass {
+  background: rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* A slow, calm breathing ring around the record button — never urgent. */
+@keyframes byebye-dpr-record-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(109, 91, 208, 0.28); }
+  50%      { box-shadow: 0 0 0 14px rgba(109, 91, 208, 0); }
+}
+.byebye-dpr-record-pulse {
+  animation: byebye-dpr-record-pulse 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* ── ByeByeDPR "AI is generating" treatment ──────────────────────────────
+   Same role as .quest-coral-ai-shimmer / .quest-coral-ask-generating-orb (a
+   sweep that reads as "being generated" + a pulsing orb + a fade-in for
+   rotating status copy), re-skinned to this module's purple identity
+   instead of Quest Coral's coral-only accent. */
+@keyframes byebye-dpr-ai-sweep {
+  0%   { background-position: 175% 0; }
+  100% { background-position: -75% 0; }
+}
+.byebye-dpr-ai-shimmer {
+  background-color: var(--bd-surface-2);
+  background-image: linear-gradient(
+    100deg,
+    rgba(109, 91, 208, 0) 8%,
+    rgba(109, 91, 208, 0.16) 30%,
+    rgba(109, 91, 208, 0.32) 50%,
+    rgba(109, 91, 208, 0.16) 70%,
+    rgba(109, 91, 208, 0) 92%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: byebye-dpr-ai-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes byebye-dpr-ai-generating-orb {
+  0%, 100% { transform: scale(0.92); box-shadow: 0 4px 10px rgba(109, 91, 208, 0.22); }
+  50%      { transform: scale(1);    box-shadow: 0 6px 14px rgba(109, 91, 208, 0.32); }
+}
+.byebye-dpr-ai-generating-orb {
+  background: linear-gradient(145deg, var(--bd-purple), var(--bd-purple-strong));
+  animation: byebye-dpr-ai-generating-orb 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes byebye-dpr-ai-generation-copy {
+  from { opacity: 0; transform: translate3d(0, 4px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.byebye-dpr-ai-generation-copy {
+  animation: byebye-dpr-ai-generation-copy 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .byebye-dpr-step-enter { animation: none; }
+  .byebye-dpr-record-pulse { animation: none; }
+  .byebye-dpr-ai-shimmer,
+  .byebye-dpr-ai-generating-orb,
+  .byebye-dpr-ai-generation-copy { animation: none; }
+  .byebye-dpr-tap:active,
+  .byebye-dpr-primary-button:active:not(:disabled),
+  .byebye-dpr-clockout-button:active:not(:disabled) { transform: none; }
+}

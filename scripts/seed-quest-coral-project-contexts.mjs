@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Seeds the four SVC module-context projects and their Markdown briefs.
+ * Seeds the SVC module-context projects and their Markdown briefs.
  *
  * This script is deliberately conservative:
  * - dry-run is the default;
@@ -36,6 +36,9 @@ const PROJECTS_COLLECTION = "questCoralProjects"
 const CONTEXTS_COLLECTION = "questCoralProjectContexts"
 const SYSTEM_OWNER_ID = "svc-system-context"
 const SYSTEM_OWNER_NAME = "SVC"
+const SELECTED_MODULE_KEYS = process.env.SEED_MODULE_KEYS
+  ? new Set(process.env.SEED_MODULE_KEYS.split(",").map((key) => key.trim()).filter(Boolean))
+  : null
 
 const MODULES = [
   {
@@ -69,6 +72,14 @@ const MODULES = [
     description: "Product context for SVC's project tracker, operational signals and portfolio follow-up.",
     purpose: "Show which projects need attention, what blocks them and what happens next.",
     sourceFile: "docs/svc-quest-coral-product-context.md",
+  },
+  {
+    key: "bye-bye-dpr",
+    projectId: "svc-module-context-bye-bye-dpr",
+    name: "ByeByeDPR",
+    description: "Product context for SVC's mobile field workflow for job-site clocking and AI-assisted daily reports.",
+    purpose: "Help field crews record time and daily job progress quickly, while giving SVC a reviewable operational record.",
+    sourceFile: "docs/svc-bye-bye-dpr-product-context.md",
   },
 ]
 
@@ -189,7 +200,16 @@ async function verifyPersisted(db, contexts) {
 
 async function main() {
   const serviceAccount = validateTarget()
-  const contexts = MODULES.map((module) => {
+  const selectedModules = SELECTED_MODULE_KEYS
+    ? MODULES.filter((module) => SELECTED_MODULE_KEYS.has(module.key))
+    : MODULES
+  if (SELECTED_MODULE_KEYS) {
+    const availableKeys = new Set(MODULES.map((module) => module.key))
+    const unknownKeys = [...SELECTED_MODULE_KEYS].filter((key) => !availableKeys.has(key))
+    if (unknownKeys.length > 0) fail(`Unknown SEED_MODULE_KEYS value(s): ${unknownKeys.join(", ")}.`)
+  }
+  if (selectedModules.length === 0) fail("SEED_MODULE_KEYS did not select any module contexts.")
+  const contexts = selectedModules.map((module) => {
     validateProjectId(module.projectId)
     return buildContext(module)
   })

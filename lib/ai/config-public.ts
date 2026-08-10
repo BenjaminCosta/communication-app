@@ -92,3 +92,23 @@ export const QUEST_CORAL_AI_LIMITS = {
   /** Upstream provider timeout (ms) for a single request. */
   providerTimeoutMs: 30_000,
 } as const
+
+/**
+ * Client-safe limits for ByeByeDPR (clock-in/out + daily reports): audio
+ * transcription and free-text → structured-fields parsing. Kept independent
+ * from the other features' budgets/collections.
+ */
+export const BYE_BYE_DPR_AI_LIMITS = {
+  /** Max characters accepted for a single free-text report body / transcript. */
+  maxTextChars: 4000,
+  /** Max audio payload accepted by the transcription endpoint (bytes). */
+  maxAudioBytes: 8 * 1024 * 1024,
+  /** Max recording duration surfaced to the recorder UI (seconds) — a field update can run longer than a quick note. */
+  maxAudioSeconds: 300,
+  /** Per-user rolling application limits. Enforced transactionally server-side. */
+  generationRequestsPerWindow: 20,
+  transcriptionRequestsPerWindow: 10,
+  requestWindowMs: 10 * 60 * 1000,
+  /** Upstream provider timeout (ms) for a single request. */
+  providerTimeoutMs: 30_000,
+} as const

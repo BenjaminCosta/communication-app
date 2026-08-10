@@ -44,6 +44,7 @@ import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
 import { useApplicationsDashboard } from "@/features/applications/use-applications-dashboard"
 import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-dashboard"
+import { publishQuestCoralFeedbackReply } from "@/features/quest-coral/quest-coral-feedback-client"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
@@ -931,6 +932,16 @@ export default function Home() {
       ].filter(Boolean))]
       const participants = [...new Set([firebaseUser.uid, ...peopleIds])]
       const imageMeta: Record<string, unknown> = {}
+      let feedbackReplyImage: {
+        url: string
+        path?: string
+        name?: string
+        contentType?: string
+        size?: number
+        width?: number
+        height?: number
+        blurHash?: string
+      } | undefined
 
       // Pre-uploaded file attachment (e.g. outlook PDF) — reference it, no re-upload.
       const attachmentMeta: Record<string, unknown> = {}
@@ -963,6 +974,13 @@ export default function Home() {
           imageMeta.imageContentType = imageFile.type || "image/jpeg"
           imageMeta.imageSize = imageFile.size
           imageMeta.imageUploadedAt = serverTimestamp()
+          feedbackReplyImage = {
+            url: imageMeta.imageUrl as string,
+            path: imagePath,
+            name: imageFile.name,
+            contentType: imageFile.type || "image/jpeg",
+            size: imageFile.size,
+          }
           // Read natural dimensions + generate BlurHash from the file before it leaves memory
           try {
             const dims = await new Promise<{ w: number; h: number; blurHash: string }>((resolve, reject) => {
@@ -994,7 +1012,14 @@ export default function Home() {
             })
             imageMeta.imageWidth = dims.w
             imageMeta.imageHeight = dims.h
-            if (dims.blurHash) imageMeta.imageBlurHash = dims.blurHash
+            if (feedbackReplyImage) {
+              feedbackReplyImage.width = dims.w
+              feedbackReplyImage.height = dims.h
+            }
+            if (dims.blurHash) {
+              imageMeta.imageBlurHash = dims.blurHash
+              if (feedbackReplyImage) feedbackReplyImage.blurHash = dims.blurHash
+            }
           } catch { /* non-critical — skip if decode fails */ }
         } catch (error) {
           showToast("Image upload failed. Check Firebase Storage setup.", undefined, 3500)
@@ -1044,14 +1069,40 @@ export default function Home() {
         ...imageMeta,
         ...attachmentMeta,
       }
-      await addDoc(collection(db, "messages"), msgData)
+      const replyToMessage = draft.replyToId ? messages.find((message) => message.id === draft.replyToId) : undefined
+      const isQuestCoralFeedbackReply = replyToMessage?.sourceModule === "quest-coral"
+        && Boolean(replyToMessage.sourceQuestCoralFeedbackId)
+      if (isQuestCoralFeedbackReply && draft.replyToId) {
+        const feedbackReplyRef = doc(collection(db, "questCoralFeedbackReplies"))
+        await publishQuestCoralFeedbackReply({
+          replyId: feedbackReplyRef.id,
+          replyToMessageId: draft.replyToId,
+          body: text,
+          authorName: firebaseUser.displayName ?? currentUser?.name ?? "Someone",
+          requestedRecipientIds: peopleIds,
+          contactIds: importedContactIds,
+          calendarDates: draft.calendarDates ?? [],
+          ...(feedbackReplyImage ? { image: feedbackReplyImage } : {}),
+          ...(draft.attachment?.url ? {
+            attachment: {
+              url: draft.attachment.url,
+              ...(draft.attachment.path ? { path: draft.attachment.path } : {}),
+              ...(draft.attachment.name ? { name: draft.attachment.name } : {}),
+              ...(draft.attachment.contentType ? { contentType: draft.attachment.contentType } : {}),
+              ...(typeof draft.attachment.size === "number" ? { size: draft.attachment.size } : {}),
+            },
+          } : {}),
+        })
+      } else {
+        await addDoc(collection(db, "messages"), msgData)
+      }
       setCalendarInitialDate(null)
       setComposeInitialText("")
       setComposeInitialContextIds([])
       setComposeInitialAttachment(null)
       navigateTo("stream")
     },
-    [firebaseUser, importedContacts, projects, navigateTo, showToast]
+    [firebaseUser, currentUser?.name, importedContacts, messages, projects, navigateTo, showToast]
   )
 
   const handleDeleteMessage = useCallback(
@@ -1059,6 +1110,10 @@ export default function Home() {
       // Capture message for Undo before deleting
       const target = messages.find((m) => m.id === id)
       if (!target) return
+      if (target.sourceModule === "quest-coral") {
+        showToast("Quest Coral feedback threads are read-only in Communications.", undefined, 3000)
+        return
+      }
       deleteDoc(doc(db, "messages", id))
       showToast("Message deleted", {
         label: "Undo",
@@ -1099,14 +1154,22 @@ export default function Home() {
   const handleFavoriteMessage = useCallback(async (id: string) => {
     const msg = messages.find((m) => m.id === id)
     if (!msg) return
+    if (msg.sourceModule === "quest-coral") {
+      showToast("Quest Coral feedback threads are read-only in Communications.", undefined, 3000)
+      return
+    }
     await updateDoc(doc(db, "messages", id), { isFavorited: !msg.isFavorited })
-  }, [messages])
+  }, [messages, showToast])
 
   const handleApplyTag = useCallback(
     async (peopleIds: string[], tagIds: string[], importedContactIds: string[] = [], calendarDates?: string[], contextIds?: string[]) => {
       if (!selectedMessageId) return
       const selectedMessage = messages.find((m) => m.id === selectedMessageId)
       if (!selectedMessage) return
+      if (selectedMessage.sourceModule === "quest-coral") {
+        showToast("Quest Coral feedback threads are read-only in Communications.", undefined, 3000)
+        return
+      }
       const resolvedPeopleIds = [...new Set([
         ...peopleIds,
         ...resolveLinkedImportedContactUserIds(importedContactIds, importedContacts),
@@ -1173,6 +1236,10 @@ export default function Home() {
   const handleRemoveProjectTag = useCallback(
     async (messageId: string, projectId?: string) => {
       const message = messages.find((m) => m.id === messageId)
+      if (message?.sourceModule === "quest-coral") {
+        showToast("Quest Coral feedback threads are read-only in Communications.", undefined, 3000)
+        return
+      }
       const remaining = projectId && message
         ? getMessageProjectIds(message).filter((id) => id !== projectId)
         : []
@@ -1651,8 +1718,14 @@ export default function Home() {
     [messages, messageMatchesPeopleFilter, selectedPeopleFilter, selectedTagFilter, selectedDateFilter, selectedContextFilter]
   )
 
-  // Applications runs entirely on local mock state in this phase.
-  const applicationsDashboard = useApplicationsDashboard(currentUser?.name ?? "You", firebaseUser?.uid ?? "")
+  // Applications listeners only need to be live once the reviewer actually
+  // opens the module — everyone else pays zero Firestore cost for it. Sticky
+  // once true: switching away keeps the data warm instead of re-subscribing.
+  const [hasEnteredApplications, setHasEnteredApplications] = useState(false)
+  if (!hasEnteredApplications && (activeScreen === "applications" || activeScreen === "application-detail")) {
+    setHasEnteredApplications(true)
+  }
+  const applicationsDashboard = useApplicationsDashboard(currentUser?.name ?? "You", firebaseUser?.uid ?? "", hasEnteredApplications)
   const selectedApplication = applicationsDashboard.getApplication(selectedApplicationId)
   // Activity is a subcollection: the hook only subscribes to the open candidate.
   const setApplicationsSelection = applicationsDashboard.setSelectedId
@@ -1660,11 +1733,19 @@ export default function Home() {
     setApplicationsSelection(selectedApplicationId)
   }, [selectedApplicationId, setApplicationsSelection])
 
+  // Same lazy-activation as Applications above.
+  const [hasEnteredQuestCoral, setHasEnteredQuestCoral] = useState(false)
+  if (!hasEnteredQuestCoral && (activeScreen === "quest-coral" || activeScreen === "quest-coral-detail")) {
+    setHasEnteredQuestCoral(true)
+  }
   // Quest Coral selects its Firestore or local demo adapter from the public flag.
-  const questCoralDashboard = useQuestCoralDashboard(firebaseUser?.uid ?? "", currentUser?.name ?? "You")
+  const questCoralDashboard = useQuestCoralDashboard(firebaseUser?.uid ?? "", currentUser?.name ?? "You", hasEnteredQuestCoral)
   const selectedQuestCoralProject = questCoralDashboard.getProject(selectedQuestCoralProjectId)
   const selectedQuestCoralUpdates = selectedQuestCoralProject
     ? questCoralDashboard.updatesForProject(selectedQuestCoralProject.id)
+    : []
+  const selectedQuestCoralFeedbackReplies = selectedQuestCoralProject
+    ? questCoralDashboard.feedbackRepliesForProject(selectedQuestCoralProject.id)
     : []
   const selectedQuestCoralCoverage = selectedQuestCoralProject
     ? questCoralDashboard.coverageFor(selectedQuestCoralProject)
@@ -1947,6 +2028,7 @@ export default function Home() {
               className={entranceClass}
               project={selectedQuestCoralProject}
               updates={selectedQuestCoralUpdates}
+              feedbackReplies={selectedQuestCoralFeedbackReplies}
               activityLoaded={questCoralDashboard.updatesLoaded}
               coverage={selectedQuestCoralCoverage}
               contacts={contacts}

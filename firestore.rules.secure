@@ -19,10 +19,21 @@ service cloud.firestore {
 
     // ── Users ──────────────────────────────────────────────────────────────
     // Any authenticated user can read the user list (needed for contact resolution).
-    // Users can only write their own doc.
     match /users/{userId} {
-      allow read:  if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/recentJobs/{jobId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.keys().hasOnly(['jobId', 'viewedAt'])
+                            && request.resource.data.jobId == jobId
+                            && request.resource.data.viewedAt == request.time;
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
     // ── Directory user state ───────────────────────────────────────────────
@@ -104,14 +115,19 @@ service cloud.firestore {
                     && (
                       request.auth.uid == resource.data.get('authorId', '')
                       || request.auth.uid == resource.data.get('senderId', '')
-                    );
+                    )
+                    // Source-linked Quest Coral thread messages are written
+                    // atomically by the server bridge; client mutations would
+                    // break the corresponding project-thread record.
+                    && resource.data.get('sourceModule', '') != 'quest-coral';
 
       // DELETE: only the author/sender can delete their own message.
       allow delete: if request.auth != null
                     && (
                       request.auth.uid == resource.data.get('authorId', '')
                       || request.auth.uid == resource.data.get('senderId', '')
-                    );
+                    )
+                    && resource.data.get('sourceModule', '') != 'quest-coral';
     }
 
     // ── Categories (user-created tag categories) ─────────────────────────
@@ -328,10 +344,22 @@ service cloud.firestore {
     match /questCoralUpdates/{updateId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null
-                    && request.auth.uid == request.resource.data.authorId;
+                    && request.auth.uid == request.resource.data.authorId
+                    // Feedback is mirrored to Communications by the secure
+                    // server command, so clients cannot create an unmirrored
+                    // Feedback document directly.
+                    && request.resource.data.type != 'feedback';
       allow update: if false;
       allow delete: if request.auth != null
                     && request.auth.uid == resource.data.authorId;
+    }
+
+    // Replies are the Quest Coral projection of a Communications Feedback
+    // thread. The server command creates both records atomically; clients
+    // may only read the resulting conversation.
+    match /questCoralFeedbackReplies/{replyId} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
     // One shared Markdown orientation brief per Quest Coral project. Keep it
@@ -360,8 +388,11 @@ service cloud.firestore {
     // the append-only activity feed, while lastReadAt prevents replayed
     // snapshots from creating duplicate unread activity.
     match /questCoralProjectUnreadStates/{stateId} {
+      // resource == null when the doc doesn't exist yet (first-ever read
+      // marker for a user/project) — must allow, or transaction.get() on it
+      // throws permission-denied before create/update can run.
       allow read: if request.auth != null
-                  && resource.data.userId == request.auth.uid;
+                  && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if request.auth != null
                     && exists(/databases/$(database)/documents/questCoralProjects/$(request.resource.data.projectId))
                     && stateId == request.auth.uid + "__" + request.resource.data.projectId
@@ -388,6 +419,46 @@ service cloud.firestore {
     // firestore.rules intentionally.
     match /questCoralAiUsage/{userHash} {
       allow read, write: if false;
+    }
+
+    // ── ByeByeDPR ─────────────────────────────────────────────────────────
+    // Flat, single-org model (2026-08-10). Kept identical to firestore.rules
+    // intentionally.
+    match /jobs/{jobId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /clockRecords/{clockRecordId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.userId
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.authorId
+                    && request.resource.data.status == 'draft';
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.authorId
+                    && resource.data.status == 'draft'
+                    && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if false;
+
+      match /attachments/{attachmentId} {
+        allow read:   if request.auth != null;
+        allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.uploadedBy
+                      && get(/databases/$(database)/documents/reports/$(reportId)).data.authorId == request.auth.uid
+                      && get(/databases/$(database)/documents/reports/$(reportId)).data.status == 'draft';
+        allow update, delete: if false;
+      }
     }
 
   }

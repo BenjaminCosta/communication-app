@@ -25,12 +25,15 @@ import {
   type ProjectContext,
   type ProjectContextSource,
   type ProjectUnreadState,
+  type FeedbackReply,
   type ProjectUpdate,
   type UpdateType,
 } from "@/lib/quest-coral-core"
 
 export const QUEST_CORAL_PROJECTS_COLLECTION = "questCoralProjects"
 export const QUEST_CORAL_UPDATES_COLLECTION = "questCoralUpdates"
+/** Replies to Feedback threads, written only by the authenticated server command. */
+export const QUEST_CORAL_FEEDBACK_REPLIES_COLLECTION = "questCoralFeedbackReplies"
 /** One Markdown brief per Quest Coral project; the document id is its project id. */
 export const QUEST_CORAL_PROJECT_CONTEXTS_COLLECTION = "questCoralProjectContexts"
 /** Private per-user reading markers for the immutable Quest Coral activity feed. */
@@ -138,6 +141,25 @@ export function mapUpdateDoc(id: string, data: DocumentData): ProjectUpdate {
     nextStepDue: typeof data.nextStepDue === "string" ? data.nextStepDue : data.nextStepDue === null ? null : undefined,
     isBlocker: data.isBlocker === true,
     createdAt: isoOrNow(data.createdAt),
+  }
+}
+
+/** Maps a Communications-authored Feedback reply into the project thread contract. */
+export function mapFeedbackReplyDoc(id: string, data: DocumentData): FeedbackReply {
+  return {
+    id,
+    projectId: typeof data.projectId === "string" ? data.projectId : "",
+    feedbackId: typeof data.feedbackId === "string" ? data.feedbackId : "",
+    authorId: typeof data.authorId === "string" ? data.authorId : "",
+    authorName: typeof data.authorName === "string" ? data.authorName : "Someone",
+    body: typeof data.body === "string" ? data.body : "",
+    communicationMessageId: typeof data.communicationMessageId === "string" ? data.communicationMessageId : "",
+    replyToCommunicationMessageId: typeof data.replyToCommunicationMessageId === "string" ? data.replyToCommunicationMessageId : "",
+    createdAt: isoOrNow(data.createdAt),
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    imageName: typeof data.imageName === "string" ? data.imageName : undefined,
+    fileUrl: typeof data.fileUrl === "string" ? data.fileUrl : undefined,
+    fileName: typeof data.fileName === "string" ? data.fileName : undefined,
   }
 }
 

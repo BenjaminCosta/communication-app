@@ -190,7 +190,7 @@ export function QuestCoralScreen({
   onSwitchToDirectory,
   onSwitchToApplications,
 }: QuestCoralScreenProps) {
-  const { currentUserId, projects, updates, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, unreadCountFor } = dashboard
+  const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, unreadCountFor } = dashboard
   const [showAbout, setShowAbout] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [statusSheetOpen, setStatusSheetOpen] = useState(false)
@@ -240,7 +240,7 @@ export function QuestCoralScreen({
             scope: "portfolio",
             projects: projects
               .slice(0, QUEST_CORAL_AI_LIMITS.maxPortfolioProjects)
-              .map((project) => projectToAskPayload(project, updates, contextsByProjectId.get(project.id))),
+              .map((project) => projectToAskPayload(project, updates, contextsByProjectId.get(project.id), feedbackReplies)),
           },
           { idempotencyKey: createQuestCoralAiIdempotencyKey() },
         )

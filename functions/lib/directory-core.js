@@ -33,6 +33,7 @@ exports.isLikelyPhone = isLikelyPhone;
 exports.isLikelyUrl = isLikelyUrl;
 exports.stripAccents = stripAccents;
 exports.normalizeName = normalizeName;
+exports.getFieldValue = getFieldValue;
 /**
  * Bump when the index shape or normalizer logic changes. Rebuilds/functions
  * compare this against the stored schemaVersion to decide whether to re-index.

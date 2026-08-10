@@ -27,7 +27,7 @@ import {
   requestQuestCoralBrief,
 } from "@/features/quest-coral/ai/client/quest-coral-ai-client"
 import { projectToAskPayload } from "@/features/quest-coral/use-quest-coral-ask"
-import type { Project, ProjectUpdate } from "@/lib/quest-coral-core"
+import type { FeedbackReply, Project, ProjectUpdate } from "@/lib/quest-coral-core"
 
 export type QuestCoralBriefPhase = "idle" | "loading" | "ready"
 
@@ -39,7 +39,7 @@ interface CachedBrief {
 
 const briefCache = new Map<string, CachedBrief>()
 
-function projectFingerprint(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null): string {
+function projectFingerprint(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []): string {
   const projectUpdates = updates.filter((update) => update.projectId === project.id)
   const latest = projectUpdates.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   return [
@@ -50,18 +50,20 @@ function projectFingerprint(project: Project, updates: ProjectUpdate[], contextM
     projectUpdates.length,
     latest?.id ?? "",
     latest?.createdAt ?? "",
+    feedbackReplies.filter((reply) => reply.projectId === project.id).length,
+    feedbackReplies.filter((reply) => reply.projectId === project.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? "",
     contextMarkdown ?? "",
   ].join("|")
 }
 
-export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null) {
+export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []) {
   const fingerprint = useMemo(
-    () => projectFingerprint(project, updates, contextMarkdown),
-    [project, updates, contextMarkdown],
+    () => projectFingerprint(project, updates, contextMarkdown, feedbackReplies),
+    [project, updates, contextMarkdown, feedbackReplies],
   )
   const mockBrief = useMemo(
-    () => generateProjectBrief(project, updates, contextMarkdown),
-    [project, updates, contextMarkdown],
+    () => generateProjectBrief(project, updates, contextMarkdown, feedbackReplies),
+    [project, updates, contextMarkdown, feedbackReplies],
   )
 
   const [phase, setPhase] = useState<QuestCoralBriefPhase>(QUEST_CORAL_AI_ENABLED ? "idle" : "ready")
@@ -92,7 +94,7 @@ export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], c
       void (async () => {
         try {
           const response = await requestQuestCoralBrief(
-            { project: projectToAskPayload(project, updates, contextMarkdown) },
+            { project: projectToAskPayload(project, updates, contextMarkdown, feedbackReplies) },
             { idempotencyKey: createQuestCoralAiIdempotencyKey() },
           )
           briefCache.set(project.id, { fingerprint, text: response.brief, mode: response.mode })
@@ -115,7 +117,7 @@ export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], c
         }
       })()
     },
-    [project, updates, contextMarkdown, fingerprint, mockBrief],
+    [project, updates, contextMarkdown, feedbackReplies, fingerprint, mockBrief],
   )
 
   useEffect(() => {

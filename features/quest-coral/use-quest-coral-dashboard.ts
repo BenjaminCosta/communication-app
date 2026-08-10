@@ -25,6 +25,7 @@ import {
   type MissionFitScore,
   type Project,
   type ProjectContext,
+  type FeedbackReply,
   type ProjectPerson,
   type ProjectStatus,
   type ProjectUnreadState,
@@ -58,6 +59,7 @@ import {
   subscribeQuestCoralProjects,
   subscribeQuestCoralProjectContexts,
   subscribeQuestCoralProjectUnreadStates,
+  subscribeQuestCoralFeedbackReplies,
   subscribeQuestCoralUpdates,
   synchronizeQuestCoralProjectUnreadCount,
 } from "@/lib/quest-coral-writes"
@@ -94,28 +96,36 @@ export interface NewUpdateInput {
   isBlocker: boolean
 }
 
-export function useQuestCoralDashboard(currentUserId: string, currentUserName: string) {
+export function useQuestCoralDashboard(currentUserId: string, currentUserName: string, enabled = true) {
   const [projects, setProjects] = useState<Project[]>([])
   const [updates, setUpdates] = useState<ProjectUpdate[]>([])
+  const [feedbackReplies, setFeedbackReplies] = useState<FeedbackReply[]>([])
   const [contexts, setContexts] = useState<ProjectContext[]>([])
   const [unreadStates, setUnreadStates] = useState<ProjectUnreadState[]>([])
   const [filters, setFilters] = useState<QuestCoralFilters>(emptyQuestCoralFilters)
-  const [isLoading, setIsLoading] = useState(QUEST_CORAL_BACKEND_ENABLED)
+  const [isLoading, setIsLoading] = useState(enabled && QUEST_CORAL_BACKEND_ENABLED)
   const [updatesLoaded, setUpdatesLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const pendingUnreadSyncRef = useRef(new Set<string>())
 
   // ── Data source ───────────────────────────────────────────────────────
+  // Deferred until `enabled` (the user actually opened Quest Coral) — no
+  // point paying for three live listeners nobody is looking at.
   useEffect(() => {
+    if (!enabled) return
     if (!QUEST_CORAL_BACKEND_ENABLED) {
       return subscribeQuestCoral((next) => {
         setProjects(next.projects)
         setUpdates(next.updates)
+        setFeedbackReplies([])
         setIsLoading(false)
         setUpdatesLoaded(true)
         setLoadError(null)
       })
     }
+    // enabled just flipped true: re-arm the spinner in case it was mounted
+    // false while this effect sat idle (`isLoading`'s initializer only ran once).
+    setIsLoading(true)
     const unsubscribeProjects = subscribeQuestCoralProjects(
       (next) => {
         setProjects(next)
@@ -149,22 +159,27 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
         setLoadError((current) => current ?? (error.message.includes("permission") ? "Project context access is not enabled for this environment yet." : "The project contexts could not be loaded."))
       },
     )
+    const unsubscribeFeedbackReplies = subscribeQuestCoralFeedbackReplies(
+      (next) => setFeedbackReplies(next),
+      (error) => setLoadError((current) => current ?? (error.message.includes("permission") ? "Feedback replies are not enabled for this environment yet." : "Feedback replies could not be loaded.")),
+    )
     return () => {
       unsubscribeProjects()
       unsubscribeUpdates()
       unsubscribeContexts()
+      unsubscribeFeedbackReplies()
     }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
-    if (QUEST_CORAL_BACKEND_ENABLED) return
+    if (!enabled || QUEST_CORAL_BACKEND_ENABLED) return
     return subscribeQuestCoralContexts(setContexts)
-  }, [])
+  }, [enabled])
 
   // Per-user reading state is deliberately separate from projects and updates:
   // reading a detail view must never rewrite shared project activity.
   useEffect(() => {
-    if (!currentUserId) {
+    if (!enabled || !currentUserId) {
       setUnreadStates([])
       return
     }
@@ -176,7 +191,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
       )
     }
     return subscribeMockQuestCoralProjectUnreadStates(currentUserId, setUnreadStates)
-  }, [currentUserId])
+  }, [enabled, currentUserId])
 
   const unreadStatesByProjectId = useMemo(
     () => new Map(unreadStates.map((state) => [state.projectId, state])),
@@ -280,6 +295,11 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
   const updatesForProject = useCallback(
     (projectId: string) => updatesByProjectId.get(projectId) ?? [],
     [updatesByProjectId],
+  )
+
+  const feedbackRepliesForProject = useCallback(
+    (projectId: string) => feedbackReplies.filter((reply) => reply.projectId === projectId),
+    [feedbackReplies],
   )
 
   const coverageFor = useCallback(
@@ -439,6 +459,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
     currentUserName,
     projects,
     updates,
+    feedbackReplies,
     contexts,
     unreadCountsByProjectId,
     visibleProjects,
@@ -449,6 +470,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
     loadError,
     getProject,
     updatesForProject,
+    feedbackRepliesForProject,
     coverageFor,
     blockerCountFor,
     unreadCountFor,

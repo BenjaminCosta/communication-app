@@ -55,11 +55,11 @@ function eventId(): string {
   return `evt-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "") {
+export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "", enabled = true) {
   // No fake data: the pipeline is empty until real applications arrive (live)
   // or an invite creates one. Flag-off dev shows an empty dashboard.
   const [applications, setApplications] = useState<CandidateApplication[]>([])
-  const [isLoading, setIsLoading] = useState(APPLICATIONS_BACKEND_ENABLED)
+  const [isLoading, setIsLoading] = useState(enabled && APPLICATIONS_BACKEND_ENABLED)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [filters, setFilters] = useState<ApplicationFilters>(emptyFilters)
   const [sort, setSort] = useState<ApplicationSort>("newest")
@@ -71,7 +71,10 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
   )
 
   // ── Data source ───────────────────────────────────────────────────────
+  // Deferred until `enabled` (the reviewer actually opened the module) — no
+  // point paying for a live listener nobody is looking at.
   useEffect(() => {
+    if (!enabled) return
     if (!APPLICATIONS_BACKEND_ENABLED) {
       // The mock pipeline is empty until a reviewer creates an invite. Unlike
       // the retired fixture list, these are real local invite records and the
@@ -82,6 +85,9 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
         setLoadError(null)
       })
     }
+    // enabled just flipped true: re-arm the spinner in case it was mounted
+    // false while this effect sat idle (`isLoading`'s initializer only ran once).
+    setIsLoading(true)
     const unsubscribe = subscribeApplications(
       (next) => {
         setApplications(next)
@@ -98,7 +104,7 @@ export function useApplicationsDashboard(reviewerName = "You", reviewerUid = "")
       },
     )
     return unsubscribe
-  }, [])
+  }, [enabled])
 
   /**
    * Activity is a subcollection, so it only loads for the open candidate —

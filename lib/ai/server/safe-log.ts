@@ -47,3 +47,8 @@ export function logDirectoryAi(metadata: SafeOutlookAiLog): void {
 export function logQuestCoralAi(metadata: SafeOutlookAiLog): void {
   console.info("[quest-coral-ai]", JSON.stringify(metadata))
 }
+
+/** Same allowlisted metadata shape, tagged for ByeByeDPR's report transcription/structuring flow. */
+export function logByeByeDprAi(metadata: SafeOutlookAiLog): void {
+  console.info("[bye-bye-dpr-ai]", JSON.stringify(metadata))
+}

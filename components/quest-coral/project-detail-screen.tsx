@@ -53,6 +53,7 @@ import {
   summarizeMarkdown,
   UPDATE_TYPE_META,
   type CoverageResult,
+  type FeedbackReply,
   type Project,
   type ProjectPerson,
   type ProjectTimeline,
@@ -65,6 +66,7 @@ import type { Contact, ImportedContact } from "@/lib/store"
 interface ProjectDetailScreenProps {
   project: Project
   updates: ProjectUpdate[]
+  feedbackReplies: FeedbackReply[]
   activityLoaded: boolean
   coverage: CoverageResult
   contacts: Contact[]
@@ -151,7 +153,40 @@ const ActivityBadge = memo(function ActivityBadge({ type }: { type: UpdateType }
   )
 })
 
-const ActivityRow = memo(function ActivityRow({ update, previousProgress }: { update: ProjectUpdate; previousProgress?: number }) {
+const FeedbackReplyRows = memo(function FeedbackReplyRows({ replies }: { replies: FeedbackReply[] }) {
+  if (replies.length === 0) return null
+  return (
+    <div className="ml-9 mt-3 border-l border-[var(--coral-border)] pl-3">
+      <p className="text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-[var(--coral-text-muted)]">
+        {replies.length === 1 ? "1 reply" : `${replies.length} replies`}
+      </p>
+      <div className="mt-2 space-y-3">
+        {replies.map((reply) => (
+          <div key={reply.id} className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Avatar initials={initialsFromName(reply.authorName)} className="h-6 w-6 text-[0.5rem]" />
+              <span className="min-w-0 flex-1 truncate text-[0.6875rem] font-semibold text-[var(--coral-text)]">{reply.authorName}</span>
+              <span className="shrink-0 text-[0.5625rem] text-[var(--coral-text-muted)]">{formatActivityDate(reply.createdAt)}</span>
+            </div>
+            {reply.body ? <p className="mt-1 whitespace-pre-line text-[0.75rem] leading-relaxed text-[var(--coral-text-muted)]">{reply.body}</p> : null}
+            {reply.imageUrl && (
+              <a href={reply.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[0.6875rem] font-semibold text-[var(--coral-strong)]">
+                {reply.imageName || "View image"}
+              </a>
+            )}
+            {reply.fileUrl && (
+              <a href={reply.fileUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[0.6875rem] font-semibold text-[var(--coral-strong)]">
+                {reply.fileName || "View attachment"}
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+})
+
+const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedbackReplies }: { update: ProjectUpdate; previousProgress?: number; feedbackReplies: FeedbackReply[] }) {
   const visual = ACTIVITY_VISUALS[update.type]
   const Icon = visual.Icon
   const progressChanged = update.type === "update" && update.progress !== undefined && previousProgress !== undefined && update.progress !== previousProgress
@@ -180,6 +215,7 @@ const ActivityRow = memo(function ActivityRow({ update, previousProgress }: { up
             <strong className="font-semibold text-[var(--coral-strong)]">{update.progress}%</strong>
           </p>
         )}
+        {update.type === "feedback" && <FeedbackReplyRows replies={feedbackReplies} />}
       </div>
     </article>
   )
@@ -212,12 +248,14 @@ const ActivityFilterTabs = memo(function ActivityFilterTabs({ value, onChange }:
 
 const ActivityEntries = memo(function ActivityEntries({
   updates,
+  feedbackReplies,
   emptyLabel,
   actionLabel,
   onAction,
   secondaryAction,
 }: {
   updates: ProjectUpdate[]
+  feedbackReplies: FeedbackReply[]
   emptyLabel: string
   actionLabel: string
   onAction: () => void
@@ -248,6 +286,15 @@ const ActivityEntries = memo(function ActivityEntries({
   // One backward pass instead of re-scanning the tail of the (newest-first)
   // list for every row — same result, O(n) instead of O(n²) as activity grows.
   const previousProgressByIndex: Array<number | undefined> = new Array(updates.length)
+  const repliesByFeedbackId = new Map<string, FeedbackReply[]>()
+  for (const reply of feedbackReplies) {
+    const bucket = repliesByFeedbackId.get(reply.feedbackId)
+    if (bucket) bucket.push(reply)
+    else repliesByFeedbackId.set(reply.feedbackId, [reply])
+  }
+  for (const replies of repliesByFeedbackId.values()) {
+    replies.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
   let trailingProgress: number | undefined
   for (let index = updates.length - 1; index >= 0; index -= 1) {
     previousProgressByIndex[index] = trailingProgress
@@ -258,7 +305,7 @@ const ActivityEntries = memo(function ActivityEntries({
   return (
     <>
       {updates.map((update, index) => (
-        <ActivityRow key={update.id} update={update} previousProgress={previousProgressByIndex[index]} />
+        <ActivityRow key={update.id} update={update} previousProgress={previousProgressByIndex[index]} feedbackReplies={repliesByFeedbackId.get(update.id) ?? []} />
       ))}
     </>
   )
@@ -360,7 +407,7 @@ const EventCoverageCard = memo(function EventCoverageCard({ coverage, timeline, 
   )
 })
 
-export function ProjectDetailScreen({ project, updates, activityLoaded, coverage, contacts, importedContacts, currentUserName, onBack, onAddUpdate, onPatchProject, onDeleteProject, onMarkProjectRead, className }: ProjectDetailScreenProps) {
+export function ProjectDetailScreen({ project, updates, feedbackReplies, activityLoaded, coverage, contacts, importedContacts, currentUserName, onBack, onAddUpdate, onPatchProject, onDeleteProject, onMarkProjectRead, className }: ProjectDetailScreenProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [activeView, setActiveView] = useState<DetailView>("overview")
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all")
@@ -386,8 +433,8 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
   const [deleteProjectError, setDeleteProjectError] = useState<string | null>(null)
   const readMarkedProjectRef = useRef<string | null>(null)
   const { context, saveContext } = useQuestCoralContext(project.id, currentUserName)
-  const ask = useQuestCoralAsk(project, updates, context?.markdown)
-  const brief = useQuestCoralBrief(project, updates, context?.markdown)
+  const ask = useQuestCoralAsk(project, updates, context?.markdown, feedbackReplies)
+  const brief = useQuestCoralBrief(project, updates, context?.markdown, feedbackReplies)
   // Holds the generating skeleton visible for a minimum beat per question, so
   // it reads as an intentional micro-moment even when mock mode (or a warm
   // cache) resolves near-instantly — same pattern as Directory's Ask AI.
@@ -606,6 +653,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
               <div className="mt-3 divide-y divide-[var(--coral-border)] border-t border-[var(--coral-border)]">
                 <ActivityEntries
                   updates={visibleUpdates}
+                  feedbackReplies={feedbackReplies}
                   emptyLabel={activityEmptyLabel}
                   actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
                   onAction={handleActivityAction}
@@ -849,6 +897,7 @@ export function ProjectDetailScreen({ project, updates, activityLoaded, coverage
             <div className="mt-3 divide-y divide-[var(--coral-border)] border-t border-[var(--coral-border)]">
               <ActivityEntries
                 updates={latestUpdates}
+                feedbackReplies={feedbackReplies}
                 emptyLabel={activityEmptyLabel}
                 actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
                 onAction={handleActivityAction}

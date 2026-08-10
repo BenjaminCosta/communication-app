@@ -111,6 +111,27 @@ export interface ProjectUpdate {
   createdAt: string
 }
 
+/**
+ * An append-only reply to a Feedback activity, authored in Communications.
+ * It deliberately stays separate from ProjectUpdate: replies are thread
+ * conversation, not a new project signal or unread-count activity.
+ */
+export interface FeedbackReply {
+  id: string
+  projectId: string
+  feedbackId: string
+  authorId: string
+  authorName: string
+  body: string
+  communicationMessageId: string
+  replyToCommunicationMessageId: string
+  createdAt: string
+  imageUrl?: string
+  imageName?: string
+  fileUrl?: string
+  fileName?: string
+}
+
 // ── Per-user unread activity ───────────────────────────────────────────
 
 /**

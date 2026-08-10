@@ -13,7 +13,6 @@
  */
 
 import {
-  addDoc,
   collection,
   deleteField,
   deleteDoc,
@@ -35,9 +34,11 @@ import { subscribeWithServerReconcile } from "@/lib/firestore-reconcile"
 import {
   QUEST_CORAL_PROJECTS_COLLECTION,
   QUEST_CORAL_PROJECT_CONTEXTS_COLLECTION,
+  QUEST_CORAL_FEEDBACK_REPLIES_COLLECTION,
   QUEST_CORAL_PROJECT_UNREAD_STATES_COLLECTION,
   QUEST_CORAL_UPDATES_COLLECTION,
   mapProjectContextDoc,
+  mapFeedbackReplyDoc,
   mapProjectDoc,
   mapProjectUnreadStateDoc,
   mapUpdateDoc,
@@ -46,16 +47,27 @@ import {
   updateToFirestore,
 } from "@/lib/quest-coral-store"
 import {
+  publishQuestCoralFeedback,
+  synchronizeQuestCoralFeedbackAudience,
+} from "@/features/quest-coral/quest-coral-feedback-client"
+import {
+  QUEST_CORAL_COMMUNICATIONS_SOURCE,
+  questCoralCommunicationsContextDescription,
+  questCoralCommunicationsContextId,
+} from "@/lib/quest-coral-communications"
+import {
   blankProject,
   questCoralProjectUnreadStateId,
   type Project,
   type ProjectContext,
+  type FeedbackReply,
   type ProjectUnreadState,
   type ProjectUpdate,
 } from "@/lib/quest-coral-core"
 
 const PROJECTS_PAGE_SIZE = 500
 const UPDATES_PAGE_SIZE = 500
+const FEEDBACK_REPLIES_PAGE_SIZE = 1_000
 const PROJECT_CONTEXTS_PAGE_SIZE = 500
 
 function normalizedUnreadCount(value: number): number {
@@ -112,6 +124,26 @@ export function subscribeQuestCoralUpdates(
         onServerReconciled?.()
       }
     },
+    (error) => onError?.(error),
+  )
+}
+
+/**
+ * Replies are a separate thread collection so they never inflate project
+ * activity or unread counts. They are still live in Project Detail.
+ */
+export function subscribeQuestCoralFeedbackReplies(
+  onChange: (replies: FeedbackReply[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const repliesQuery = query(
+    collection(db, QUEST_CORAL_FEEDBACK_REPLIES_COLLECTION),
+    orderBy("createdAt", "desc"),
+    limit(FEEDBACK_REPLIES_PAGE_SIZE),
+  )
+  return subscribeWithServerReconcile(
+    repliesQuery,
+    (snapshot) => onChange(snapshot.docs.map((entry) => mapFeedbackReplyDoc(entry.id, entry.data()))),
     (error) => onError?.(error),
   )
 }
@@ -183,14 +215,29 @@ export async function createQuestCoralProject(
 ): Promise<Project> {
   const { id: _placeholder, ...base } = blankProject("pending", ownerId, ownerName)
   const draft: Omit<Project, "id"> = { ...base, ...patch }
-  // Server truth for creation timestamps, same override applied on top of the
-  // generic converter that lib/applications-writes.ts uses for new applications.
-  const ref = await addDoc(collection(db, QUEST_CORAL_PROJECTS_COLLECTION), {
+  const projectRef = doc(collection(db, QUEST_CORAL_PROJECTS_COLLECTION))
+  const project = { ...draft, id: projectRef.id }
+  const contextRef = doc(db, "contexts", questCoralCommunicationsContextId(project.id))
+  const batch = writeBatch(db)
+  // The project and its Communications context share one client batch. The
+  // regular Firestore rules still attribute both records to the project owner.
+  batch.set(projectRef, {
     ...projectToFirestore(draft),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
-  return { ...draft, id: ref.id }
+  batch.set(contextRef, {
+    name: draft.name,
+    description: questCoralCommunicationsContextDescription(draft.description),
+    fields: [],
+    createdBy: ownerId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    sourceModule: QUEST_CORAL_COMMUNICATIONS_SOURCE,
+    questCoralProjectId: project.id,
+  })
+  await batch.commit()
+  return project
 }
 
 /** Only the owner may call this — enforced by firestore.rules, not re-checked here. */
@@ -207,7 +254,31 @@ export async function patchQuestCoralProject(projectId: string, patch: Partial<P
   if (patch.people !== undefined) data.people = patch.people
   if (patch.timeline !== undefined) data.timeline = patch.timeline
   if (patch.isFavorited !== undefined) data.isFavorited = patch.isFavorited
-  await updateDoc(doc(db, QUEST_CORAL_PROJECTS_COLLECTION, projectId), data)
+  const projectRef = doc(db, QUEST_CORAL_PROJECTS_COLLECTION, projectId)
+  if (patch.name === undefined && patch.description === undefined) {
+    await updateDoc(projectRef, data)
+    if (patch.people !== undefined) await synchronizeQuestCoralFeedbackAudience(projectId)
+    return
+  }
+  const contextRef = doc(db, "contexts", questCoralCommunicationsContextId(projectId))
+  await runTransaction(db, async (transaction) => {
+    const contextSnapshot = await transaction.get(contextRef)
+    transaction.update(projectRef, data)
+    const context = contextSnapshot.data()
+    if (
+      contextSnapshot.exists()
+      && context?.sourceModule === QUEST_CORAL_COMMUNICATIONS_SOURCE
+      && context?.questCoralProjectId === projectId
+    ) {
+      const contextData: DocumentData = { updatedAt: serverTimestamp() }
+      if (patch.name !== undefined) contextData.name = patch.name
+      if (patch.description !== undefined) {
+        contextData.description = questCoralCommunicationsContextDescription(patch.description)
+      }
+      transaction.update(contextRef, contextData)
+    }
+  })
+  if (patch.people !== undefined) await synchronizeQuestCoralFeedbackAudience(projectId)
 }
 
 /**
@@ -219,6 +290,15 @@ export async function createQuestCoralUpdate(
   update: Omit<ProjectUpdate, "id" | "createdAt">,
   projectPatch: Partial<Pick<Project, "status" | "progress" | "nextStep" | "nextStepDue">>,
 ): Promise<ProjectUpdate> {
+  if (update.type === "feedback") {
+    const feedbackRef = doc(collection(db, QUEST_CORAL_UPDATES_COLLECTION))
+    return publishQuestCoralFeedback({
+      feedbackId: feedbackRef.id,
+      projectId: update.projectId,
+      body: update.body,
+      authorName: update.authorName,
+    })
+  }
   const fullUpdate: Omit<ProjectUpdate, "id"> = { ...update, createdAt: new Date().toISOString() }
   const batch = writeBatch(db)
 

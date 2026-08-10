@@ -22,7 +22,7 @@ import {
   requestQuestCoralAsk,
 } from "@/features/quest-coral/ai/client/quest-coral-ai-client"
 import type { QuestCoralAskProject } from "@/features/quest-coral/ai/quest-coral-ask-contract"
-import { effectiveProjectStatus, type Project, type ProjectUpdate } from "@/lib/quest-coral-core"
+import { effectiveProjectStatus, type FeedbackReply, type Project, type ProjectUpdate } from "@/lib/quest-coral-core"
 
 export type QuestCoralAskPhase = "idle" | "asking" | "answered" | "error"
 
@@ -32,7 +32,12 @@ export interface QuestCoralAnswer {
 }
 
 /** Project a Project + its updates into the small, bounded wire payload the server validates. */
-export function projectToAskPayload(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null): QuestCoralAskProject {
+export function projectToAskPayload(
+  project: Project,
+  updates: ProjectUpdate[],
+  contextMarkdown?: string | null,
+  feedbackReplies: FeedbackReply[] = [],
+): QuestCoralAskProject {
   return {
     id: project.id,
     name: project.name,
@@ -56,6 +61,16 @@ export function projectToAskPayload(project: Project, updates: ProjectUpdate[], 
         createdAt: update.createdAt,
         isBlocker: update.isBlocker,
       })),
+    feedbackReplies: feedbackReplies
+      .filter((reply) => reply.projectId === project.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 20)
+      .map((reply) => ({
+        feedbackId: reply.feedbackId,
+        body: reply.body.slice(0, 600),
+        authorName: reply.authorName,
+        createdAt: reply.createdAt,
+      })),
   }
 }
 
@@ -63,7 +78,7 @@ function secondsRemaining(untilMs: number, nowMs: number): number {
   return untilMs > nowMs ? Math.max(1, Math.ceil((untilMs - nowMs) / 1000)) : 0
 }
 
-export function useQuestCoralAsk(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null) {
+export function useQuestCoralAsk(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []) {
   const [question, setQuestion] = useState("")
   const [phase, setPhase] = useState<QuestCoralAskPhase>("idle")
   const [answer, setAnswer] = useState<QuestCoralAnswer | null>(null)
@@ -93,7 +108,7 @@ export function useQuestCoralAsk(project: Project, updates: ProjectUpdate[], con
 
     if (!QUEST_CORAL_AI_ENABLED) {
       window.setTimeout(() => {
-        setAnswer({ question: trimmed, text: answerProjectQuestion(project, updates, trimmed, contextMarkdown) })
+        setAnswer({ question: trimmed, text: answerProjectQuestion(project, updates, trimmed, contextMarkdown, feedbackReplies) })
         setPhase("answered")
         busyRef.current = false
       }, 450)
@@ -103,7 +118,7 @@ export function useQuestCoralAsk(project: Project, updates: ProjectUpdate[], con
     void (async () => {
       try {
         const response = await requestQuestCoralAsk(
-          { question: trimmed, scope: "project", projects: [projectToAskPayload(project, updates, contextMarkdown)] },
+          { question: trimmed, scope: "project", projects: [projectToAskPayload(project, updates, contextMarkdown, feedbackReplies)] },
           { idempotencyKey: createQuestCoralAiIdempotencyKey() },
         )
         setAnswer({ question: trimmed, text: response.answer })
@@ -119,7 +134,7 @@ export function useQuestCoralAsk(project: Project, updates: ProjectUpdate[], con
         busyRef.current = false
       }
     })()
-  }, [question, project, updates, contextMarkdown, cooldownUntil])
+  }, [question, project, updates, contextMarkdown, feedbackReplies, cooldownUntil])
 
   const reset = useCallback(() => {
     setQuestion("")

@@ -23,6 +23,16 @@ export const questCoralAskUpdateSchema = z.object({
 
 export type QuestCoralAskUpdate = z.infer<typeof questCoralAskUpdateSchema>
 
+/** A bounded conversation reply attached to a Feedback activity. */
+export const questCoralAskFeedbackReplySchema = z.object({
+  feedbackId: z.string().min(1).max(200),
+  body: z.string().max(QUEST_CORAL_AI_LIMITS.maxFieldChars),
+  authorName: z.string().max(200),
+  createdAt: z.string().max(40),
+})
+
+export type QuestCoralAskFeedbackReply = z.infer<typeof questCoralAskFeedbackReplySchema>
+
 /** One project's bounded context: its own fields plus its own updates feed. */
 export const questCoralAskProjectSchema = z.object({
   id: z.string().min(1).max(200),
@@ -38,6 +48,8 @@ export const questCoralAskProjectSchema = z.object({
   /** Human-authored Markdown brief; independent from the activity feed. */
   contextMarkdown: z.string().max(QUEST_CORAL_AI_LIMITS.maxContextChars).nullish(),
   updates: z.array(questCoralAskUpdateSchema).max(QUEST_CORAL_AI_LIMITS.maxUpdates).default([]),
+  /** Thread replies are conversation, not activity, but may clarify Feedback. */
+  feedbackReplies: z.array(questCoralAskFeedbackReplySchema).max(20).default([]),
 })
 
 export type QuestCoralAskProject = z.infer<typeof questCoralAskProjectSchema>

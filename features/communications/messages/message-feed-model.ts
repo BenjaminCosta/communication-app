@@ -90,6 +90,10 @@ export function mapMessageDocument(id: string, data: MessageDocument): Message {
           text: String((data.replyPreview as MessageDocument).text ?? ""),
         }
       : undefined,
+    sourceModule: optionalString(data.sourceModule),
+    sourceQuestCoralProjectId: optionalString(data.sourceQuestCoralProjectId),
+    sourceQuestCoralFeedbackId: optionalString(data.sourceQuestCoralFeedbackId),
+    sourceQuestCoralFeedbackReplyId: optionalString(data.sourceQuestCoralFeedbackReplyId),
   }
 }
 

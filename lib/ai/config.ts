@@ -12,7 +12,7 @@
  * exists. Setting `OUTLOOK_AI_MODE=mock` forces mock even when a key is present.
  */
 
-import { DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS, QUEST_CORAL_AI_LIMITS } from "@/lib/ai/config-public"
+import { BYE_BYE_DPR_AI_LIMITS, DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS, QUEST_CORAL_AI_LIMITS } from "@/lib/ai/config-public"
 
 export type OutlookAiMode = "mock" | "live"
 /** Shared alias — both AI features use the same mock/live semantics. */
@@ -25,7 +25,7 @@ const DEFAULT_ASK_MODEL = "gpt-5-mini"
 const DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 
 // Re-export the client-safe limits so server code has one import site.
-export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS }
+export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS, BYE_BYE_DPR_AI_LIMITS }
 
 function readMode(hasKey: boolean): OutlookAiMode {
   const raw = (process.env.OUTLOOK_AI_MODE ?? "").trim().toLowerCase()
@@ -125,6 +125,36 @@ export function getQuestCoralAiConfig(): QuestCoralAiConfig {
     mode,
     apiKey,
     askModel: (process.env.QUEST_CORAL_AI_ASK_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
+    baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
+  }
+}
+
+export interface ByeByeDprAiConfig {
+  mode: AiMode
+  apiKey: string | null
+  transcribeModel: string
+  parseModel: string
+  baseUrl: string
+}
+
+/**
+ * Resolve the ByeByeDPR AI config (report transcription + free-text →
+ * structured-fields parsing) at request time. Mirrors `getOutlookAiConfig()`
+ * and reuses the same `OPENAI_API_KEY` secret + base URL, with its own mode
+ * flag and model env so it can be tuned (or forced to mock) independently.
+ */
+export function getByeByeDprAiConfig(): ByeByeDprAiConfig {
+  if (typeof window !== "undefined") {
+    throw new Error("getByeByeDprAiConfig() must only run on the server.")
+  }
+  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim() || null
+  const raw = (process.env.BYEBYEDPR_AI_MODE ?? "").trim().toLowerCase()
+  const mode: AiMode = raw === "mock" ? "mock" : raw === "live" ? "live" : apiKey ? "live" : "mock"
+  return {
+    mode,
+    apiKey,
+    transcribeModel: (process.env.BYEBYEDPR_AI_TRANSCRIBE_MODEL ?? "").trim() || DEFAULT_TRANSCRIBE_MODEL,
+    parseModel: (process.env.BYEBYEDPR_AI_PARSE_MODEL ?? "").trim() || DEFAULT_PARSE_MODEL,
     baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
   }
 }
