@@ -656,7 +656,12 @@ export async function transcribeReportAudio(
   const trace = { operation: "transcription" as OutlookAiOperation, requestId: randomUUID() }
   const blob = new Blob([input.bytes], { type: input.contentType })
   const result = await transcribeReportAudioAi({ file: blob, fileName: input.fileName, language: input.language }, trace)
-  await ref.update({ transcription: result.transcript, transcriptionSource: "voice" satisfies ContentSource, updatedAt: new Date() })
+  await ref.update({
+    transcription: result.transcript,
+    rawText: result.transcript,
+    transcriptionSource: "voice" satisfies ContentSource,
+    updatedAt: new Date(),
+  })
   return result
 }
 
@@ -748,15 +753,13 @@ export async function generateReportPdf(principal: ByeByeDprPrincipal, reportId:
   return { pdfStoragePath: pdfPath, sizeBytes: pdfBytes.length }
 }
 
-/** Turns the structured fields into the readable body of a Directory note — never invents content, only joins what's populated. */
-function summarizeDailyReportForNote(structuredData: DailyReportStructuredData): string {
+/** Turns the reviewed report into a Directory note — never invents content. */
+function summarizeDailyReportForNote(structuredData: DailyReportStructuredData, rawText: string | null): string {
   const parts: string[] = []
   if (structuredData.workCompleted) parts.push(`Work completed: ${structuredData.workCompleted}`)
   if (structuredData.issuesOrDelays) parts.push(`Issues or delays: ${structuredData.issuesOrDelays}`)
-  if (structuredData.attendanceNotes) parts.push(`Attendance: ${structuredData.attendanceNotes}`)
   if (structuredData.nextSteps) parts.push(`Next steps: ${structuredData.nextSteps}`)
-  if (structuredData.additionalNotes) parts.push(`Additional notes: ${structuredData.additionalNotes}`)
-  return parts.join("\n\n") || "Daily report submitted."
+  return parts.join("\n\n") || rawText?.trim() || "Daily report submitted."
 }
 
 /**
@@ -799,7 +802,7 @@ async function fileReportIntoDirectory(
 
     await db.collection("directoryNotes").add({
       entityIds: [job.directoryContextId],
-      text: summarizeDailyReportForNote(report.structuredData as DailyReportStructuredData),
+      text: summarizeDailyReportForNote(report.structuredData as DailyReportStructuredData, report.rawText),
       noteType: "daily_report",
       attachments: [downloadUrl],
       createdBy: authorUid,
@@ -829,7 +832,7 @@ export async function submitReport(principal: ByeByeDprPrincipal, reportId: stri
   }
 
   const structuredData = mapReportStructuredData(data.structuredData)
-  if (!isDailyReportSubmittable(structuredData)) {
+  if (!isDailyReportSubmittable(structuredData, typeof data.rawText === "string" ? data.rawText : data.transcription)) {
     throw new ByeByeDprError("invalid-request", "Add some content before submitting.", 400)
   }
 

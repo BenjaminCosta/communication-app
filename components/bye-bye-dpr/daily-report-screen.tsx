@@ -7,10 +7,8 @@
  *
  * Real backend: recording reuses `useOutlookRecorder`, the same MediaRecorder
  * hook the Outlook module uses (generic despite the name — see its own
- * docstring). On stop, the raw audio is archived and sent to the
- * transcription endpoint; the resulting text (or typed text) is sent to the
- * structuring endpoint, and the structured fields are handed to the parent
- * for Review & Submit.
+ * docstring). On stop, the raw audio is archived and transcribed. The user
+ * reviews and edits that source text before deciding whether to organize it.
  */
 
 import { useRef, useState } from "react"
@@ -20,19 +18,16 @@ import { BdButton, BdCard } from "@/components/bye-bye-dpr/ui/byebye-dpr-primiti
 import { ByeByeDprAiGenerating } from "@/components/bye-bye-dpr/ui/byebye-dpr-ai-generating"
 import { useOutlookRecorder } from "@/features/outlooks/voice/use-outlook-recorder"
 import { BYE_BYE_DPR_AI_LIMITS } from "@/lib/ai/config-public"
-import type { DailyReportStructuredData } from "@/lib/bye-bye-dpr-core"
 import {
   ByeByeDprClientError,
-  structureReportDraft,
   transcribeReportAudio,
   uploadReportAudio,
 } from "@/features/bye-bye-dpr/client/byebye-dpr-client"
 import type { Job } from "@/lib/bye-bye-dpr-store"
 
-type Stage = "choose" | "typing" | "ai-processing"
+type Stage = "choose" | "typing" | "transcribing"
 
-const VOICE_GENERATING_STEPS = ["Transcribing your recording", "Structuring your update", "Almost done"] as const
-const TYPED_GENERATING_STEPS = ["Structuring your update", "Almost done"] as const
+const TRANSCRIBING_STEPS = ["Transcribing your recording", "Almost done"] as const
 
 interface DailyReportScreenProps {
   job: Job
@@ -41,7 +36,7 @@ interface DailyReportScreenProps {
   onAddPhotos: (files: File[]) => void
   onRemovePhoto: (index: number) => void
   onBack: () => void
-  onContinue: (input: { source: "voice" | "typed"; structuredData: DailyReportStructuredData }) => void
+  onContinue: (input: { source: "voice" | "typed"; text: string }) => void
 }
 
 function formatClock(seconds: number): string {
@@ -62,32 +57,20 @@ function extensionForAudio(type: string): string {
 export function DailyReportScreen({ job, reportId, photos, onAddPhotos, onRemovePhoto, onBack, onContinue }: DailyReportScreenProps) {
   const [stage, setStage] = useState<Stage>("choose")
   const [typedText, setTypedText] = useState("")
-  const [processingSource, setProcessingSource] = useState<"voice" | "typed">("voice")
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  async function finishWithText(text: string, source: "voice" | "typed") {
-    try {
-      const { structuredData } = await structureReportDraft(reportId, { text, source })
-      onContinue({ source, structuredData })
-    } catch (err) {
-      setStage(source === "voice" ? "choose" : "typing")
-      setError(err instanceof ByeByeDprClientError ? err.message : "Could not structure your update. Try again.")
-    }
-  }
 
   const recorder = useOutlookRecorder({
     maxSeconds: BYE_BYE_DPR_AI_LIMITS.maxAudioSeconds,
     onComplete: async (audio) => {
-      setProcessingSource("voice")
-      setStage("ai-processing")
+      setStage("transcribing")
       setError(null)
       const fileName = `daily-report-${Date.now()}.${extensionForAudio(audio.type)}`
       // Best-effort raw-audio archive — never blocks getting to the transcript.
       uploadReportAudio(reportId, audio, fileName).catch(() => {})
       try {
         const { transcript } = await transcribeReportAudio(reportId, audio, fileName)
-        await finishWithText(transcript, "voice")
+        onContinue({ source: "voice", text: transcript })
       } catch (err) {
         setStage("choose")
         setError(err instanceof ByeByeDprClientError ? err.message : "Transcription failed. Try again, or type your update instead.")
@@ -96,11 +79,9 @@ export function DailyReportScreen({ job, reportId, photos, onAddPhotos, onRemove
   })
 
   function submitTyped() {
-    if (!typedText.trim() || stage === "ai-processing") return
-    setProcessingSource("typed")
-    setStage("ai-processing")
+    if (!typedText.trim()) return
     setError(null)
-    void finishWithText(typedText.trim(), "typed")
+    onContinue({ source: "typed", text: typedText.trim() })
   }
 
   function handlePhotoSelect(event: React.ChangeEvent<HTMLInputElement>) {
@@ -141,11 +122,11 @@ export function DailyReportScreen({ job, reportId, photos, onAddPhotos, onRemove
             </div>
           )}
 
-          {stage === "ai-processing" && (
+          {stage === "transcribing" && (
             <BdCard className="byebye-dpr-step-enter mt-4 flex flex-col items-center px-6 py-10 text-center">
               <ByeByeDprAiGenerating
-                steps={processingSource === "voice" ? VOICE_GENERATING_STEPS : TYPED_GENERATING_STEPS}
-                label="Turning your update into a structured daily report"
+                steps={TRANSCRIBING_STEPS}
+                label="Preparing your transcription for review"
               />
             </BdCard>
           )}

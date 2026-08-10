@@ -76,16 +76,15 @@ test("isValidIdempotencyKey enforces the expected shape", () => {
   assert.equal(isValidIdempotencyKey(""), false)
 })
 
-test("isDailyReportSubmittable requires at least one populated field", () => {
+test("isDailyReportSubmittable accepts reviewed source text or an organized field", () => {
   const empty: DailyReportStructuredData = {
     workCompleted: null,
     issuesOrDelays: null,
-    attendanceNotes: null,
     nextSteps: null,
-    additionalNotes: null,
   }
   assert.equal(isDailyReportSubmittable(empty), false)
   assert.equal(isDailyReportSubmittable({ ...empty, workCompleted: "Framing done" }), true)
   assert.equal(isDailyReportSubmittable({ ...empty, workCompleted: "   " }), false)
+  assert.equal(isDailyReportSubmittable(empty, "Raw transcription"), true)
+  assert.equal(isDailyReportSubmittable(empty, "   "), false)
 })
-

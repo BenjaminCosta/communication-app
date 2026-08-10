@@ -65,10 +65,15 @@ async function getJson<T>(path: string, fallback: string): Promise<T> {
   return (await response.json()) as T
 }
 
-async function postJson<T>(path: string, body: unknown, fallback: string): Promise<T> {
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  fallback: string,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
-    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json", ...extraHeaders },
     body: JSON.stringify(body),
   })
   if (!response.ok) await readError(response, fallback)
@@ -206,7 +211,12 @@ export function structureReportDraft(
   reportId: string,
   input: { text: string; source: "voice" | "typed" },
 ): Promise<{ structuredData: DailyReportStructuredData; mode: "mock" | "live" }> {
-  return postJson(`/api/bye-bye-dpr/reports/${reportId}/structure`, input, "Could not structure your update. You can edit it manually.")
+  return postJson(
+    `/api/bye-bye-dpr/reports/${reportId}/structure`,
+    input,
+    "Could not structure your update. You can edit it manually.",
+    { "X-Idempotency-Key": createByeByeDprIdempotencyKey() },
+  )
 }
 
 export function submitReport(reportId: string): Promise<{ report: Report }> {

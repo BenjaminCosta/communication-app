@@ -609,6 +609,114 @@ browser real** — mismo motivo que el resto de esta fase (escribiría un
   tiempo sin verlo en la búsqueda, podrían crear dos `/contexts` distintos
   para "lo mismo". Bajo riesgo dado el volumen esperado, pero real.
 
+## Cambio 2026-08-10 (cont.): module switcher del topbar no hacía nada
+
+`byebye-dpr-header.tsx` tenía un "SVC ByeByeDPR ▾" puramente decorativo (un
+`<span>` con `ChevronDown`, sin `onClick`) que imitaba visualmente al
+`<ModuleSwitcher>` real pero nunca abría nada — quedó así desde que se armó
+como maqueta visual (ver la sección "Module switcher" más abajo, que ya
+documentaba esto como pendiente). Se reemplazó por el `<ModuleSwitcher>`
+compartido real (`activeModule="bye-bye-dpr"`); como ByeByeDPR sigue siendo
+ruta standalone, elegir cualquiera de los otros 4 módulos hace
+`router.push("/")` (no hay deep-link a una pantalla específica del shell
+todavía — ver punto 7 de "Pendiente"). `pnpm typecheck` limpio.
+
+## Cambio 2026-08-10 (cont.): "Change" de vuelta en Home + búsqueda en vivo contra Directory
+
+Dos ajustes de UI pedidos por el usuario sobre el flujo ya construido:
+
+- **Botón "Change" junto al job card de Home** — se había sacado por
+  completo en "Cambio 2026-08-10: Clock In arranca por el selector de job"
+  (cuando ChangeJobScreen pasó a ser el propio flujo de clock-in). Vuelve,
+  pero solo al lado de "Last job" (es decir, **solo estando clocked out**):
+  el backend rechaza un segundo clock-in mientras uno ya está activo
+  (`already-clocked-in`, `lib/bye-bye-dpr-server.ts`), así que mostrarlo
+  también en "Current job" solo produciría un toast de error al confirmar.
+  Esto coincide, sin buscarlo a propósito, con la regla que Fase 3 ya había
+  fijado para el link "Change" original (ver nota en "Module switcher" /
+  Fase 2, "el link 'Change' aparecía incluso estando clocked in... ahora
+  solo se muestra antes de clockear") — mismo criterio, reaplicado sobre el
+  nuevo flujo. Cambiar de job a mitad de turno (estando clocked in) sigue sin
+  soportarse; hay que clockear salida primero.
+- **Búsqueda "All jobs" en Change Job Site ahora es búsqueda en vivo contra
+  Directory**, no un filtro local — el usuario pidió que se sintiera "como
+  el buscador de Directory". Antes, escribir en ese campo solo filtraba los
+  jobs que ByeByeDPR ya tenía cargados localmente (potencialmente muy pocos).
+  Ahora, a partir de 2 caracteres, dispara `searchDirectoryJobs()` (la misma
+  función acotada/indexada que ya usaba `AddFirstJobCard`, debounce 300ms) y
+  muestra resultados de **todo** Directory a medida que aparecen. Elegir un
+  resultado ya linkeado a un job local lo selecciona directo; elegir uno sin
+  linkear llama a `createJob({ directoryContextId })` (crea/linkea en el
+  momento, mismo mecanismo que `AddFirstJobCard`) antes de seleccionarlo. Si
+  no hay resultados, ofrece "Create '...'" como alta rápida. Con el campo
+  vacío, el comportamiento no cambió (lista local instantánea, sin red).
+  `pnpm typecheck` limpio; no probado contra el browser real (mismo motivo
+  de siempre — escribiría en `svc-comms` de producción).
+
+## Cambio 2026-08-10 (cont.): nearest location más confiable + búsqueda "relacionada" en vez de vacía
+
+Pedido del usuario: que "nearest location" funcione bien, que la búsqueda de
+job sites sea más inteligente (al estilo del buscador de Directory — si no
+hay match exacto, mostrar los mejores/relacionados) y que un job sin
+ubicación no aparezca mezclado entre los que sí la tienen.
+
+- **Bug real encontrado**: la búsqueda en vivo contra Directory agregada en
+  el cambio anterior (mismo día) creaba/linkeaba jobs con
+  `latitude: null, longitude: null` siempre — cualquier job agregado por ese
+  camino quedaba invisible para "nearest job" para siempre (`suggestNearestJob`
+  solo considera jobs con coordenadas). Arreglado: `ChangeJobScreen` ya pedía
+  la ubicación del browser al entrar (para la sugerencia "Suggested" y las
+  distancias); ahora esa misma ubicación (`currentLocation`, nuevo state) se
+  reusa como coordenadas del job en el momento de linkearlo/crearlo desde
+  "All jobs" — sensato porque, si el worker está buscando el job para
+  clockear, normalmente está parado ahí mismo. Ni bien se crea, su distancia
+  se calcula y se mete en el mismo `distances` state, sin esperar un segundo
+  "Use current location".
+- **"All jobs" ya no mezcla jobs con y sin ubicación**: con query vacía, la
+  lista ahora ordena primero los jobs con distancia conocida (más cerca
+  primero) y **después** los que no tienen coordenadas — nunca intercalados,
+  para no sugerir falsamente que un job sin ubicación está "cerca".
+- **Búsqueda más inteligente, dentro de lo que permiten las reglas de
+  bounded queries**: `findByName()` (la función compartida de Directory)
+  ancla el prefijo solo en la PRIMER palabra de la consulta contra el
+  INICIO del nombre guardado — buscar "Beach" nunca encuentra "Miami Beach
+  Project" (su `normalizedName` empieza con "miami", no "beach"). Sin
+  escanear la colección ni depender de un índice nuevo,
+  `searchDirectoryJobs()` (`lib/bye-bye-dpr-directory-link.ts`) ahora
+  reintenta la misma llamada bounded/indexada una vez por cada palabra
+  extra de la consulta (hasta 3), junta los candidatos y los re-rankea
+  todos juntos contra la consulta completa (match exacto > empieza-con >
+  contiene > cuántas palabras de la consulta aparecen como prefijo de
+  alguna palabra del nombre). Esto resuelve el caso de orden de palabras
+  invertido ("beach miami" sigue encontrando "Miami Beach Project" vía su
+  reintento con "miami"), pero **no** resuelve buscar una palabra que no
+  es la primera del nombre de ningún job (ver límite abajo). Se exportó
+  `tokenize()` en `lib/directory-core.ts` (era privado) para tokenizar la
+  consulta igual que Directory tokeniza `keywords`.
+
+**Actualización, misma conversación — el usuario aprobó el índice nuevo:**
+se agregó un índice compuesto `directoryIndex(keywords CONTAINS, type ASC)`
+a `firestore.indexes.json` (mismo patrón aditivo que `entityIds CONTAINS`
+en `directoryRelations`/`directoryNotes`/`directoryFiles`, cero cambio a
+reglas) y se deployó a producción (`firebase deploy --only
+firestore:indexes --project svc-comms`, éxito). `searchDirectoryJobs()`
+ahora suma una tercera fuente de candidatos —
+`searchDirectoryJobsByKeyword()`, una query `where('type','==','job')
+.where('keywords','array-contains-any', tokens)` — que sí encuentra un job
+por cualquier palabra de su nombre/dirección/compañía, no solo la primera.
+Los candidatos que solo aparecieron por esta vía reciben un score piso (60)
+en vez de depender de que la palabra sea prefijo del nombre, para no
+descartar coincidencias reales por dirección/compañía. Con esto, "Beach"
+sí encuentra "Miami Beach Project" — ya es una búsqueda estilo Directory de
+verdad, dentro de las reglas de bounded queries. Un índice recién creado
+puede tardar unos minutos en construirse en Firestore antes de estar
+100% activo; una búsqueda justo después del deploy podría fallar
+brevemente con `FAILED_PRECONDITION` hasta que termine.
+
+`pnpm verify:fast` completo corrido limpio (incluye `test:directory`,
+`test:bye-bye-dpr`, typecheck, build de `functions/`) antes Y después de
+agregar la query por keywords.
+
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
 Durante la verificación de esta fase se intentó correr un smoke test

@@ -1,6 +1,6 @@
 "use client"
 
-type LoadingProduct = "stream" | "directory" | "applications" | "quest-coral"
+type LoadingProduct = "stream" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr"
 
 interface ProductLoadingScreenProps {
   product: LoadingProduct
@@ -69,7 +69,27 @@ function ProductLoadingScreen({ product, className }: ProductLoadingScreenProps)
               },
               trackStyle: { background: "rgba(255,122,89,0.12)" },
             }
-          : {
+          : product === "bye-bye-dpr"
+            ? {
+                title: "ByeByeDPR",
+                subtitle: "CLOCK IN · CLOCK OUT · REPORT",
+                emoji: "🦺",
+                emojiLabel: "safety vest",
+                screenClass: "byebye-dpr-loading-screen",
+                logoClass: "animate-byebye-dpr-logo-breathe",
+                accent: "#6D5BD0",
+                logoStyle: {
+                  background: "linear-gradient(145deg, #F1EEFB 0%, #FFFFFF 100%)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 1px rgba(109,91,208,0.22), 0 0 34px rgba(109,91,208,0.20), 0 10px 30px rgba(92,75,184,0.13)",
+                },
+                ringStyle: { boxShadow: "0 0 0 1px rgba(109,91,208,0.22)" },
+                barStyle: {
+                  background: "linear-gradient(90deg, transparent, #8B7AE8, #6D5BD0, #8B7AE8, transparent)",
+                  boxShadow: "0 0 12px rgba(109,91,208,0.45)",
+                },
+                trackStyle: { background: "rgba(109,91,208,0.12)" },
+              }
+            : {
             title: "Stream",
             subtitle: "Team Communication",
             emoji: "🤔",
@@ -135,6 +155,10 @@ export function ApplicationsLoadingScreen({ className }: { className?: string })
 
 export function QuestCoralLoadingScreen({ className }: { className?: string }) {
   return <ProductLoadingScreen product="quest-coral" className={className} />
+}
+
+export function ByeByeDprLoadingScreen({ className }: { className?: string }) {
+  return <ProductLoadingScreen product="bye-bye-dpr" className={className} />
 }
 
 /**

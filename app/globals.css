@@ -623,6 +623,42 @@ select.outlook-input {
 .quest-coral-loading-screen .text-muted-foreground\/40 { color: rgba(71, 85, 105, 0.68); }
 .animate-quest-coral-logo-breathe { animation: quest-coral-logo-breathe 2.2s ease-in-out infinite; }
 
+@keyframes byebye-dpr-sky-glint {
+  0%, 100% { opacity: 0.42; transform: translate3d(-2%, -1%, 0) scale(1); }
+  50% { opacity: 0.9; transform: translate3d(3%, 2%, 0) scale(1.08); }
+}
+@keyframes byebye-dpr-logo-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.03); }
+}
+.byebye-dpr-loading-screen {
+  isolation: isolate;
+  overflow: hidden;
+  color: #18142B;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(109, 91, 208, 0.20), transparent 22rem),
+    radial-gradient(circle at 82% 76%, rgba(139, 92, 246, 0.12), transparent 25rem),
+    #FFFFFF;
+}
+.byebye-dpr-loading-screen::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 34%, rgba(255,255,255,0.9) 48%, transparent 61%),
+    radial-gradient(circle at 58% 36%, rgba(216, 208, 250, 0.44), transparent 18rem);
+  animation: byebye-dpr-sky-glint 3.6s ease-in-out infinite;
+}
+.byebye-dpr-loading-screen .text-muted-foreground\/50,
+.byebye-dpr-loading-screen .text-muted-foreground\/40 { color: rgba(107, 101, 128, 0.82); }
+.animate-byebye-dpr-logo-breathe { animation: byebye-dpr-logo-breathe 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .byebye-dpr-loading-screen::before { animation: none; }
+  .animate-byebye-dpr-logo-breathe { animation: none; }
+}
+
 /* The server cookie chooses the launch module; body is a localStorage migration fallback. */
 .launch-loading-directory,
 .launch-loading-applications,

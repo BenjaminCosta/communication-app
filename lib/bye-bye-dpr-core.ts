@@ -124,22 +124,21 @@ export type StructuredDataSource = "manual" | "ai"
 export interface DailyReportStructuredData {
   workCompleted: string | null
   issuesOrDelays: string | null
-  attendanceNotes: string | null
   nextSteps: string | null
-  additionalNotes: string | null
 }
 
 export function emptyDailyReportStructuredData(): DailyReportStructuredData {
   return {
     workCompleted: null,
     issuesOrDelays: null,
-    attendanceNotes: null,
     nextSteps: null,
-    additionalNotes: null,
   }
 }
 
-/** A daily report is ready to submit once at least one field has real content. */
-export function isDailyReportSubmittable(data: DailyReportStructuredData): boolean {
-  return Object.values(data).some((value) => typeof value === "string" && value.trim().length > 0)
+/** A daily report can be submitted as the reviewed source text, with optional organized fields. */
+export function isDailyReportSubmittable(data: DailyReportStructuredData, rawText: string | null = null): boolean {
+  return (
+    (typeof rawText === "string" && rawText.trim().length > 0) ||
+    Object.values(data).some((value) => typeof value === "string" && value.trim().length > 0)
+  )
 }

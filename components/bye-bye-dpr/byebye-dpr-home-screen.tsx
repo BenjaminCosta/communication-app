@@ -16,6 +16,13 @@
  * still lands here directly (no separate "add a job" gate screen) — the
  * job card just doesn't render, and job creation happens inline the first
  * time someone taps Clock In and reaches the (now empty) picker.
+ *
+ * The "Change" link next to the job card reopens that same picker without
+ * clocking in first. It only shows up next to "Last job" (i.e. while
+ * clocked out) — the backend rejects a second clock-in while one is already
+ * active ("already-clocked-in", see lib/bye-bye-dpr-server.ts), so offering
+ * "Change" while clocked in would just surface that as an error toast.
+ * Switching jobs mid-shift isn't supported yet; clock out first.
  */
 
 import { Building2, Check, CheckCircle2, ChevronRight, Clock, ClipboardList, Play, Sparkles, Square } from "lucide-react"
@@ -37,6 +44,7 @@ interface ByeByeDprHomeScreenProps {
   justPosted: boolean
   recentActivity: string[]
   onClockIn: () => void
+  onChangeJob: () => void
   onClockOut: () => void
   onForgotClockOut: () => void
   onOpenDailyReport: () => void
@@ -62,6 +70,7 @@ export function ByeByeDprHomeScreen({
   justPosted,
   recentActivity,
   onClockIn,
+  onChangeJob,
   onClockOut,
   onForgotClockOut,
   onOpenDailyReport,
@@ -87,6 +96,15 @@ export function ByeByeDprHomeScreen({
             <>
               <div className="mt-7 flex items-center justify-between gap-3">
                 <SectionLabel>{clockedIn ? "Current job" : "Last job"}</SectionLabel>
+                {!clockedIn && (
+                  <button
+                    type="button"
+                    onClick={onChangeJob}
+                    className="byebye-dpr-tap text-[0.75rem] font-semibold text-[var(--bd-purple-strong)] hover:underline"
+                  >
+                    Change
+                  </button>
+                )}
               </div>
               <BdCard flat className="mt-2 flex items-center gap-3 px-3.5 py-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bd-purple-soft)] text-[var(--bd-purple-strong)]" aria-hidden="true">

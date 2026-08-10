@@ -26,6 +26,14 @@
  * byebye-dpr-app.tsx) — instead, if the picker has nothing to show, it's
  * the picker itself that offers a quick inline add. Creating a job selects
  * it immediately, so the normal footer "Use This Job" button just works.
+ *
+ * "All jobs" search: once the query is 2+ chars, results switch from a
+ * client-side filter over the small set of jobs already added to ByeByeDPR
+ * to a live, debounced SVC Directory search (same `searchDirectoryJobs` used
+ * by AddFirstJobCard below) — so typing here finds any job in Directory, not
+ * just the ones someone has already clocked into before. Picking a result
+ * that isn't linked to a local job yet transparently links/creates one
+ * (`createJob` with `directoryContextId`) before selecting it.
  */
 
 import { useEffect, useMemo, useState } from "react"
@@ -337,7 +345,14 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
   const [geoError, setGeoError] = useState<string | null>(null)
   const [suggestedJobId, setSuggestedJobId] = useState<string | null>(null)
   const [distances, setDistances] = useState<Record<string, number>>({})
+  const [currentLocation, setCurrentLocation] = useState<GeoPoint | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(currentJobId ?? null)
+
+  const [dirResults, setDirResults] = useState<DirectoryJobSearchResult[]>([])
+  const [dirSearching, setDirSearching] = useState(false)
+  const [dirSearchError, setDirSearchError] = useState<string | null>(null)
+  const [linkingId, setLinkingId] = useState<string | null>(null)
+  const [creatingFromQuery, setCreatingFromQuery] = useState(false)
 
   const suggestedJob = useMemo(() => jobs.find((job) => job.id === suggestedJobId) ?? null, [jobs, suggestedJobId])
 
@@ -348,11 +363,91 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
   const recentJobIds = useMemo(() => new Set(recentJobsFiltered.map((job) => job.id)), [recentJobsFiltered])
 
   const trimmedQuery = query.trim().toLowerCase()
+  // With a location fix, jobs that have coordinates sort nearest-first and
+  // jobs without one are appended after — never interleaved, since a job
+  // with no coordinates has no real distance to rank by.
   const filteredJobs = useMemo(() => {
     const matches = jobs.filter((job) => job.name.toLowerCase().includes(trimmedQuery))
-    if (trimmedQuery) return matches
-    return matches.filter((job) => job.id !== suggestedJobId && !recentJobIds.has(job.id))
-  }, [jobs, trimmedQuery, suggestedJobId, recentJobIds])
+    const base = trimmedQuery ? matches : matches.filter((job) => job.id !== suggestedJobId && !recentJobIds.has(job.id))
+    const withDistance = base.filter((job) => distances[job.id] != null).sort((a, b) => distances[a.id] - distances[b.id])
+    const withoutDistance = base.filter((job) => distances[job.id] == null)
+    return [...withDistance, ...withoutDistance]
+  }, [jobs, trimmedQuery, suggestedJobId, recentJobIds, distances])
+
+  useEffect(() => {
+    if (trimmedQuery.length < 2) {
+      setDirResults([])
+      setDirSearchError(null)
+      setDirSearching(false)
+      return
+    }
+    setDirSearching(true)
+    const handle = setTimeout(() => {
+      searchDirectoryJobs(trimmedQuery)
+        .then(({ results }) => setDirResults(results))
+        .catch((err) => setDirSearchError(err instanceof ByeByeDprClientError ? err.message : "Search failed."))
+        .finally(() => setDirSearching(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [trimmedQuery])
+
+  /** If we already have a location fix (grabbed on entry), stamp it on a freshly linked/created job so it's eligible for nearest-job suggestions right away, instead of sitting coordinate-less until someone edits it later. */
+  function registerCreatedJobDistance(created: Job) {
+    if (!currentLocation || created.latitude == null || created.longitude == null) return
+    setDistances((prev) => ({
+      ...prev,
+      [created.id]: haversineDistanceMeters(currentLocation, { lat: created.latitude as number, lng: created.longitude as number }),
+    }))
+  }
+
+  async function handleSelectDirectoryResult(result: DirectoryJobSearchResult) {
+    const existing = jobs.find((candidate) => candidate.directoryContextId === result.directoryContextId)
+    if (existing) {
+      setSelectedId(existing.id)
+      return
+    }
+    if (linkingId) return
+    setLinkingId(result.directoryContextId)
+    setDirSearchError(null)
+    try {
+      const { job: created } = await createJob({
+        name: result.name,
+        directoryContextId: result.directoryContextId,
+        address: null,
+        latitude: currentLocation?.lat ?? null,
+        longitude: currentLocation?.lng ?? null,
+      })
+      onJobCreated(created)
+      setSelectedId(created.id)
+      registerCreatedJobDistance(created)
+    } catch (err) {
+      setDirSearchError(err instanceof ByeByeDprClientError ? err.message : "Could not link that job. Try again.")
+    } finally {
+      setLinkingId(null)
+    }
+  }
+
+  async function handleCreateFromQuery() {
+    if (creatingFromQuery || !trimmedQuery) return
+    setCreatingFromQuery(true)
+    setDirSearchError(null)
+    try {
+      const { job: created } = await createJob({
+        name: query.trim(),
+        directoryContextId: null,
+        address: null,
+        latitude: currentLocation?.lat ?? null,
+        longitude: currentLocation?.lng ?? null,
+      })
+      onJobCreated(created)
+      setSelectedId(created.id)
+      registerCreatedJobDistance(created)
+    } catch (err) {
+      setDirSearchError(err instanceof ByeByeDprClientError ? err.message : "Could not add that job. Try again.")
+    } finally {
+      setCreatingFromQuery(false)
+    }
+  }
 
   function jobSubtitle(job: Job): string {
     const base = job.address || "No address set"
@@ -367,6 +462,7 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
     try {
       const position = await getCurrentPosition()
       const location: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
+      setCurrentLocation(location)
       const nextDistances: Record<string, number> = {}
       for (const job of jobs) {
         if (job.latitude == null || job.longitude == null) continue
@@ -496,7 +592,77 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
                   className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[var(--bd-text)] outline-none placeholder:text-[var(--bd-text-muted)]"
                 />
               </div>
-              {filteredJobs.length > 0 ? (
+              {currentLocation && trimmedQuery.length >= 2 && (
+                <p className="mb-2 px-1 text-[0.6875rem] text-[var(--bd-text-muted)]">New jobs you pick or create here will use your current location.</p>
+              )}
+              {trimmedQuery.length >= 2 ? (
+                <>
+                  {dirSearching && (
+                    <p className="flex items-center gap-1.5 px-1 py-2 text-[0.8125rem] text-[var(--bd-text-muted)]">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> Searching Directory...
+                    </p>
+                  )}
+                  {dirSearchError && <p className="px-1 py-1 text-[0.8125rem] text-[#DC5A5A]">{dirSearchError}</p>}
+                  {!dirSearching && dirResults.length > 0 && (
+                    <div className="divide-y divide-[var(--bd-border)]">
+                      {dirResults.map((result) => {
+                        const existing = jobs.find((candidate) => candidate.directoryContextId === result.directoryContextId)
+                        const linking = linkingId === result.directoryContextId
+                        const selected = existing != null && selectedId === existing.id
+                        return (
+                          <button
+                            key={result.directoryContextId}
+                            type="button"
+                            onClick={() => void handleSelectDirectoryResult(result)}
+                            disabled={linking}
+                            className="byebye-dpr-tap flex w-full items-center gap-3 py-3.5 text-left disabled:opacity-70"
+                          >
+                            <span
+                              className={cn(
+                                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                                selected ? "bg-[var(--bd-purple)] text-white" : "bg-[var(--bd-purple-soft)] text-[var(--bd-purple-strong)]",
+                              )}
+                              aria-hidden="true"
+                            >
+                              {linking ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Building2 className="h-4.5 w-4.5" strokeWidth={1.8} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[0.875rem] font-semibold text-[var(--bd-text)]">{result.name}</span>
+                              <span className="mt-0.5 block truncate text-[0.75rem] text-[var(--bd-text-muted)]">
+                                {existing ? jobSubtitle(existing) : (result.location ?? "No location set")}
+                              </span>
+                            </span>
+                            {selected && (
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--bd-purple)] text-white" aria-hidden="true">
+                                <Check className="h-3 w-3" strokeWidth={2.5} />
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {!dirSearching && dirResults.length === 0 && !dirSearchError && (
+                    <BdEmptyState
+                      className="mt-2"
+                      icon={<Search className="h-5 w-5 text-[var(--bd-text-muted)]" strokeWidth={2} />}
+                      title="No jobs match"
+                      description="Search SVC Directory by a different name, or add it as new."
+                      action={
+                        <BdButton
+                          variant="secondary"
+                          size="sm"
+                          disabled={creatingFromQuery}
+                          onClick={() => void handleCreateFromQuery()}
+                          icon={creatingFromQuery ? <Loader2 className="h-4 w-4 animate-spin" /> : undefined}
+                        >
+                          {creatingFromQuery ? "Adding..." : `Create "${query.trim()}"`}
+                        </BdButton>
+                      }
+                    />
+                  )}
+                </>
+              ) : filteredJobs.length > 0 ? (
                 <div className="divide-y divide-[var(--bd-border)]">
                   {filteredJobs.map((job) => (
                     <JobRow key={job.id} job={job} selected={selectedId === job.id} subtitle={jobSubtitle(job)} onSelect={() => setSelectedId(job.id)} />
@@ -505,14 +671,9 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
               ) : (
                 <BdEmptyState
                   className="mt-2"
-                  icon={<Search className="h-5 w-5 text-[var(--bd-text-muted)]" strokeWidth={2} />}
-                  title="No jobs match"
-                  description="Try a different search term."
-                  action={
-                    <BdButton variant="secondary" size="sm" onClick={() => setQuery("")}>
-                      Clear search
-                    </BdButton>
-                  }
+                  icon={<Building2 className="h-5 w-5 text-[var(--bd-text-muted)]" strokeWidth={2} />}
+                  title="That's everything"
+                  description="Search above to find more jobs from SVC Directory."
                 />
               )}
             </>

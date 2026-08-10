@@ -2,19 +2,17 @@ import type { StructuredJsonSchema } from "@/lib/ai/openai/client"
 
 /**
  * Prompt + strict JSON schema for turning a field crew's free-text/dictated
- * update into the 5 fixed daily-report fields. The model only ever
- * structures what's already in the text — it never invents progress,
- * decisions, dates or names not present in the input.
+ * update into the three optional daily-report fields. The model only ever
+ * classifies exact excerpts from the text — it never invents or paraphrases
+ * progress, decisions, dates or names.
  */
 export const DAILY_REPORT_SYSTEM_PROMPT = [
   "You convert a construction field update (typed or transcribed from voice) into a structured daily report.",
-  "Extract into exactly these fields: workCompleted, issuesOrDelays, attendanceNotes, nextSteps, additionalNotes.",
+  "Extract into exactly these fields: workCompleted, issuesOrDelays, nextSteps.",
   "Rules:",
-  "- Use only what is stated in the text. Never invent facts, dates, quantities or names.",
-  "- If a field has nothing relevant in the text, set it to null. Do not pad a field with unrelated content.",
-  "- attendanceNotes is only for mentions of who was on/off site — not general crew activity.",
-  "- Keep each field concise: a short paragraph, not a transcript dump.",
-  "- Preserve names, materials and locations exactly as stated.",
+  "- Each non-null value must be an exact, contiguous excerpt copied from the input text. Never paraphrase, infer, merge, or add information.",
+  "- If a field has nothing relevant in the text, set it to null. Do not put unrelated information in a field.",
+  "- Preserve names, materials, locations, quantities, and dates exactly as stated.",
 ].join("\n")
 
 export function buildDailyReportUserPrompt(text: string): string {
@@ -27,13 +25,11 @@ export const DAILY_REPORT_JSON_SCHEMA: StructuredJsonSchema = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["workCompleted", "issuesOrDelays", "attendanceNotes", "nextSteps", "additionalNotes"],
+    required: ["workCompleted", "issuesOrDelays", "nextSteps"],
     properties: {
       workCompleted: { type: ["string", "null"] },
       issuesOrDelays: { type: ["string", "null"] },
-      attendanceNotes: { type: ["string", "null"] },
       nextSteps: { type: ["string", "null"] },
-      additionalNotes: { type: ["string", "null"] },
     },
   },
 }

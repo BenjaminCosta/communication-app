@@ -23,8 +23,9 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { onAuthStateChanged, type User } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
-import { Loader2, X } from "lucide-react"
+import { X } from "lucide-react"
 import { auth, db } from "@/lib/firebase"
+import { ByeByeDprLoadingScreen } from "@/components/app-loading-screen"
 import { ByeByeDprHomeScreen, type ClockStatus } from "@/components/bye-bye-dpr/byebye-dpr-home-screen"
 import { AboutByeByeDprScreen } from "@/components/bye-bye-dpr/about-byebye-dpr-screen"
 import { ChangeJobScreen } from "@/components/bye-bye-dpr/change-job-screen"
@@ -44,7 +45,7 @@ import {
   fetchRecentJobs,
   uploadReportAttachment,
 } from "@/features/bye-bye-dpr/client/byebye-dpr-client"
-import { emptyDailyReportStructuredData, type ClockSelectionSource, type DailyReportStructuredData } from "@/lib/bye-bye-dpr-core"
+import { type ClockSelectionSource } from "@/lib/bye-bye-dpr-core"
 import type { ClockRecord, Job } from "@/lib/bye-bye-dpr-store"
 import { deriveInitials, deriveNameFromEmail } from "@/lib/store"
 
@@ -78,8 +79,8 @@ function errMessage(err: unknown): string {
 
 function BootLoadingScreen() {
   return (
-    <div className="byebye-dpr-scope byebye-dpr-canvas flex min-h-0 flex-1 items-center justify-center">
-      <Loader2 className="h-6 w-6 animate-spin text-[var(--bd-purple)]" />
+    <div className="byebye-dpr-scope flex min-h-0 flex-1 flex-col">
+      <ByeByeDprLoadingScreen className="min-h-0" />
     </div>
   )
 }
@@ -139,7 +140,7 @@ export function ByeByeDprApp() {
 
   const [reportId, setReportId] = useState<string | null>(null)
   const [reportSource, setReportSource] = useState<"voice" | "typed">("voice")
-  const [reportStructuredData, setReportStructuredData] = useState<DailyReportStructuredData>(emptyDailyReportStructuredData())
+  const [reportText, setReportText] = useState("")
   const [photos, setPhotos] = useState<string[]>([])
 
   useEffect(() => {
@@ -269,6 +270,7 @@ export function ByeByeDprApp() {
     try {
       const { report } = await createReportDraft(job.id)
       setReportId(report.id)
+      setReportText("")
       setPhotos([])
       setScreen("daily-report")
     } catch (err) {
@@ -297,9 +299,9 @@ export function ByeByeDprApp() {
     })
   }
 
-  function handleDailyReportContinue(input: { source: "voice" | "typed"; structuredData: DailyReportStructuredData }) {
+  function handleDailyReportContinue(input: { source: "voice" | "typed"; text: string }) {
     setReportSource(input.source)
-    setReportStructuredData(input.structuredData)
+    setReportText(input.text)
     setScreen("daily-report-review")
   }
 
@@ -365,7 +367,7 @@ export function ByeByeDprApp() {
           job={job}
           reportId={reportId}
           source={reportSource}
-          fields={reportStructuredData}
+          initialText={reportText}
           photos={photos}
           onRemovePhoto={handleRemovePhoto}
           onBack={() => setScreen("daily-report")}
@@ -394,6 +396,7 @@ export function ByeByeDprApp() {
         justPosted={justPosted}
         recentActivity={recentActivity}
         onClockIn={() => setScreen("change-job")}
+        onChangeJob={() => setScreen("change-job")}
         onClockOut={() => setClockOutConfirmOpen(true)}
         onForgotClockOut={() => setForgotClockOutOpen(true)}
         onOpenDailyReport={() => void handleOpenDailyReport()}

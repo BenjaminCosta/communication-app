@@ -28,7 +28,7 @@ The worker opens a focused home screen and starts one task: clock in, clock out,
 
 To clock in, the worker selects a job site. The app can suggest a nearby site when location is available, or the worker can search, select a recent job, or add the first job when none exist. Clocking out records the elapsed session and can capture location when available; a forgotten clock-out can be corrected.
 
-For a daily report, the worker dictates or types what happened. AI transcribes and structures the input into editable sections: work completed, issues or delays, attendance notes, next steps, and additional notes. The worker reviews and edits that draft, can add photos, and submits it. The system then creates the report document and publishes the operational communication automatically using the job’s existing configuration.
+For a daily report, the worker dictates or types what happened. A voice update is transcribed first and shown as editable source text. The worker can submit that reviewed text as-is, or optionally ask AI to organize it into editable work completed, issues or delays, and next steps. AI only extracts from the worker’s own text; it does not add information. The worker can add photos and submits only after reviewing the content. The system then creates the report document and publishes the operational communication automatically using the job’s existing configuration.
 
 ## Main flows and screens
 
@@ -36,7 +36,7 @@ For a daily report, the worker dictates or types what happened. AI transcribes a
 2. **Choose job site.** Offers a location-based suggestion, suggested and recent jobs, search, and a simple first-job creation path when the list is empty.
 3. **Clock in and clock out.** Starts or closes a job-site session, confirms the result briefly, and offers a correction path for a missed clock-out.
 4. **Daily Report capture.** Lets the worker speak or type a short account of the day and add supporting photos.
-5. **Review and submit.** Shows the AI-organized report as an editable draft before it becomes final and is shared.
+5. **Review, optional organization, and submit.** Shows the editable transcription or note first; the worker may optionally organize it into three editable sections before final submission.
 6. **About ByeByeDPR.** Explains the tool’s focused field-work purpose.
 
 There is intentionally no attendance dashboard or separate attendance-report flow. The product stays centered on the immediate field action.
@@ -45,7 +45,7 @@ There is intentionally no attendance dashboard or separate attendance-report flo
 
 - Real job-site selection, including optional current-location suggestions and a first-job creation path.
 - Clock-in and clock-out sessions, including a way to correct a forgotten clock-out.
-- Daily reports captured by typing or voice, with AI transcription and structured editable sections.
+- Daily reports captured by typing or voice, with editable transcription and optional AI organization into three editable sections.
 - Photo attachments during report preparation.
 - A generated daily-report document and an automatic post to Communications when a report is submitted.
 - A simple shared SVC access model: the module is not yet divided into separate company or role workspaces.
@@ -55,7 +55,7 @@ There is intentionally no attendance dashboard or separate attendance-report flo
 
 - **One fast action at a time.** This is a field utility, not a dashboard or an administrative workspace.
 - **Voice is first-class.** Speaking a report is an equal path to typing because hands-free input matters on a job site.
-- **AI prepares a draft; the worker remains in control.** Structured AI output must be visible and editable before submission.
+- **AI is optional and the worker remains in control.** AI is limited to transcribing a Daily Report and, only when chosen, organizing the worker’s own text. The original text and any organized fields remain editable before submission.
 - **Infrastructure stays invisible.** Workers do not choose tags, recipients, business context, Communications routing, or document generation.
 - **One shared access model for now.** Authenticated SVC users work in the same data space; company-level partitioning and roles were deliberately not retained.
 - **No separate attendance product.** Clocking supports the daily-work flow, but ByeByeDPR does not add attendance analytics or an attendance report.

@@ -39,6 +39,14 @@
       ]
     },
     {
+      "collectionGroup": "directoryIndex",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "keywords", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "directoryFiles",
       "queryScope": "COLLECTION",
       "fields": [

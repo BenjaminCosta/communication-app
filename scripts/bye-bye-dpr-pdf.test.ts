@@ -13,9 +13,7 @@ test("generates a valid daily report PDF that embeds every field", async () => {
     structuredData: {
       workCompleted: "Finished framing on the second floor.",
       issuesOrDelays: "Waiting on concrete delivery.",
-      attendanceNotes: "Everyone present except Marcus.",
       nextSteps: "Start drywall tomorrow.",
-      additionalNotes: null,
     },
     rawText: "We finished framing...",
   })
@@ -37,9 +35,7 @@ test("daily report PDF handles empty structured fields without crashing", async 
     structuredData: {
       workCompleted: null,
       issuesOrDelays: null,
-      attendanceNotes: null,
       nextSteps: null,
-      additionalNotes: null,
     },
     rawText: null,
   })
@@ -56,9 +52,7 @@ test("non-Latin characters don't crash the standard fonts", async () => {
     structuredData: {
       workCompleted: "Trabajo completado en el segundo piso.",
       issuesOrDelays: null,
-      attendanceNotes: null,
       nextSteps: null,
-      additionalNotes: null,
     },
     rawText: null,
   })

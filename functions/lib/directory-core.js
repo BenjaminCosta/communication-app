@@ -33,6 +33,7 @@ exports.isLikelyPhone = isLikelyPhone;
 exports.isLikelyUrl = isLikelyUrl;
 exports.stripAccents = stripAccents;
 exports.normalizeName = normalizeName;
+exports.tokenize = tokenize;
 exports.getFieldValue = getFieldValue;
 /**
  * Bump when the index shape or normalizer logic changes. Rebuilds/functions

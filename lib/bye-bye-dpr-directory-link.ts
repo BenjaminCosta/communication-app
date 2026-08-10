@@ -20,13 +20,23 @@ import "server-only"
  * job's real address is a single point read on `/contexts/{sourceId}`,
  * done only when a job is actually being linked/created — never during a
  * bulk listing.
+ *
+ * `searchDirectoryJobs()` also runs a `keywords array-contains-any` query
+ * against `/directoryIndex` (composite index: `keywords CONTAINS, type ASC`,
+ * same additive pattern already used for `entityIds` on
+ * `directoryRelations`/`directoryNotes`/`directoryFiles`) — every index doc
+ * already stores a tokenized `keywords: string[]` of its name/address/
+ * company (see `buildJobIndex()`), so this is a real bounded/indexed query,
+ * not a scan, and it's what actually finds a job by a word that isn't the
+ * first word of its name (`findByName()`'s own prefix anchor can't).
  */
 
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { cleanValue, directoryId, getFieldValue, parseDirectoryId } from "@/lib/directory-core"
-import { findByName, getEntitiesByIds } from "@/lib/ai/server/directory-data"
+import { cleanValue, directoryId, getFieldValue, normalizeName, parseDirectoryId, tokenize } from "@/lib/directory-core"
+import { findByName, getEntitiesByIds, type DirectoryIndexRecord } from "@/lib/ai/server/directory-data"
 
 const CONTEXTS_COLLECTION = "contexts"
+const DIRECTORY_INDEX_COLLECTION = "directoryIndex"
 
 async function adminFirestore() {
   const { getFirestore } = await import("firebase-admin/firestore")
@@ -39,15 +49,93 @@ export interface DirectoryJobSearchResult {
   location: string | null
 }
 
-/** Bounded name search over existing Directory job contexts — for "pick an existing job" UI. */
+interface KeywordMatch {
+  id: string
+  name: string
+  location: string | null
+}
+
+/** Bounded/indexed — the composite index this needs is documented at the top of this file. */
+async function searchDirectoryJobsByKeyword(tokens: string[], limit: number): Promise<KeywordMatch[]> {
+  if (tokens.length === 0) return []
+  const db = await adminFirestore()
+  const snap = await db
+    .collection(DIRECTORY_INDEX_COLLECTION)
+    .where("type", "==", "job")
+    .where("keywords", "array-contains-any", tokens.slice(0, 30))
+    .limit(limit)
+    .get()
+  const matches: KeywordMatch[] = []
+  for (const doc of snap.docs) {
+    const data = doc.data()
+    const name = typeof data.name === "string" ? data.name : ""
+    if (!name) continue
+    matches.push({ id: doc.id, name, location: typeof data.location === "string" && data.location ? data.location : null })
+  }
+  return matches
+}
+
+/**
+ * `findByName()` anchors its prefix query on the QUERY's first token against
+ * the start of the stored `normalizedName` — so a query has to start with
+ * the same word the job's name starts with ("miami" finds "Miami Beach
+ * Project", but "beach" alone does not). Retrying it once per extra query
+ * word recovers word-order mismatches ("beach miami" still finds "Miami
+ * Beach Project" via its "miami" retry), and the `keywords` query above
+ * finds a word anywhere in the name/address/company. Candidates that only
+ * surfaced via the keyword query get a floor score (they matched via a real
+ * indexed token, even if it's not literally a prefix of the job's name —
+ * e.g. an address word) so they don't get silently dropped.
+ */
+function scoreJobCandidate(name: string, normalizedQuery: string, queryTokens: string[]): number {
+  const plain = normalizeName(name)
+  if (plain === normalizedQuery) return 100
+  if (plain.startsWith(normalizedQuery)) return 90
+  if (plain.includes(normalizedQuery)) return 80
+  const nameTokens = tokenize(name)
+  const matched = queryTokens.filter((token) => nameTokens.some((nameToken) => nameToken.startsWith(token)))
+  return matched.length > 0 ? 40 + Math.round((matched.length / queryTokens.length) * 30) : 0
+}
+
+/** Bounded name/keyword search over existing Directory job contexts — for "pick an existing job" UI. */
 export async function searchDirectoryJobs(query: string, limit = 15): Promise<DirectoryJobSearchResult[]> {
   const trimmed = query.trim()
   if (trimmed.length < 2) return []
-  const records = await findByName(trimmed, { type: "job", limit })
-  return records.map((record) => ({
-    directoryContextId: record.id,
-    name: record.name,
-    location: record.location || null,
+
+  const byId = new Map<string, { name: string; location: string | null; viaKeywordOnly: boolean }>()
+  const add = (record: { id: string; name: string; location: string | null }, viaKeywordOnly: boolean) => {
+    if (byId.has(record.id)) return
+    byId.set(record.id, { name: record.name, location: record.location, viaKeywordOnly })
+  }
+  const asRecord = (record: DirectoryIndexRecord) => ({ id: record.id, name: record.name, location: record.location || null })
+
+  for (const record of await findByName(trimmed, { type: "job", limit })) add(asRecord(record), false)
+
+  const queryTokens = tokenize(trimmed)
+  if (byId.size < limit) {
+    for (const token of queryTokens.slice(1, 4)) {
+      if (byId.size >= limit) break
+      for (const record of await findByName(token, { type: "job", limit })) add(asRecord(record), false)
+    }
+  }
+  if (byId.size < limit && queryTokens.length > 0) {
+    for (const match of await searchDirectoryJobsByKeyword(queryTokens, limit)) add(match, true)
+  }
+  if (byId.size === 0) return []
+
+  const normalizedQuery = normalizeName(trimmed)
+  const scored = [...byId.entries()]
+    .map(([id, candidate]) => {
+      const nameScore = scoreJobCandidate(candidate.name, normalizedQuery, queryTokens)
+      return { id, candidate, score: candidate.viaKeywordOnly ? Math.max(nameScore, 60) : nameScore }
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name))
+
+  return scored.slice(0, limit).map(({ id, candidate }) => ({
+    directoryContextId: id,
+    name: candidate.name,
+    location: candidate.location,
   }))
 }
 

@@ -61,9 +61,7 @@ function formatDate(iso: string | null): string {
 const FIELD_LABELS: Array<{ key: keyof DailyReportStructuredData; label: string }> = [
   { key: "workCompleted", label: "Work Completed" },
   { key: "issuesOrDelays", label: "Issues / Delays" },
-  { key: "attendanceNotes", label: "Attendance Notes" },
   { key: "nextSteps", label: "Next Steps" },
-  { key: "additionalNotes", label: "Additional Notes" },
 ]
 
 export async function generateDailyReportPdf(input: GenerateDailyReportPdfInput): Promise<Uint8Array> {
@@ -119,10 +117,11 @@ export async function generateDailyReportPdf(input: GenerateDailyReportPdfInput)
 
   for (const field of FIELD_LABELS) {
     const value = input.structuredData[field.key]
+    if (!value?.trim()) continue
     ensureSpace(30)
     y -= 6
     drawText(field.label, 12, bold, BLUE, 5)
-    drawText(value && value.trim() ? value : "Not reported.", 10.5, regular, value ? INK : MUTED, 4)
+    drawText(value, 10.5, regular, INK, 4)
     y -= 6
   }
 

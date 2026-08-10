@@ -14,9 +14,7 @@ export type CreateReportDraftRequest = z.infer<typeof createReportDraftRequestSc
 export const dailyReportStructuredDataSchema = z.object({
   workCompleted: z.string().max(4000).nullable(),
   issuesOrDelays: z.string().max(4000).nullable(),
-  attendanceNotes: z.string().max(4000).nullable(),
   nextSteps: z.string().max(4000).nullable(),
-  additionalNotes: z.string().max(4000).nullable(),
 })
 export type DailyReportStructuredDataInput = z.infer<typeof dailyReportStructuredDataSchema>
 

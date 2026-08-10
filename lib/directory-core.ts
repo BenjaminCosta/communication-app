@@ -981,7 +981,7 @@ export function normalizeName(value: string): string {
   return stripAccents(value).toLowerCase().replace(/\s+/g, " ").trim()
 }
 
-function tokenize(value: string): string[] {
+export function tokenize(value: string): string[] {
   return stripAccents(value)
     .toLowerCase()
     .split(/[^a-z0-9]+/)

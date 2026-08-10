@@ -14,16 +14,15 @@ export interface StructureDailyReportResponse {
   mode: "mock" | "live"
 }
 
+const WORK_KEYWORDS = ["built", "completed", "finished", "framed", "installed", "poured", "ran", "started", "worked"]
 const ISSUE_KEYWORDS = ["delay", "delayed", "wait", "waiting", "issue", "problem", "blocked", "short", "shortage"]
 const NEXT_STEPS_KEYWORDS = ["tomorrow", "next", "plan is", "will start", "will finish"]
-const ATTENDANCE_KEYWORDS = ["everyone was", "was on site", "called in sick", "absent", "present", "no show", "off site"]
 
 /**
  * Deterministic, dependency-free stand-in for the live parser — runs in mock
- * mode (no API key) so the draft -> structure -> review flow works offline.
- * Splits the text into sentences and buckets each one by simple keyword
- * matching; never invents content, so anything unmatched lands in
- * additionalNotes rather than being dropped.
+ * mode (no API key) so the optional organization step works offline. It only
+ * copies source sentences into a field; text that does not belong to one of
+ * the three requested fields stays in the editable original note.
  */
 function mockStructureDailyReport(text: string): DailyReportStructuredDataInput {
   const sentences = text
@@ -34,20 +33,16 @@ function mockStructureDailyReport(text: string): DailyReportStructuredDataInput 
   const buckets: Record<keyof DailyReportStructuredDataInput, string[]> = {
     workCompleted: [],
     issuesOrDelays: [],
-    attendanceNotes: [],
     nextSteps: [],
-    additionalNotes: [],
   }
 
   for (const sentence of sentences) {
     const lower = sentence.toLowerCase()
-    if (ATTENDANCE_KEYWORDS.some((word) => lower.includes(word))) {
-      buckets.attendanceNotes.push(sentence)
-    } else if (ISSUE_KEYWORDS.some((word) => lower.includes(word))) {
+    if (ISSUE_KEYWORDS.some((word) => lower.includes(word))) {
       buckets.issuesOrDelays.push(sentence)
     } else if (NEXT_STEPS_KEYWORDS.some((word) => lower.includes(word))) {
       buckets.nextSteps.push(sentence)
-    } else {
+    } else if (WORK_KEYWORDS.some((word) => lower.includes(word))) {
       buckets.workCompleted.push(sentence)
     }
   }
@@ -56,10 +51,18 @@ function mockStructureDailyReport(text: string): DailyReportStructuredDataInput 
   return {
     workCompleted: join(buckets.workCompleted),
     issuesOrDelays: join(buckets.issuesOrDelays),
-    attendanceNotes: join(buckets.attendanceNotes),
     nextSteps: join(buckets.nextSteps),
-    additionalNotes: join(buckets.additionalNotes),
   }
+}
+
+/**
+ * The optional organizer is an extractor, not a summarizer. Reject any model
+ * output that is not copied directly from the user-provided source text.
+ */
+function isVerbatimExcerpt(value: string | null, source: string): boolean {
+  if (value === null) return true
+  const normalized = (text: string) => text.replace(/\s+/g, " ").trim()
+  return normalized(source).includes(normalized(value))
 }
 
 /**
@@ -97,6 +100,9 @@ export async function structureDailyReportDraft(
   const parsed = dailyReportStructuredDataSchema.safeParse(raw)
   if (!parsed.success) {
     throw new AiError("invalid-output", "The report parser returned data that failed validation.")
+  }
+  if (!Object.values(parsed.data).every((value) => isVerbatimExcerpt(value, text))) {
+    throw new AiError("invalid-output", "The report organizer returned content that was not in the original note.")
   }
   return { structuredData: parsed.data, mode: "live" }
 }
