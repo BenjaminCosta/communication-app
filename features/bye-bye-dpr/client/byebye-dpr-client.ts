@@ -199,9 +199,11 @@ export function transcribeReportAudio(
   reportId: string,
   audio: Blob,
   fileName: string,
+  durationMs?: number,
 ): Promise<{ transcript: string; mode: "mock" | "live" }> {
   const form = new FormData()
   form.append("audio", audio, fileName)
+  if (durationMs != null) form.append("durationMs", String(Math.round(durationMs)))
   return postForm(`/api/bye-bye-dpr/reports/${reportId}/transcribe`, form, "Transcription failed. You can type your update instead.", {
     "X-Idempotency-Key": createByeByeDprIdempotencyKey(),
   })

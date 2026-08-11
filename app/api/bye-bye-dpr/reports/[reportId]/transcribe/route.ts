@@ -65,8 +65,13 @@ export async function POST(request: Request, { params }: RouteParams): Promise<R
     if (language && !/^[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(language)) {
       throw new AiError("invalid-request", "The recording language is not valid.")
     }
+    const rawDurationMs = form.get("durationMs")
+    if (rawDurationMs != null && (typeof rawDurationMs !== "string" || !/^\d{1,9}$/.test(rawDurationMs))) {
+      throw new AiError("invalid-request", "The recording duration was invalid. Please record it again.")
+    }
+    const reportedDurationMs = typeof rawDurationMs === "string" ? Number(rawDurationMs) : undefined
 
-    const validatedAudio = await validateOutlookAudio(audio, undefined, BYE_BYE_DPR_AI_LIMITS.maxAudioSeconds)
+    const validatedAudio = await validateOutlookAudio(audio, reportedDurationMs, BYE_BYE_DPR_AI_LIMITS.maxAudioSeconds)
     const bytes = new Uint8Array(await audio.arrayBuffer())
     const requestHash = hashOutlookAiRequest(`${hashOutlookAiRequest(bytes)}:${validatedAudio.mediaType}:${language ?? "auto"}`)
     acquired = await acquireByeByeDprAiRequest({

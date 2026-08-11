@@ -62,14 +62,21 @@ export function DailyReportScreen({ job, reportId, photos, onAddPhotos, onRemove
 
   const recorder = useOutlookRecorder({
     maxSeconds: BYE_BYE_DPR_AI_LIMITS.maxAudioSeconds,
-    onComplete: async (audio) => {
+    onComplete: async (audio, durationMs) => {
       setStage("transcribing")
       setError(null)
       const fileName = `daily-report-${Date.now()}.${extensionForAudio(audio.type)}`
       // Best-effort raw-audio archive — never blocks getting to the transcript.
       uploadReportAudio(reportId, audio, fileName).catch(() => {})
       try {
-        const { transcript } = await transcribeReportAudio(reportId, audio, fileName)
+        // Mobile recorders (Safari/iOS MP4 in particular) often produce a
+        // streamed/fragmented container with no readable duration — the
+        // server falls back to this wall-clock value from the recorder
+        // itself. Without it, server-side validation has nothing to fall
+        // back to and rejects the recording outright (desktop Chrome's
+        // WebM output usually has a readable duration, so this only bit
+        // mobile).
+        const { transcript } = await transcribeReportAudio(reportId, audio, fileName, durationMs)
         onContinue({ source: "voice", text: transcript })
       } catch (err) {
         setStage("choose")
