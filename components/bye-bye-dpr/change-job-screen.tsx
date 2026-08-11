@@ -33,7 +33,17 @@
  * by AddFirstJobCard below) — so typing here finds any job in Directory, not
  * just the ones someone has already clocked into before. Picking a result
  * that isn't linked to a local job yet transparently links/creates one
- * (`createJob` with `directoryContextId`) before selecting it.
+ * (`createJob` with `directoryContextId`) before selecting it — always with
+ * `latitude/longitude: null`. An earlier version stamped the worker's
+ * current position onto the new job automatically, which is wrong: picking
+ * a job from search doesn't mean you're standing at it (e.g. adding it
+ * ahead of time from the office), so that silently taught the nearest-job
+ * feature the wrong location for real jobs (see the 2026-08-11 "nearest
+ * location" fix in docs/svc-bye-bye-dpr-module.md). A job's coordinates are
+ * now only ever set by an explicit, deliberate capture — today that's just
+ * `AddFirstJobCard`'s "Set this job's location" button below; jobs added
+ * later via this search simply have no coordinates until a job-management
+ * UI to add/correct them exists (tracked, not built).
  */
 
 import { useEffect, useMemo, useState } from "react"
@@ -345,7 +355,6 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
   const [geoError, setGeoError] = useState<string | null>(null)
   const [suggestedJobId, setSuggestedJobId] = useState<string | null>(null)
   const [distances, setDistances] = useState<Record<string, number>>({})
-  const [currentLocation, setCurrentLocation] = useState<GeoPoint | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(currentJobId ?? null)
 
   const [dirResults, setDirResults] = useState<DirectoryJobSearchResult[]>([])
@@ -391,15 +400,6 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
     return () => clearTimeout(handle)
   }, [trimmedQuery])
 
-  /** If we already have a location fix (grabbed on entry), stamp it on a freshly linked/created job so it's eligible for nearest-job suggestions right away, instead of sitting coordinate-less until someone edits it later. */
-  function registerCreatedJobDistance(created: Job) {
-    if (!currentLocation || created.latitude == null || created.longitude == null) return
-    setDistances((prev) => ({
-      ...prev,
-      [created.id]: haversineDistanceMeters(currentLocation, { lat: created.latitude as number, lng: created.longitude as number }),
-    }))
-  }
-
   async function handleSelectDirectoryResult(result: DirectoryJobSearchResult) {
     const existing = jobs.find((candidate) => candidate.directoryContextId === result.directoryContextId)
     if (existing) {
@@ -414,12 +414,11 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
         name: result.name,
         directoryContextId: result.directoryContextId,
         address: null,
-        latitude: currentLocation?.lat ?? null,
-        longitude: currentLocation?.lng ?? null,
+        latitude: null,
+        longitude: null,
       })
       onJobCreated(created)
       setSelectedId(created.id)
-      registerCreatedJobDistance(created)
     } catch (err) {
       setDirSearchError(err instanceof ByeByeDprClientError ? err.message : "Could not link that job. Try again.")
     } finally {
@@ -436,12 +435,11 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
         name: query.trim(),
         directoryContextId: null,
         address: null,
-        latitude: currentLocation?.lat ?? null,
-        longitude: currentLocation?.lng ?? null,
+        latitude: null,
+        longitude: null,
       })
       onJobCreated(created)
       setSelectedId(created.id)
-      registerCreatedJobDistance(created)
     } catch (err) {
       setDirSearchError(err instanceof ByeByeDprClientError ? err.message : "Could not add that job. Try again.")
     } finally {
@@ -462,7 +460,6 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
     try {
       const position = await getCurrentPosition()
       const location: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
-      setCurrentLocation(location)
       const nextDistances: Record<string, number> = {}
       for (const job of jobs) {
         if (job.latitude == null || job.longitude == null) continue
@@ -592,9 +589,6 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
                   className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[var(--bd-text)] outline-none placeholder:text-[var(--bd-text-muted)]"
                 />
               </div>
-              {currentLocation && trimmedQuery.length >= 2 && (
-                <p className="mb-2 px-1 text-[0.6875rem] text-[var(--bd-text-muted)]">New jobs you pick or create here will use your current location.</p>
-              )}
               {trimmedQuery.length >= 2 ? (
                 <>
                   {dirSearching && (

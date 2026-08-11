@@ -848,6 +848,41 @@ módulo hacia/desde ByeByeDPR varias veces, confirmar que no aparece la
 loading screen salvo la primera vez, y que clock in/out/report siguen
 funcionando igual que antes).
 
+## Cambio 2026-08-11 (cont.): bug real — nearest location sugería un job sin ubicación
+
+El usuario reportó que "Wax the City" aparecía como nearest job aunque, a
+sus ojos, no tenía ubicación. Causa raíz confirmada leyendo la data real de
+`jobs` en producción: el cambio anterior de "nearest location más
+confiable" (misma fecha, más arriba) le asignaba automáticamente la
+ubicación ACTUAL del worker a cualquier job creado/linkeado desde la
+búsqueda de "All jobs" — asumiendo "si lo estás buscando, estás parado
+ahí". Falso: "Wax the City" se creó desde la búsqueda sin que el worker
+estuviera en el sitio (`address: null`, pero `latitude/longitude` = las
+coordenadas de Buenos Aires del worker en ese momento) — el auto-stamp le
+puso una ubicación falsa a un job que en realidad no tenía ninguna.
+
+**Fix de código**: se sacó el auto-stamp de
+`handleSelectDirectoryResult`/`handleCreateFromQuery` en
+`change-job-screen.tsx` — vuelven a crear/linkear jobs con
+`latitude/longitude: null` siempre. Un job solo recibe coordenadas por una
+captura explícita y deliberada — hoy eso es únicamente el botón "Set this
+job's location" de `AddFirstJobCard` (primer job). Los jobs agregados
+después vía la búsqueda de "All jobs" no ofrecen esa captura todavía — se
+consideró agregarla ahí también, pero convertiría el flujo rápido de
+"elegir job y clockear" en un paso extra obligatorio para el camino común;
+se dejó afuera a propósito, coherente con la filosofía "sin pasos de más"
+del módulo (ver PRODUCT.md). Sigue siendo un gap real (ver "Pendiente"
+punto 4, gestión de jobs) — no resuelto hoy, solo no empeorado.
+
+**Corrección de dato en producción (aprobada explícitamente por el
+usuario)**: se limpiaron `latitude`/`longitude` del job `mukw82QZckll27kytSMr`
+("Wax the City") a `null` directamente en Firestore — el job en sí y el
+resto de sus campos (nombre, `directoryContextId`, etc.) no se tocaron.
+Verificado antes/después con un script de lectura+escritura puntual
+(no committeado, se corrió y se borró).
+
+`pnpm typecheck` + `pnpm test:bye-bye-dpr` limpios.
+
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
 Durante la verificación de esta fase se intentó correr un smoke test
