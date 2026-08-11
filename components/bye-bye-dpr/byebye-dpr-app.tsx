@@ -17,6 +17,17 @@
  * docs/svc-bye-bye-dpr-module.md's pending-issues list), so a fresh page
  * load with no active clock always starts from a neutral empty state even
  * if the user clocked out earlier today in a previous session.
+ *
+ * ByeByeDPR is a standalone route, so switching into it from another module
+ * fully remounts this component — unlike the other four modules, which are
+ * screens inside the single `app/page.tsx` instance and never remount on
+ * switch. Without `lib/bye-bye-dpr-boot-cache.ts`, that would mean a full
+ * blocking loading screen on every module switch, not just a genuine cold
+ * app open. If a cached boot snapshot exists (same browser tab, boots at
+ * least once already), the app renders from it immediately and refreshes
+ * in the background instead — matching how switching feels on the other
+ * modules. The cache only resets on an actual page reload, which is
+ * exactly when a loading screen is expected again.
  */
 
 import { useEffect, useState } from "react"
@@ -46,6 +57,7 @@ import {
   uploadReportAttachment,
 } from "@/features/bye-bye-dpr/client/byebye-dpr-client"
 import { type ClockSelectionSource } from "@/lib/bye-bye-dpr-core"
+import { getByeByeDprBootCache, setByeByeDprBootCache } from "@/lib/bye-bye-dpr-boot-cache"
 import type { ClockRecord, Job } from "@/lib/bye-bye-dpr-store"
 import { deriveInitials, deriveNameFromEmail } from "@/lib/store"
 
@@ -119,15 +131,18 @@ export function ByeByeDprApp() {
   const [authResolved, setAuthResolved] = useState(false)
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
 
-  const [bootPhase, setBootPhase] = useState<BootPhase>("loading")
+  const [bootCache] = useState(() => getByeByeDprBootCache())
+  const [bootPhase, setBootPhase] = useState<BootPhase>(bootCache ? "ready" : "loading")
   const [bootError, setBootError] = useState("")
   const [userName, setUserName] = useState<string | null>(null)
 
   const [screen, setScreen] = useState<Screen>("home")
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [recentJobs, setRecentJobs] = useState<Job[]>([])
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [activeClock, setActiveClock] = useState<ClockRecord | null>(null)
+  const [jobs, setJobs] = useState<Job[]>(bootCache?.jobs ?? [])
+  const [recentJobs, setRecentJobs] = useState<Job[]>(bootCache?.recentJobs ?? [])
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(
+    () => bootCache?.activeClock?.jobId ?? bootCache?.recentJobs[0]?.id ?? bootCache?.jobs[0]?.id ?? null,
+  )
+  const [activeClock, setActiveClock] = useState<ClockRecord | null>(bootCache?.activeClock ?? null)
   const [clockActionBusy, setClockActionBusy] = useState(false)
 
   const [justPosted, setJustPosted] = useState(false)
@@ -155,9 +170,18 @@ export function ByeByeDprApp() {
     if (authResolved && !firebaseUser) router.replace("/")
   }, [authResolved, firebaseUser, router])
 
-  async function loadInitialData() {
-    setBootPhase("loading")
-    setBootError("")
+  /**
+   * `background: true` is a same-tab return with a cached snapshot already
+   * on screen — refresh quietly without the blocking loading screen, and
+   * without reassigning `selectedJobId` (the user may already be mid-flow
+   * off the auto-selected job by the time this resolves). A cold load (no
+   * cache) always blocks and picks the initial job, same as before.
+   */
+  async function loadInitialData(options: { background?: boolean } = {}) {
+    if (!options.background) {
+      setBootPhase("loading")
+      setBootError("")
+    }
     try {
       const [jobsResult, recentResult, activeClockResult] = await Promise.all([
         fetchJobs(),
@@ -168,19 +192,32 @@ export function ByeByeDprApp() {
       setRecentJobs(recentResult.jobs)
       setActiveClock(activeClockResult.clockRecord)
 
-      const initialJobId = activeClockResult.clockRecord?.jobId ?? recentResult.jobs[0]?.id ?? jobsResult.jobs[0]?.id ?? null
-      setSelectedJobId(initialJobId)
+      if (!options.background) {
+        const initialJobId = activeClockResult.clockRecord?.jobId ?? recentResult.jobs[0]?.id ?? jobsResult.jobs[0]?.id ?? null
+        setSelectedJobId(initialJobId)
+      }
       setBootPhase("ready")
     } catch (err) {
-      setBootError(errMessage(err))
-      setBootPhase("error")
+      if (!options.background) {
+        setBootError(errMessage(err))
+        setBootPhase("error")
+      }
+      // A background refresh failing leaves the cached, already-working state on screen.
     }
   }
 
   useEffect(() => {
-    if (firebaseUser) void loadInitialData()
+    if (firebaseUser) void loadInitialData({ background: bootCache != null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firebaseUser?.uid])
+
+  // Keeps the cache current after every mutation (clock in/out, new job,
+  // etc.), not just after a full reload — so a same-session return always
+  // reflects what actually happened here, not a stale boot snapshot.
+  useEffect(() => {
+    if (bootPhase !== "ready") return
+    setByeByeDprBootCache({ jobs, recentJobs, activeClock })
+  }, [bootPhase, jobs, recentJobs, activeClock])
 
   useEffect(() => {
     if (!firebaseUser) return

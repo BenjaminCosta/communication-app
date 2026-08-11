@@ -717,6 +717,47 @@ brevemente con `FAILED_PRECONDITION` hasta que termine.
 `test:bye-bye-dpr`, typecheck, build de `functions/`) antes Y después de
 agregar la query por keywords.
 
+## Cambio 2026-08-11: switch de módulo sin loading screen, como los demás
+
+Pedido del usuario: que cambiar de módulo hacia/desde ByeByeDPR se sienta
+"fluido" como entre los otros cuatro, y que la loading screen solo aparezca
+al reabrir la app de verdad, no en cada switch.
+
+**Causa**: los otros cuatro módulos (Communications, Directory, Applications,
+Quest Coral) son pantallas condicionales dentro de la ÚNICA instancia de
+`app/page.tsx` — nunca hay remount al cambiar entre ellos, así que nunca hay
+loading screen. ByeByeDPR es la única ruta standalone (`app/byebye-dpr/`):
+cada vez que se entra, `ByeByeDprApp` se monta de cero y corre su boot
+completo (esperar auth + `fetchJobs`/`fetchRecentJobs`/`fetchActiveClock`)
+antes de mostrar Home — eso es lo que se veía como loading screen en cada
+switch, no solo al reabrir la app. Convertir ByeByeDPR en una pantalla más
+del shell de `app/page.tsx` sería la paridad "perfecta", pero es la decisión
+grande que ya estaba pendiente en "Pendiente / próximos pasos" (punto 7) —
+no se tocó, es alcance mucho mayor al pedido.
+
+**Fix aplicado, sin ese refactor**: `lib/bye-bye-dpr-boot-cache.ts` (nuevo,
+trivial) — una variable de módulo en memoria (no localStorage, no
+sessionStorage) que guarda el último `{jobs, recentJobs, activeClock}`
+cargado con éxito. Sobrevive a que `ByeByeDprApp` se desmonte/remonte
+(cambiar de módulo y volver dentro del mismo tab), pero se resetea sola en
+un reload real de página — exactamente cuando se espera ver la loading
+screen de nuevo. `ByeByeDprApp` ahora:
+- Si hay cache al montar: arranca `bootPhase: "ready"` directo, sin
+  bloquear, y dispara un refresh en segundo plano (no toca
+  `selectedJobId` en ese refresh, para no pisar una selección que el
+  usuario ya haya hecho mientras tanto).
+- Si no hay cache (primer boot real de la sesión, o reload de página):
+  comportamiento de antes sin cambios — loading screen bloqueante.
+- Un `useEffect` mantiene la cache sincronizada con el estado actual
+  (`jobs`/`recentJobs`/`activeClock`) mientras `bootPhase === "ready"`, así
+  que cualquier mutación (clock in/out, job nuevo) también queda reflejada,
+  no solo el boot inicial.
+
+El gate de auth (`onAuthStateChanged`) sigue corriendo en cada mount —
+Firebase Auth persiste la sesión y esto resuelve casi instantáneo, no es
+lo que se veía como loading screen. `pnpm typecheck` + `pnpm test:bye-bye-dpr`
+limpios.
+
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
 Durante la verificación de esta fase se intentó correr un smoke test
