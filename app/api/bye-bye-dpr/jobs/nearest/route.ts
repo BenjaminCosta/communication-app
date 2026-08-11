@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic"
  */
 export async function POST(request: Request): Promise<Response> {
   try {
-    await verifyByeByeDprUserRequest(request)
+    const principal = await verifyByeByeDprUserRequest(request)
     let body: unknown
     try {
       body = await request.json()
@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     const parsed = nearestJobRequestSchema.safeParse(body)
     if (!parsed.success) throw new ByeByeDprError("invalid-request", "A valid location is required.", 400)
 
-    const match = await suggestNearestJob(parsed.data.location)
+    const match = await suggestNearestJob(principal, parsed.data.location)
     return Response.json({ match }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
     return toByeByeDprErrorResponse(error)

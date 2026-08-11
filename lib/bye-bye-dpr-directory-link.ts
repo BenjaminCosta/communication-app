@@ -29,14 +29,29 @@ import "server-only"
  * company (see `buildJobIndex()`), so this is a real bounded/indexed query,
  * not a scan, and it's what actually finds a job by a word that isn't the
  * first word of its name (`findByName()`'s own prefix anchor can't).
+ *
+ * `listGeocodedDirectoryJobs()` (2026-08-11) is the one function here that
+ * reads more than a handful of docs: `.where('type','==','job').limit(N)`
+ * against `/directoryIndex` — a single equality filter with a cap, i.e. a
+ * bounded/indexed *subset* read, not the "load everything" scan this file's
+ * own header forbids. Directory has no coordinates on any job, only a free-
+ * text address, so nearest-job needs a geocoding step; results are cached
+ * in `byeByeDprJobGeocodeCache` (keyed by directoryContextId) so the same
+ * address is never re-geocoded on every search.
  */
 
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { cleanValue, directoryId, getFieldValue, normalizeName, parseDirectoryId, tokenize } from "@/lib/directory-core"
 import { findByName, getEntitiesByIds, type DirectoryIndexRecord } from "@/lib/ai/server/directory-data"
+import { geocodeAddress, type GeocodedPoint } from "@/lib/geocoding-server"
 
 const CONTEXTS_COLLECTION = "contexts"
 const DIRECTORY_INDEX_COLLECTION = "directoryIndex"
+const GEOCODE_CACHE_COLLECTION = "byeByeDprJobGeocodeCache"
+/** Re-geocode if the job's address on file changed, or the cache is old enough that the address may have. */
+const GEOCODE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+const NEAREST_DIRECTORY_CANDIDATE_LIMIT = 150
+const GEOCODE_CONCURRENCY = 8
 
 async function adminFirestore() {
   const { getFirestore } = await import("firebase-admin/firestore")
@@ -198,4 +213,109 @@ export async function getLiveDirectoryJobNames(directoryContextIds: string[]): P
   if (ids.length === 0) return new Map()
   const records = await getEntitiesByIds(ids)
   return new Map(records.filter((record) => record.type === "job").map((record) => [record.id, record.name]))
+}
+
+// ── Geocoding (nearest-job) ────────────────────────────────────────────
+
+interface GeocodeCacheDoc {
+  address: string
+  latitude: number
+  longitude: number
+  geocodedAt: unknown
+}
+
+function cacheEntryFresh(entry: GeocodeCacheDoc, address: string): boolean {
+  if (entry.address !== address) return false
+  if (typeof entry.latitude !== "number" || typeof entry.longitude !== "number") return false
+  const geocodedAt = entry.geocodedAt && typeof (entry.geocodedAt as { toDate?: unknown }).toDate === "function"
+    ? (entry.geocodedAt as { toDate: () => Date }).toDate()
+    : null
+  if (!geocodedAt) return false
+  return Date.now() - geocodedAt.getTime() <= GEOCODE_CACHE_MAX_AGE_MS
+}
+
+/**
+ * Geocode a job's address, cache-first — the cache is keyed by
+ * `directoryContextId` since every ByeByeDPR job and every Directory job
+ * candidate has one. Never fabricates a fallback: an address that fails to
+ * geocode (or is missing) simply yields `null`, same as no address at all.
+ */
+export async function geocodeByDirectoryContextId(directoryContextId: string, address: string): Promise<GeocodedPoint | null> {
+  const trimmedAddress = address.trim()
+  if (!trimmedAddress) return null
+
+  const db = await adminFirestore()
+  const cacheRef = db.collection(GEOCODE_CACHE_COLLECTION).doc(directoryContextId)
+  const cached = await cacheRef.get()
+  if (cached.exists) {
+    const data = cached.data() as GeocodeCacheDoc
+    if (cacheEntryFresh(data, trimmedAddress)) return { lat: data.latitude, lng: data.longitude }
+  }
+
+  const point = await geocodeAddress(trimmedAddress)
+  if (!point) return null
+  await cacheRef.set({ address: trimmedAddress, latitude: point.lat, longitude: point.lng, geocodedAt: new Date() })
+  return point
+}
+
+export interface GeocodedDirectoryJobCandidate {
+  directoryContextId: string
+  name: string
+  point: GeocodedPoint
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R | null>): Promise<R[]> {
+  const results: R[] = []
+  let index = 0
+  async function worker() {
+    while (index < items.length) {
+      const current = items[index++]
+      const result = await fn(current)
+      if (result) results.push(result)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
+  return results
+}
+
+/**
+ * Bounded list of Directory job contexts, each resolved to a geocoded
+ * point where possible. A job with no address on file, or whose address
+ * fails to geocode, is simply excluded — never given a guessed location.
+ * `excludeIds` skips jobs already linked into ByeByeDPR's own `jobs`
+ * collection (those are geocoded from their local record instead, see
+ * `suggestNearestJob()` in lib/bye-bye-dpr-server.ts).
+ */
+export async function listGeocodedDirectoryJobs(excludeIds: Set<string>, limit = NEAREST_DIRECTORY_CANDIDATE_LIMIT): Promise<GeocodedDirectoryJobCandidate[]> {
+  const db = await adminFirestore()
+  const indexSnap = await db.collection(DIRECTORY_INDEX_COLLECTION).where("type", "==", "job").limit(limit).get()
+
+  const pairs = indexSnap.docs
+    .filter((doc) => !excludeIds.has(doc.id))
+    .map((doc) => {
+      const parsed = parseDirectoryId(doc.id)
+      return parsed ? { directoryContextId: doc.id, contextRef: db.collection(CONTEXTS_COLLECTION).doc(parsed.sourceId) } : null
+    })
+    .filter((pair): pair is { directoryContextId: string; contextRef: FirebaseFirestore.DocumentReference } => pair !== null)
+  if (pairs.length === 0) return []
+
+  const contextSnaps = await db.getAll(...pairs.map((pair) => pair.contextRef))
+
+  const addressable: Array<{ directoryContextId: string; name: string; address: string }> = []
+  for (let i = 0; i < pairs.length; i++) {
+    const contextSnap = contextSnaps[i]
+    if (!contextSnap.exists) continue
+    const data = contextSnap.data() ?? {}
+    const master = (data.masterData ?? {}) as Record<string, unknown>
+    const fields = Array.isArray(data.fields) ? data.fields : []
+    const name = cleanValue(typeof master.canonicalName === "string" ? master.canonicalName : null) ?? cleanValue(typeof data.name === "string" ? data.name : null) ?? ""
+    const address = cleanValue(typeof master.address === "string" ? master.address : null) ?? getFieldValue(fields, "Address")
+    if (!name || !address) continue
+    addressable.push({ directoryContextId: pairs[i].directoryContextId, name, address })
+  }
+
+  return mapWithConcurrency(addressable, GEOCODE_CONCURRENCY, async (candidate) => {
+    const point = await geocodeByDirectoryContextId(candidate.directoryContextId, candidate.address)
+    return point ? { directoryContextId: candidate.directoryContextId, name: candidate.name, point } : null
+  })
 }

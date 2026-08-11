@@ -461,5 +461,13 @@ service cloud.firestore {
       }
     }
 
+    // ── ByeByeDPR: nearest-job geocode cache ────────────────────────────────
+    // Server-only (Admin SDK) — a job address's geocoded lat/lng, cached so
+    // the same address isn't re-geocoded on every nearest-job search. No
+    // client ever needs to read or write this directly.
+    match /byeByeDprJobGeocodeCache/{directoryContextId} {
+      allow read, write: if false;
+    }
+
   }
 }

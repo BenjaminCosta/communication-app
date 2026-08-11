@@ -883,6 +883,84 @@ Verificado antes/después con un script de lectura+escritura puntual
 
 `pnpm typecheck` + `pnpm test:bye-bye-dpr` limpios.
 
+## Cambio 2026-08-11 (cont.): nearest location contra TODOS los jobs de Directory
+
+El usuario aclaró el alcance real que quería: "Wax the City" y "LDS" son
+jobs que él mismo eligió desde el buscador de Directory — la idea es que
+nearest location busque entre **todos** los jobs de Directory (no solo los
+2-3 que ya están linkeados en ByeByeDPR), calculando el más cercano entre
+los que sí tienen ubicación — la mayoría de los jobs de Directory tiene
+`address`.
+
+**Bloqueo real encontrado**: Directory no guarda coordenadas de ningún
+job, solo `address` en texto libre — no hay ningún geocoder integrado en
+todo el codebase (se confirmó con grep, cero resultados). Se le presentó
+la disyuntiva al usuario (Google Geocoding API, de pago pero preciso, vs.
+Nominatim/OSM, gratis pero con política de uso restrictiva) y eligió
+**Google Geocoding API**. Falta la API key — el usuario la va a conseguir
+y pasar después; mientras tanto se construyó todo el resto para que quede
+listo para conectar apenas llegue.
+
+**Se implementó:**
+
+- **`lib/geocoding-server.ts`** (nuevo, de propósito general, no específico
+  de ByeByeDPR) — `geocodeAddress(address)` llama a la Geocoding API de
+  Google. **Sin `GOOGLE_MAPS_GEOCODING_API_KEY` configurada, devuelve
+  `null` siempre, nunca lanza excepción ni inventa una coordenada** — el
+  resto del pipeline ya está escrito para tratar `null` como "no se pudo
+  ubicar", exactamente el mismo criterio que evitó romperse con el bug de
+  ayer (nunca fabricar una ubicación falsa).
+- **`lib/bye-bye-dpr-directory-link.ts`**: dos piezas nuevas.
+  - `listGeocodedDirectoryJobs(excludeIds, limit=150)` — lee
+    `/directoryIndex` con `where('type','==','job').limit(150)` (bounded/
+    indexado, un solo equality filter — no es el scan que este archivo
+    prohíbe), point-reads en batch (`db.getAll`) el `/contexts` real de
+    cada candidato para sacar la dirección completa (el índice solo tiene
+    `location`, la versión corta), y geocodifica los que tienen dirección
+    con concurrencia acotada (8 en paralelo). Jobs sin dirección, o cuya
+    dirección no geocodifica, quedan afuera — nunca con una ubicación
+    adivinada.
+  - `geocodeByDirectoryContextId(directoryContextId, address)` — cache-first
+    contra la colección nueva `byeByeDprJobGeocodeCache` (doc id =
+    `directoryContextId`, TTL 30 días), para no volver a geocodificar la
+    misma dirección en cada búsqueda.
+- **`lib/bye-bye-dpr-server.ts`**: `suggestNearestJob()` ahora recibe
+  `principal` (antes solo `location`) y considera DOS conjuntos: (1) los
+  jobs propios de ByeByeDPR —si a alguno le falta lat/lng pero tiene
+  `address` guardado, se geocodifica ahí mismo y se persiste en el doc
+  (self-healing: la próxima vez ya no hace falta geocodificar de nuevo);
+  (2) el catálogo de Directory vía `listGeocodedDirectoryJobs()`, excluyendo
+  los que ya están linkeados. Si gana un job de Directory que todavía no
+  es un job local, se linkea ahí mismo (mismo camino que elegirlo del
+  buscador) para que la respuesta siga siendo un `Job` normal y usable.
+- **Ruta y cliente**: `app/api/bye-bye-dpr/jobs/nearest/route.ts` ahora
+  pasa el `principal` real (antes se descartaba). `change-job-screen.tsx`:
+  si `fetchNearestJob()` devuelve un job que el cliente todavía no conoce
+  (recién linkeado por el server), lo agrega vía `onJobCreated` para que
+  `suggestedJob`/`selectedJob` (derivados de la prop `jobs`) lo encuentren.
+- **Reglas**: bloque nuevo `byeByeDprJobGeocodeCache` en `firestore.rules`
+  y `.secure` (`allow read, write: if false` — solo Admin SDK, mismo
+  patrón que `outlookAiUsage`). **Agregado en el archivo local, todavía
+  NO deployado** — se junta con el deploy de la API key.
+- **`.env.example`**: documentado `GOOGLE_MAPS_GEOCODING_API_KEY` (el
+  archivo está en `.gitignore`, así que esto es solo referencia local, no
+  se commitea).
+
+**Verificación**: `pnpm verify:fast` completo limpio, y **dos** `pnpm
+build` (build de producción real) — antes y después de este cambio,
+ambos limpios, confirmando que toda la cadena nueva (ruta → server →
+directory-link → geocoding) compila y se resuelve bien bajo Next.js real.
+No se pudo probar el geocoding en sí porque no hay key todavía — el
+código está escrito para no romper nada mientras tanto (falla a "sin
+ubicación", el comportamiento de siempre).
+
+**Pendiente, con el usuario**:
+1. Conseguir y pasar `GOOGLE_MAPS_GEOCODING_API_KEY`.
+2. Agregarla en `.env.local` (dev) y en las env vars del proyecto en
+   Vercel (prod) — **no** funciona solo con una de las dos.
+3. Deployar el bloque de reglas nuevo (`byeByeDprJobGeocodeCache`) — se
+   puede hacer junto con lo anterior, se le va a preguntar antes.
+
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
 Durante la verificación de esta fase se intentó correr un smoke test

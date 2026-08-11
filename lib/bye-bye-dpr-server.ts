@@ -54,7 +54,13 @@ import {
   type ReportAttachment,
 } from "@/lib/bye-bye-dpr-store"
 import { byeByeDprMessageTagIds, type ByeByeDprEventTag } from "@/lib/bye-bye-dpr-tags"
-import { createDirectoryJobContext, getLiveDirectoryJobNames, resolveDirectoryJob } from "@/lib/bye-bye-dpr-directory-link"
+import {
+  createDirectoryJobContext,
+  geocodeByDirectoryContextId,
+  getLiveDirectoryJobNames,
+  listGeocodedDirectoryJobs,
+  resolveDirectoryJob,
+} from "@/lib/bye-bye-dpr-directory-link"
 import { computeVisibleToUserIds } from "@/lib/store"
 import { structureDailyReportDraft } from "@/features/bye-bye-dpr/ai/server/daily-report-structuring-service"
 import { transcribeReportAudio as transcribeReportAudioAi } from "@/features/bye-bye-dpr/ai/server/transcription-service"
@@ -254,18 +260,69 @@ export interface NearestJobResult {
   distanceMeters: number
 }
 
-/** Deterministic distance math only — never AI, per the module's own rules. */
-export async function suggestNearestJob(location: GeoPoint): Promise<NearestJobResult | null> {
+/**
+ * Fills in coordinates for ByeByeDPR jobs that have a street address but no
+ * lat/lng yet (geocoded, cache-first — see lib/bye-bye-dpr-directory-link.ts)
+ * and persists the result on the job doc itself, best-effort, so this only
+ * ever geocodes a given job once. A job with no address stays uncoordinated
+ * — never given a guessed location.
+ */
+async function withGeocodedCoordinates(jobs: Job[]): Promise<Job[]> {
+  const db = await adminFirestore()
+  return Promise.all(jobs.map(async (job) => {
+    if (job.latitude != null && job.longitude != null) return job
+    if (!job.address || !job.directoryContextId) return job
+    const point = await geocodeByDirectoryContextId(job.directoryContextId, job.address)
+    if (!point) return job
+    db.collection(JOBS_COLLECTION).doc(job.id).update({ latitude: point.lat, longitude: point.lng, updatedAt: new Date() }).catch(() => {
+      // Best-effort persistence — the result is still used for this request either way.
+    })
+    return { ...job, latitude: point.lat, longitude: point.lng }
+  }))
+}
+
+/**
+ * Deterministic distance math only — never AI, per the module's own rules.
+ * Considers two pools: ByeByeDPR's own jobs (geocoding their stored address
+ * on demand if they don't have coordinates yet) and, since 2026-08-11,
+ * SVC Directory's broader job catalog (bounded, geocoded, cached — see
+ * lib/bye-bye-dpr-directory-link.ts) so nearest-job isn't limited to jobs
+ * someone already picked in ByeByeDPR before. If the winner is a Directory
+ * job not yet linked locally, it's linked now (same as picking it from
+ * search would do) so the response is always a normal, usable `Job`.
+ */
+export async function suggestNearestJob(principal: ByeByeDprPrincipal, location: GeoPoint): Promise<NearestJobResult | null> {
   if (!isValidGeoPoint(location)) throw new ByeByeDprError("invalid-request", "A valid location is required.", 400)
+
   const jobs = await listJobs({ activeOnly: true })
-  const withCoordinates = jobs.filter((job) => job.latitude != null && job.longitude != null)
-  const match = findNearestJob(
-    location,
-    withCoordinates.map((job) => ({ id: job.id, latitude: job.latitude as number, longitude: job.longitude as number })),
-  )
+  const geocodedJobs = await withGeocodedCoordinates(jobs)
+  const withCoordinates = geocodedJobs.filter((job) => job.latitude != null && job.longitude != null)
+
+  const linkedContextIds = new Set(jobs.map((job) => job.directoryContextId).filter((id): id is string => Boolean(id)))
+  const directoryCandidates = await listGeocodedDirectoryJobs(linkedContextIds)
+
+  const candidates = [
+    ...withCoordinates.map((job) => ({ id: `job:${job.id}`, latitude: job.latitude as number, longitude: job.longitude as number })),
+    ...directoryCandidates.map((candidate) => ({ id: `dir:${candidate.directoryContextId}`, latitude: candidate.point.lat, longitude: candidate.point.lng })),
+  ]
+  const match = findNearestJob(location, candidates)
   if (!match) return null
-  const job = withCoordinates.find((candidate) => candidate.id === match.jobId)
-  return job ? { job, distanceMeters: match.distanceMeters } : null
+
+  if (match.jobId.startsWith("job:")) {
+    const job = withCoordinates.find((candidate) => candidate.id === match.jobId.slice(4))
+    return job ? { job, distanceMeters: match.distanceMeters } : null
+  }
+
+  const directoryContextId = match.jobId.slice(4)
+  const candidate = directoryCandidates.find((entry) => entry.directoryContextId === directoryContextId)
+  if (!candidate) return null
+  const job = await createJob(principal, {
+    name: candidate.name,
+    directoryContextId,
+    latitude: candidate.point.lat,
+    longitude: candidate.point.lng,
+  })
+  return { job, distanceMeters: match.distanceMeters }
 }
 
 // ── Communications integration ─────────────────────────────────────────

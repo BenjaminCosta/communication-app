@@ -469,6 +469,13 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
 
       const { match } = await fetchNearestJob(location)
       if (match) {
+        // The server may have just geocoded and linked a Directory job that
+        // wasn't in our local list yet — add it so `suggestedJob`/`selectedJob`
+        // (both derived from `jobs`) can actually resolve it below.
+        if (!jobs.some((job) => job.id === match.job.id)) onJobCreated(match.job)
+        if (match.job.latitude != null && match.job.longitude != null) {
+          setDistances((prev) => ({ ...prev, [match.job.id]: match.distanceMeters }))
+        }
         setSuggestedJobId(match.job.id)
         setSelectedId(match.job.id)
       } else {
