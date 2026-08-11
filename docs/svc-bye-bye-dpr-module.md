@@ -954,12 +954,27 @@ No se pudo probar el geocoding en sí porque no hay key todavía — el
 código está escrito para no romper nada mientras tanto (falla a "sin
 ubicación", el comportamiento de siempre).
 
-**Pendiente, con el usuario**:
-1. Conseguir y pasar `GOOGLE_MAPS_GEOCODING_API_KEY`.
-2. Agregarla en `.env.local` (dev) y en las env vars del proyecto en
-   Vercel (prod) — **no** funciona solo con una de las dos.
-3. Deployar el bloque de reglas nuevo (`byeByeDprJobGeocodeCache`) — se
-   puede hacer junto con lo anterior, se le va a preguntar antes.
+**Actualización, mismo día — configurado y deployado**: el usuario pasó la
+API key. Se agregó a `.env.local` (dev) y a las env vars de Producción del
+proyecto en Vercel (`vercel env add ... production`, marcada "Sensitive").
+Se verificó la key pegándole directo a la Geocoding API con una dirección
+real (`Mt Vernon, VA, USA`, la de "LDS Outdoor Pavilions") — responde bien.
+Se deployó el bloque de reglas nuevo (`firebase deploy --only
+firestore:rules --project svc-comms`, éxito) y se disparó un deploy nuevo
+de producción en Vercel (`vercel --prod`, éxito, aliaseado a
+`communication-svc.vercel.app`) — necesario porque una env var nueva no se
+aplica retroactivamente a un deploy ya hecho. Confirmado `GET /` → 200 en
+el dominio real de producción después del deploy.
+
+**No se probó el flujo completo autenticado** (crear un ID token real y
+pegarle a `/api/bye-bye-dpr/jobs/nearest` de punta a punta) — se consideró
+desproporcionado para lo que se está verificando, dado que la key ya se
+confirmó válida por separado y el código ya pasó typecheck + 2 builds de
+producción. La primera vez que alguien use "Use current location" en la
+app real va a disparar el geocoding real y así "LDS Outdoor Pavilions"
+(que tiene `address` pero no `latitude/longitude`) debería auto-completar
+su ubicación sola (self-healing, ver más arriba) — vale la pena probarlo
+a mano en la app.
 
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
