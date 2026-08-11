@@ -758,6 +758,96 @@ Firebase Auth persiste la sesión y esto resuelve casi instantáneo, no es
 lo que se veía como loading screen. `pnpm typecheck` + `pnpm test:bye-bye-dpr`
 limpios.
 
+## Cambio 2026-08-11: ByeByeDPR pasó a ser pantalla interna del shell
+
+El fix anterior (boot cache) evitaba la loading screen en cada switch, pero
+seguía siendo un parche sobre una diferencia arquitectónica real. El
+usuario pidió el refactor completo: "que funcione de la misma forma que
+los demás módulos" — sin ruta separada, consistencia total.
+
+**Investigación previa (antes de tocar código)**: se confirmó que
+Communications/Directory/Applications/Quest Coral **no tienen rutas
+propias** — no existen `app/directory/`, `app/applications/`,
+`app/quest-coral/`; los cuatro son pantallas condicionales dentro de la
+ÚNICA instancia de `app/page.tsx` (`activeScreen`). ByeByeDPR era la única
+excepción (`app/byebye-dpr/page.tsx`). El mecanismo real de "nunca hay
+loading screen al cambiar de módulo" no es magia de Next.js: Applications
+y Quest Coral usan un hook (`useApplicationsDashboard`/
+`useQuestCoralDashboard`) llamado **incondicionalmente** en `page.tsx`,
+activado una sola vez por un flag "sticky" (`hasEnteredApplications`, nunca
+vuelve a false) — sus listeners de Firestore quedan vivos para siempre una
+vez abiertos, así que volver al módulo no perdió nada, solo remonta el
+componente de PANTALLA (que sí pierde su estado local de UI, ej. scroll)
+pero nunca la DATA. Eso es lo que había que replicar — no localStorage, no
+cache manual, la arquitectura real.
+
+**Se implementó:**
+
+- **`features/bye-bye-dpr/use-bye-bye-dpr-dashboard.ts`** (nuevo) — todo lo
+  que antes vivía en `ByeByeDprApp` como boot/data/mutaciones
+  (jobs/recentJobs/activeClock/clockActionBusy/recentActivity/etc. +
+  `clockInToJob`/`clockOutConfirm`/`forgotClockOutConfirm`/`jobCreated`)
+  ahora es un hook `useByeByeDprDashboard(uid, enabled)`, misma forma que
+  `useApplicationsDashboard(name, uid, enabled)`. Ya **no hace su propio
+  `onAuthStateChanged`** — recibe `uid` como parámetro, tomado del
+  `firebaseUser` que `page.tsx` ya tiene (mismo dato que usan los otros 4
+  módulos, un fetch de auth menos).
+- **`components/bye-bye-dpr/byebye-dpr-screen.tsx`** (reemplaza
+  `byebye-dpr-app.tsx`, borrado) — componente puramente de pantalla, recibe
+  `dashboard` (el hook de arriba) + `userDisplayName` +
+  `onSwitchToStream`/`onSwitchToDirectory`/`onSwitchToApplications`/
+  `onSwitchToQuestCoral` como props, igual que `ApplicationsListScreen`/
+  `QuestCoralScreen`. Sigue dueño de su propia navegación interna (`screen`:
+  home/about/change-job/daily-report/daily-report-review) y del borrador de
+  report en curso (`reportId`/`reportText`/fotos) — eso se resetea a Home
+  al salir y volver al módulo, **igual que Applications/Quest Coral
+  vuelven a su lista y no a la fila/proyecto específico que tenías
+  abierto** — no es una regresión nueva, es el mismo comportamiento ya
+  establecido en el resto del shell.
+- **`components/bye-bye-dpr/byebye-dpr-header.tsx`** — el `<ModuleSwitcher>`
+  ahora recibe los mismos 4 callbacks `onSwitchTo*` y los branchea en
+  `onSelect`, exactamente como `stream-screen.tsx`/`directory-screen.tsx`/
+  `applications-list-screen.tsx`/`quest-coral-screen.tsx`. Ya no navega a
+  ningún lado.
+- **`components/module-switcher.tsx`** — se sacó el `if (module ===
+  "bye-bye-dpr") { router.push("/byebye-dpr") }` especial de
+  `selectModule()` (y el `useRouter` que solo servía para eso). Las 5
+  entradas ahora se tratan igual.
+- **Los otros 4 módulos** (`stream-screen.tsx`, `directory-screen.tsx`,
+  `applications-list-screen.tsx`, `quest-coral-screen.tsx`) ganaron un
+  nuevo prop (`onByeByeDpr`/`onSwitchToByeByeDpr` según la convención de
+  nombres de cada uno) y una línea más en su `onSelect` del switcher.
+- **`app/page.tsx`**: `"bye-bye-dpr"` se sumó a `Screen`, `SCREEN_DEPTH`
+  (profundidad 1, mismo nivel que directory/applications/quest-coral),
+  `SvcModuleName`, `getLastModule()`/`persistLastModule()` (así que
+  reabrir la app también puede resumir directo en ByeByeDPR, como ya
+  pasaba con los otros 3). Nuevo `hasEnteredByeByeDpr` (sticky, mismo
+  patrón), `byeByeDprDashboard = useByeByeDprDashboard(firebaseUser?.uid ??
+  "", hasEnteredByeByeDpr)` llamado incondicionalmente, `goToByeByeDpr =
+  () => navigateTo("bye-bye-dpr")`, y el bloque de render (dynamic import
+  `ssr:false`, mismo patrón que los otros 4) — `userDisplayName` usa
+  `currentUser?.name`, la misma fuente que ya usan Applications/Quest
+  Coral, en vez de que ByeByeDPR hiciera su propio `getDoc(users/{uid})`.
+- **Borrado**: `app/byebye-dpr/` (la ruta entera), `components/bye-bye-dpr/
+  byebye-dpr-app.tsx`, y `lib/bye-bye-dpr-boot-cache.ts` (el hack de ayer —
+  ya no hace falta, la arquitectura real no lo necesita). Se confirmó antes
+  de borrar la ruta que nada más la referenciaba (manifest de PWA sin
+  shortcuts a `/byebye-dpr`, sin otros `router.push`/links).
+
+**Verificación**: `pnpm verify:fast` completo limpio (typecheck, todos los
+tests, build de `functions/`), y además `pnpm build` (build de producción
+real de Next.js) limpio — importante en este cambio porque toca varios
+`dynamic(..., { ssr: false })` y la tabla de rutas (confirma que `/byebye-
+dpr` ya no aparece como ruta). También se levantó `pnpm dev` y se pidió
+`GET /` por curl (200, sin errores) como smoke test mínimo de que la app
+sigue arrancando. **No se hizo click-through real en browser** — no hay
+herramienta de automatización de navegador disponible en esta sesión ni
+credenciales de login a mano; queda pendiente que alguien lo prueba a mano
+antes de darlo por completamente verificado en el uso real (cambiar de
+módulo hacia/desde ByeByeDPR varias veces, confirmar que no aparece la
+loading screen salvo la primera vez, y que clock in/out/report siguen
+funcionando igual que antes).
+
 ## ⚠️ Hallazgo de seguridad: el Admin SDK no tiene wiring de emulador
 
 Durante la verificación de esta fase se intentó correr un smoke test
@@ -960,11 +1050,9 @@ muestra antes de clockear, consistente con ambas referencias).
 `components/module-switcher.tsx` — 5ª entrada (`SvcModule` ahora incluye
 `"bye-bye-dpr"`), ícono `Clock`, acento `#A78BFA` (reusa el violeta ya
 vetted de Directory para "job", `--directory-job`, en vez de inventar uno
-nuevo para el popover oscuro). Como ByeByeDPR todavía no es una pantalla
-interna del shell de `app/page.tsx`, seleccionarlo hace una navegación real
-(`router.push("/byebye-dpr")`) en vez del cambio de estado in-app que usan
-los otros cuatro — resuelto adentro de `selectModule()`, sin tocar ninguno
-de los 4 call-sites existentes de `<ModuleSwitcher>`.
+nuevo para el popover oscuro). **Actualizado 2026-08-11**: ya no navega a
+una ruta separada — ver "Cambio 2026-08-11: ByeByeDPR pasó a ser pantalla
+interna del shell" más abajo; `selectModule()` trata las 5 entradas igual.
 
 ## Pendiente / próximos pasos
 
@@ -996,12 +1084,12 @@ de los 4 call-sites existentes de `<ModuleSwitcher>`.
 6. **No hay endpoint para borrar un adjunto** — "quitar" una foto en Daily
    Report/Review solo la saca de la lista local; el archivo y su doc en
    Storage/Firestore quedan.
-7. **Decidir integración al shell** — ¿ByeByeDPR se queda como ruta
-   standalone (`/byebye-dpr`) o se convierte en una pantalla interna más
-   de `app/page.tsx` como los otros 4 módulos?
-8. **Deploy** — reglas/índices a producción, seed de tags
-   (`scripts/seed-bye-bye-dpr-tags.mjs`), todo pendiente de aprobación
-   explícita del usuario.
+7. ~~**Decidir integración al shell**~~ — **Resuelto 2026-08-11**: ByeByeDPR
+   es ahora una pantalla interna de `app/page.tsx`, como los otros 4
+   módulos. Ver "Cambio 2026-08-11" más abajo.
+8. **Deploy** — reglas/índices de ByeByeDPR ya están en producción desde
+   2026-08-10 (con aprobación explícita); seed de tags
+   (`scripts/seed-bye-bye-dpr-tags.mjs`) sigue sin correrse.
 9. **`docs/svc-bye-bye-dpr-product-context.md`** — recién tiene sentido
    escribirlo cuando el módulo esté más cerca de producción (mismo criterio
    que los otros módulos).
@@ -1020,13 +1108,13 @@ env var de emulador.
   paralelo) — reglas contra el emulador vía `@firebase/rules-unit-testing`,
   no pasa por el Admin SDK del proyecto.
 
-**UI conectada** (`pnpm dev` → `http://localhost:3000/byebye-dpr`): hace
-falta estar logueado con una sesión real de Firebase Auth de este proyecto
-(comparte sesión con el resto de la app) — si no hay usuario logueado,
-redirige a `/`. A partir de ahí: gate de primer job (si no hay ningún job
-todavía) → Home real, sin ningún paso de compañía. Tener presente el
-hallazgo de seguridad antes de tocar cualquier botón que escriba (agregar
-job, clock in/out, submit de reporte).
+**UI conectada** (`pnpm dev` → `http://localhost:3000/`, logueado, y elegir
+ByeByeDPR desde el module switcher — ya **no** es una ruta separada, ver
+"Cambio 2026-08-11"): sin usuario logueado cae en el login normal del
+shell. A partir de ahí: gate de primer job (si no hay ningún job todavía)
+→ Home real, sin ningún paso de compañía. Tener presente el hallazgo de
+seguridad antes de tocar cualquier botón que escriba (agregar job, clock
+in/out, submit de reporte).
 
 ## File map
 
@@ -1041,9 +1129,10 @@ job, clock in/out, submit de reporte).
 | `scripts/bye-bye-dpr-*.test.ts`, `scripts/test-bye-bye-dpr-rules.mjs`, `scripts/seed-bye-bye-dpr-tags.mjs` | Backend: tests + seed |
 | `features/bye-bye-dpr/client/byebye-dpr-client.ts` | Frontend: wrapper fetch con auth real hacia todas las rutas de arriba |
 | `components/bye-bye-dpr/**` | UI: pantallas, sheets, primitivos (`ui/`) — conectadas al backend real, sin mock data |
+| `components/bye-bye-dpr/byebye-dpr-screen.tsx` | UI: componente de pantalla (ex `byebye-dpr-app.tsx`), montado por `app/page.tsx` — ver "Cambio 2026-08-11" |
+| `features/bye-bye-dpr/use-bye-bye-dpr-dashboard.ts` | UI/estado: hook de dashboard llamado desde `app/page.tsx`, mismo patrón que `useApplicationsDashboard`/`useQuestCoralDashboard` |
 | `components/bye-bye-dpr/change-job-screen.tsx` | UI: selector de job / flujo de Clock In; su `AddFirstJobCard` busca/crea contra Directory (único gate que queda — sin compañía, sin pantalla separada) |
-| `app/byebye-dpr/page.tsx` | UI: ruta standalone, conectada al backend real |
-| `components/module-switcher.tsx` | UI: 5ª entrada del switcher (compartido con los otros 4 módulos) |
+| `components/module-switcher.tsx` | UI: 5ª entrada del switcher (compartido con los otros 4 módulos, mismo `onSelect` en los 5) |
 | `app/globals.css` (`.byebye-dpr-scope` y bloques relacionados) | UI: tokens, glass mínimo en sheets, tratamiento "IA generando" |
 | `PRODUCT.md`, `DESIGN.md` (raíz) | UI: contexto para la skill `impeccable` |
 | `firestore.rules`/`.secure`, `storage.rules`, `firestore.indexes.json` | Backend: reglas/índices — **desplegadas a producción 2026-08-10** |

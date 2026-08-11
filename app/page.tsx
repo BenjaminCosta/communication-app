@@ -44,6 +44,7 @@ import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
 import { useApplicationsDashboard } from "@/features/applications/use-applications-dashboard"
 import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-dashboard"
+import { useByeByeDprDashboard } from "@/features/bye-bye-dpr/use-bye-bye-dpr-dashboard"
 import { publishQuestCoralFeedbackReply } from "@/features/quest-coral/quest-coral-feedback-client"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
@@ -70,6 +71,7 @@ const ApplicationDetailScreen = dynamic(() => import("@/components/applications/
 const CandidateFlowScreen = dynamic(() => import("@/components/applications/candidate/candidate-flow-screen").then((m) => ({ default: m.CandidateFlowScreen })), { ssr: false })
 const QuestCoralScreen = dynamic(() => import("@/components/quest-coral/quest-coral-screen").then((m) => ({ default: m.QuestCoralScreen })), { ssr: false })
 const QuestCoralProjectDetailScreen = dynamic(() => import("@/components/quest-coral/project-detail-screen").then((m) => ({ default: m.ProjectDetailScreen })), { ssr: false })
+const ByeByeDprScreen = dynamic(() => import("@/components/bye-bye-dpr/byebye-dpr-screen").then((m) => ({ default: m.ByeByeDprScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -126,6 +128,7 @@ type Screen =
   | "help"
   | "quest-coral"
   | "quest-coral-detail"
+  | "bye-bye-dpr"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -153,12 +156,13 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   apply: 0,
   "quest-coral": 1,
   "quest-coral-detail": 2,
+  "bye-bye-dpr": 1,
 }
 
 // Remembers which module the user was last in,
 // so reopening the app resumes there instead of always defaulting to Comms.
 const LAST_MODULE_KEY = "svc-last-module"
-type SvcModuleName = "communications" | "directory" | "applications" | "quest-coral"
+type SvcModuleName = "communications" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr"
 type DirectoryDeepLinkView = "profile" | "outlook"
 
 /** Secure candidate link: ?apply=<token>. Works before sign-in. */
@@ -182,7 +186,9 @@ function getLastModule(): SvcModuleName | null {
   if (typeof window === "undefined") return null
   const stored = localStorage.getItem(LAST_MODULE_KEY)
   const lastModule =
-    stored === "directory" || stored === "applications" || stored === "quest-coral" ? stored : null
+    stored === "directory" || stored === "applications" || stored === "quest-coral" || stored === "bye-bye-dpr"
+      ? stored
+      : null
   if (lastModule) document.cookie = `${LAST_MODULE_KEY}=${lastModule}; path=/; max-age=31536000; samesite=lax`
   return lastModule
 }
@@ -196,6 +202,8 @@ function persistLastModule(screen: Screen): void {
     module = "applications"
   } else if (screen === "quest-coral" || screen === "quest-coral-detail") {
     module = "quest-coral"
+  } else if (screen === "bye-bye-dpr") {
+    module = "bye-bye-dpr"
   } else if (screen === "apply") {
     // Candidate sessions must never change what an internal user resumes into.
     return
@@ -457,7 +465,9 @@ export default function Home() {
                   ? "applications"
                   : lastModule === "quest-coral"
                     ? "quest-coral"
-                    : "compose",
+                    : lastModule === "bye-bye-dpr"
+                      ? "bye-bye-dpr"
+                      : "compose",
             )
           }
           // Background auth metadata update. Do not lead with a one-shot getDoc:
@@ -1529,6 +1539,9 @@ export default function Home() {
     navigateTo("applications")
   }, [navigateTo])
 
+  // ── ByeByeDPR navigation ─────────────────────────────────────────────────
+  const goToByeByeDpr = useCallback(() => navigateTo("bye-bye-dpr"), [navigateTo])
+
   // ── Quest Coral navigation ──────────────────────────────────────────────
   const goToQuestCoral = useCallback(() => navigateTo("quest-coral"), [navigateTo])
   const goToQuestCoralDetail = useCallback((projectId: string) => {
@@ -1751,6 +1764,14 @@ export default function Home() {
     ? questCoralDashboard.coverageFor(selectedQuestCoralProject)
     : null
 
+  // Same lazy-activation as Applications/Quest Coral above — the boot fetch
+  // only ever runs once per session, on first entry, not on every switch.
+  const [hasEnteredByeByeDpr, setHasEnteredByeByeDpr] = useState(false)
+  if (!hasEnteredByeByeDpr && activeScreen === "bye-bye-dpr") {
+    setHasEnteredByeByeDpr(true)
+  }
+  const byeByeDprDashboard = useByeByeDprDashboard(firebaseUser?.uid ?? "", hasEnteredByeByeDpr)
+
   const activeStreamFilters = useMemo(() => ({
     peopleIds: selectedPeopleFilter,
     tagIds: selectedTagFilter,
@@ -1942,6 +1963,7 @@ export default function Home() {
               onSwitchToStream={handleDirectorySwitchToStream}
               onSwitchToApplications={goToApplications}
               onSwitchToQuestCoral={goToQuestCoral}
+              onSwitchToByeByeDpr={goToByeByeDpr}
             />
             {activeScreen === "directory-detail" && selectedDirectoryId && (
               <DirectoryProfileScreen
@@ -1981,6 +2003,7 @@ export default function Home() {
             onSwitchToStream={goToStream}
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToQuestCoral={goToQuestCoral}
+            onSwitchToByeByeDpr={goToByeByeDpr}
             onPreviewCandidateFlow={handlePreviewCandidateFlow}
           />
           {activeScreen === "application-detail" && selectedApplication && (
@@ -2022,6 +2045,7 @@ export default function Home() {
             onSwitchToStream={goToStream}
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToApplications={goToApplications}
+            onSwitchToByeByeDpr={goToByeByeDpr}
           />
           {activeScreen === "quest-coral-detail" && selectedQuestCoralProject && selectedQuestCoralCoverage && (
             <QuestCoralProjectDetailScreen
@@ -2042,6 +2066,18 @@ export default function Home() {
             />
           )}
         </div>
+      )}
+
+      {!showScreenSkeleton && activeScreen === "bye-bye-dpr" && firebaseUser && (
+        <ByeByeDprScreen
+          className={`${entranceClass} h-full w-full`}
+          dashboard={byeByeDprDashboard}
+          userDisplayName={currentUser?.name || "there"}
+          onSwitchToStream={goToStream}
+          onSwitchToDirectory={goToDirectoryFromStream}
+          onSwitchToApplications={goToApplications}
+          onSwitchToQuestCoral={goToQuestCoral}
+        />
       )}
 
       {!showScreenSkeleton && activeScreen === "contexts" && (
@@ -2109,6 +2145,7 @@ export default function Home() {
             onDirectory={goToDirectoryFromStream}
             onApplications={goToApplications}
             onQuestCoral={goToQuestCoral}
+            onByeByeDpr={goToByeByeDpr}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

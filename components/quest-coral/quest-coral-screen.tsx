@@ -57,6 +57,7 @@ interface QuestCoralScreenProps {
   onSwitchToStream: () => void
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
+  onSwitchToByeByeDpr: () => void
 }
 
 function formatShortDate(iso: string): string {
@@ -189,6 +190,7 @@ export function QuestCoralScreen({
   onSwitchToStream,
   onSwitchToDirectory,
   onSwitchToApplications,
+  onSwitchToByeByeDpr,
 }: QuestCoralScreenProps) {
   const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, unreadCountFor } = dashboard
   const [showAbout, setShowAbout] = useState(false)
@@ -316,6 +318,7 @@ export function QuestCoralScreen({
             if (module === "communications") onSwitchToStream()
             if (module === "directory") onSwitchToDirectory()
             if (module === "applications") onSwitchToApplications()
+            if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
           }}
         />
         <div className="flex items-center gap-2">

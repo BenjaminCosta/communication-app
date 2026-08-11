@@ -77,6 +77,7 @@ interface ApplicationsListScreenProps {
   onSwitchToStream: () => void
   onSwitchToDirectory: () => void
   onSwitchToQuestCoral: () => void
+  onSwitchToByeByeDpr: () => void
   onPreviewCandidateFlow: (token: string) => void
 }
 
@@ -87,6 +88,7 @@ export function ApplicationsListScreen({
   onSwitchToStream,
   onSwitchToDirectory,
   onSwitchToQuestCoral,
+  onSwitchToByeByeDpr,
   onPreviewCandidateFlow,
 }: ApplicationsListScreenProps) {
   const { visibleApplications, counts, filters, setFilters, sort, setSort, jobs, trades } = dashboard
@@ -110,6 +112,7 @@ export function ApplicationsListScreen({
             if (module === "communications") onSwitchToStream()
             if (module === "directory") onSwitchToDirectory()
             if (module === "quest-coral") onSwitchToQuestCoral()
+            if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
           }}
         />
         <div className="flex items-center gap-2">

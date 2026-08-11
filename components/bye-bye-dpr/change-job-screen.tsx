@@ -23,7 +23,7 @@
  * sticky footer's primary button clocks in against it.
  *
  * Zero jobs yet: there's no separate "add a job" gate before Home (see
- * byebye-dpr-app.tsx) — instead, if the picker has nothing to show, it's
+ * byebye-dpr-screen.tsx) — instead, if the picker has nothing to show, it's
  * the picker itself that offers a quick inline add. Creating a job selects
  * it immediately, so the normal footer "Use This Job" button just works.
  *

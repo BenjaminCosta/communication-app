@@ -31,6 +31,7 @@ interface DirectoryScreenProps {
   onSwitchToStream: () => void
   onSwitchToApplications: () => void
   onSwitchToQuestCoral: () => void
+  onSwitchToByeByeDpr: () => void
   className?: string
 }
 
@@ -43,6 +44,7 @@ export function DirectoryScreen({
   onSwitchToStream,
   onSwitchToApplications,
   onSwitchToQuestCoral,
+  onSwitchToByeByeDpr,
   className,
 }: DirectoryScreenProps) {
   const [draftQuery, setDraftQuery] = useState("")
@@ -238,6 +240,7 @@ export function DirectoryScreen({
             if (module === "communications") onSwitchToStream()
             if (module === "applications") onSwitchToApplications()
             if (module === "quest-coral") onSwitchToQuestCoral()
+            if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
           }}
         />
         <button

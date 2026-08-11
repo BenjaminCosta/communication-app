@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { useRouter } from "next/navigation"
 import { BookUser, Check, ChevronDown, ClipboardCheck, Clock, FolderKanban, MessageCircle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -69,11 +68,8 @@ const MODULES: Array<{
     labelAccent: "#E8593A",
   },
   {
-    // Standalone preview only (not yet an internal screen of this shell —
-    // see docs/svc-bye-bye-dpr-module.md) — selecting it does a real page
-    // navigation to /byebye-dpr instead of the in-app screen switch the
-    // other three modules use. Reuses Directory's already-vetted violet
-    // (--directory-job) for the dark popover instead of inventing a new one.
+    // Reuses Directory's already-vetted violet (--directory-job) for the
+    // dark popover instead of inventing a new one.
     id: "bye-bye-dpr",
     title: "ByeByeDPR",
     description: "Field clock-in & reports",
@@ -88,7 +84,6 @@ const MODULES: Array<{
 
 export function ModuleSwitcher({ activeModule, onSelect }: ModuleSwitcherProps) {
   const [open, setOpen] = useState(false)
-  const router = useRouter()
 
   useEffect(() => {
     if (!open) return
@@ -103,12 +98,6 @@ export function ModuleSwitcher({ activeModule, onSelect }: ModuleSwitcherProps) 
   const selectModule = (module: SvcModule) => {
     setOpen(false)
     if (module === activeModule) return
-    // ByeByeDPR isn't wired into this shell's internal screen state yet —
-    // it lives at its own route (see the MODULES entry above).
-    if (module === "bye-bye-dpr") {
-      router.push("/byebye-dpr")
-      return
-    }
     onSelect(module)
   }
 

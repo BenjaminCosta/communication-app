@@ -49,6 +49,10 @@ interface ByeByeDprHomeScreenProps {
   onForgotClockOut: () => void
   onOpenDailyReport: () => void
   onOpenAbout: () => void
+  onSwitchToStream: () => void
+  onSwitchToDirectory: () => void
+  onSwitchToApplications: () => void
+  onSwitchToQuestCoral: () => void
 }
 
 /** Splits "Clocked out yesterday at 4:18 PM" into ["Clocked out yesterday", "4:18 PM"]
@@ -75,13 +79,23 @@ export function ByeByeDprHomeScreen({
   onForgotClockOut,
   onOpenDailyReport,
   onOpenAbout,
+  onSwitchToStream,
+  onSwitchToDirectory,
+  onSwitchToApplications,
+  onSwitchToQuestCoral,
 }: ByeByeDprHomeScreenProps) {
   const clockedIn = status === "clocked_in"
   const [activityLine1, activityLine2] = recentActivity[0] ? splitActivityLabel(recentActivity[0]) : [null, null]
 
   return (
     <div className="byebye-dpr-scope byebye-dpr-canvas relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <ByeByeDprHeader onOpenAbout={onOpenAbout} />
+      <ByeByeDprHeader
+        onOpenAbout={onOpenAbout}
+        onSwitchToStream={onSwitchToStream}
+        onSwitchToDirectory={onSwitchToDirectory}
+        onSwitchToApplications={onSwitchToApplications}
+        onSwitchToQuestCoral={onSwitchToQuestCoral}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
         <div className="mx-auto w-full max-w-md px-5 pb-10 pt-6">
