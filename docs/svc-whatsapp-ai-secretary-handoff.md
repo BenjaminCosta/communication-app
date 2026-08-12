@@ -12,11 +12,26 @@ verified locally (typecheck, production `pnpm build`, and the full offline
 test suite are all green); not yet deployed to Vercel** — deploying is a
 separate, explicit step.
 
-**Deployed to production 2026-08-12** (`vercel --prod`, deployment
-`dpl_3mSG8KoGqYyDyWsRaw7qMjg8tNai`, aliased to
-`https://communication-svc.vercel.app`). Post-deploy smoke check only (root
-`/` → 200, webhook `GET` without a token → 403 as expected); the real
-end-to-end WhatsApp manual test pass below is still outstanding.
+**Deployed to production 2026-08-12** (`vercel --prod`, latest deployment
+`dpl_9i3SSFtZSrDYiHD16RXLKDRoFS4v`, aliased to
+`https://communication-svc.vercel.app`; committed and pushed to `main` as
+`b3b0434`). Post-deploy smoke check only (root `/` → 200, webhook `GET`
+without a token → 403 as expected); the real end-to-end WhatsApp manual test
+pass below is still outstanding.
+
+**Same-day follow-up fix**: the Secretary was declining to share a Directory
+person's phone/email even to identified internal senders ("I can't show
+phone numbers"). The shared `DirectoryAskRecord` shape (used by the web app's
+own "Ask SVC Directory") deliberately has no phone/email field, which is the
+right default there — but every WhatsApp sender who can reach Directory tools
+at all is, by construction, already a uniquely identified internal SVC user
+(`buildToolRegistry` only registers them when `canReadDirectory` is true).
+`lib/whatsapp-secretary/tools/directory.ts` now does one bounded extra
+`/contacts` read per result to attach `phone`/`email` onto person records
+when on file, and the system prompt (`lib/whatsapp-secretary/prompt.ts`)
+explicitly tells the model to share them — internal ids, storage links, and
+raw report text stay hidden as before. Two new offline tests cover both the
+enrichment and the "no linked contact → no fabricated fields" path.
 
 What changed:
 
