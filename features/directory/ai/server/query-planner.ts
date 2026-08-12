@@ -106,9 +106,16 @@ export function buildQueryPlan(question: string, extraction: EntityExtraction): 
       }
       break
     case "recommendation":
+      for (const entity of entities.slice(0, 2)) {
+        prefetch.push({ name: relationshipToolFor(entity.item.type), args: { directoryId: entity.item.id } })
+      }
+      break
     case "relationship_analysis":
       for (const entity of entities.slice(0, 2)) {
         prefetch.push({ name: relationshipToolFor(entity.item.type), args: { directoryId: entity.item.id } })
+      }
+      if (first && second) {
+        prefetch.push({ name: "findConnectingPaths", args: { fromId: first.item.id, toId: second.item.id, maxDepth: 3 } })
       }
       break
     case "semantic_note_search":

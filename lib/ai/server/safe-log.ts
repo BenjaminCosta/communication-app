@@ -52,3 +52,8 @@ export function logQuestCoralAi(metadata: SafeOutlookAiLog): void {
 export function logByeByeDprAi(metadata: SafeOutlookAiLog): void {
   console.info("[bye-bye-dpr-ai]", JSON.stringify(metadata))
 }
+
+/** Same allowlisted metadata shape, tagged for the WhatsApp Secretary orchestrator. */
+export function logWhatsAppSecretaryAi(metadata: SafeOutlookAiLog): void {
+  console.info("[whatsapp-secretary-ai]", JSON.stringify(metadata))
+}

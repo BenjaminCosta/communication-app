@@ -94,6 +94,33 @@ export const QUEST_CORAL_AI_LIMITS = {
 } as const
 
 /**
+ * Client-safe limits for the WhatsApp SVC AI Secretary's cross-module
+ * orchestrator (Directory, Quest Coral, Applications, ByeByeDPR reports,
+ * clocking, Outlooks). Kept independent from `DIRECTORY_AI_LIMITS` so the
+ * two tool-calling assistants have separate budgets, even though Directory's
+ * own tool set is reused inside this one. Deliberately conservative:
+ * `maxToolRounds` and `providerTimeoutMs` assume a Vercel Hobby-plan function
+ * duration ceiling, not a generous compute budget.
+ */
+export const WHATSAPP_SECRETARY_AI_LIMITS = {
+  /** Tool-loop budget: bounded rounds and bounded records per call. */
+  maxToolRounds: 3,
+  maxRecordsPerTool: 12,
+  /** Total records handed to the model across every tool call in one question. */
+  maxTotalRecords: 24,
+  /** Directory's note sub-budget; always 0 here — WhatsApp never exposes notes. */
+  maxNotesPerTool: 0,
+  maxNoteChars: 0,
+  /** Upper bound on completion tokens → keeps answers to ~150–250 words. */
+  maxAnswerTokens: 500,
+  /** Per-user rolling application limits. Enforced transactionally server-side. */
+  askRequestsPerWindow: 30,
+  requestWindowMs: 10 * 60 * 1000,
+  /** Upstream provider timeout (ms) for a single request. */
+  providerTimeoutMs: 30_000,
+} as const
+
+/**
  * Client-safe limits for ByeByeDPR (clock-in/out + daily reports): audio
  * transcription and free-text → structured-fields parsing. Kept independent
  * from the other features' budgets/collections.

@@ -1,0 +1,150 @@
+import type { z } from "zod"
+import type { OpenAiToolSpec } from "@/lib/ai/openai/client"
+import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
+
+/**
+ * Generic, module-agnostic tool contract for the WhatsApp Secretary
+ * orchestrator — generalized from Directory's own `DirectoryTool` contract
+ * (`features/directory/ai/server/tools/types.ts`) so every module (Directory,
+ * Quest Coral, Applications, ByeByeDPR reports/clocking, Outlooks) can plug
+ * into the same registry without the orchestrator knowing anything about
+ * Firestore, collection names, or module-specific record shapes.
+ *
+ * Every tool is READ-ONLY, validates its own arguments server-side (model
+ * output is never trusted), and returns a compact, bounded result — never raw
+ * documents and never a whole collection.
+ */
+
+/** The only modules this registry may ever aggregate. Messages/Communications
+ * has no entry here and never can — see {@link assertNoMessagesTools}. */
+export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks"
+
+/**
+ * Bounded tool output. `data` is a compact, module-specific JSON shape (e.g. a
+ * short array of records); long text must already be truncated before it
+ * leaves the server. `empty` is set when the tool genuinely found nothing, so
+ * the model can say so instead of guessing.
+ */
+export interface SecretaryToolResult {
+  /** Short natural-language framing of what the tool found. */
+  summary: string
+  data?: unknown
+  /**
+   * Server-only response-presentation metadata. It is intentionally omitted
+   * from tool JSON sent to OpenAI, so identifiers/URLs needed for a native
+   * WhatsApp CTA never become model context.
+   */
+  presentation?: unknown
+  empty?: boolean
+}
+
+/**
+ * Per-question budget shared across every tool call in one conversation,
+ * across every module. Structurally identical to Directory's own `ToolBudget`
+ * so Directory's tools can be run with this object directly, with no adapter.
+ */
+export interface SecretaryToolBudget {
+  maxRecordsPerTool: number
+  /** Directory's note sub-budget. Always 0 for WhatsApp — notes stay excluded. */
+  maxNotesPerTool: number
+  maxNoteChars: number
+  /** Total records/items handed to the model across every tool call in this turn. */
+  remainingRecords: number
+}
+
+export interface SecretaryTool<Args = unknown> {
+  name: string
+  module: SecretaryModule
+  description: string
+  /** JSON Schema advertised to OpenAI. */
+  parameters: Record<string, unknown>
+  /** Server-side validation — the model's arguments are never trusted. */
+  schema: z.ZodType<Args>
+  run(args: Args, budget: SecretaryToolBudget): Promise<SecretaryToolResult>
+}
+
+function emptyResult(summary: string): SecretaryToolResult {
+  return { summary, empty: true }
+}
+
+/**
+ * Structural, not just prompt-level, exclusion of Messages/Communications: no
+ * tool with a name matching this pattern may ever reach OpenAI. This is
+ * defense-in-depth — the primary control is that no file under
+ * `lib/whatsapp-secretary/tools/` imports anything Messages-related, so the
+ * capability does not exist in code. This assertion catches a future
+ * accidental addition before it ships.
+ */
+const FORBIDDEN_TOOL_NAME_PATTERN = /message|comms?/i
+
+export function assertNoMessagesTools(tools: SecretaryTool[]): void {
+  for (const tool of tools) {
+    if (FORBIDDEN_TOOL_NAME_PATTERN.test(tool.name)) {
+      throw new Error(
+        `WhatsApp Secretary tool registry must never expose a Messages/Communications tool (found "${tool.name}").`,
+      )
+    }
+  }
+}
+
+export type SecretaryToolFactory = () => SecretaryTool[]
+
+/**
+ * Aggregates every module's tool factory into one registry, filtered by the
+ * caller's access policy. Public/unrecognized senders get an empty list. A
+ * future module is one new factory added to this array — nothing else about
+ * the orchestrator changes.
+ */
+export function buildToolRegistry(
+  accessPolicy: WhatsAppAccessPolicy,
+  factories: Partial<Record<SecretaryModule, SecretaryToolFactory>>,
+): Map<string, SecretaryTool> {
+  const enabled: SecretaryModule[] = [
+    ...(accessPolicy.canReadDirectory ? (["directory"] as const) : []),
+    ...(accessPolicy.canReadQuestCoral ? (["questCoral"] as const) : []),
+    ...(accessPolicy.canReadApplications ? (["applications"] as const) : []),
+    ...(accessPolicy.canReadReports ? (["reports"] as const) : []),
+    ...(accessPolicy.canReadClocking ? (["clocking"] as const) : []),
+    ...(accessPolicy.canReadOutlooks ? (["outlooks"] as const) : []),
+  ]
+
+  const tools: SecretaryTool[] = []
+  for (const module of enabled) {
+    const factory = factories[module]
+    if (factory) tools.push(...factory())
+  }
+
+  assertNoMessagesTools(tools)
+  return new Map(tools.map((tool) => [tool.name, tool]))
+}
+
+export function toolSpecs(tools: Map<string, SecretaryTool>): OpenAiToolSpec[] {
+  return [...tools.values()].map((tool) => ({
+    type: "function" as const,
+    function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+  }))
+}
+
+/**
+ * Validate + execute one tool call. Unknown names and invalid arguments
+ * return a structured error the model can recover from, rather than
+ * throwing — mirrors `runDirectoryTool`.
+ */
+export async function runSecretaryTool(
+  tools: Map<string, SecretaryTool>,
+  name: string,
+  rawArgs: unknown,
+  budget: SecretaryToolBudget,
+): Promise<SecretaryToolResult> {
+  const tool = tools.get(name)
+  if (!tool) return emptyResult(`Unknown tool "${name}".`)
+  const parsed = tool.schema.safeParse(rawArgs)
+  if (!parsed.success) {
+    return emptyResult(`Invalid arguments for ${name}. Check the required fields and try again.`)
+  }
+  try {
+    return await tool.run(parsed.data as never, budget)
+  } catch {
+    return emptyResult(`${name} could not complete.`)
+  }
+}

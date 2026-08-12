@@ -12,7 +12,13 @@
  * exists. Setting `OUTLOOK_AI_MODE=mock` forces mock even when a key is present.
  */
 
-import { BYE_BYE_DPR_AI_LIMITS, DIRECTORY_AI_LIMITS, OUTLOOK_AI_LIMITS, QUEST_CORAL_AI_LIMITS } from "@/lib/ai/config-public"
+import {
+  BYE_BYE_DPR_AI_LIMITS,
+  DIRECTORY_AI_LIMITS,
+  OUTLOOK_AI_LIMITS,
+  QUEST_CORAL_AI_LIMITS,
+  WHATSAPP_SECRETARY_AI_LIMITS,
+} from "@/lib/ai/config-public"
 
 export type OutlookAiMode = "mock" | "live"
 /** Shared alias — both AI features use the same mock/live semantics. */
@@ -25,7 +31,7 @@ const DEFAULT_ASK_MODEL = "gpt-5-mini"
 const DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 
 // Re-export the client-safe limits so server code has one import site.
-export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS, BYE_BYE_DPR_AI_LIMITS }
+export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS, BYE_BYE_DPR_AI_LIMITS, WHATSAPP_SECRETARY_AI_LIMITS }
 
 function readMode(hasKey: boolean): OutlookAiMode {
   const raw = (process.env.OUTLOOK_AI_MODE ?? "").trim().toLowerCase()
@@ -155,6 +161,35 @@ export function getByeByeDprAiConfig(): ByeByeDprAiConfig {
     apiKey,
     transcribeModel: (process.env.BYEBYEDPR_AI_TRANSCRIBE_MODEL ?? "").trim() || DEFAULT_TRANSCRIBE_MODEL,
     parseModel: (process.env.BYEBYEDPR_AI_PARSE_MODEL ?? "").trim() || DEFAULT_PARSE_MODEL,
+    baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
+  }
+}
+
+export interface WhatsAppSecretaryAiConfig {
+  mode: AiMode
+  apiKey: string | null
+  askModel: string
+  baseUrl: string
+}
+
+/**
+ * Resolve the WhatsApp SVC AI Secretary config at request time. Mirrors
+ * `getDirectoryAiConfig()` and reuses the same `OPENAI_API_KEY` secret + base
+ * URL (and, separately, `WHATSAPP_AI_MODEL` for backward compatibility with
+ * the existing WhatsApp deployment env var), but keeps its own mode flag so
+ * the orchestrator can be forced to mock independently of the other features.
+ */
+export function getWhatsAppSecretaryAiConfig(): WhatsAppSecretaryAiConfig {
+  if (typeof window !== "undefined") {
+    throw new Error("getWhatsAppSecretaryAiConfig() must only run on the server.")
+  }
+  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim() || null
+  const raw = (process.env.WHATSAPP_SECRETARY_AI_MODE ?? "").trim().toLowerCase()
+  const mode: AiMode = raw === "mock" ? "mock" : raw === "live" ? "live" : apiKey ? "live" : "mock"
+  return {
+    mode,
+    apiKey,
+    askModel: (process.env.WHATSAPP_AI_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
     baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
   }
 }

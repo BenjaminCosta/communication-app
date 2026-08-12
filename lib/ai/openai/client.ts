@@ -245,6 +245,8 @@ export async function runToolConversation(
   input: {
     model: string
     system: string
+    /** Prior chat turns, oldest first, inserted between `system` and `user` as real turns. */
+    history?: Array<{ role: "user" | "assistant"; content: string }>
     user: string
     tools: OpenAiToolSpec[]
     schema: StructuredJsonSchema
@@ -257,6 +259,7 @@ export async function runToolConversation(
 ): Promise<{ result: unknown; toolRounds: number; toolNames: string[] }> {
   const messages: ChatMessage[] = [
     { role: "system", content: input.system },
+    ...(input.history ?? []).map((message) => ({ role: message.role, content: message.content }) as ChatMessage),
     { role: "user", content: input.user },
   ]
   const toolNames: string[] = []

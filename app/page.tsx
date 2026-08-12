@@ -164,6 +164,11 @@ const SCREEN_DEPTH: Record<Screen, number> = {
 const LAST_MODULE_KEY = "svc-last-module"
 type SvcModuleName = "communications" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr"
 type DirectoryDeepLinkView = "profile" | "outlook"
+type SvcDeepLink =
+  | { kind: "directory"; directoryId: string; view: DirectoryDeepLinkView }
+  | { kind: "module"; module: Exclude<SvcModuleName, "communications"> }
+  | { kind: "application"; applicationId: string }
+  | { kind: "quest-coral"; projectId: string }
 
 /** Secure candidate link: ?apply=<token>. Works before sign-in. */
 function getApplyDeepLink(): string | null {
@@ -180,6 +185,30 @@ function getDirectoryDeepLink(): { directoryId: string; view: DirectoryDeepLinkV
     directoryId,
     view: params.get("view") === "outlook" ? "outlook" : "profile",
   }
+}
+
+/**
+ * Internal deep links are deliberately just navigation state. Authentication
+ * and each module's normal Firestore access rules still apply after app boot;
+ * a URL never grants access to a record.
+ */
+function getSvcDeepLink(): SvcDeepLink | null {
+  const directory = getDirectoryDeepLink()
+  if (directory) return { kind: "directory", ...directory }
+  if (typeof window === "undefined") return null
+
+  const params = new URLSearchParams(window.location.search)
+  const applicationId = params.get("application")?.trim()
+  if (applicationId && applicationId.length <= 200) return { kind: "application", applicationId }
+
+  const projectId = params.get("questCoral")?.trim()
+  if (projectId && projectId.length <= 200) return { kind: "quest-coral", projectId }
+
+  const module = params.get("module")?.trim()
+  if (module === "directory" || module === "applications" || module === "quest-coral" || module === "bye-bye-dpr") {
+    return { kind: "module", module }
+  }
+  return null
 }
 
 function getLastModule(): SvcModuleName | null {
@@ -447,13 +476,22 @@ export default function Home() {
             email: user.email ?? undefined,
             emailNormalized,
           })
-          // Navigate immediately — don't block on Firestore. A shared Directory
-          // link takes precedence over the user's last module.
-          const directoryDeepLink = getDirectoryDeepLink()
-          if (directoryDeepLink) {
-            setSelectedDirectoryId(directoryDeepLink.directoryId)
-            setDirectoryDetailView(directoryDeepLink.view)
+          // Navigate immediately — don't block on Firestore. A WhatsApp/SVC
+          // deep link only selects a screen; Firebase auth/rules still decide
+          // whether its data can load. It takes precedence over the last module.
+          const deepLink = getSvcDeepLink()
+          if (deepLink?.kind === "directory") {
+            setSelectedDirectoryId(deepLink.directoryId)
+            setDirectoryDetailView(deepLink.view)
             navigateTo("directory-detail")
+          } else if (deepLink?.kind === "application") {
+            setSelectedApplicationId(deepLink.applicationId)
+            navigateTo("application-detail")
+          } else if (deepLink?.kind === "quest-coral") {
+            setSelectedQuestCoralProjectId(deepLink.projectId)
+            navigateTo("quest-coral-detail")
+          } else if (deepLink?.kind === "module") {
+            navigateTo(deepLink.module)
           } else {
             // Default is Compose (Communications), unless the user last worked
             // in Directory, Applications or Quest Coral.
