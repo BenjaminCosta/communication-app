@@ -5,18 +5,28 @@ import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
 /**
- * 3-Week Outlook tool for the WhatsApp Secretary orchestrator — per-job reads
- * only, as scoped by the plan. Outlooks are stored per-job
- * (`contexts/{jobId}/outlooks/{windowStart}`, a normal single-collection
- * read), so no new index is needed. Cross-job listing ("which jobs have an
- * outlook this week") is explicitly out of scope for this phase — it would
- * need a new `collectionGroup("outlooks")` composite index, which needs its
- * own explicit deploy approval later; `guidance.ts` points that kind of
- * question at the web app instead. There is no Outlooks query/search
- * capability anywhere else in the repo to reuse — this is a new, bounded
- * Admin SDK reader.
+ * 3-Week Outlook tools for the WhatsApp Secretary orchestrator.
+ *
+ * Per-job reads (`getOutlookForJob`) go through `contexts/{jobId}/outlooks`, a
+ * normal single-collection read — no index needed.
+ *
+ * Cross-job listing (`listActiveOutlooks`) was originally deferred: querying
+ * across every job's `outlooks` subcollection directly needs a new
+ * `collectionGroup("outlooks")` composite index. It turns out that's not
+ * actually necessary: ByeByeDPR's own `jobs` collection is already small
+ * (`listActiveJobsForFanOut()` below reads it directly — a single-field
+ * equality query, automatically indexed, no scan concern, capped at
+ * `MAX_FANOUT_JOBS`), and most Outlook-tracked jobs are already linked to a
+ * ByeByeDPR job via `directoryContextId`. So this fans out over that bounded
+ * job list and reads each linked job's most recent outlook — the exact same
+ * bounded per-job read `getOutlookForJob` already does, just repeated a
+ * small, capped number of times. No new Firestore index needed. This file
+ * deliberately does NOT import `lib/bye-bye-dpr-server.ts`/`-store.ts` (both
+ * `server-only`, which only resolves inside Next's bundler) — it reads
+ * `jobs` directly instead, matching `reports.ts`/`clocking.ts`'s pattern.
  */
 
 const OUTLOOKS_SUBCOLLECTION = "outlooks"
@@ -43,12 +53,25 @@ export interface OutlookSummary {
   deepLink: string
 }
 
+export interface ActiveOutlookSummary {
+  jobName: string
+  windowStart: string
+  windowEnd: string
+  taskCount: number
+  deepLink: string
+}
+
 function toModelOutlook({ deepLink: _deepLink, ...outlook }: OutlookSummary): Omit<OutlookSummary, "deepLink"> {
+  return outlook
+}
+
+function toModelActiveOutlook({ deepLink: _deepLink, ...outlook }: ActiveOutlookSummary): Omit<ActiveOutlookSummary, "deepLink"> {
   return outlook
 }
 
 export interface OutlooksToolsProvider {
   getOutlookForJob(jobId: string, windowStart?: string): Promise<{ windowStart: string; windowEnd: string; tasks: OutlookTaskSummary[] } | null>
+  getMostRecentOutlookWindow(jobId: string): Promise<{ windowStart: string; windowEnd: string; taskCount: number } | null>
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -81,6 +104,11 @@ async function getAdminDb(): Promise<Firestore> {
   return getFirestore(await getFirebaseAdminApp())
 }
 
+/** True when `onDate` (ISO date) falls within [windowStart, windowEnd] — plain string compare, since all three are ISO `YYYY-MM-DD`. */
+function isDateWithinWindow(onDate: string, windowStart: string, windowEnd: string): boolean {
+  return Boolean(windowStart) && Boolean(windowEnd) && onDate >= windowStart && onDate <= windowEnd
+}
+
 function createServerOutlooksToolsProvider(): OutlooksToolsProvider {
   return {
     async getOutlookForJob(jobId, windowStart) {
@@ -98,20 +126,38 @@ function createServerOutlooksToolsProvider(): OutlooksToolsProvider {
         tasks,
       }
     },
+    async getMostRecentOutlookWindow(jobId) {
+      const db = await getAdminDb()
+      const snapshot = await db.collection("contexts").doc(jobId).collection(OUTLOOKS_SUBCOLLECTION).orderBy("windowStart", "desc").limit(1).get()
+      const doc = snapshot.docs[0]
+      if (!doc) return null
+      const data = doc.data() as RecordValue
+      const tasks = Array.isArray(data.tasks) ? data.tasks.filter((task) => asString(asRecord(task)?.title)) : []
+      return {
+        windowStart: asString(data.windowStart) || doc.id,
+        windowEnd: asString(data.windowEnd),
+        taskCount: tasks.length,
+      }
+    },
   }
 }
 
 export function createOutlooksTools(
-  deps: { provider?: OutlooksToolsProvider; directoryProvider?: DirectoryDataProvider } = {},
+  deps: {
+    provider?: OutlooksToolsProvider
+    directoryProvider?: DirectoryDataProvider
+    listJobsProvider?: () => Promise<FanOutJob[]>
+  } = {},
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerOutlooksToolsProvider()
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
+  const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
 
   const getOutlookForJob: SecretaryTool<{ jobName: string; windowStart?: string }> = {
     name: "outlooks_getOutlookForJob",
     module: "outlooks",
     description:
-      "Get one job's 3-Week Outlook (scheduled tasks: trade, company, dates, status, completion). Without `windowStart`, returns the most recent week. Only works per-job — there is no cross-job Outlook listing available yet.",
+      "Get one job's 3-Week Outlook (scheduled tasks: trade, company, dates, status, completion). Without `windowStart`, returns the most recent week. For a cross-job question ('which jobs have an active outlook today'), use outlooks_listActiveOutlooks instead.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -155,5 +201,57 @@ export function createOutlooksTools(
     },
   }
 
-  return [getOutlookForJob]
+  const listActiveOutlooks: SecretaryTool<{ onDate?: string; limit?: number }> = {
+    name: "outlooks_listActiveOutlooks",
+    module: "outlooks",
+    description:
+      "List every ByeByeDPR job whose 3-Week Outlook window covers a given date (defaults to today) — answers cross-job questions like 'are there any active outlooks today' or 'which jobs have an outlook this week'. Bounded to active jobs.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        onDate: { type: "string", description: "ISO date to check (defaults to today), e.g. 2026-08-13." },
+        limit: { type: "number", description: "Max jobs to return (1-20)." },
+      },
+    },
+    schema: z.object({ onDate: z.string().max(20).optional(), limit: z.number().int().min(1).max(20).optional() }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const onDate = args.onDate ?? new Date().toISOString().slice(0, 10)
+      const limit = Math.max(1, Math.min(args.limit ?? 10, budget.maxRecordsPerTool, budget.remainingRecords))
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      const jobs = (await listJobs()).filter((job) => job.directoryContextId)
+      if (jobs.length === 0) return { summary: "No ByeByeDPR jobs are linked to a Directory job context, so no outlooks could be checked.", empty: true }
+
+      const windows = await Promise.all(
+        jobs.map(async (job) => {
+          const window = await provider.getMostRecentOutlookWindow(job.directoryContextId as string)
+          return { job, window }
+        }),
+      )
+      const active: ActiveOutlookSummary[] = windows
+        .filter((entry) => entry.window && isDateWithinWindow(onDate, entry.window.windowStart, entry.window.windowEnd))
+        .map((entry) => ({
+          jobName: entry.job.name,
+          windowStart: entry.window!.windowStart,
+          windowEnd: entry.window!.windowEnd,
+          taskCount: entry.window!.taskCount,
+          deepLink: buildOutlookDeepLink(entry.job.directoryContextId as string),
+        }))
+        .slice(0, limit)
+
+      budget.remainingRecords -= active.length
+      if (active.length === 0) {
+        return { summary: `No active 3-Week Outlook covers ${onDate} across the ${jobs.length} job(s) checked.`, empty: true }
+      }
+      return {
+        summary: `${active.length} job(s) have a 3-Week Outlook active on ${onDate}.`,
+        data: { outlooks: active.map(toModelActiveOutlook) },
+        presentation: { deepLinks: active.map((entry) => ({ jobName: entry.jobName, deepLink: entry.deepLink })) },
+      }
+    },
+  }
+
+  return [getOutlookForJob, listActiveOutlooks]
 }
