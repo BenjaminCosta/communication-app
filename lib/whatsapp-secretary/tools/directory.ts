@@ -152,6 +152,31 @@ async function enrichPersonRecords(
   })
 }
 
+interface ScoredKeywordMatch {
+  record: DirectoryIndexRecord
+  score: number
+}
+
+/**
+ * Pure reranking step, split out from the Firestore query so it's directly
+ * unit-testable. `array-contains-any` is an OR over tokens, so a two-word
+ * query like "courtney roberts" also pulls in every OTHER "Roberts" and
+ * every other "Courtney" on a single-token match — real noise once there are
+ * a dozen "Roberts"-someone records in Directory. When at least one
+ * candidate matches every query token (the far stronger signal — e.g. the
+ * one person who is both "courtney" AND "roberts"), keep only those; fall
+ * back to the best partial matches only when nothing matched fully.
+ */
+export function rerankKeywordMatches(scored: ScoredKeywordMatch[], tokenCount: number, limit: number): DirectoryIndexRecord[] {
+  const maxScore = scored.reduce((max, entry) => Math.max(max, entry.score), 0)
+  const threshold = maxScore >= tokenCount ? tokenCount : maxScore
+  return scored
+    .filter((entry) => entry.score >= threshold && entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.record)
+}
+
 function createServerKeywordSearchProvider(): DirectoryKeywordSearchProvider {
   return async (tokens, options) => {
     if (tokens.length === 0) return []
@@ -161,16 +186,13 @@ function createServerKeywordSearchProvider(): DirectoryKeywordSearchProvider {
     if (options.type) query = query.where("type", "==", options.type)
     const snapshot = await query.limit(Math.min(KEYWORD_OVERFETCH_LIMIT, Math.max(options.limit * 3, options.limit))).get()
 
-    const scored = snapshot.docs.map((doc) => {
+    const scored: ScoredKeywordMatch[] = snapshot.docs.map((doc) => {
       const data = doc.data() as RecordValue
       const keywords = new Set(asStringArray(data.keywords))
       const score = tokens.reduce((total, token) => total + (keywords.has(token) ? 1 : 0), 0)
       return { record: mapIndexDoc(doc.id, data), score }
     })
-    return scored
-      .sort((a, b) => b.score - a.score)
-      .slice(0, options.limit)
-      .map((entry) => entry.record)
+    return rerankKeywordMatches(scored, tokens.length, options.limit)
   }
 }
 

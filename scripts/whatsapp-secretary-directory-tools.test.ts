@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createFixtureProvider } from "./directory-fixture"
-import { createDirectoryTools, type DirectoryContactDetails } from "../lib/whatsapp-secretary/tools/directory"
+import { createDirectoryTools, rerankKeywordMatches, type DirectoryContactDetails } from "../lib/whatsapp-secretary/tools/directory"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 import type { DirectoryDataProvider } from "../features/directory/ai/server/tools/types"
 import type { DirectoryIndexRecord } from "../lib/ai/server/directory-data"
@@ -153,6 +153,76 @@ test("falls back to keyword search when the exact/prefix name lookup finds nothi
   const result = await searchJobs.run({ query: "Beach" }, budget())
   const data = result.data as { records?: Array<{ name: string }> }
   assert.ok(data.records?.some((record) => record.name === "Miami Beach Project"))
+})
+
+function keywordRecordFixture(id: string, name: string): DirectoryIndexRecord {
+  return {
+    id,
+    type: "person",
+    sourceCollection: "contacts",
+    sourceId: id,
+    name,
+    normalizedName: name.toLocaleLowerCase(),
+    companyName: "",
+    location: "",
+    role: "",
+    subtitle: "",
+    description: "",
+    status: "",
+    askContext: null,
+    sourceUpdatedAtMs: null,
+  }
+}
+
+test("rerankKeywordMatches prefers a full multi-token match over noisy single-token matches", () => {
+  // Real production case: searching "courtney roberts" (no middle initial)
+  // against directoryIndex's array-contains-any keyword match returns a
+  // dozen unrelated "Roberts"-someone and "Courtney"-someone records
+  // alongside the one actual "Courtney D. P. Roberts" match. Only the full
+  // match should survive.
+  const fullMatch = keywordRecordFixture("person__courtneyRoberts", "Courtney D. P. Roberts")
+  const partialRoberts = keywordRecordFixture("person__lamarRoberts", "Lamar Roberts")
+  const partialCourtney = keywordRecordFixture("person__courtneyGlazer", "Courtney Glazer")
+
+  const results = rerankKeywordMatches(
+    [
+      { record: partialRoberts, score: 1 },
+      { record: fullMatch, score: 2 },
+      { record: partialCourtney, score: 1 },
+    ],
+    2,
+    10,
+  )
+
+  assert.equal(results.length, 1)
+  assert.equal(results[0]?.name, "Courtney D. P. Roberts")
+})
+
+test("rerankKeywordMatches falls back to the best partial matches when nothing matched every token", () => {
+  const results = rerankKeywordMatches(
+    [
+      { record: keywordRecordFixture("person__a", "Josh Roberts"), score: 1 },
+      { record: keywordRecordFixture("person__b", "Dana Roberts"), score: 1 },
+    ],
+    2,
+    10,
+  )
+
+  assert.equal(results.length, 2)
+})
+
+test("rerankKeywordMatches drops zero-score noise and respects the limit", () => {
+  const results = rerankKeywordMatches(
+    [
+      { record: keywordRecordFixture("person__a", "Match One"), score: 1 },
+      { record: keywordRecordFixture("person__b", "Match Two"), score: 1 },
+      { record: keywordRecordFixture("person__c", "No Match"), score: 0 },
+    ],
+    1,
+    1,
+  )
+
+  assert.equal(results.length, 1)
 })
 
 test("never calls the keyword fallback when the exact/prefix lookup already found a match", async () => {
