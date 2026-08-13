@@ -389,12 +389,10 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
 
   const visibleToUserIds = computeVisibleToUserIds(input.authorUid, recipientIds)
   const tagIds = byeByeDprMessageTagIds(input.event)
-  // Keep this scoped to the two worker actions that belong in Comms with the
-  // job/company association. Clock-out and other automatic messages retain
-  // their existing behavior.
-  const contextIds = input.event === "clock-in" || input.event === "daily-report"
-    ? await getJobCommsContextIds(db, input.job)
-    : (input.job.directoryContextId ? [input.job.directoryContextId] : [])
+  // Every ByeByeDPR event belongs to the job where it happened. Use the
+  // resolvable Communications context ids for clock-in, clock-out, and
+  // Daily Report posts alike.
+  const contextIds = await getJobCommsContextIds(db, input.job)
 
   const msgData = {
     authorId: input.authorUid,
