@@ -65,7 +65,10 @@ function millis(value: unknown): number | null {
   return null
 }
 
-function mapIndexDoc(id: string, data: Record<string, unknown>): DirectoryIndexRecord {
+/** Exported so other bounded, read-only consumers (e.g. the WhatsApp Secretary's
+ * keyword-search fallback) can map a `directoryIndex` doc without duplicating
+ * this projection logic. Purely additive — behavior for existing callers is unchanged. */
+export function mapIndexDoc(id: string, data: Record<string, unknown>): DirectoryIndexRecord {
   const rawType = text(data.type)
   const askContext = data.askContext && typeof data.askContext === "object"
     ? (data.askContext as AskContextProjection)

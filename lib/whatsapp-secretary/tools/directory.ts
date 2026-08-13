@@ -2,19 +2,23 @@ import { DIRECTORY_TOOLS, runDirectoryTool } from "@/features/directory/ai/serve
 import { createServerDirectoryProvider } from "@/features/directory/ai/server/tools/provider"
 import type { DirectoryDataProvider, DirectoryTool } from "@/features/directory/ai/server/tools/types"
 import type { DirectoryAskRecord } from "@/features/directory/ai/directory-ask-contract"
+import { mapIndexDoc, type DirectoryIndexRecord } from "@/lib/ai/server/directory-data"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
+import { tokenize } from "@/lib/directory-core"
+import type { DirectoryType } from "@/lib/directory"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 
 /**
- * Directory adapter — pure reuse of the "Ask SVC Directory" tool stack, plus
- * WhatsApp-only contact-detail enrichment (phone/email) for person records.
+ * Directory adapter — the full "Ask SVC Directory" tool stack (nothing
+ * excluded; every WhatsApp sender who reaches these tools is already a
+ * uniquely identified internal SVC user, so there is no narrower internal
+ * audience to protect Directory data from), plus two WhatsApp-only upgrades:
+ * contact-detail enrichment and a keyword-search fallback for better recall.
  *
- * `searchRelevantNotes` stays excluded: Messages and free-text notes are not
- * part of the WhatsApp scope (matches the old `lib/whatsapp-directory.ts`
- * whitelist). Directory's own `extractEntities`/`buildQueryPlan` deterministic
- * prefetch optimizer is deliberately NOT reused here — that machinery exists
- * to save a model round-trip for Directory's single-domain ask endpoint; in
- * the cross-module orchestrator the model itself extracts names/ids as tool
+ * Directory's own `extractEntities`/`buildQueryPlan` deterministic prefetch
+ * optimizer is deliberately NOT reused here — that machinery exists to save
+ * a model round-trip for Directory's single-domain ask endpoint; in the
+ * cross-module orchestrator the model itself extracts names/ids as tool
  * arguments when it chooses to call `directory_searchPeople` etc., exactly as
  * it already does today for every other Directory tool call.
  *
@@ -29,9 +33,31 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
  * extra bounded `/contacts` read per result and attaches `phone`/`email` when
  * the contact has them on file, and the system prompt explicitly allows
  * relaying them.
+ *
+ * Keyword-search fallback: the shared `findByName()` in
+ * `lib/ai/server/directory-data.ts` only does exact-match-then-first-word-
+ * prefix matching on `normalizedName` — a search for "Beach" alone never
+ * finds a job actually named "Miami Beach Project", because the prefix
+ * anchor is the query's own first token, not every word in the stored name.
+ * That's an acceptable tradeoff for Directory's own low-latency ask endpoint,
+ * but the WhatsApp Secretary should find real records from a natural,
+ * partial phrase. `createHybridDirectoryProvider()` wraps the real provider:
+ * it tries the exact/prefix path first (unchanged, zero extra cost for the
+ * common case), and only when that finds nothing, falls back to
+ * `directoryIndex.where("keywords","array-contains-any",tokens)` — the same
+ * derived, pre-tokenized field and query shape ByeByeDPR's own
+ * `searchDirectoryJobsByKeyword()` already uses successfully
+ * (`lib/bye-bye-dpr-directory-link.ts`), covered by the already-deployed
+ * `directoryIndex(keywords CONTAINS, type ASC)` composite index (and by
+ * Firestore's automatic single-field index on `keywords` when no `type`
+ * filter is given) — no new index needed. Results are reranked by how many
+ * query tokens each candidate's own `keywords` actually contains, since
+ * `array-contains-any` is an OR over tokens with no relevance ordering of
+ * its own.
  */
 
-const EXCLUDED_DIRECTORY_TOOLS = new Set(["searchRelevantNotes"])
+const MAX_KEYWORD_TOKENS = 30
+const KEYWORD_OVERFETCH_LIMIT = 30
 
 type RecordValue = Record<string, unknown>
 
@@ -42,6 +68,12 @@ export interface DirectoryContactDetails {
 
 /** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
 export type DirectoryContactDetailsProvider = (sourceIds: string[]) => Promise<Map<string, DirectoryContactDetails>>
+
+/** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
+export type DirectoryKeywordSearchProvider = (
+  tokens: string[],
+  options: { type?: DirectoryType; limit: number },
+) => Promise<DirectoryIndexRecord[]>
 
 function asRecord(value: unknown): RecordValue | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as RecordValue) : null
@@ -120,13 +152,62 @@ async function enrichPersonRecords(
   })
 }
 
+function createServerKeywordSearchProvider(): DirectoryKeywordSearchProvider {
+  return async (tokens, options) => {
+    if (tokens.length === 0) return []
+    const { getFirestore } = await import("firebase-admin/firestore")
+    const db = getFirestore(await getFirebaseAdminApp())
+    let query = db.collection("directoryIndex").where("keywords", "array-contains-any", tokens.slice(0, MAX_KEYWORD_TOKENS))
+    if (options.type) query = query.where("type", "==", options.type)
+    const snapshot = await query.limit(Math.min(KEYWORD_OVERFETCH_LIMIT, Math.max(options.limit * 3, options.limit))).get()
+
+    const scored = snapshot.docs.map((doc) => {
+      const data = doc.data() as RecordValue
+      const keywords = new Set(asStringArray(data.keywords))
+      const score = tokens.reduce((total, token) => total + (keywords.has(token) ? 1 : 0), 0)
+      return { record: mapIndexDoc(doc.id, data), score }
+    })
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, options.limit)
+      .map((entry) => entry.record)
+  }
+}
+
+/**
+ * Wraps a real `DirectoryDataProvider` so `findByName` gets a second, bounded
+ * chance via keyword search whenever the exact/prefix path finds nothing —
+ * every other method passes through unchanged.
+ */
+function createHybridDirectoryProvider(
+  base: DirectoryDataProvider,
+  keywordSearch: DirectoryKeywordSearchProvider,
+): DirectoryDataProvider {
+  return {
+    ...base,
+    async findByName(name, options = {}) {
+      const primary = await base.findByName(name, options)
+      if (primary.length > 0) return primary
+      const tokens = tokenize(name)
+      if (tokens.length === 0) return primary
+      return keywordSearch(tokens, { type: options.type, limit: options.limit ?? 8 })
+    },
+  }
+}
+
 export function createDirectoryTools(
-  deps: { provider?: DirectoryDataProvider; contactDetailsProvider?: DirectoryContactDetailsProvider } = {},
+  deps: {
+    provider?: DirectoryDataProvider
+    contactDetailsProvider?: DirectoryContactDetailsProvider
+    keywordSearchProvider?: DirectoryKeywordSearchProvider
+  } = {},
 ): SecretaryTool[] {
-  const provider = deps.provider ?? createServerDirectoryProvider()
+  const baseProvider = deps.provider ?? createServerDirectoryProvider()
+  const keywordSearch = deps.keywordSearchProvider ?? createServerKeywordSearchProvider()
+  const provider = createHybridDirectoryProvider(baseProvider, keywordSearch)
   const getContactDetails = deps.contactDetailsProvider ?? createServerContactDetailsProvider()
 
-  return DIRECTORY_TOOLS.filter((tool) => !EXCLUDED_DIRECTORY_TOOLS.has(tool.name)).map(
+  return DIRECTORY_TOOLS.map(
     (tool: DirectoryTool<never>): SecretaryTool => ({
       name: `directory_${tool.name}`,
       module: "directory",
@@ -141,6 +222,7 @@ export function createDirectoryTools(
           empty: result.empty,
           data: {
             ...(records ? { records } : {}),
+            ...(result.notes ? { notes: result.notes } : {}),
             ...(result.paths ? { paths: result.paths } : {}),
             ...(result.counts ? { counts: result.counts } : {}),
           },

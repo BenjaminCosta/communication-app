@@ -108,9 +108,9 @@ export const WHATSAPP_SECRETARY_AI_LIMITS = {
   maxRecordsPerTool: 12,
   /** Total records handed to the model across every tool call in one question. */
   maxTotalRecords: 24,
-  /** Directory's note sub-budget; always 0 here — WhatsApp never exposes notes. */
-  maxNotesPerTool: 0,
-  maxNoteChars: 0,
+  /** Directory's note sub-budget for `directory_searchRelevantNotes`, matching Directory's own defaults. */
+  maxNotesPerTool: 5,
+  maxNoteChars: 400,
   /** Upper bound on completion tokens → keeps answers to ~150–250 words. */
   maxAnswerTokens: 500,
   /** Per-user rolling application limits. Enforced transactionally server-side. */

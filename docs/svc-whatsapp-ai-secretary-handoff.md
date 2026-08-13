@@ -33,6 +33,44 @@ explicitly tells the model to share them — internal ids, storage links, and
 raw report text stay hidden as before. Two new offline tests cover both the
 enrichment and the "no linked contact → no fabricated fields" path.
 
+**Directory search upgrade, same day**: user asked for the Secretary to be
+"excellently good" at finding/filtering Directory info and to use ALL the
+data Directory has, with the best architecture. Two real gaps addressed in
+`lib/whatsapp-secretary/tools/directory.ts`:
+
+1. **`searchRelevantNotes` is no longer excluded.** It was carried over from
+   the deleted `lib/whatsapp-directory.ts`'s original whitelist, but nothing
+   about the WhatsApp access model actually requires excluding it — every
+   sender who can reach any Directory tool is already a uniquely identified
+   internal user (`canReadDirectory` gates the whole module), the same
+   audience notes were already fine for. Found and fixed a real latent bug
+   along the way: `WHATSAPP_SECRETARY_AI_LIMITS.maxNotesPerTool`/
+   `maxNoteChars` in `lib/ai/config-public.ts` were both `0` (a leftover from
+   when notes were excluded) — with notes now enabled, that would have made
+   `searchRelevantNotes` silently return nothing on every call. Set to `5`/
+   `400`, matching Directory's own `DIRECTORY_AI_LIMITS` defaults.
+2. **Keyword-search fallback for real recall.** The shared `findByName()` in
+   `lib/ai/server/directory-data.ts` only does exact-match-then-first-word-
+   prefix matching on `normalizedName` — searching "Beach" alone never finds
+   a job actually named "Miami Beach Project" (the same limitation ByeByeDPR's
+   own job search hit and fixed, 2026-08-11). `createHybridDirectoryProvider()`
+   wraps the real provider: tries the exact/prefix path first (unchanged, zero
+   extra cost for the common case), and only when that finds nothing, falls
+   back to `directoryIndex.where("keywords","array-contains-any",tokens)` —
+   reusing the exact tokenization (`tokenize()`, exported from
+   `lib/directory-core.ts`) and index (`directoryIndex(keywords CONTAINS,
+   type ASC)`, already deployed, plus Firestore's automatic single-field
+   index on `keywords` when no `type` filter applies) ByeByeDPR's own
+   `searchDirectoryJobsByKeyword()` already uses successfully. Results are
+   reranked by how many query tokens each candidate's own `keywords` actually
+   contains, since `array-contains-any` has no relevance ordering of its own.
+   `mapIndexDoc` was exported from `lib/ai/server/directory-data.ts` (purely
+   additive) so this reuses the same doc-mapping logic instead of duplicating
+   it. No new Firestore index needed. Four new offline tests cover the full
+   tool list (incl. notes), notes pass-through, the keyword fallback actually
+   triggering on a miss, and it NOT triggering when the primary lookup
+   already found something.
+
 What changed:
 
 - The old hardcoded, mutually-exclusive cascade in `route.ts` (Applications →
@@ -49,8 +87,9 @@ What changed:
 - `lib/whatsapp-secretary/tool-registry.ts` defines a generic, module-agnostic
   `SecretaryTool` contract (generalized from Directory's own tool contract).
   Per-module tool files live in `lib/whatsapp-secretary/tools/`: `directory.ts`
-  (pure reuse of the existing Directory tool stack, `searchRelevantNotes`
-  still excluded), `quest-coral.ts`, `applications.ts`, `reports.ts` (all
+  (the full Directory tool stack, including `searchRelevantNotes` — see the
+  2026-08-12 "Directory search upgrade" note below), `quest-coral.ts`,
+  `applications.ts`, `reports.ts` (all
   extended with real date-range/cursor pagination instead of a fixed
   newest-4/newest-3 slice), plus two genuinely new modules: `clocking.ts`
   (clock-in/out history, never exposes raw GPS coordinates) and `outlooks.ts`
@@ -382,9 +421,10 @@ combination, in one turn:
 - **Company Knowledge:** curated entries about SVC, apps, processes, onboarding,
   and FAQs. Public users receive only public entries. (Not a tool — folded
   into the prompt directly, unchanged.)
-- **Directory:** specific people, companies, jobs, contexts, and relationships.
-  No broad collection export and no notes/private data by default
-  (`searchRelevantNotes` stays excluded from WhatsApp).
+- **Directory:** the full tool stack — people, companies, jobs, contexts,
+  relationships, connecting paths, shared contacts/jobs, and free-text notes
+  (`searchRelevantNotes`, no longer excluded — see the 2026-08-12 "Directory
+  search upgrade" note below). No broad collection export/scan of any kind.
 - **Quest Coral:** project search, full project details + written context,
   per-project activity with date-range/cursor pagination, and a cross-project
   "recent activity" feed for portfolio-style questions.
