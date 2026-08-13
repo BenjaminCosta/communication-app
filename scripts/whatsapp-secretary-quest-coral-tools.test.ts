@@ -116,10 +116,44 @@ test("questCoral_listRecentActivity spans multiple projects with project names a
 })
 
 test("questCoral_searchProjects reports no match without guessing", async () => {
-  const tools = createQuestCoralTools({ provider: createFixtureProvider() })
+  const tools = createQuestCoralTools({ provider: createFixtureProvider(), keywordSearchProvider: async () => [] })
   const searchProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
   assert.ok(searchProjects)
 
   const result = await searchProjects.run({ query: "Nonexistent Project" }, budget())
   assert.equal(result.empty, true)
+})
+
+test("questCoral_searchProjects falls back to keyword search when the exact/prefix name lookup finds nothing", async () => {
+  const tools = createQuestCoralTools({
+    // "Rollout" alone matches nothing in the fixture via exact/prefix — the
+    // fixture has no project whose name starts with "Rollout".
+    provider: createFixtureProvider(),
+    keywordSearchProvider: async (tokens, limit) => {
+      assert.ok(tokens.includes("rollout"))
+      assert.equal(limit, 5)
+      return [crewScheduling]
+    },
+  })
+  const searchProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
+  assert.ok(searchProjects)
+
+  const result = await searchProjects.run({ query: "Rollout" }, budget())
+  const data = result.data as { projects?: QuestCoralProjectSummary[] }
+  assert.ok(data.projects?.some((project) => project.name === "Field Crew Scheduling Rollout"))
+})
+
+test("never calls the Quest Coral keyword fallback when the exact/prefix lookup already found a match", async () => {
+  const tools = createQuestCoralTools({
+    provider: createFixtureProvider(),
+    keywordSearchProvider: async () => {
+      throw new Error("must not be called when the exact/prefix lookup already found a match")
+    },
+  })
+  const searchProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
+  assert.ok(searchProjects)
+
+  const result = await searchProjects.run({ query: "Customer Onboarding Redesign" }, budget())
+  const data = result.data as { projects?: QuestCoralProjectSummary[] }
+  assert.equal(data.projects?.length, 1)
 })

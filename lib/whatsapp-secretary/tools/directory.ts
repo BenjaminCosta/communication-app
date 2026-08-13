@@ -201,7 +201,7 @@ function createServerKeywordSearchProvider(): DirectoryKeywordSearchProvider {
  * chance via keyword search whenever the exact/prefix path finds nothing —
  * every other method passes through unchanged.
  */
-function createHybridDirectoryProvider(
+export function createHybridDirectoryProvider(
   base: DirectoryDataProvider,
   keywordSearch: DirectoryKeywordSearchProvider,
 ): DirectoryDataProvider {
@@ -215,6 +215,19 @@ function createHybridDirectoryProvider(
       return keywordSearch(tokens, { type: options.type, limit: options.limit ?? 8 })
     },
   }
+}
+
+/**
+ * The real, keyword-fallback-wrapped Directory provider, for every other
+ * module's own job/person resolution (Reports/Clocking via
+ * `job-fanout.ts`'s `resolveJobByNameViaDirectory`, Applications'
+ * `getApplicationsForJob`, Reports' `resolveAuthorIdByName`) — so a partial
+ * or single-word name resolves as well from those call sites as it already
+ * does from Directory's own `directory_searchPeople`/`searchCompanies`
+ * tools, without each call site re-deriving the same hybrid wiring.
+ */
+export function createServerDirectoryProviderWithKeywordFallback(): DirectoryDataProvider {
+  return createHybridDirectoryProvider(createServerDirectoryProvider(), createServerKeywordSearchProvider())
 }
 
 export function createDirectoryTools(

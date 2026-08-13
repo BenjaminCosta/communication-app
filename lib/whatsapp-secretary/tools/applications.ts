@@ -1,10 +1,12 @@
 import { z } from "zod"
 import type { Firestore } from "firebase-admin/firestore"
-import { createServerDirectoryProvider } from "@/features/directory/ai/server/tools/provider"
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { APPLICATION_STATUS_META, type ApplicationStatus } from "@/lib/applications-core"
+import { tokenize } from "@/lib/directory-core"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
+import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
 /**
  * Applications tools for the WhatsApp Secretary orchestrator.
@@ -20,12 +22,24 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
  * ordered/ranged on `updatedAt`, the same field the index sorts on, so no new
  * index is needed. There is no Applications AI module to reuse (none exists
  * in this repo) — this file is a direct, bounded Firestore reader.
+ *
+ * Keyword-search fallback: `findCandidatesByName`'s exact/prefix path only
+ * anchors on the query's first word, same limitation as Quest Coral's own
+ * project search. Applications has no derived `keywords` index field either,
+ * but the collection is small (confirmed single digits in production), so
+ * the fallback simply fetches a capped page of every application and
+ * reranks candidate names in memory with the same token-overlap logic
+ * Directory and Quest Coral use (`rerankByTokenScore` in `keyword-match.ts`).
  */
 
 const APPLICATIONS_COLLECTION = "applications"
 const MAX_CANDIDATE_MATCHES = 5
 const MAX_PENDING_REQUEST_CHARACTERS = 280
 const REVIEW_QUEUE_STATUSES: ApplicationStatus[] = ["submitted", "ready_for_review", "needs_information"]
+/** Bounded "scan every application" cap for the keyword fallback — generous
+ * relative to the collection's real size, but still a hard bound, not an
+ * unbounded read. */
+const MAX_KEYWORD_OVERFETCH_APPLICATIONS = 200
 
 type RecordValue = Record<string, unknown>
 
@@ -49,6 +63,9 @@ export interface ApplicationsToolsProvider {
   getReviewQueue(limitPerStatus: number): Promise<Record<ApplicationStatus, { count: number; recent: ApplicationSummary[] }>>
   getApplicationsForJob(jobEntityId: string, options: { since?: string; until?: string; limit: number }): Promise<ApplicationSummary[]>
 }
+
+/** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
+export type ApplicationsKeywordSearchProvider = (tokens: string[], limit: number) => Promise<ApplicationSummary[]>
 
 /** Keeps Firestore document ids server-side for deterministic app CTAs only. */
 function toModelApplication({ id: _id, ...application }: ApplicationSummary): Omit<ApplicationSummary, "id"> {
@@ -190,11 +207,56 @@ function createServerApplicationsProvider(): ApplicationsToolsProvider {
   }
 }
 
+function createServerApplicationsKeywordSearchProvider(): ApplicationsKeywordSearchProvider {
+  return async (tokens, limit) => {
+    if (tokens.length === 0) return []
+    const db = await getAdminDb()
+    const snapshot = await applicationQueryFields(
+      db.collection(APPLICATIONS_COLLECTION).orderBy("updatedAt", "desc"),
+    )
+      .limit(MAX_KEYWORD_OVERFETCH_APPLICATIONS)
+      .get()
+    const scored: ScoredMatch<ApplicationSummary>[] = snapshot.docs.map((document) => {
+      const application = mapApplication(document.data() as RecordValue, document.id)
+      return { record: application, score: scoreNameAgainstTokens(application.candidateName, tokens) }
+    })
+    return dedupeApplications(rerankByTokenScore(scored, tokens.length, limit))
+  }
+}
+
+/**
+ * Wraps a real `ApplicationsToolsProvider` so `findCandidatesByName` gets a
+ * second, bounded chance via in-memory keyword search whenever the
+ * exact/prefix path finds nothing — every other method passes through
+ * unchanged.
+ */
+function createHybridApplicationsProvider(
+  base: ApplicationsToolsProvider,
+  keywordSearch: ApplicationsKeywordSearchProvider,
+): ApplicationsToolsProvider {
+  return {
+    ...base,
+    async findCandidatesByName(query, limit) {
+      const primary = await base.findCandidatesByName(query, limit)
+      if (primary.length > 0) return primary
+      const tokens = tokenize(query)
+      if (tokens.length === 0) return primary
+      return keywordSearch(tokens, limit)
+    },
+  }
+}
+
 export function createApplicationsTools(
-  deps: { provider?: ApplicationsToolsProvider; directoryProvider?: DirectoryDataProvider } = {},
+  deps: {
+    provider?: ApplicationsToolsProvider
+    directoryProvider?: DirectoryDataProvider
+    keywordSearchProvider?: ApplicationsKeywordSearchProvider
+  } = {},
 ): SecretaryTool[] {
-  const provider = deps.provider ?? createServerApplicationsProvider()
-  const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
+  const baseProvider = deps.provider ?? createServerApplicationsProvider()
+  const keywordSearch = deps.keywordSearchProvider ?? createServerApplicationsKeywordSearchProvider()
+  const provider = createHybridApplicationsProvider(baseProvider, keywordSearch)
+  const directoryProvider = deps.directoryProvider ?? createServerDirectoryProviderWithKeywordFallback()
 
   const searchCandidates: SecretaryTool<{ query: string; limit?: number }> = {
     name: "applications_searchCandidates",

@@ -1,9 +1,11 @@
 import { z } from "zod"
 import type { Firestore } from "firebase-admin/firestore"
+import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { findWhatsAppReportJobsByNameCandidates, type WhatsAppReportJob } from "@/lib/whatsapp-reports"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
-import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
+import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
+import { listActiveJobsForFanOut, resolveJobByNameViaDirectory, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
 /**
  * ByeByeDPR clocking tools for the WhatsApp Secretary orchestrator.
@@ -11,11 +13,13 @@ import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretar
  * `getClockHistoryForJob` is built on the already-deployed-but-unused
  * `clockRecords(jobId ASC, clockInAt DESC)` composite index, so no new index
  * is needed; a date range on `clockInAt` (the same field the index sorts on)
- * needs nothing extra either. Job-name resolution reuses
- * `findWhatsAppReportJobsByNameCandidates` (ByeByeDPR's own `jobs`
- * collection), matching `lib/whatsapp-secretary/tools/reports.ts`. Per the
- * project's privacy posture, the compact result reports only *whether* a
- * location was recorded for a clock-in/out, never the raw coordinates.
+ * needs nothing extra either. Job-name resolution tries Directory's job
+ * search first (`resolveJobByNameViaDirectory` in `job-fanout.ts`) and falls
+ * back to `findWhatsAppReportJobsByNameCandidates` (ByeByeDPR's own `jobs`
+ * collection) whenever Directory can't produce a single, linked match,
+ * matching `lib/whatsapp-secretary/tools/reports.ts`. Per the project's
+ * privacy posture, the compact result reports only *whether* a location was
+ * recorded for a clock-in/out, never the raw coordinates.
  *
  * `getMostActiveJobs` answers the cross-job question `getClockHistoryForJob`
  * structurally can't: "which job is most active right now" needs every job's
@@ -139,12 +143,16 @@ function createServerClockingToolsProvider(): ClockingToolsProvider {
 export function createClockingTools(
   deps: {
     provider?: ClockingToolsProvider
+    directoryProvider?: DirectoryDataProvider
     resolveJobsByName?: (name: string) => Promise<WhatsAppReportJob[]>
     listJobsProvider?: () => Promise<FanOutJob[]>
   } = {},
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerClockingToolsProvider()
-  const resolveJobsByName = deps.resolveJobsByName ?? ((name: string) => findWhatsAppReportJobsByNameCandidates([name]))
+  const directoryProvider = deps.directoryProvider ?? createServerDirectoryProviderWithKeywordFallback()
+  const resolveJobsByName =
+    deps.resolveJobsByName ??
+    ((name: string) => resolveJobByNameViaDirectory(name, directoryProvider, (candidate) => findWhatsAppReportJobsByNameCandidates([candidate])))
   const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
 
   const getClockHistoryForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; limit?: number }> = {

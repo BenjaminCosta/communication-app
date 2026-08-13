@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { Firestore, Timestamp } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
+import { tokenize } from "@/lib/directory-core"
 import {
   PROJECT_STATUS_ORDER,
   UPDATE_TYPE_ORDER,
@@ -12,6 +13,7 @@ import {
   type UpdateType,
 } from "@/lib/quest-coral-core"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
 /**
  * Quest Coral tools for the WhatsApp Secretary orchestrator.
@@ -27,6 +29,17 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
  *
  * Data access goes through {@link QuestCoralToolsProvider} so tests can swap
  * in an in-memory fixture, matching the Directory tool tests' pattern.
+ *
+ * Keyword-search fallback: `findProjectsByName`'s exact/prefix path (like
+ * Directory's own pre-fallback `findByName`) only anchors on the query's
+ * first word, so "Beach" alone won't find a project actually named "Miami
+ * Beach Renovation". Unlike Directory, Quest Coral projects have no derived
+ * `keywords` index field to query — but the collection is small (confirmed
+ * single digits in production, nowhere near ByeByeDPR's own already-treated-
+ * as-small `jobs` collection), so `createHybridQuestCoralProvider()` simply
+ * fetches a capped page of every project when the exact/prefix path finds
+ * nothing, and reranks in memory with the same token-overlap logic Directory
+ * uses (`rerankByTokenScore` in `keyword-match.ts`).
  */
 
 const PROJECTS_COLLECTION = "questCoralProjects"
@@ -36,6 +49,10 @@ const PROJECT_CONTEXTS_COLLECTION = "questCoralProjectContexts"
 const MAX_PROJECT_MATCHES = 5
 const MAX_CONTEXT_CHARACTERS = 1_400
 const MAX_UPDATE_BODY_CHARACTERS = 480
+/** Bounded "scan every project" cap for the keyword fallback — generous
+ * relative to the collection's real size, but still a hard bound, not an
+ * unbounded read. */
+const MAX_KEYWORD_OVERFETCH_PROJECTS = 200
 
 type RecordValue = Record<string, unknown>
 
@@ -75,6 +92,9 @@ export interface QuestCoralToolsProvider {
   ): Promise<{ updates: QuestCoralUpdateSummary[]; nextCursor: string | null }>
   listRecentActivity(options: { since?: string; limit: number }): Promise<QuestCoralUpdateSummary[]>
 }
+
+/** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
+export type QuestCoralKeywordSearchProvider = (tokens: string[], limit: number) => Promise<QuestCoralProjectSummary[]>
 
 /** Internal identifiers are reserved for the response-presentation layer. */
 function toModelProject({ id: _id, ...project }: QuestCoralProjectSummary): Omit<QuestCoralProjectSummary, "id"> {
@@ -251,6 +271,41 @@ function createServerQuestCoralProvider(): QuestCoralToolsProvider {
   }
 }
 
+function createServerQuestCoralKeywordSearchProvider(): QuestCoralKeywordSearchProvider {
+  return async (tokens, limit) => {
+    if (tokens.length === 0) return []
+    const db = await getAdminDb()
+    const snapshot = await db.collection(PROJECTS_COLLECTION).orderBy("updatedAt", "desc").limit(MAX_KEYWORD_OVERFETCH_PROJECTS).get()
+    const scored: ScoredMatch<QuestCoralProjectSummary>[] = snapshot.docs.map((document) => {
+      const project = mapProject(document.id, document.data() as RecordValue)
+      return { record: project, score: scoreNameAgainstTokens(project.name, tokens) }
+    })
+    return rerankByTokenScore(scored, tokens.length, limit)
+  }
+}
+
+/**
+ * Wraps a real `QuestCoralToolsProvider` so `findProjectsByName` gets a
+ * second, bounded chance via in-memory keyword search whenever the
+ * exact/prefix path finds nothing — every other method passes through
+ * unchanged.
+ */
+function createHybridQuestCoralProvider(
+  base: QuestCoralToolsProvider,
+  keywordSearch: QuestCoralKeywordSearchProvider,
+): QuestCoralToolsProvider {
+  return {
+    ...base,
+    async findProjectsByName(query, limit) {
+      const primary = await base.findProjectsByName(query, limit)
+      if (primary.length > 0) return primary
+      const tokens = tokenize(query)
+      if (tokens.length === 0) return primary
+      return keywordSearch(tokens, limit)
+    },
+  }
+}
+
 /** Resolves exactly one project by name, or returns a compact ambiguous/not-found result. */
 async function resolveOneProject(
   provider: QuestCoralToolsProvider,
@@ -262,8 +317,12 @@ async function resolveOneProject(
   return { kind: "found", project: matches[0] }
 }
 
-export function createQuestCoralTools(deps: { provider?: QuestCoralToolsProvider } = {}): SecretaryTool[] {
-  const provider = deps.provider ?? createServerQuestCoralProvider()
+export function createQuestCoralTools(
+  deps: { provider?: QuestCoralToolsProvider; keywordSearchProvider?: QuestCoralKeywordSearchProvider } = {},
+): SecretaryTool[] {
+  const baseProvider = deps.provider ?? createServerQuestCoralProvider()
+  const keywordSearch = deps.keywordSearchProvider ?? createServerQuestCoralKeywordSearchProvider()
+  const provider = createHybridQuestCoralProvider(baseProvider, keywordSearch)
 
   const searchProjects: SecretaryTool<{ query: string; limit?: number }> = {
     name: "questCoral_searchProjects",

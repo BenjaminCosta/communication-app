@@ -22,6 +22,12 @@ export interface SafeOutlookAiLog {
   audioDurationSource?: "metadata" | "recorder"
   providerRequestId?: string
   attempt?: number
+  /** WhatsApp Secretary orchestrator only: names of tools called this turn
+   * (may repeat across rounds) and the subset of those calls whose result was
+   * `empty`. Names only — never arguments, results, or record content. */
+  toolNames?: string[]
+  emptyToolNames?: string[]
+  toolRounds?: number
 }
 
 /** Hash identifiers before logs so Firebase UIDs never leave the auth boundary. */

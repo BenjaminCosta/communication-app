@@ -170,7 +170,7 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
     }
 
     const budget = createBudget()
-    const { result } = await runConversation(
+    const { result, toolRounds, toolNames } = await runConversation(
       {
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
@@ -186,7 +186,10 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
         schema: WHATSAPP_SECRETARY_RESULT_SCHEMA,
         maxToolRounds: WHATSAPP_SECRETARY_AI_LIMITS.maxToolRounds,
         maxOutputTokens: WHATSAPP_SECRETARY_AI_LIMITS.maxAnswerTokens,
-        reasoningEffort: config.askModel.startsWith("gpt-5") ? "minimal" : undefined,
+        // "low" over the old "minimal": one conservative step up in reasoning
+        // quality (better intent understanding, tool selection, and relative-date
+        // math) while staying well short of "medium"/"high" for Hobby-plan latency.
+        reasoningEffort: config.askModel.startsWith("gpt-5") ? "low" : undefined,
         verbosity: config.askModel.startsWith("gpt-5") ? "low" : undefined,
         onToolCalls: (calls) => dispatchToolCalls(tools, calls, budget, toolExecutions),
       },
@@ -196,7 +199,15 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
     if (!parsed.success) throw new AiError("invalid-output", "The assistant returned data that failed validation.")
 
     if (acquired && uid) await guard.complete(uid, acquired)
-    logWhatsAppSecretaryAi({ event: "succeeded", operation: "ask", requestId })
+    logWhatsAppSecretaryAi({
+      event: "succeeded",
+      operation: "ask",
+      requestId,
+      toolNames,
+      emptyToolNames: toolExecutions.filter((execution) => execution.result.empty).map((execution) => execution.name),
+      toolRounds,
+      recordCount: WHATSAPP_SECRETARY_AI_LIMITS.maxTotalRecords - budget.remainingRecords,
+    })
     return createWhatsAppSecretaryPresentation({
       answer: parsed.data.answer.trim().slice(0, MAX_REPLY_CHARACTERS),
       question: current.content,
@@ -204,12 +215,14 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
     })
   } catch (error) {
     if (acquired && uid) await guard.fail(uid, acquired).catch(() => undefined)
+    const toolNames = toolExecutions.map((execution) => execution.name)
+    const emptyToolNames = toolExecutions.filter((execution) => execution.result.empty).map((execution) => execution.name)
     if (isAiError(error)) {
-      logWhatsAppSecretaryAi({ event: "failed", operation: "ask", requestId, errorCode: error.code })
+      logWhatsAppSecretaryAi({ event: "failed", operation: "ask", requestId, errorCode: error.code, toolNames, emptyToolNames })
       // AiError messages are already written to be shown to the user.
       return { text: error.message }
     }
-    logWhatsAppSecretaryAi({ event: "failed", operation: "ask", requestId, errorCode: "unknown" })
+    logWhatsAppSecretaryAi({ event: "failed", operation: "ask", requestId, errorCode: "unknown", toolNames, emptyToolNames })
     throw error
   }
 }

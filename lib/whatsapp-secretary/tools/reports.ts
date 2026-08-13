@@ -1,19 +1,21 @@
 import { z } from "zod"
 import type { Firestore, Timestamp } from "firebase-admin/firestore"
-import { createServerDirectoryProvider } from "@/features/directory/ai/server/tools/provider"
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { findWhatsAppReportJobsByNameCandidates, type WhatsAppReportJob } from "@/lib/whatsapp-reports"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
+import { listActiveJobsForFanOut, resolveJobByNameViaDirectory, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
 /**
  * ByeByeDPR Daily Report tools for the WhatsApp Secretary orchestrator.
  *
- * Job-name resolution reuses `findWhatsAppReportJobsByNameCandidates` from
- * `lib/whatsapp-reports.ts` (kept alive there because the Daily Report draft
- * action also depends on it) — ByeByeDPR's `reports.jobId` points at the
- * `jobs` collection, not directly at a Directory id, so this intentionally
- * does NOT use the Directory provider the way Applications tools do.
+ * Job-name resolution tries Directory's job search first
+ * (`resolveJobByNameViaDirectory` in `job-fanout.ts`, inheriting Directory's
+ * keyword/partial-name fallback quality) and falls back to
+ * `findWhatsAppReportJobsByNameCandidates` from `lib/whatsapp-reports.ts`
+ * (kept alive there because the Daily Report draft action also depends on
+ * it) whenever Directory can't produce a single, linked match.
  * `searchDailyReportsForJob`/`getRecentDailyReports` extend the old fixed
  * newest-four slice with real date-range/cursor pagination, on the existing
  * `reports(jobId ASC, type ASC, createdAt DESC)` index — a range on
@@ -26,11 +28,20 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
  * The old "missing report" refusal guard is preserved in this tool's
  * description text, matching the deleted `lib/whatsapp-reports.ts` reader's
  * documented limitation: this data has no reporting cadence to infer from.
+ * `getJobsWithoutRecentReports` is new: a portfolio-wide answer to "which
+ * jobs don't have a recent report", fanning out over the same small, bounded
+ * active-job list `clocking.ts`/`outlooks.ts`'s cross-job tools use
+ * (`listActiveJobsForFanOut`), then a `.limit(1)` newest-report lookup per
+ * job on the same `reports(jobId ASC, type ASC, createdAt DESC)` index — no
+ * new Firestore index needed. It states only what it retrieved (a report
+ * from date X, or none on file) — same guardrail as the other tools here:
+ * never "missing" or "required", since this data has no cadence to infer.
  */
 
 const REPORTS_COLLECTION = "reports"
 const CONTACTS_COLLECTION = "contacts"
 const MAX_REPORT_SECTION_CHARACTERS = 440
+const MAX_STALE_JOBS_RETURNED = 10
 
 type RecordValue = Record<string, unknown>
 type ReportStatus = "draft" | "submitted"
@@ -46,6 +57,11 @@ export interface DailyReportSummary {
   nextSteps: string | null
 }
 
+export interface StaleJobReportSummary {
+  jobName: string
+  mostRecentReportAt: string | null
+}
+
 export interface ReportsToolsProvider {
   getReportsForJob(
     jobId: string,
@@ -54,6 +70,8 @@ export interface ReportsToolsProvider {
   ): Promise<{ reports: DailyReportSummary[]; nextCursor: string | null }>
   getRecentReports(options: { since?: string; limit: number }): Promise<DailyReportSummary[]>
   getReportsByAuthor(authorId: string, options: { status?: ReportStatus; since?: string; until?: string; limit: number }): Promise<DailyReportSummary[]>
+  /** Newest report's `createdAt` for one job, or `null` when it has none on file. */
+  getMostRecentReportDateForJob(jobId: string): Promise<string | null>
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -145,6 +163,19 @@ function createServerReportsToolsProvider(): ReportsToolsProvider {
       const snapshot = await query.limit(options.limit).get()
       return attachJobNames(db, snapshot.docs.map((document) => ({ ...(document.data() as RecordValue), jobId: asString((document.data() as RecordValue).jobId) })))
     },
+    async getMostRecentReportDateForJob(jobId) {
+      const db = await getAdminDb()
+      const snapshot = await db
+        .collection(REPORTS_COLLECTION)
+        .where("jobId", "==", jobId)
+        .where("type", "==", "daily_report")
+        .orderBy("createdAt", "desc")
+        .select("createdAt")
+        .limit(1)
+        .get()
+      const doc = snapshot.docs[0]
+      return doc ? toIso((doc.data() as RecordValue).createdAt) : null
+    },
   }
 }
 
@@ -165,12 +196,16 @@ export function createReportsTools(
     directoryProvider?: DirectoryDataProvider
     resolveJobsByName?: (name: string) => Promise<WhatsAppReportJob[]>
     resolveAuthorIdByName?: (name: string) => Promise<string | null>
+    listJobsProvider?: () => Promise<FanOutJob[]>
   } = {},
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerReportsToolsProvider()
-  const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
-  const resolveJobsByName = deps.resolveJobsByName ?? ((name: string) => findWhatsAppReportJobsByNameCandidates([name]))
+  const directoryProvider = deps.directoryProvider ?? createServerDirectoryProviderWithKeywordFallback()
+  const resolveJobsByName =
+    deps.resolveJobsByName ??
+    ((name: string) => resolveJobByNameViaDirectory(name, directoryProvider, (candidate) => findWhatsAppReportJobsByNameCandidates([candidate])))
   const resolveAuthorId = deps.resolveAuthorIdByName ?? ((name: string) => resolveAuthorIdByName(directoryProvider, name))
+  const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
 
   const searchDailyReportsForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; cursor?: string; limit?: number }> = {
     name: "reports_searchDailyReportsForJob",
@@ -283,5 +318,60 @@ export function createReportsTools(
     },
   }
 
-  return [searchDailyReportsForJob, getRecentDailyReports, getDailyReportsByAuthor]
+  const getJobsWithoutRecentReports: SecretaryTool<{ withinDays?: number; limit?: number }> = {
+    name: "reports_getJobsWithoutRecentReports",
+    module: "reports",
+    description:
+      "For active ByeByeDPR jobs, list each job's most recent Daily Report date, oldest/none first — for portfolio-wide questions like 'which jobs don't have a recent report'. Only includes jobs whose most recent report (if any) is older than `withinDays` (default 14), or that have none on file. This states only what was retrieved: never say a report is 'missing' or 'required' — this data has no reporting cadence to infer from, only report dates that were or weren't found.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        withinDays: { type: "number", description: "Only include jobs whose most recent report is older than this many days, or has none at all. Defaults to 14." },
+        limit: { type: "number", description: "Max jobs to return (1-10)." },
+      },
+    },
+    schema: z.object({
+      withinDays: z.number().int().min(1).max(180).optional(),
+      limit: z.number().int().min(1).max(MAX_STALE_JOBS_RETURNED).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const withinDays = args.withinDays ?? 14
+      const limit = Math.max(1, Math.min(args.limit ?? MAX_STALE_JOBS_RETURNED, budget.maxRecordsPerTool, budget.remainingRecords))
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      const jobs = await listJobs()
+      if (jobs.length === 0) return { summary: "No active ByeByeDPR jobs were found.", empty: true }
+
+      const cutoffMs = Date.now() - withinDays * 24 * 60 * 60 * 1000
+      const withDates = await Promise.all(
+        jobs.map(async (job) => ({ job, mostRecentReportAt: await provider.getMostRecentReportDateForJob(job.id) })),
+      )
+      const stale = withDates.filter(({ mostRecentReportAt }) => !mostRecentReportAt || Date.parse(mostRecentReportAt) < cutoffMs)
+      if (stale.length === 0) {
+        return {
+          summary: `Every one of the ${jobs.length} active job(s) checked has a Daily Report within the last ${withinDays} day(s).`,
+          empty: true,
+        }
+      }
+
+      const ranked: StaleJobReportSummary[] = stale
+        .sort((a, b) => {
+          const aTime = a.mostRecentReportAt ? Date.parse(a.mostRecentReportAt) : -Infinity
+          const bTime = b.mostRecentReportAt ? Date.parse(b.mostRecentReportAt) : -Infinity
+          return aTime - bTime
+        })
+        .slice(0, limit)
+        .map(({ job, mostRecentReportAt }) => ({ jobName: job.name, mostRecentReportAt }))
+
+      budget.remainingRecords -= ranked.length
+      return {
+        summary: `${ranked.length} job(s) with no Daily Report within the last ${withinDays} day(s) (out of ${jobs.length} active job(s) checked), oldest/none first.`,
+        data: { jobs: ranked },
+      }
+    },
+  }
+
+  return [searchDailyReportsForJob, getRecentDailyReports, getDailyReportsByAuthor, getJobsWithoutRecentReports]
 }

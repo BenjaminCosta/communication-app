@@ -106,8 +106,11 @@ export const WHATSAPP_SECRETARY_AI_LIMITS = {
   /** Tool-loop budget: bounded rounds and bounded records per call. */
   maxToolRounds: 3,
   maxRecordsPerTool: 12,
-  /** Total records handed to the model across every tool call in one question. */
-  maxTotalRecords: 24,
+  /** Total records handed to the model across every tool call in one question.
+   * 40 (not the old 24): a single rich cross-module question can legitimately
+   * touch 4-6 modules in one turn, and a shared 24-record budget across that
+   * was starving later tool calls silently. Still a hard bound, not unlimited. */
+  maxTotalRecords: 40,
   /** Directory's note sub-budget for `directory_searchRelevantNotes`, matching Directory's own defaults. */
   maxNotesPerTool: 5,
   maxNoteChars: 400,

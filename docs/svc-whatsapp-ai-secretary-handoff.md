@@ -1,6 +1,6 @@
 # SVC AI Secretary — WhatsApp handoff
 
-_Last updated: 2026-08-12. This is the operational handoff for continuing the
+_Last updated: 2026-08-13. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
@@ -92,9 +92,12 @@ What changed:
   `applications.ts`, `reports.ts` (all
   extended with real date-range/cursor pagination instead of a fixed
   newest-4/newest-3 slice), plus two genuinely new modules: `clocking.ts`
-  (clock-in/out history, never exposes raw GPS coordinates) and `outlooks.ts`
-  (per-job 3-Week Outlook reads only — cross-job listing needs a new
-  Firestore index, deliberately deferred).
+  (clock-in/out history, never exposes raw GPS coordinates, plus a cross-job
+  "most active jobs" tool) and `outlooks.ts` (per-job 3-Week Outlook reads,
+  plus a cross-job "active outlooks today" tool — see the "Read layer
+  strengthening" section below; both cross-job tools fan out over
+  `job-fanout.ts`'s small, bounded active-job list instead of needing a new
+  `collectionGroup` index).
 - Messages/Communications access is structurally impossible, not just
   prompt-denied: no tool file imports anything Messages-related, and
   `lib/whatsapp-secretary/tool-registry.ts` asserts no tool name can ever
@@ -115,8 +118,6 @@ What changed:
 
 - The real WhatsApp end-to-end manual test pass (deployed now; see the
   Testing section below for the checklist to run against the live number).
-- Outlooks cross-job/portfolio listing (needs a new `collectionGroup`
-  composite index + explicit deploy approval).
 - Any new write capability, or any Messages/Communications access.
 - Per-role/per-worker granular permissions — access stays binary
   public/internal.
@@ -124,6 +125,124 @@ What changed:
 See `lib/whatsapp-secretary/` for the implementation and
 `scripts/whatsapp-secretary-*.test.ts` (run via `pnpm test:whatsapp-secretary`,
 now part of `pnpm verify:fast`) for the offline test suite.
+
+## Read layer strengthening (2026-08-13)
+
+Goal stated by the user: "ask this one WhatsApp number anything about SVC and
+it will figure out where to look." Reviewed the orchestrator above against
+that bar and made five incremental, independently-tested changes — no
+rewrite, no change to access control, the Daily Report draft action, or
+Messages/Communications exclusion.
+
+1. **Date/time awareness.** The system prompt (`prompt.ts`) now states
+   `Today is {date} (UTC)` (matching the UTC convention
+   `outlooks_listActiveOutlooks` already computes server-side) and instructs
+   the model to resolve relative dates ("last week", "since Monday") into
+   concrete ranges itself before calling a tool, and to cite the actual date
+   a tool result carries when it's relevant ("based on the latest Quest Coral
+   update from Aug 12") instead of answering atemporally.
+2. **Stronger model, one conservative reasoning step up.** The Secretary now
+   uses `gpt-5.6-terra` (its own isolated `DEFAULT_WHATSAPP_SECRETARY_MODEL`
+   in `lib/ai/config.ts` — Directory's and Quest Coral's own `DEFAULT_ASK_MODEL`
+   are untouched) with `reasoningEffort: "low"` (up from `"minimal"`, still
+   well short of `"medium"`/`"high"` for Hobby-plan latency).
+3. **`maxTotalRecords`: 24 → 40** (`WHATSAPP_SECRETARY_AI_LIMITS` in
+   `lib/ai/config-public.ts`). A single rich cross-module question can
+   legitimately touch 4-6 modules in one turn; 24 shared across that was
+   starving later tool calls silently. Still a hard bound.
+4. **Safe observability.** `orchestrator.ts` now logs (via
+   `logWhatsAppSecretaryAi`, `lib/ai/server/safe-log.ts`) which tools were
+   called, which of those came back empty, tool-round count, and total
+   records used, per request — never the question text, answer text, or any
+   record field values.
+5. **Entity resolution parity across every module, not just Directory.**
+   Directory's own keyword-search fallback (built earlier on 2026-08-12) only
+   benefited Directory's own tools. Two changes closed that gap:
+   - `createServerDirectoryProviderWithKeywordFallback()`
+     (`tools/directory.ts`) is now the shared default Directory provider for
+     every other module's internal job/person lookups — Reports' and
+     Clocking's job resolution, Reports' report-author resolution, and
+     Applications' `getApplicationsForJob` — so a partial or single-word name
+     resolves as well from those call sites as it already does from
+     `directory_searchPeople`/`searchCompanies`.
+   - New **Directory-first job resolver** (`resolveJobByNameViaDirectory` in
+     `tools/job-fanout.ts`): tries Directory's job search first (inheriting
+     its keyword-fallback quality), maps a single unambiguous match to its
+     linked ByeByeDPR job via `jobs.directoryContextId` (no new index), and
+     falls back to the legacy ByeByeDPR-only resolver
+     (`findWhatsAppReportJobsByNameCandidates`, still owned by
+     `lib/whatsapp-reports.ts` because the Daily Report draft action also
+     depends on it, and left completely unchanged) whenever Directory can't
+     produce a single, linked match. Wired as the default job resolver for
+     Reports and Clocking.
+   - New **bounded in-memory keyword fallback** for Quest Coral project names
+     and Applications candidate names (`tools/keyword-match.ts`'s
+     `rerankByTokenScore`/`scoreNameAgainstTokens`, the non-Directory-specific
+     twin of Directory's own reranking logic) — neither collection has a
+     derived `keywords` index field, but both are tiny in production
+     (confirmed via a read-only `.count()` check: 7 Quest Coral projects, 2
+     applications), so the fallback scans a capped page (200) in memory
+     rather than needing a new derived field.
+6. **New cross-job Reports tool.** `reports_getJobsWithoutRecentReports`
+   (`tools/reports.ts`) answers "which jobs don't have a recent report" by
+   fanning out over the same bounded active-job list the other cross-job
+   tools use, then a `.limit(1)` newest-report lookup per job (existing
+   index, no new one). Strictly factual language only — a report from date X
+   was found, or none was — never "missing" or "required", matching this
+   file's existing guardrail that report cadence can't be inferred from this
+   data.
+
+13 new offline tests cover all of the above (job resolver branching, both
+keyword fallbacks triggering/not-triggering, the new Reports tool's
+filtering/ordering) — 87 total in `pnpm test:whatsapp-secretary`, all green,
+alongside `pnpm typecheck` and `pnpm build`. See "Manual WhatsApp test
+checklist" below for the live-number verification pass to run after deploy.
+
+### Manual WhatsApp test checklist
+
+Run these against the live sandbox number after deploying this change, from
+an identified internal sender. Record the actual reply next to each — this
+is what "ask it anything about SVC" verification looks like in practice,
+since there is no deterministic mock-mode eval for a 6-module orchestrator
+(see the "not proposed" note in the project plan this section came from).
+
+**Direct lookup**
+1. "Who is [a real Directory person's full name]?"
+2. "What's [a real company name]'s address?"
+
+**Partial / ambiguous name**
+3. A single last name that matches exactly one person (should resolve, not ask to disambiguate).
+4. A single first name that matches more than one person (should list candidates, not guess).
+5. A job name using only one distinctive word from a multi-word job name (e.g. one word from "Miami Beach Project").
+
+**Historical / relative date**
+6. "What happened on [a real job] six months ago?" (real historical retrieval, not just the newest slice).
+7. "What changed this week?"
+8. "Show me [a real job]'s reports since last Monday."
+
+**Cross-module**
+9. "Who works with [a real company] and what are their phone numbers?"
+10. "What's going on with [a real job] — reports, clock activity, and outlook status?"
+
+**Broad summary**
+11. "Give me a summary of [a real company]."
+12. "What's happening across all active jobs right now?"
+
+**Contact info (internal-sender sharing)**
+13. "What's [a real person]'s phone number?" (should share directly, no hedging).
+
+**Comparison / portfolio-wide**
+14. "Which active jobs don't have a current 3-Week Outlook?"
+15. "Which job is busiest right now?"
+16. "Which jobs don't have a recent Daily Report?"
+
+**Follow-up continuity**
+17. Ask about a person, then follow up with just "what about his email?" (should resolve the pronoun from context, not re-ask who).
+18. Ask about a job, then follow up with "what happened before that?" (should page into older history via the prior tool's cursor/date range, not repeat the same slice).
+
+**Not-enough-information / guardrail**
+19. Ask about someone who does not exist in Directory (should say so plainly, never invent a person).
+20. "Can you read my WhatsApp messages with [someone]?" (should say plainly it has no Messages access, never attempt a workaround).
 
 ## Current outcome
 
@@ -431,12 +550,14 @@ combination, in one turn:
 - **Applications:** candidate search, the review queue (now lists
   `needs_information`, not just a count), and per-job application history.
 - **ByeByeDPR reports:** per-job/global/per-author report search with
-  date-range/cursor pagination; raw report text, audio, attachments, storage
-  links, and Communications Messages stay out of the model context.
-- **ByeByeDPR clocking:** per-job clock-in/out history — never exposes raw GPS
-  coordinates, only whether a location was recorded.
-- **3-Week Outlooks:** per-job outlook reads only (tasks, dates, status); no
-  cross-job listing yet (needs a new Firestore index, deferred).
+  date-range/cursor pagination, plus a portfolio-wide "jobs without a recent
+  report" tool; raw report text, audio, attachments, storage links, and
+  Communications Messages stay out of the model context.
+- **ByeByeDPR clocking:** per-job clock-in/out history (never exposes raw GPS
+  coordinates, only whether a location was recorded) plus a cross-job "most
+  active jobs right now" tool.
+- **3-Week Outlooks:** per-job outlook reads (tasks, dates, status) plus a
+  cross-job "active outlooks today" tool.
 
 No WhatsApp capability has access to `/messages` or may write to Messages —
 enforced structurally in `lib/whatsapp-secretary/tool-registry.ts`, not just
@@ -452,10 +573,13 @@ pnpm typecheck
 pnpm build
 ```
 
-The focused suite has 62 passing tests. It covers strict Daily Report command
+The focused suite has 87 passing tests. It covers strict Daily Report command
 recognition and idempotency, authorization boundaries, the tool registry,
 native list/CTA payloads, native selection parsing, concise response
-presentation, and first-contact welcome behavior.
+presentation, first-contact welcome behavior, per-module entity resolution
+(including both keyword fallbacks and the Directory-first job resolver), and
+the new cross-job Reports tool. See "Read layer strengthening" above for the
+manual WhatsApp checklist to run against the live number after deploy.
 
 Useful development commands:
 

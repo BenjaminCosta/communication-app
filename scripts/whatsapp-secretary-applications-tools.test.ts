@@ -103,3 +103,53 @@ test("applications_getApplicationsForJob reports not-found rather than guessing 
   const result = await getApplicationsForJob.run({ jobName: "A Job That Does Not Exist In Directory" }, budget())
   assert.equal(result.empty, true)
 })
+
+test("applications_searchCandidates falls back to keyword search when the exact/prefix name lookup finds nothing", async () => {
+  const rivera = makeApplication()
+  const tools = createApplicationsTools({
+    // "Rivera" alone matches nothing in the fixture via exact/prefix — the
+    // fixture only exact-matches the full "Jane Rivera".
+    provider: createFixtureProvider(),
+    directoryProvider: createDirectoryFixtureProvider(),
+    keywordSearchProvider: async (tokens, limit) => {
+      assert.ok(tokens.includes("rivera"))
+      assert.equal(limit, 5)
+      return [rivera]
+    },
+  })
+  const searchCandidates = tools.find((tool) => tool.name === "applications_searchCandidates")
+  assert.ok(searchCandidates)
+
+  const result = await searchCandidates.run({ query: "Rivera" }, budget())
+  const data = result.data as { applications?: ApplicationSummary[] }
+  assert.ok(data.applications?.some((application) => application.candidateName === "Jane Rivera"))
+})
+
+test("never calls the Applications keyword fallback when the exact/prefix lookup already found a match", async () => {
+  const tools = createApplicationsTools({
+    provider: createFixtureProvider(),
+    directoryProvider: createDirectoryFixtureProvider(),
+    keywordSearchProvider: async () => {
+      throw new Error("must not be called when the exact/prefix lookup already found a match")
+    },
+  })
+  const searchCandidates = tools.find((tool) => tool.name === "applications_searchCandidates")
+  assert.ok(searchCandidates)
+
+  const result = await searchCandidates.run({ query: "Jane Rivera" }, budget())
+  const data = result.data as { applications?: ApplicationSummary[] }
+  assert.equal(data.applications?.length, 1)
+})
+
+test("applications_searchCandidates reports no match without guessing, even after the keyword fallback", async () => {
+  const tools = createApplicationsTools({
+    provider: createFixtureProvider(),
+    directoryProvider: createDirectoryFixtureProvider(),
+    keywordSearchProvider: async () => [],
+  })
+  const searchCandidates = tools.find((tool) => tool.name === "applications_searchCandidates")
+  assert.ok(searchCandidates)
+
+  const result = await searchCandidates.run({ query: "Nonexistent Candidate" }, budget())
+  assert.equal(result.empty, true)
+})

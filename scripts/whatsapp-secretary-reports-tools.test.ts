@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { createReportsTools, type DailyReportSummary, type ReportsToolsProvider } from "../lib/whatsapp-secretary/tools/reports"
+import { createReportsTools, type DailyReportSummary, type ReportsToolsProvider, type StaleJobReportSummary } from "../lib/whatsapp-secretary/tools/reports"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 import type { WhatsAppReportJob } from "../lib/whatsapp-reports"
+import type { FanOutJob } from "../lib/whatsapp-secretary/tools/job-fanout"
 
 function budget(): SecretaryToolBudget {
   return { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 24 }
@@ -33,6 +34,9 @@ function createFixtureProvider(overrides: Partial<ReportsToolsProvider> = {}): R
     async getReportsByAuthor() {
       return [makeReport()]
     },
+    async getMostRecentReportDateForJob() {
+      return makeReport().createdAt
+    },
     ...overrides,
   }
 }
@@ -44,7 +48,12 @@ function fixtureJobResolver(jobs: WhatsAppReportJob[]): (name: string) => Promis
 test("Reports tools are namespaced", () => {
   const tools = createReportsTools({ provider: createFixtureProvider(), resolveJobsByName: fixtureJobResolver([]) })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, ["reports_searchDailyReportsForJob", "reports_getRecentDailyReports", "reports_getDailyReportsByAuthor"])
+  assert.deepEqual(names, [
+    "reports_searchDailyReportsForJob",
+    "reports_getRecentDailyReports",
+    "reports_getDailyReportsByAuthor",
+    "reports_getJobsWithoutRecentReports",
+  ])
   assert.ok(tools.every((tool) => tool.module === "reports"))
 })
 
@@ -122,4 +131,71 @@ test("reports_getDailyReportsByAuthor lists reports once the person resolves to 
   const result = await getDailyReportsByAuthor.run({ personName: "John DeMarco" }, budget())
   const data = result.data as { reports?: DailyReportSummary[] }
   assert.equal(data.reports?.length, 1)
+})
+
+function makeJob(overrides: Partial<FanOutJob> = {}): FanOutJob {
+  return { id: "job-fresh", name: "Fresh Job", directoryContextId: null, ...overrides }
+}
+
+test("reports_getJobsWithoutRecentReports lists only stale/report-less jobs, oldest/none first", async () => {
+  const now = Date.now()
+  const fresh = makeJob({ id: "job-fresh", name: "Fresh Job" })
+  const stale = makeJob({ id: "job-stale", name: "Stale Job" })
+  const never = makeJob({ id: "job-never", name: "Never Reported Job" })
+  const datesByJobId: Record<string, string | null> = {
+    "job-fresh": new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    "job-stale": new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    "job-never": null,
+  }
+
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      getMostRecentReportDateForJob: async (jobId) => datesByJobId[jobId] ?? null,
+    }),
+    resolveJobsByName: fixtureJobResolver([]),
+    listJobsProvider: async () => [fresh, stale, never],
+  })
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  assert.ok(getJobsWithoutRecentReports)
+
+  const result = await getJobsWithoutRecentReports.run({ withinDays: 14 }, budget())
+  const data = result.data as { jobs?: StaleJobReportSummary[] }
+  assert.deepEqual(
+    data.jobs?.map((job) => job.jobName),
+    ["Never Reported Job", "Stale Job"],
+  )
+  assert.equal(data.jobs?.[0]?.mostRecentReportAt, null)
+})
+
+test("reports_getJobsWithoutRecentReports reports every job is current, without guessing at cadence", async () => {
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      getMostRecentReportDateForJob: async () => new Date().toISOString(),
+    }),
+    resolveJobsByName: fixtureJobResolver([]),
+    listJobsProvider: async () => [makeJob()],
+  })
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  assert.ok(getJobsWithoutRecentReports)
+
+  const result = await getJobsWithoutRecentReports.run({}, budget())
+  assert.equal(result.empty, true)
+  assert.doesNotMatch(result.summary, /missing|required/i)
+})
+
+test("reports_getJobsWithoutRecentReports reports nothing rather than guessing when there are no active jobs", async () => {
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      getMostRecentReportDateForJob: async () => {
+        throw new Error("must not be called when there are no active jobs")
+      },
+    }),
+    resolveJobsByName: fixtureJobResolver([]),
+    listJobsProvider: async () => [],
+  })
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  assert.ok(getJobsWithoutRecentReports)
+
+  const result = await getJobsWithoutRecentReports.run({}, budget())
+  assert.equal(result.empty, true)
 })

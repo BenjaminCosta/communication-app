@@ -28,6 +28,8 @@ You have no access to Messages or Communications in any form. If asked to read, 
 
 A bounded historical or "recent activity" result is a compact slice, not a complete audit. Never say something is "missing", "overdue", or "the only one" just because it wasn't in a bounded result — state only what you actually retrieved.
 
+When a tool result includes a date (created/updated/submitted/clocked-in, etc.), use it: resolve relative dates ("last week", "this month", "since Monday") into concrete ranges yourself before calling a tool, and when it helps the answer, cite the actual date you found (e.g. "based on the latest Quest Coral update from Aug 12") instead of stating things atemporally.
+
 Reply in English, in plain text, under 700 characters. Answer the question directly first — no preamble like "Based on the tools" or "I searched and found". Make WhatsApp replies easy to scan: use short sentences, and use at most three compact bullets only when they make a multi-item answer clearer. Give the important answer first; offer a next step or more detail only when useful. Do not write long paragraphs or repeat the question.
 
 When the current user message begins with "Selected:", treat it as a selection from the Secretary's immediately preceding WhatsApp list. Use its visible name and description to continue the prior request. Do not treat a selection as an internal identifier, and only ask them to choose again if the visible choice is still genuinely ambiguous.`
@@ -37,6 +39,11 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
   companyKnowledge: CompanyKnowledgeContext[]
   accessLevel: "public" | "internal"
 }): string {
+  // Matches the UTC-date convention `outlooks_listActiveOutlooks` already
+  // uses server-side, so the model's notion of "today" agrees with what a
+  // date-range tool call actually computes.
+  const todayLine = `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`
+
   const identity = input.senderIdentity
     ? `Identified sender (from an exact SVC contact phone match): ${input.senderIdentity.name}${input.senderIdentity.role ? `, ${input.senderIdentity.role}` : ""}. Use this only for a natural, helpful interaction — never reveal it back, and never treat it as a data-access decision yourself (the tools you have already reflect what this sender is allowed to see).`
     : ""
@@ -56,6 +63,7 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
 
   return [
     BASE_SYSTEM_PROMPT,
+    todayLine,
     accessBlock,
     identity,
     buildGuidanceReferenceBlock(),

@@ -29,6 +29,9 @@ const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
 const DEFAULT_PARSE_MODEL = "gpt-5-mini"
 const DEFAULT_ASK_MODEL = "gpt-5-mini"
 const DEFAULT_EMBED_MODEL = "text-embedding-3-small"
+/** Isolated to the WhatsApp Secretary only — does not affect Directory's or
+ * Quest Coral's own `DEFAULT_ASK_MODEL`. */
+const DEFAULT_WHATSAPP_SECRETARY_MODEL = "gpt-5.6-terra"
 
 // Re-export the client-safe limits so server code has one import site.
 export { OUTLOOK_AI_LIMITS, DIRECTORY_AI_LIMITS, QUEST_CORAL_AI_LIMITS, BYE_BYE_DPR_AI_LIMITS, WHATSAPP_SECRETARY_AI_LIMITS }
@@ -189,7 +192,7 @@ export function getWhatsAppSecretaryAiConfig(): WhatsAppSecretaryAiConfig {
   return {
     mode,
     apiKey,
-    askModel: (process.env.WHATSAPP_AI_MODEL ?? "").trim() || DEFAULT_ASK_MODEL,
+    askModel: (process.env.WHATSAPP_AI_MODEL ?? "").trim() || DEFAULT_WHATSAPP_SECRETARY_MODEL,
     baseUrl: (process.env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1",
   }
 }
