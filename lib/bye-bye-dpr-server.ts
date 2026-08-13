@@ -61,7 +61,7 @@ import {
   listGeocodedDirectoryJobs,
   resolveDirectoryJob,
 } from "@/lib/bye-bye-dpr-directory-link"
-import { parseDirectoryId } from "@/lib/directory-core"
+import { getFieldValue, parseDirectoryId } from "@/lib/directory-core"
 import { computeVisibleToUserIds, type AutomaticMessageSourceModule } from "@/lib/store"
 import { structureDailyReportDraft } from "@/features/bye-bye-dpr/ai/server/daily-report-structuring-service"
 import { transcribeReportAudio as transcribeReportAudioAi } from "@/features/bye-bye-dpr/ai/server/transcription-service"
@@ -347,6 +347,37 @@ export interface CreateAutomaticCommsPostInput {
   messageId?: string
 }
 
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+/**
+ * Communications stores raw `/contexts` document ids, while the Directory
+ * index (and `Job.directoryContextId`) uses composite ids such as `job__abc`.
+ * Convert the job link before saving it on a message so Comms can resolve and
+ * filter the context chip. When Directory has a parent company, preserve that
+ * relationship too.
+ */
+async function getJobCommsContextIds(db: Firestore, job: Job): Promise<string[]> {
+  if (!job.directoryContextId) return []
+
+  const parsed = parseDirectoryId(job.directoryContextId)
+  if (parsed && parsed.type !== "job") return []
+  const jobContextId = parsed?.sourceId ?? job.directoryContextId
+  const jobContext = await db.collection("contexts").doc(jobContextId).get()
+  if (!jobContext.exists) return []
+
+  const data = jobContext.data() ?? {}
+  const masterData = data.masterData && typeof data.masterData === "object"
+    ? data.masterData as Record<string, unknown>
+    : {}
+  const fields = Array.isArray(data.fields) ? data.fields : []
+  const companyContextId = nonEmptyString(masterData.companyContextId)
+    ?? nonEmptyString(getFieldValue(fields, "Parent Company Context ID"))
+
+  return [...new Set([jobContextId, companyContextId].filter((id): id is string => Boolean(id)))]
+}
+
 /**
  * Hand-constructs the exact `messages` field set `handleSend` builds
  * client-side in app/page.tsx (authorId/senderId/recipientIds/peopleIds/
@@ -370,12 +401,12 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
 
   const visibleToUserIds = computeVisibleToUserIds(input.authorUid, recipientIds)
   const tagAssociation = await resolveByeByeDprMessageTagAssociation(db, input.event)
-  // message.contextIds holds raw /contexts doc ids (see lib/store.ts), unlike
-  // job.directoryContextId which is the prefixed "job__<id>" composite id
-  // Directory's derived layer uses — strip the prefix or the Comms UI's
-  // `contexts.find((c) => c.id === id)` lookup silently never matches.
-  const parsedJobContext = input.job.directoryContextId ? parseDirectoryId(input.job.directoryContextId) : null
-  const contextIds = parsedJobContext ? [parsedJobContext.sourceId] : []
+  // Keep this scoped to the two worker actions that belong in Comms with the
+  // job/company association. Clock-out and other automatic messages retain
+  // their existing behavior.
+  const contextIds = input.event === "clock-in" || input.event === "daily-report"
+    ? await getJobCommsContextIds(db, input.job)
+    : (input.job.directoryContextId ? [input.job.directoryContextId] : [])
 
   const msgData = {
     authorId: input.authorUid,
