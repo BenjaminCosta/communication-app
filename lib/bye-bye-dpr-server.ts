@@ -22,7 +22,7 @@ import "server-only"
  */
 
 import { randomUUID } from "node:crypto"
-import type { DocumentData, Firestore } from "firebase-admin/firestore"
+import type { DocumentData, DocumentReference, Firestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import type { OutlookAiOperation } from "@/lib/ai/server/safe-log"
 import {
@@ -332,6 +332,16 @@ export interface CreateAutomaticCommsPostInput {
   job: Job
   text: string
   event: ByeByeDprEventTag
+  /** Optional pre-generated file, rendered by Communications as a clickable attachment card. */
+  attachment?: {
+    url: string
+    name: string
+    contentType: string
+    size?: number
+    path?: string
+  }
+  /** Used only for report submissions so a retry cannot create a second post. */
+  messageId?: string
 }
 
 /**
@@ -378,6 +388,29 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
     updatedAt: FieldValue.serverTimestamp(),
     timestamp: FieldValue.serverTimestamp(),
     isFavorited: false,
+    ...(input.attachment
+      ? {
+          fileUrl: input.attachment.url,
+          fileName: input.attachment.name,
+          fileContentType: input.attachment.contentType,
+          ...(typeof input.attachment.size === "number" ? { fileSize: input.attachment.size } : {}),
+          ...(input.attachment.path ? { filePath: input.attachment.path } : {}),
+        }
+      : {}),
+  }
+
+  if (input.messageId) {
+    const ref = db.collection("messages").doc(input.messageId)
+    if (!((await ref.get()).exists)) {
+      try {
+        await ref.create(msgData)
+      } catch (error) {
+        // A concurrent retry can create the deterministic document between the
+        // read and create. It is the same report post, so re-use it.
+        if (!((await ref.get()).exists)) throw error
+      }
+    }
+    return ref.id
   }
 
   const ref = await db.collection("messages").add(msgData)
@@ -810,6 +843,90 @@ export async function generateReportPdf(principal: ByeByeDprPrincipal, reportId:
   return { pdfStoragePath: pdfPath, sizeBytes: pdfBytes.length }
 }
 
+export interface DailyReportPdfAttachment {
+  url: string
+  path: string
+  name: string
+  contentType: "application/pdf"
+  size: number
+}
+
+/**
+ * Creates the same attachment shape Communications already uses for a
+ * Three-Week Outlook. The URL is a read-only signed Storage URL so a message
+ * recipient can open the generated report directly from the feed.
+ */
+export async function createDailyReportPdfAttachment(input: {
+  pdfStoragePath: string
+  pdfSizeBytes: number
+  jobName: string
+  submittedAt: string | null
+}): Promise<DailyReportPdfAttachment> {
+  const { getStorage } = await import("firebase-admin/storage")
+  const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
+  const [url] = await bucket.file(input.pdfStoragePath).getSignedUrl({ action: "read", expires: "01-01-2500" })
+  const submittedDate = new Date(input.submittedAt ?? Date.now())
+  const dateLabel = Number.isNaN(submittedDate.getTime()) ? "report" : submittedDate.toISOString().slice(0, 10)
+  return {
+    url,
+    path: input.pdfStoragePath,
+    name: `Daily Report - ${input.jobName} - ${dateLabel}.pdf`,
+    contentType: "application/pdf",
+    size: input.pdfSizeBytes,
+  }
+}
+
+function dailyReportCommsMessageId(reportId: string): string {
+  return `byebye-dpr-report-${reportId}`
+}
+
+/**
+ * Makes a Daily Report post self-healing: an older text-only message receives
+ * its PDF card, and a retry after an interrupted publish reuses one stable
+ * message document instead of creating another post.
+ */
+async function ensureDailyReportCommsPdfAttachment(input: {
+  db: Firestore
+  reportRef: DocumentReference
+  reportId: string
+  reportData: DocumentData
+  job: Job
+  authorUid: string
+  attachment: DailyReportPdfAttachment
+}): Promise<void> {
+  const existingMessageId = typeof input.reportData.commsMessageId === "string" ? input.reportData.commsMessageId : null
+  if (existingMessageId) {
+    const messageRef = input.db.collection("messages").doc(existingMessageId)
+    const messageSnap = await messageRef.get()
+    if (messageSnap.exists) {
+      if (typeof messageSnap.data()?.fileUrl !== "string" || !messageSnap.data()?.fileUrl) {
+        await messageRef.update({
+          fileUrl: input.attachment.url,
+          fileName: input.attachment.name,
+          fileContentType: input.attachment.contentType,
+          fileSize: input.attachment.size,
+          filePath: input.attachment.path,
+          updatedAt: new Date(),
+        })
+      }
+      return
+    }
+  }
+
+  const authorName = await resolveDisplayName(input.db, input.authorUid)
+  const messageId = await createAutomaticCommsPost({
+    authorUid: input.authorUid,
+    job: input.job,
+    text: `${authorName} submitted a Daily Report for ${input.job.name}.`,
+    event: "daily-report",
+    attachment: input.attachment,
+    messageId: existingMessageId ?? dailyReportCommsMessageId(input.reportId),
+  })
+  if (messageId !== existingMessageId) {
+    await input.reportRef.update({ commsMessageId: messageId, updatedAt: new Date() })
+  }
+}
+
 /** Turns the reviewed report into a Directory note — never invents content. */
 function summarizeDailyReportForNote(structuredData: DailyReportStructuredData, rawText: string | null): string {
   const parts: string[] = []
@@ -832,25 +949,21 @@ async function fileReportIntoDirectory(
   db: Firestore,
   job: Job,
   report: Report,
-  pdfStoragePath: string,
-  pdfSizeBytes: number,
+  pdfAttachment: DailyReportPdfAttachment,
   authorUid: string,
 ): Promise<void> {
   if (!job.directoryContextId) return
   try {
-    const { getStorage } = await import("firebase-admin/storage")
-    const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
-    const [downloadUrl] = await bucket.file(pdfStoragePath).getSignedUrl({ action: "read", expires: "01-01-2500" })
     const now = new Date()
     const submittedOn = new Date(report.submittedAt ?? now.toISOString()).toLocaleDateString()
 
     await db.collection("directoryFiles").add({
       entityIds: [job.directoryContextId],
-      storagePath: pdfStoragePath,
-      downloadUrl,
+      storagePath: pdfAttachment.path,
+      downloadUrl: pdfAttachment.url,
       fileName: `Daily Report - ${job.name} - ${submittedOn}.pdf`,
-      mimeType: "application/pdf",
-      size: pdfSizeBytes,
+      mimeType: pdfAttachment.contentType,
+      size: pdfAttachment.size,
       category: "report",
       caption: `Daily Report for ${job.name}`,
       uploadedBy: authorUid,
@@ -861,7 +974,7 @@ async function fileReportIntoDirectory(
       entityIds: [job.directoryContextId],
       text: summarizeDailyReportForNote(report.structuredData as DailyReportStructuredData, report.rawText),
       noteType: "daily_report",
-      attachments: [downloadUrl],
+      attachments: [pdfAttachment.url],
       createdBy: authorUid,
       createdAt: now,
       updatedAt: now,
@@ -876,25 +989,23 @@ export interface SubmitReportInput {
 }
 
 /**
- * Idempotent: resubmitting an already-submitted report is a safe no-op
- * (submitted reports are immutable — see firestore.rules). PDF generation
- * and the Comms post are each individually idempotent too, so a retry after
- * a partial failure never duplicates either.
+ * Idempotent: a repeated submit reuses the report PDF and deterministic
+ * Communications post. It also repairs an interrupted/text-only report post
+ * by attaching the existing PDF without changing the submitted report.
  */
 export async function submitReport(principal: ByeByeDprPrincipal, reportId: string, input: SubmitReportInput): Promise<Report> {
   const { ref, data } = await requireOwnedReport(principal, reportId)
+  const alreadySubmitted = data.status === "submitted"
 
-  if (data.status === "submitted") {
-    return mapReportDoc(ref.id, data)
+  if (!alreadySubmitted) {
+    const structuredData = mapReportStructuredData(data.structuredData)
+    if (!isDailyReportSubmittable(structuredData, typeof data.rawText === "string" ? data.rawText : data.transcription)) {
+      throw new ByeByeDprError("invalid-request", "Add some content before submitting.", 400)
+    }
+
+    const now = new Date()
+    await ref.update({ status: "submitted", submittedAt: now, idempotencyKey: input.idempotencyKey, updatedAt: now })
   }
-
-  const structuredData = mapReportStructuredData(data.structuredData)
-  if (!isDailyReportSubmittable(structuredData, typeof data.rawText === "string" ? data.rawText : data.transcription)) {
-    throw new ByeByeDprError("invalid-request", "Add some content before submitting.", 400)
-  }
-
-  const now = new Date()
-  await ref.update({ status: "submitted", submittedAt: now, idempotencyKey: input.idempotencyKey, updatedAt: now })
 
   const { pdfStoragePath, sizeBytes } = await generateReportPdf(principal, reportId)
 
@@ -902,20 +1013,31 @@ export async function submitReport(principal: ByeByeDprPrincipal, reportId: stri
   const afterPdfData = afterPdfSnap.data() ?? {}
   const job = await getJob(data.jobId)
   const db = await adminFirestore()
-
-  if (!afterPdfData.commsMessageId) {
-    try {
-      const authorName = await resolveDisplayName(db, principal.uid)
-      const text = `${authorName} submitted a Daily Report for ${job.name}.`
-      const event: ByeByeDprEventTag = "daily-report"
-      const messageId = await createAutomaticCommsPost({ authorUid: principal.uid, job, text, event })
-      await ref.update({ commsMessageId: messageId, updatedAt: new Date() })
-    } catch {
-      // The submission itself already succeeded; a later retry will attempt the post again.
-    }
+  let pdfAttachment: DailyReportPdfAttachment | null = null
+  try {
+    pdfAttachment = await createDailyReportPdfAttachment({
+      pdfStoragePath,
+      pdfSizeBytes: sizeBytes,
+      jobName: job.name,
+      submittedAt: mapReportDoc(ref.id, afterPdfData).submittedAt,
+    })
+    await ensureDailyReportCommsPdfAttachment({
+      db,
+      reportRef: ref,
+      reportId,
+      reportData: afterPdfData,
+      job,
+      authorUid: principal.uid,
+      attachment: pdfAttachment,
+    })
+  } catch {
+    // The report is submitted even if a transient Storage/Comms failure
+    // prevents its attachment card. A repeated submit repairs it.
   }
 
-  await fileReportIntoDirectory(db, job, mapReportDoc(ref.id, afterPdfData), pdfStoragePath, sizeBytes, principal.uid)
+  if (pdfAttachment && !alreadySubmitted) {
+    await fileReportIntoDirectory(db, job, mapReportDoc(ref.id, afterPdfData), pdfAttachment, principal.uid)
+  }
 
   const finalSnap = await ref.get()
   return mapReportDoc(ref.id, finalSnap.data() ?? {})
