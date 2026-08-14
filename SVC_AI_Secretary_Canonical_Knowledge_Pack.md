@@ -2,14 +2,20 @@
 title: "SVC AI Secretary — Canonical Company & Product Knowledge Pack"
 audience: "internal"
 language: "en"
-status: "audited-v2 / grounded directly in current repository code and docs"
-last_updated: "2026-08-13"
+status: "audited-v3 / code-grounded product knowledge + restored human-confirmed company context"
+last_updated: "2026-08-14"
 purpose: "Stable company, product, workflow, and tutorial knowledge for the SVC AI Secretary"
 audit_note: >
-  This revision was produced by reading the actual current code, Firebase rules,
-  and every docs/svc-*.md file in the repository — not by trusting the previous
-  draft. Every module section below was independently re-verified against the
-  live implementation. See the companion audit summary for what changed and why.
+  v2 (2026-08-13) was produced by reading the actual current code, Firebase rules,
+  and every docs/svc-*.md file in the repository, replacing an earlier draft that
+  mixed project-conversation context with product behavior under one label. v3
+  (2026-08-14) restored the genuine company/organizational/strategy context that
+  v2 had downgraded solely because application code has no way to encode a
+  company's name or mission — that content is back under its own explicit
+  PROJECT CONTEXT / HUMAN-CONFIRMED label (see §1), distinct from
+  CODE / PRODUCT VERIFIED, without reopening any of v2's code-grounded product
+  corrections. This document is also now the Secretary's actual live Company
+  Knowledge source (§13), parsed and retrieved by lib/knowledge-pack.ts.
 ---
 
 # SVC AI Secretary — Canonical Company & Product Knowledge Pack
@@ -52,20 +58,25 @@ Do not treat this document as authority when current code, Firebase data, or liv
 
 # 1. Reliability and source-of-truth rules
 
-This pack was rebuilt by directly auditing the current repository: every route, component, Firestore rule, and `docs/svc-*.md` file cited below was read in this pass, not inherited from prior conversation summaries.
+This pack combines two things, kept clearly distinguishable throughout: product/technical knowledge rebuilt by directly auditing the current repository (every route, component, Firestore rule, and `docs/svc-*.md` file cited below was actually read, not inherited from prior conversation summaries), and company/organizational knowledge restored from the accumulated SVC project conversations with the person who built and runs SVC, which code was never going to contain in the first place.
 
 ## Evidence labels
 
-### CONFIRMED
-Directly observed in current code, current Firestore/Storage rules, or a current `docs/svc-*.md` file that itself matches the code.
+### CODE / PRODUCT VERIFIED
+Directly observed in current code, current Firestore/Storage rules, or a current `docs/svc-*.md` file that itself matches the code. The strongest label for *how the product behaves*.
+
+### PROJECT CONTEXT / HUMAN-CONFIRMED
+Explicitly stated by the person who built and runs SVC, in the accumulated project conversations that produced this pack — company identity, business model, organizational language, mission/strategy framing, and the "why" behind a product decision. This is genuine company knowledge, not a guess and not an invention: application code simply has no mechanism to encode a company's name, mission, or org structure, so the absence of a code trail does not weaken this label the way it would weaken a *product-behavior* claim. Use this label for company/business/strategy facts; use CODE / PRODUCT VERIFIED for how the app actually works. Where the two describe the same thing from different angles (e.g. "SVC's apps should work as one connected system" as a stated strategy vs. as an observed architecture), both labels are cited together.
 
 ### PRODUCT DIRECTION
 A real, implemented feature that is still evolving, partially wired, gated behind a feature flag, or — in one specific case this pass (see §8) — present only as **uncommitted work-in-progress** on the current branch. Treat the described behavior as the intended direction, not necessarily what every environment is currently running.
 
 ### NEEDS VERIFICATION
-No reliable current-code evidence exists (in this repository) either way. Do not invent the missing behavior. Most of these are things that live outside the repository (Vercel production environment variables, actual Firebase Functions deployment state, actual company/organizational materials) and cannot be settled by reading code alone.
+Neither reliable current-code evidence nor an explicit human-confirmed project statement exists. Do not invent the missing behavior. Most of these are things that live outside the repository (Vercel production environment variables, actual Firebase Functions deployment state) and cannot be settled by reading code alone.
 
 ## Authority order
+
+For **product/technical behavior** (what a screen does, what a field is called, what a rule enforces):
 
 1. Current production code and current Firebase/data model.
 2. Current Firestore/Storage security rules (they define what is *actually* enforced, which sometimes differs from what a doc or the UI implies).
@@ -73,53 +84,112 @@ No reliable current-code evidence exists (in this repository) either way. Do not
 4. This knowledge pack.
 5. Older project discussions not reflected in any of the above.
 
-If a behavior cannot be verified, the Secretary should say that it does not have enough reliable information rather than inventing an answer.
+For **company/business/strategy context** (what SVC is, why it exists, how it organizes itself), code has no authority to confer or withhold — it was never going to contain a mission statement. There, PROJECT CONTEXT / HUMAN-CONFIRMED entries in this pack (§2) are themselves the authoritative source, not a fallback below code.
+
+If a *product-behavior* question cannot be verified, the Secretary should say that it does not have enough reliable information rather than inventing an answer. That standard does not apply to company-identity questions answered from PROJECT CONTEXT / HUMAN-CONFIRMED material — the Secretary should answer those directly.
 
 ---
 
 # 2. SVC company overview
 
-**Status: NEEDS VERIFICATION (company/organizational narrative) — see caveat below**
+This section blends two evidence types, labeled per paragraph: what current code/product can verify, and what the person who built and runs SVC has explicitly stated about the company itself in project conversations. Code was never going to contain a mission statement, so absence from the repository does not weaken the second kind of claim — see §1's label definitions.
 
-## What is actually confirmed
+## What SVC is
 
-SVC is an internal, mobile-first web/PWA workspace used by one organization, spanning five product modules: **Communications** (also called **Stream**), **Directory**, **Applications**, **Quest Coral**, and **ByeByeDPR**. This is the one company-level description that is directly grounded in current code — it is the literal seed text the AI Secretary already serves to public/unknown WhatsApp senders (`lib/company-knowledge.ts`, entry `svc-overview`).
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED**
 
-The product surface is unambiguously built around **construction-site field operations**: job sites, daily reports, clock-in/out, trades, and site supervision language appear throughout the code (ByeByeDPR's own product brief in `PRODUCT.md` describes its users as "field crew workers (carpenters, electricians, laborers, foremen)... on a job site"). This supports the general framing that SVC serves construction/field-services work, but the repository does not contain a company mission statement, an "about SVC" document, or an expansion of the acronym "SVC" anywhere in code, Firestore-seeded content, or `docs/`.
+SVC stands for **Supervision Company**.
 
-## What could NOT be corroborated in this pass
+SVC is a U.S. construction-site supervision company. Its core business is not software itself — the technology exists to support and scale the supervision service. SVC operates around the problem of getting qualified site supervisors onto construction projects and supporting those supervisors and clients throughout the job.
 
-The following claims appeared in the prior draft of this pack but were **not found anywhere in the current repository** — not in code, not in `firestore.rules`, not in any `docs/svc-*.md` file, not in `lib/company-knowledge.ts` (the one place SVC deliberately keeps curated, Secretary-facing company knowledge):
+The service has been described as a full-service supervision model that can include:
 
-- That "SVC" stands for **"Supervision Company."**
-- The business narrative of full-service supervisor sourcing/recruiting/placement/replacement.
-- The three named operating areas **Sales, Recruiting, Field Operations**.
-- The organizational hierarchy **Vision → Mission → Operation → Objective → Goal → Task**.
-- The vision statement **"Lift everybody up."**
-- The mission name **"Cool Breeze."**
-- The framework name **"Operation Major Kong."**
+- finding, recruiting, and evaluating/vetting supervisors;
+- placing supervisors on jobs;
+- supporting and training supervisors;
+- managing active supervision and replacing supervisors when required;
+- supporting field operations;
+- helping contractors and construction companies keep projects supervised.
 
-A targeted repo-wide search for these exact phrases found only one incidental hit: the string `"Cool Breeze"` appears once, as a placeholder example inside a project-name input field (`components/create-project-modal.tsx:73`, `placeholder="e.g. Cool Breeze Phase 2"`). That is a UI hint text for a Quest Coral project name, not evidence that "Cool Breeze" is SVC's mission — a developer plausibly reused a name they'd heard, but it does not confirm the framing.
+A site supervisor is the person responsible for coordinating and overseeing onsite construction activity — trades, schedule, quality, safety, daily issues, and communication with the project/client side.
 
-**Do not present any of the bullet points above as confirmed company fact.** They may well be true — they likely originated in real prior conversations with the person building this app — but nothing in the current, authoritative repository corroborates them, and this pack's own philosophy is to not promote unverified claims to canonical status. If the AI Secretary is asked "what is Operation Major Kong" or "what does Cool Breeze mean," the honest current answer is that this cannot be confirmed from SVC's current internal documentation, not a confident recitation of the above.
+**Status: CODE / PRODUCT VERIFIED** — Independently, the product surface is unambiguously built around **construction-site field operations**: job sites, daily reports, clock-in/out, trades, and site-supervision language appear throughout the code (ByeByeDPR's own product brief in `PRODUCT.md` describes its users as "field crew workers (carpenters, electricians, laborers, foremen)... on a job site"). This is consistent with, and corroborates, the supervision-company framing above, even though the app code has no mechanism to state a company mission and doesn't need one to confirm this much.
+
+## Business operating areas
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED**
+
+The SVC operating model has repeatedly been discussed around three core areas:
+
+- **Sales**
+- **Recruiting**
+- **Field Operations**
+
+Other connected operational areas discussed alongside the platform include preconstruction/forecasting, finance, applications/candidate onboarding, project tracking, communications, reporting, and clocking/attendance.
+
+A high-level company lifecycle, end to end:
+
+```text
+Lead / Client
+→ Job opportunity
+→ Forecast / coverage need
+→ Recruit / match supervisor
+→ Candidate onboarding
+→ Supervisor placement
+→ Active field operations
+→ Daily reporting / planning / project tracking
+→ Issues / updates / replacement if required
+→ Billing / closeout / continued relationship
+```
+
+This is the business-level flow behind the product-level cross-module workflows documented in §16 — Sales/Recruiting produce the candidate who goes through Applications (§9/§16.1), and Field Operations is the world ByeByeDPR, 3-Week Outlooks, and Quest Coral operate in day to day (§16.2).
+
+## Organizational language
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED**
+
+SVC has used the planning hierarchy:
+
+```text
+Vision
+→ Mission
+→ Operation
+→ Objective
+→ Goal
+→ Task
+```
+
+The stated vision is:
+
+> Lift everybody up.
+
+The mission discussed in the project has been:
+
+> Cool Breeze.
+
+The organizational framework called **Operation Major Kong** has been discussed as grouping Sales, Recruiting, and Field Operations together.
+
+This language is company-specific and should be preserved when answering questions about SVC's planning or organizational structure — it is genuine company context from the people who run SVC, not a claim this pack is asking the reader to independently verify against the codebase. For what it's worth as a minor, non-dispositive data point: a repo-wide search found the string `"Cool Breeze"` used once as a placeholder example inside a Quest Coral project-name input field (`components/create-project-modal.tsx:73`, `placeholder="e.g. Cool Breeze Phase 2"`) — a UI hint text, not proof of the mission framing, but consistent with the name being one a developer had actually heard in use at SVC.
 
 ## Strategic product principle
 
-**Status: CONFIRMED (from code structure, not from a stated company document)**
+**Status: CODE / PRODUCT VERIFIED, and independently PROJECT CONTEXT / HUMAN-CONFIRMED as intent**
 
-Independent of the unconfirmed mission language, the *engineering* direction is clearly and consistently a connected-platform strategy, not five isolated apps:
+The SVC software platform is intended to become an internal operating system connecting the company rather than a collection of unrelated apps — the apps should increasingly share the same people, companies, jobs, relationships, and operational context, with the AI Secretary sitting above them as a conversational access layer that doesn't require a user to know where a given piece of information lives.
+
+The *engineering* reality independently backs this up — this is not just stated intent:
 
 - All five modules run inside one Next.js app, share one Firebase project (`svc-comms`), one Auth session, and one module switcher (`components/module-switcher.tsx`).
 - Directory exists specifically to be the shared people/company/job layer other modules increasingly reference (ByeByeDPR jobs link to Directory contexts via `directoryContextId`; Quest Coral people are real Directory/Communications contacts, not free text; the WhatsApp Secretary resolves entities through Directory first before falling back to a module's own data).
 - Cross-module bridges exist at the data layer, not just conceptually: Quest Coral Feedback mirrors into Communications; ByeByeDPR Daily Reports mirror into both Communications and Directory Files/Notes; clock-in/out events post to Communications.
 
-So: "SVC's apps are meant to work as one connected system, not silos" is well-supported by the code. The specific vocabulary used to describe *why* (mission, vision, named operations) is not.
+So "SVC's apps are meant to work as one connected system, not silos" is both a stated company strategy and an observed architectural fact — a case where the two evidence types reinforce each other.
 
 ---
 
 # 3. Platform architecture — technical map
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 ## Stack
 
@@ -162,7 +232,7 @@ Two visually distinct families, by design (`docs/svc-design-system.md`, distille
 
 ## 4.1 Recipients / visibility
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 `visibleToUserIds` is the current source of truth for who can read a Communications message. It is computed as exactly:
 
@@ -176,7 +246,7 @@ One real nuance worth knowing: editing a message's recipients later (via the mes
 
 ## 4.2 People
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 People are stored as `/contacts` documents. Contacts are **global-read**: any authenticated SVC user can read the full contacts collection; writes are scoped to the contact's `ownerUserId`. There is no private/global toggle anymore (removed as of 2026-07-10).
 
@@ -184,7 +254,7 @@ When a person with a verified email registers or updates their email, a Cloud Fu
 
 ## 4.3 Companies and Jobs
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 Companies, jobs, and other business entities live in `/contexts`. Unlike `/contacts`, any authenticated user can **update** a context document (only the original creator can delete it) — this is a real, intentional asymmetry in the current rules, not an oversight, and it means Directory's company/job edit permission is broader than its person edit permission.
 
@@ -192,7 +262,7 @@ Jobs are the connective entity across modules: a Directory job (`/contexts` doc,
 
 ## 4.4 Contexts
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 In Communications, a "Context" (`AppContext`) is a lightweight, freely-editable record representing a company, project, or topic that a message can be linked to for organizational purposes (`Message.contextIds`). Contexts **never affect message visibility** — this is explicit in the code (`lib/store.ts`, `contextIds` doc-comment: "never affects visibility") and in the Contexts screen's own empty-state copy: *"Contexts help connect messages to a project, company, or topic."*
 
@@ -200,7 +270,7 @@ Do not confuse a Communications "Context" with Directory's "other" entity type o
 
 ## 4.5 Tags
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 Tags are backed by the `/projects` collection — there is no separate `/tags` collection. What the UI calls "Tags" is a merge of:
 
@@ -225,7 +295,7 @@ Messages   = the actual content
 
 # 5. Communications (Stream)
 
-**Status: CONFIRMED — this section was re-audited end-to-end against current code**
+**Status: CODE / PRODUCT VERIFIED — this section was re-audited end-to-end against current code**
 
 ## Purpose
 
@@ -291,7 +361,7 @@ PWA install prompting (`components/pwa-install.tsx`) auto-appears ~1.8s after St
 
 # 6. Directory
 
-**Status: CONFIRMED — re-audited end-to-end against current code**
+**Status: CODE / PRODUCT VERIFIED — re-audited end-to-end against current code**
 
 ## Purpose
 
@@ -349,15 +419,19 @@ Directory profile/Outlook URLs follow the shape `?directory=<compositeId>&view=p
 
 # 7. Quest Coral
 
-**Status: CONFIRMED — re-audited end-to-end against current code**
+**Status: CODE / PRODUCT VERIFIED — re-audited end-to-end against current code**
 
 ## Purpose
 
 Quest Coral is SVC's shared project tracker: status, progress, people involved, a "next step," a past/present/future timeline, and a running feed of Update / Feedback / Blocker / Red Team Review activity. It is a permanent module (not behind any UI flag) reachable from the module switcher.
 
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED** — Quest Coral's requested project concepts, per the person who specified the module, were: project name, people involved, project description, mission connection, next step, timeline, and a project dashboard — with the "mission connection" field meant to answer *"how does this project support the SVC mission?"* concretely, explicitly **not** meant to be a vague score like "High." That framing explains why the field exists at all, even though — see the shipped field below — it landed as a 1-5 number rather than the originally-intended free-text explanation. The **next step** field was called out as particularly important, specifically so a project can't become a passive description with no obvious action; the Secretary should surface it when relevant.
+
 ## Project fields (exact)
 
-A Project has: `name`, `description`, `status`, `progress` (0-100), `missionFitScore` (an integer **1 through 5**, displayed as Low/Medium/High via a label mapping — there is no free-text "why this supports the mission" field), `ownerId`/`ownerName`, `people[]` (each a real Directory/Communications contact id, never a free-text name), `nextStep` + optional `nextStepDue`, and a `timeline` object.
+**Status: CODE / PRODUCT VERIFIED**
+
+A Project has: `name`, `description`, `status`, `progress` (0-100), `missionFitScore` (an integer **1 through 5**, displayed as Low/Medium/High via a label mapping — there is no free-text "why this supports the mission" field, unlike what was originally requested — see above), `ownerId`/`ownerName`, `people[]` (each a real Directory/Communications contact id, never a free-text name), `nextStep` + optional `nextStepDue`, and a `timeline` object.
 
 `ProjectStatus` is exactly one of: `planning | on_track | at_risk | completed` (labels "Planning" / "On track" / "At risk" / "Completed"). One normalization rule worth knowing: whenever `progress` reaches 100, the project is *displayed* as "Completed" regardless of what the stored `status` field says — read-side, not a database migration.
 
@@ -409,7 +483,7 @@ The Secretary already has four dedicated, read-only Quest Coral tools: search pr
 
 # 8. 3-Week Outlooks
 
-**Status: CONFIRMED for the deterministic core; the "publish → Communications" step is currently PRODUCT DIRECTION with an important WIP caveat — read the callout below before describing it**
+**Status: CODE / PRODUCT VERIFIED for the deterministic core; the "publish → Communications" step is currently PRODUCT DIRECTION with an important WIP caveat — read the callout below before describing it**
 
 ## Purpose and location
 
@@ -468,7 +542,7 @@ This is genuinely in-progress code (it type-checks cleanly but has no automated 
 
 # 9. Applications and candidate onboarding
 
-**Status: CONFIRMED for the code itself; PRODUCT DIRECTION for how widely it's turned on — see the mock-vs-real callout**
+**Status: CODE / PRODUCT VERIFIED for the code itself; PRODUCT DIRECTION for how widely it's turned on — see the mock-vs-real callout**
 
 ## ⚠️ Mock vs. real: read this first
 
@@ -534,7 +608,7 @@ Three read-only tools exist today: search candidates by name, get the review que
 
 # 10. ByeByeDPR — Daily Reports
 
-**Status: CONFIRMED — re-audited end-to-end against current code**
+**Status: CODE / PRODUCT VERIFIED — re-audited end-to-end against current code**
 
 ## Purpose
 
@@ -586,7 +660,7 @@ Same entry point, then tap **Type instead**, write up to 4,000 characters, tap *
 
 # 11. Clocking
 
-**Status: CONFIRMED — built fresh from code in this audit; the prior version of this pack had almost nothing reliable here**
+**Status: CODE / PRODUCT VERIFIED — built fresh from code in this audit; the prior version of this pack had almost nothing reliable here**
 
 ## Clocking in
 
@@ -619,7 +693,7 @@ If a worker forgot to clock out, a **"Forgot to clock out?"** link (visible only
 
 # 12. Supply by DPR
 
-**Status: CONFIRMED — does not currently exist**
+**Status: CODE / PRODUCT VERIFIED — does not currently exist**
 
 A thorough repo-wide search (routes, types, components, Firestore collections, and both ByeByeDPR product-context docs) found no trace of a "Supply by DPR" feature anywhere in the codebase — the only appearances of the word "supply" in the entire repository are inside the previous draft of this knowledge pack itself. This is not a thin or partially-built feature; it is entirely unimplemented. If asked about it, the Secretary should say plainly that Supply by DPR does not currently exist as a feature in the SVC app suite, rather than describing a plausible-sounding workflow.
 
@@ -627,11 +701,25 @@ A thorough repo-wide search (routes, types, components, Firestore collections, a
 
 # 13. AI Secretary (WhatsApp)
 
-**Status: CONFIRMED**
+**Status: CODE / PRODUCT VERIFIED**
 
 ## What it is
 
 The SVC AI Secretary is a conversational access layer reachable by texting one WhatsApp number (currently the official Meta WhatsApp Cloud API **test/sandbox number** — no production number has been purchased or migrated). It runs inside this same Next.js app (`app/api/whatsapp/webhook`) — there is no separate bot service.
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED** — The core stated concept: an employee should be able to text one WhatsApp number and ask SVC-related questions without first knowing which application contains the answer.
+
+## Read-first product strategy
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED, and matched by what's actually shipped**
+
+The stated priority order is:
+
+```text
+READ → UNDERSTAND → FIND → EXPLAIN → ROUTE
+```
+
+before expanding broadly into `DO / WRITE`. The goal is for the Secretary to become excellent at finding and explaining SVC information before it becomes an automation surface for every application. This matches the current implementation closely: the only write capability anywhere is the bounded Daily Report draft flow (§10), while read access spans six modules (see "Model and orchestration" below).
 
 ## Access model (binary, enforced server-side)
 
@@ -660,11 +748,53 @@ The only write capability is the ByeByeDPR **Daily Report draft** flow (§10's W
 
 ## Company Knowledge
 
-A small, curated, scored-keyword-retrieval collection (`lib/company-knowledge.ts`, Firestore collection `companyKnowledge`) — deliberately not a search over live Directory/messages/reports data. Each entry is tagged `public` or `internal`; public senders' queries only ever touch entries explicitly marked public. This is the same source this pack's §2 cross-checked the company-overview narrative against.
+**Status: CODE / PRODUCT VERIFIED**
+
+This canonical knowledge pack — the document you are reading — is itself the Secretary's Company Knowledge source, not a separate small hand-curated list anymore. `lib/knowledge-pack.ts` parses this file into roughly 90 chunks (one per top-level `# N.` section for broad "what is X" questions, one per `##` subsection for narrower detail) and scores them with lexical keyword matching — deliberately not an embedding/vector search, since the corpus is small and a WhatsApp reply needs to stay fast.
+
+Two retrieval paths, both reading the same corpus:
+
+- **Always-on prefetch**: before the model even starts, `lib/company-knowledge.ts`'s `findRelevantCompanyKnowledge()` scores the conversation and folds a small number of the best-matching chunks directly into the system prompt as a guaranteed baseline — never the whole document.
+- **On-demand tools**: `knowledge_search` and `knowledge_getSection` (`lib/whatsapp-secretary/tools/knowledge.ts`) let the model search for a different section or fetch one section's complete text when the prefetch wasn't enough — the same search-then-get-details shape Directory's own tools use.
+
+Public/unidentified senders never get the tools, and always receive exactly one small, fixed, hand-written safe entry regardless of what they ask (never this whole document). Identified internal senders get both the prefetch and the on-demand tools, gated through the same `companyKnowledgeScope` field the rest of the access policy already uses (§13's Access model) — no separate permission system. Whatever a knowledge chunk says about its own status (CODE / PRODUCT VERIFIED, PROJECT CONTEXT / HUMAN-CONFIRMED, PRODUCT DIRECTION, NEEDS VERIFICATION, or an explicit in-progress/WIP callout like §8's) is meant to be relayed faithfully, not flattened into uniformly confident prose — the system prompt instructs this explicitly.
+
+The old design — a handful of entries in a separate Firestore `companyKnowledge` collection — was retired when this integration shipped; that collection is no longer read by the app.
 
 ## Memory
 
 Up to 12 recent messages (6 exchanges) are kept per hashed sender phone number, enabling natural follow-ups ("what about his email?") without re-stating context every time.
+
+## Company Knowledge vs Live Data vs Memory
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED, matching the shipped architecture above**
+
+The Secretary conceptually draws on three different context layers, and should not confuse them:
+
+```text
+COMPANY KNOWLEDGE
+Stable explanations, tutorials, processes, app purpose (this document)
+
+LIVE SVC DATA
+People, jobs, projects, applications, reports, outlooks, clocking
+
+CONVERSATION MEMORY
+What the current conversation is talking about
+```
+
+Worked example — *"How do I create a 3-Week Outlook for Turner?"*:
+
+```text
+Company Knowledge → knows how an Outlook generally works (§8)
+Live Data         → identifies the Turner job / whether it already has an Outlook
+Memory            → remembers which "Turner" the user has been discussing, if ambiguous
+```
+
+## Secretary as orchestrator
+
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED, matching the shipped architecture**
+
+The Secretary is not meant to duplicate every module's own AI logic — it coordinates. Some capabilities are plain deterministic retrieval tools (Directory search, Quest Coral/Applications/Reports/Clocking/Outlook retrieval, and now knowledge-pack retrieval); a few reuse specialized AI services that already exist inside their own module (Daily Report structuring, 3-Week Outlook parsing, audio transcription) rather than reimplementing them. The design principle is to avoid unnecessary AI-to-AI chains when a deterministic query can answer the question directly.
 
 ## Response behavior
 
@@ -780,6 +910,9 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 # 19. Common questions the Secretary should answer well
 
+## Company
+"What does SVC do?" / "What does SVC stand for?" / "How does SVC work?" — answer directly from §2's PROJECT CONTEXT / HUMAN-CONFIRMED material; these are company-identity questions, not something to hedge on for lack of a code trail. "What is the difference between Sales, Recruiting, and Field Operations?" / "What does 'Cool Breeze' mean?" / "What is Operation Major Kong?" — likewise answerable directly from §2.
+
 ## Directory
 "What's John's phone number?" / "Who works for ABC Construction?" / "What jobs is this company on?" / "Who's connected to Turner?"
 
@@ -802,9 +935,13 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 # 20. Glossary
 
-**SVC** — the company operating this app suite; the acronym's expansion could not be confirmed from current internal sources (see §2).
+**SVC** — Supervision Company (PROJECT CONTEXT / HUMAN-CONFIRMED, §2); a U.S. construction-site supervision company. The app code has no reason to spell this out, so its absence from the repository doesn't weaken it.
 
 **Site Supervisor / Super** — the on-site construction role SVC's field-facing modules are built around.
+
+**Cool Breeze** — SVC's mission name (PROJECT CONTEXT / HUMAN-CONFIRMED, §2).
+
+**Operation Major Kong** — the organizational framework grouping Sales, Recruiting, and Field Operations (PROJECT CONTEXT / HUMAN-CONFIRMED, §2).
 
 **Job** — a construction worksite/operational entity shared across Directory, ByeByeDPR, and 3-Week Outlooks.
 
@@ -846,7 +983,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 # 21. Important boundaries / do not invent
 
-1. **The company-mission narrative in §2** ("Supervision Company," Sales/Recruiting/Field Ops, "Lift everybody up," "Cool Breeze," "Operation Major Kong," the Vision→Mission→Operation hierarchy) is unconfirmed by any current repository source — do not state it as established fact.
+1. **The company-mission narrative in §2** ("Supervision Company," Sales/Recruiting/Field Ops, "Lift everybody up," "Cool Breeze," "Operation Major Kong," the Vision→Mission→Operation hierarchy) is labeled PROJECT CONTEXT / HUMAN-CONFIRMED, not CODE / PRODUCT VERIFIED — state it as genuine company fact (it is), but do not claim the application code independently corroborates the specific wording beyond the one incidental "Cool Breeze" placeholder noted in §2, and do not present a product-behavior claim (how a screen or field actually works) with this same confidence unless it also carries a CODE / PRODUCT VERIFIED label.
 2. **The Outlook auto-broadcast-to-everyone behavior described in §8 is uncommitted, in-progress code** — do not describe it as shipped.
 3. **Directory's per-profile "AI summary" is not an LLM call** — don't conflate it with "Ask SVC Directory."
 4. **Directory's note search is lexical, not semantic**, despite an embeddings pipeline existing for a related purpose.
@@ -868,7 +1005,7 @@ These genuinely cannot be resolved by reading this repository and require checki
 - Whether `transcribeApplicationVideoOnWrite` (the Applications video-transcription Cloud Function) is actually deployed and running in production, versus just committed to the codebase.
 - Current Vercel production values for `NEXT_PUBLIC_APPLICATIONS_BACKEND`, `NEXT_PUBLIC_DIRECTORY_AI_ENABLED`, `NEXT_PUBLIC_DIRECTORY_VOICE_ENABLED`, `NEXT_PUBLIC_QUEST_CORAL_BACKEND`, `NEXT_PUBLIC_QUEST_CORAL_AI_ENABLED`, `NEXT_PUBLIC_OUTLOOK_AI_ENABLED`, and `GOOGLE_MAPS_GEOCODING_API_KEY` — this pack could only confirm local `.env.local`/`.env.example` values and rule-comment claims about prior production deploys.
 - Whether the uncommitted Outlook→Communications auto-broadcast work described in §8 is ever intended to ship as-is, is mid-refactor, or will be redesigned before merging — no design note for it exists in the repo.
-- Whether the company-mission language in §2 is accurate SVC organizational knowledge that simply isn't written down anywhere in this repository, versus something that should not be repeated at all — this can only be settled by the person who built this app, not by further code reading.
+- ~~Whether the company-mission language in §2 is genuine SVC organizational knowledge~~ — **resolved 2026-08-14**: confirmed directly by the person who built and runs SVC as genuine company context; restored to §2 under PROJECT CONTEXT / HUMAN-CONFIRMED. No further code-based verification is expected or needed for this category of claim (see §1's authority-order note on company/business context).
 - Any actual company/HR policy (payroll specifics beyond "Applications hands off to payroll processing," benefits, legal terms — the Operating Agreement text is explicitly a non-final placeholder) is out of scope for a code audit entirely.
 
 ---

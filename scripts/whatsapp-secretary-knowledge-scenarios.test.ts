@@ -205,7 +205,11 @@ test("scenario: follow-up memory continues a knowledge thread using conversation
   assert.match(reply, /Quest Coral/)
 })
 
-test("scenario: a question mapping to a NEEDS VERIFICATION section surfaces that uncertainty, not confident invented history", async () => {
+test("scenario: a PROJECT CONTEXT / HUMAN-CONFIRMED company-identity question is answered directly, not hedged", async () => {
+  // As of the 2026-08-14 company-context merge, §2's org-language material
+  // (Cool Breeze, Operation Major Kong, etc.) is explicitly labeled
+  // PROJECT CONTEXT / HUMAN-CONFIRMED, not something to hedge on for lack of
+  // a code trail — this proves retrieval actually surfaces that framing.
   const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = { knowledge: () => createKnowledgeTools() }
 
@@ -216,11 +220,9 @@ test("scenario: a question mapping to a NEEDS VERIFICATION section surfaces that
   ) => {
     const [searchOut] = await input.onToolCalls([{ id: "1", name: "knowledge_search", arguments: JSON.stringify({ query: "what does Cool Breeze mean at SVC" }) }])
     const sections = (JSON.parse(searchOut!.content) as { data?: { sections: Array<{ id: string }> } }).data?.sections ?? []
-    if (sections.length > 0) {
-      const [sectionOut] = await input.onToolCalls([{ id: "2", name: "knowledge_getSection", arguments: JSON.stringify({ id: sections[0]!.id }) }])
-      sectionContent = sectionOut!.content
-    }
-    return { result: { answer: "I can't confirm what 'Cool Breeze' currently means at SVC from what I have access to." }, toolRounds: sections.length > 0 ? 2 : 1, toolNames: ["knowledge_search"] }
+    const [sectionOut] = await input.onToolCalls([{ id: "2", name: "knowledge_getSection", arguments: JSON.stringify({ id: sections[0]!.id }) }])
+    sectionContent = sectionOut!.content
+    return { result: { answer: "Cool Breeze is SVC's mission." }, toolRounds: 2, toolNames: ["knowledge_search", "knowledge_getSection"] }
   }
 
   const reply = await answerWhatsAppSecretaryQuestion(
@@ -228,11 +230,44 @@ test("scenario: a question mapping to a NEEDS VERIFICATION section surfaces that
     { toolFactories: factories, runConversation: runConversation as never, usageGuard: noopGuard },
   )
 
+  assert.match(reply, /Cool Breeze/)
+  assert.match(sectionContent, /PROJECT CONTEXT \/ HUMAN-CONFIRMED/)
+})
+
+test("scenario: a genuinely NEEDS VERIFICATION product question (deployment status, not company identity) surfaces that uncertainty", async () => {
+  const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = { knowledge: () => createKnowledgeTools() }
+
+  let sectionContent = ""
+  const runConversation = async (
+    _config: unknown,
+    input: { onToolCalls: (calls: OpenAiToolCall[]) => Promise<Array<{ id: string; content: string }>> },
+  ) => {
+    const [searchOut] = await input.onToolCalls([
+      { id: "1", name: "knowledge_search", arguments: JSON.stringify({ query: "is the applications video transcription function deployed to production" }) },
+    ])
+    const sections = (JSON.parse(searchOut!.content) as { data?: { sections: Array<{ id: string }> } }).data?.sections ?? []
+    if (sections.length > 0) {
+      const [sectionOut] = await input.onToolCalls([{ id: "2", name: "knowledge_getSection", arguments: JSON.stringify({ id: sections[0]!.id }) }])
+      sectionContent = sectionOut!.content
+    }
+    return {
+      result: { answer: "I can't confirm whether that's actually deployed to production from what I have access to." },
+      toolRounds: sections.length > 0 ? 2 : 1,
+      toolNames: ["knowledge_search"],
+    }
+  }
+
+  const reply = await answerWhatsAppSecretaryQuestion(
+    { recentMessages: [{ role: "user", content: "Is the video transcription for Applications actually live in production?" }], senderIdentity: identifiedIdentity, accessPolicy: access, companyKnowledge: [] },
+    { toolFactories: factories, runConversation: runConversation as never, usageGuard: noopGuard },
+  )
+
   assert.match(reply, /can't confirm/i)
-  // The real knowledge pack's own §2 explicitly carries this caveat — prove
+  // The real knowledge pack's own §9 explicitly carries this caveat — prove
   // retrieval actually surfaced it rather than the test just asserting the
   // scripted answer text.
-  if (sectionContent) assert.match(sectionContent, /cannot be confirmed|not found anywhere|NEEDS VERIFICATION/i)
+  if (sectionContent) assert.match(sectionContent, /could not be confirmed|deployment status unconfirmed/i)
 })
 
 test("scenario: unresolvable/unavailable information — knowledge tool finds nothing, model must say so", async () => {
