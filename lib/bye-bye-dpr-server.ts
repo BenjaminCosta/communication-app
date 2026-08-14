@@ -53,7 +53,7 @@ import {
   type Report,
   type ReportAttachment,
 } from "@/lib/bye-bye-dpr-store"
-import { byeByeDprMessageTagIds, type ByeByeDprEventTag } from "@/lib/bye-bye-dpr-tags"
+import { resolveByeByeDprMessageTagAssociation, type ByeByeDprEventTag } from "@/lib/bye-bye-dpr-tags"
 import {
   createDirectoryJobContext,
   geocodeByDirectoryContextId,
@@ -356,7 +356,7 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
   }
 
   const visibleToUserIds = computeVisibleToUserIds(input.authorUid, recipientIds)
-  const tagIds = byeByeDprMessageTagIds(input.event)
+  const tagAssociation = await resolveByeByeDprMessageTagAssociation(db, input.event)
   const contextIds = input.job.directoryContextId ? [input.job.directoryContextId] : []
 
   const msgData = {
@@ -366,9 +366,9 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
     peopleIds: recipientIds,
     participants: [input.authorUid, ...recipientIds],
     visibleToUserIds,
-    projectIds: [] as string[],
-    projectId: null,
-    tagIds,
+    projectIds: tagAssociation.projectIds,
+    projectId: tagAssociation.projectId,
+    tagIds: tagAssociation.tagIds,
     content: input.text,
     text: input.text,
     type: "none" as const,

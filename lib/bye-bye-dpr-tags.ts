@@ -9,12 +9,14 @@
  * references their ids directly, with no runtime lookup.
  */
 
+import type { Firestore } from "firebase-admin/firestore"
 import { projectTagId } from "@/lib/store"
 
-export const BYE_BYE_DPR_MODULE_PROJECT_ID = "byebye-dpr-module"
-export const BYE_BYE_DPR_CLOCK_IN_PROJECT_ID = "byebye-dpr-clock-in"
-export const BYE_BYE_DPR_CLOCK_OUT_PROJECT_ID = "byebye-dpr-clock-out"
-export const BYE_BYE_DPR_DAILY_REPORT_PROJECT_ID = "byebye-dpr-daily-report"
+const PROJECTS_COLLECTION = "projects"
+const DAILY_REPORT_TAG_NAME = "Daily Report"
+
+/** One shared operational tag for both Clock In and Clock Out events. */
+export const BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID = "byebye-dpr-time-tracking"
 
 export interface ByeByeDprTagSeed {
   id: string
@@ -22,23 +24,42 @@ export interface ByeByeDprTagSeed {
   color: string
 }
 
-/** Seeded once by scripts/seed-bye-bye-dpr-tags.mjs — the full fixed set. */
+/** Seeded once by scripts/seed-bye-bye-dpr-tags.mjs. Daily Report is an existing Comms tag and is never recreated here. */
 export const BYE_BYE_DPR_TAG_SEEDS: ByeByeDprTagSeed[] = [
-  { id: BYE_BYE_DPR_MODULE_PROJECT_ID, name: "ByeByeDPR", color: "bg-indigo-600" },
-  { id: BYE_BYE_DPR_CLOCK_IN_PROJECT_ID, name: "Clock In", color: "bg-progress" },
-  { id: BYE_BYE_DPR_CLOCK_OUT_PROJECT_ID, name: "Clock Out", color: "bg-feedback" },
-  { id: BYE_BYE_DPR_DAILY_REPORT_PROJECT_ID, name: "Daily Report", color: "bg-decision" },
+  { id: BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID, name: "Time Tracking", color: "bg-progress" },
 ]
 
 export type ByeByeDprEventTag = "clock-in" | "clock-out" | "daily-report"
 
-const EVENT_PROJECT_ID_BY_TAG: Record<ByeByeDprEventTag, string> = {
-  "clock-in": BYE_BYE_DPR_CLOCK_IN_PROJECT_ID,
-  "clock-out": BYE_BYE_DPR_CLOCK_OUT_PROJECT_ID,
-  "daily-report": BYE_BYE_DPR_DAILY_REPORT_PROJECT_ID,
+export interface ByeByeDprMessageTagAssociation {
+  projectId: string
+  projectIds: string[]
+  tagIds: string[]
 }
 
-/** The two project-tag ids to stamp on an automatic Comms message: the module tag + the specific event tag. */
-export function byeByeDprMessageTagIds(event: ByeByeDprEventTag): string[] {
-  return [projectTagId(BYE_BYE_DPR_MODULE_PROJECT_ID), projectTagId(EVENT_PROJECT_ID_BY_TAG[event])]
+async function existingDailyReportProjectId(db: Firestore): Promise<string> {
+  const snapshot = await db.collection(PROJECTS_COLLECTION).where("name", "==", DAILY_REPORT_TAG_NAME).limit(2).get()
+  if (snapshot.size !== 1) {
+    throw new Error(`Expected exactly one existing ${DAILY_REPORT_TAG_NAME} tag.`)
+  }
+  return snapshot.docs[0].id
+}
+
+/**
+ * Resolves the single Comms tag that classifies an automatic ByeByeDPR action.
+ * Clock events share Time Tracking; reports reuse the existing Daily Report
+ * tag rather than creating a module-specific duplicate.
+ */
+export async function resolveByeByeDprMessageTagAssociation(
+  db: Firestore,
+  event: ByeByeDprEventTag,
+): Promise<ByeByeDprMessageTagAssociation> {
+  const projectId = event === "daily-report"
+    ? await existingDailyReportProjectId(db)
+    : BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID
+  return {
+    projectId,
+    projectIds: [projectId],
+    tagIds: [projectTagId(projectId)],
+  }
 }

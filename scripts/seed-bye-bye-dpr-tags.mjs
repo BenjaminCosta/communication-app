@@ -2,10 +2,10 @@
 /**
  * Seeds the fixed ByeByeDPR tag/project docs (see lib/bye-bye-dpr-tags.ts).
  *
- * These are shared, global tags (like every other Project/Tag in this app),
- * used to mark automatic Comms messages as coming from the ByeByeDPR module
- * and to identify the specific event (clock in/out, daily report). Fixed
- * ids + idempotent upserts make reruns safe.
+ * This is the shared Time Tracking tag for automatic clock in/out Comms
+ * messages. Daily Reports deliberately reuse the existing Daily Report tag
+ * from Comms instead of creating a duplicate. Fixed ids + idempotent upserts
+ * make reruns safe.
  *
  * Usage:
  *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/seed-bye-bye-dpr-tags.mjs
@@ -31,10 +31,7 @@ const PROJECTS_COLLECTION = "projects"
 const SYSTEM_OWNER_ID = "svc-system-bye-bye-dpr"
 
 const TAG_SEEDS = [
-  { id: "byebye-dpr-module", name: "ByeByeDPR", color: "bg-indigo-600" },
-  { id: "byebye-dpr-clock-in", name: "Clock In", color: "bg-progress" },
-  { id: "byebye-dpr-clock-out", name: "Clock Out", color: "bg-feedback" },
-  { id: "byebye-dpr-daily-report", name: "Daily Report", color: "bg-decision" },
+  { id: "byebye-dpr-time-tracking", name: "Time Tracking", color: "bg-progress" },
 ]
 
 function fail(message) {
