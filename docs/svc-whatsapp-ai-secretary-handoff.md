@@ -4,6 +4,69 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## Company/mission knowledge companion document (2026-08-14, later)
+
+A second knowledge document, `SVC_Company_Mission_Operating_Framework_Knowledge.md`
+(repo root, provided by the user), is now integrated into the **same**
+retrieval pipeline as the canonical pack — not a separate knowledge system.
+It covers company/organizational context the canonical pack's own §2 only
+summarized: Site Supervision and the Site Supervisor role, "Provide and
+Guide," the Suits/Boots technology philosophy, the full Vision → Mission →
+Operation → Objective → Goal → Task → Action hierarchy with planning-horizon
+heuristics, Cool Breeze, Operation Major Kong, the sales/job progression
+milestone framework, and the SVC Adventure Map tutorial link
+(https://svc-app.vercel.app/).
+
+**What changed, all in `lib/knowledge-pack.ts`**:
+- `parseKnowledgePackMarkdown(raw, options?)` gained an optional second
+  parameter (`{ idPrefix?, source? }`), backward-compatible when omitted (the
+  canonical pack's existing chunk ids are completely unchanged). The
+  companion document is parsed with `{ idPrefix: "mission", source:
+  COMPANY_MISSION_KNOWLEDGE_SOURCE }`, so its chunk ids are namespaced
+  `mission-sec-N` — both files independently number their own sections `#
+  0.`, `# 1.`, … and would otherwise collide once merged into one pool.
+- `KnowledgeChunk` gained a `source` field (which file a chunk came from),
+  threaded through to `lib/company-knowledge.ts`'s prefetch citations and
+  `lib/whatsapp-secretary/tools/knowledge.ts`'s `knowledge_search`/
+  `knowledge_getSection` results — each *result* now carries its own source
+  rather than one blanket source for the whole tool call, since a single
+  search can legitimately return chunks from both documents now.
+- `getKnowledgeChunks()` reads and parses both files independently (each in
+  its own try/catch, so one file's failure doesn't blank out the other) and
+  concatenates them into one scored pool. `knowledge_search`/
+  `knowledge_getSection`/the prefetch needed **zero** changes beyond the
+  citation fix above — they already just call into the shared scorer, which
+  is source-agnostic by design.
+- The system prompt (`prompt.ts`) generalized its label-vocabulary sentence
+  (it used to hardcode the canonical pack's own four labels as if they were
+  the only ones) to explicitly cover the companion document's different
+  vocabulary (COMPANY-SOURCE CONFIRMED / PRODUCT-CODE CONFIRMED / HISTORICAL
+  / TIME-SENSITIVE / NEEDS CLARIFICATION) and added an explicit instruction
+  not to collapse "this is real company knowledge" into "this is confirmed
+  as SVC's *currently active* Mission/Operation today" — the specific
+  distinction the user asked to preserve. Also added an explicit exception to
+  the "never reveal a link" guardrail for the Adventure Map URL specifically,
+  since it's real, stable, retrieved content, not something the model would
+  be inventing.
+- The canonical pack itself (§1, §2, §13, §19, §20, §21, §22, §23) was
+  updated to reference the companion document rather than rewritten — §2's
+  existing PROJECT CONTEXT / HUMAN-CONFIRMED company-language paragraph was
+  deliberately left as-is (not trimmed/renumbered) to avoid disturbing
+  already-audited content; a cross-reference was added instead.
+
+**Verified two ways**: full `pnpm verify:fast` green (166 whatsapp-secretary
+tests total, up from 156, across all the affected files — one canonical-pack
+test and one knowledge-scenario test updated because the companion document
+now correctly
+*outranks* the canonical pack's own thinner Cool Breeze mention — expected
+improvement, not a regression), and a live OpenAI API pass (real model, real
+retrieval, both files) confirming: "What is Cool Breeze?" is answered
+confidently with its stated target; "Is Cool Breeze still active today?" is
+explicitly hedged rather than asserted; "Can you teach me the SVC framework?"
+and an Objective-vs-Goal question both correctly offered the real Adventure
+Map URL; Major Kong's relationship to Cool Breeze carries the same
+current-status caveat.
+
 ## Messages/Communications read layer (2026-08-14)
 
 Communications was the one remaining structurally-excluded module (see the
@@ -522,7 +585,7 @@ service or backend.
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
-| Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over `SVC_AI_Secretary_Canonical_Knowledge_Pack.md`. A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
+| Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over two files as one pool: `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` (product/module) and `SVC_Company_Mission_Operating_Framework_Knowledge.md` (company/mission, added 2026-08-14; chunk ids prefixed `mission-`). A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
 | Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge,messages}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. `messages` is the Communications read layer (2026-08-14) — see above; unlike every other module it is further actor-scoped for its human-message tool. |
 | Usage guard | `lib/whatsapp-secretary/usage-guard.ts` | Per-identified-sender rolling rate limit over `whatsappSecretaryAiUsage` (mirrors `directoryAiUsage`). |
 | First write action | `lib/whatsapp-daily-report-drafts.ts` | Preview / confirm / cancel flow, using the established ByeByeDPR `/reports` document shape. Unchanged by the read-orchestrator work. |

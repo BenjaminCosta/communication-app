@@ -2,7 +2,7 @@
 title: "SVC AI Secretary — Canonical Company & Product Knowledge Pack"
 audience: "internal"
 language: "en"
-status: "audited-v3.1 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer"
+status: "audited-v3.2 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer + company/mission companion document"
 last_updated: "2026-08-14"
 purpose: "Stable company, product, workflow, and tutorial knowledge for the SVC AI Secretary"
 audit_note: >
@@ -20,7 +20,16 @@ audit_note: >
   the one remaining structurally-excluded module through v3 — now a real,
   deliberately privacy-split capability: automatic operational posts open to
   any internal sender, human-written messages scoped to the requester's own
-  visibleToUserIds.
+  visibleToUserIds. v3.2 (same day) integrates a second knowledge document,
+  SVC_Company_Mission_Operating_Framework_Knowledge.md, into the same
+  lib/knowledge-pack.ts retrieval pool (§1, §13) — deeper company/mission
+  context (Site Supervision, Provide and Guide, the Vision->Mission->Operation
+  ->Objective->Goal->Task->Action framework, Cool Breeze, Operation Major Kong,
+  the Adventure Map) than this pack's own §2 previously carried, with its own
+  independent evidence-label vocabulary and an explicit HISTORICAL /
+  TIME-SENSITIVE distinction this pack did not previously have a label for.
+  This pack's own §2 was not rewritten, only cross-referenced, to avoid
+  disturbing already-audited content.
 ---
 
 # SVC AI Secretary — Canonical Company & Product Knowledge Pack
@@ -92,6 +101,14 @@ For **product/technical behavior** (what a screen does, what a field is called, 
 For **company/business/strategy context** (what SVC is, why it exists, how it organizes itself), code has no authority to confer or withhold — it was never going to contain a mission statement. There, PROJECT CONTEXT / HUMAN-CONFIRMED entries in this pack (§2) are themselves the authoritative source, not a fallback below code.
 
 If a *product-behavior* question cannot be verified, the Secretary should say that it does not have enough reliable information rather than inventing an answer. That standard does not apply to company-identity questions answered from PROJECT CONTEXT / HUMAN-CONFIRMED material — the Secretary should answer those directly.
+
+## Companion document: company/mission framework
+
+**Status: CODE / PRODUCT VERIFIED** (that the companion document exists and is wired into retrieval — its own content is source-labeled independently, below)
+
+`SVC_Company_Mission_Operating_Framework_Knowledge.md` (repo root) is a second knowledge document, parsed and scored together with this one by the same `lib/knowledge-pack.ts` pipeline (§13) — one retrieval system, two source files, not a separate knowledge system. It covers what this pack's §2 only summarizes: Site Supervision and the Site Supervisor role in depth, "Provide and Guide," the Suits/Boots technology philosophy, the full Vision → Mission → Operation → Objective → Goal → Task → Action hierarchy with planning-horizon heuristics, Cool Breeze, Operation Major Kong, the sales/job progression milestone framework, and the SVC Adventure Map tutorial link.
+
+It uses its own, independent evidence-label vocabulary rather than this pack's four labels — **COMPANY-SOURCE CONFIRMED**, **PRODUCT / CODE CONFIRMED**, **HISTORICAL / TIME-SENSITIVE**, and **NEEDS CLARIFICATION** — because it draws on different source material (Joseph's onboarding notes and SVC's own internal presentation decks, not this pack's code-audit + project-conversation mix). Treat both label sets the same way: relay whichever label and wording a chunk actually carries, faithfully, rather than trying to force one document's vocabulary onto the other's. Its **HISTORICAL / TIME-SENSITIVE** label is the important one to never collapse into settled fact — see its own §17/§19/§22 (Cool Breeze, Operation Major Kong, company history/scale): a concept being real, confirmed company knowledge is not the same as it being confirmed as SVC's currently active Mission/Operation/target today. Current active-status should come from live evidence, not from this document set alone.
 
 ---
 
@@ -175,6 +192,8 @@ The mission discussed in the project has been:
 The organizational framework called **Operation Major Kong** has been discussed as grouping Sales, Recruiting, and Field Operations together.
 
 This language is company-specific and should be preserved when answering questions about SVC's planning or organizational structure — it is genuine company context from the people who run SVC, not a claim this pack is asking the reader to independently verify against the codebase. For what it's worth as a minor, non-dispositive data point: a repo-wide search found the string `"Cool Breeze"` used once as a placeholder example inside a Quest Coral project-name input field (`components/create-project-modal.tsx:73`, `placeholder="e.g. Cool Breeze Phase 2"`) — a UI hint text, not proof of the mission framing, but consistent with the name being one a developer had actually heard in use at SVC.
+
+For the full depth on this framework — planning-horizon heuristics for each level, Cool Breeze's stated target, how Operation Major Kong's objectives break down, the sales/job progression milestone model, and the important distinction between "this is real company knowledge" and "this is confirmed as SVC's currently active Mission/Operation today" — see the companion document `SVC_Company_Mission_Operating_Framework_Knowledge.md` (§1 above). Don't assume Cool Breeze or Major Kong are still active without live confirmation; this pack's brief mention here shouldn't be read as more current or more authoritative than that document's own careful treatment.
 
 ## Strategic product principle
 
@@ -757,14 +776,14 @@ The only write capability is the ByeByeDPR **Daily Report draft** flow (§10's W
 
 **Status: CODE / PRODUCT VERIFIED**
 
-This canonical knowledge pack — the document you are reading — is itself the Secretary's Company Knowledge source, not a separate small hand-curated list anymore. `lib/knowledge-pack.ts` parses this file into roughly 90 chunks (one per top-level `# N.` section for broad "what is X" questions, one per `##` subsection for narrower detail) and scores them with lexical keyword matching — deliberately not an embedding/vector search, since the corpus is small and a WhatsApp reply needs to stay fast.
+This canonical knowledge pack — the document you are reading — is one of two files that together are the Secretary's Company Knowledge source, not a separate small hand-curated list anymore. `lib/knowledge-pack.ts` parses this file **and** `SVC_Company_Mission_Operating_Framework_Knowledge.md` (§1's companion-document note) into one shared pool of roughly 90 chunks from this pack plus another ~40 from the companion document (one per top-level `# N.` section for broad "what is X" questions, one per `##` subsection for narrower detail — the companion document's chunk ids are prefixed `mission-` so the two files' independent `# 0.`, `# 1.`, … numbering never collides) and scores them together with lexical keyword matching — deliberately not an embedding/vector search, since the corpus is small and a WhatsApp reply needs to stay fast. Each chunk records which file it came from (`KnowledgeChunk.source`), surfaced in every retrieval result for citation, but retrieval itself treats both files as one pool: a query about Cool Breeze or the Adventure Map is scored exactly the same way as a query about clocking.
 
 Two retrieval paths, both reading the same corpus:
 
 - **Always-on prefetch**: before the model even starts, `lib/company-knowledge.ts`'s `findRelevantCompanyKnowledge()` scores the conversation and folds a small number of the best-matching chunks directly into the system prompt as a guaranteed baseline — never the whole document.
 - **On-demand tools**: `knowledge_search` and `knowledge_getSection` (`lib/whatsapp-secretary/tools/knowledge.ts`) let the model search for a different section or fetch one section's complete text when the prefetch wasn't enough — the same search-then-get-details shape Directory's own tools use.
 
-Public/unidentified senders never get the tools, and always receive exactly one small, fixed, hand-written safe entry regardless of what they ask (never this whole document). Identified internal senders get both the prefetch and the on-demand tools, gated through the same `companyKnowledgeScope` field the rest of the access policy already uses (§13's Access model) — no separate permission system. Whatever a knowledge chunk says about its own status (CODE / PRODUCT VERIFIED, PROJECT CONTEXT / HUMAN-CONFIRMED, PRODUCT DIRECTION, NEEDS VERIFICATION, or an explicit in-progress/WIP callout like §8's) is meant to be relayed faithfully, not flattened into uniformly confident prose — the system prompt instructs this explicitly.
+Public/unidentified senders never get the tools, and always receive exactly one small, fixed, hand-written safe entry regardless of what they ask (never either document in full). Identified internal senders get both the prefetch and the on-demand tools, gated through the same `companyKnowledgeScope` field the rest of the access policy already uses (§13's Access model) — no separate permission system. Whatever a knowledge chunk says about its own status — this pack's CODE / PRODUCT VERIFIED / PROJECT CONTEXT / HUMAN-CONFIRMED / PRODUCT DIRECTION / NEEDS VERIFICATION, the companion document's own COMPANY-SOURCE CONFIRMED / HISTORICAL / TIME-SENSITIVE / NEEDS CLARIFICATION, or an explicit in-progress/WIP callout like §8's — is meant to be relayed faithfully, not flattened into uniformly confident prose — the system prompt instructs this explicitly.
 
 The old design — a handful of entries in a separate Firestore `companyKnowledge` collection — was retired when this integration shipped; that collection is no longer read by the app.
 
@@ -918,7 +937,9 @@ A new employee should be able to ask the Secretary basic orientation questions w
 # 19. Common questions the Secretary should answer well
 
 ## Company
-"What does SVC do?" / "What does SVC stand for?" / "How does SVC work?" — answer directly from §2's PROJECT CONTEXT / HUMAN-CONFIRMED material; these are company-identity questions, not something to hedge on for lack of a code trail. "What is the difference between Sales, Recruiting, and Field Operations?" / "What does 'Cool Breeze' mean?" / "What is Operation Major Kong?" — likewise answerable directly from §2.
+"What does SVC do?" / "What does SVC stand for?" / "How does SVC work?" — answer directly from §2's PROJECT CONTEXT / HUMAN-CONFIRMED material; these are company-identity questions, not something to hedge on for lack of a code trail. "What is the difference between Sales, Recruiting, and Field Operations?" / "What does 'Cool Breeze' mean?" / "What is Operation Major Kong?" — likewise answerable directly from §2, in more depth from the companion document.
+
+"What is a Site Supervisor?" / "What is Site Supervision?" / "What is 'Provide and Guide'?" / "What's the difference between an Objective, a Goal, and a Task?" / "What does 'Cool Breeze Ready' mean?" / "How does Major Kong fit inside Cool Breeze?" / "Is Cool Breeze/Major Kong still active right now?" (answer what it is confidently; flag current-status as needing live confirmation, don't assert either way) / "Can you teach me the SVC framework?" / "Where can I learn more about how SVC organizes work?" — answer from `SVC_Company_Mission_Operating_Framework_Knowledge.md` (via `knowledge_search`/`knowledge_getSection`, the same tools as everything else here); for a tutorial/teach-me/learn-the-framework request specifically, give a short explanation and then offer the SVC Adventure Map (https://svc-app.vercel.app/) as the dedicated 5-minute interactive walkthrough.
 
 ## Directory
 "What's John's phone number?" / "Who works for ABC Construction?" / "What jobs is this company on?" / "Who's connected to Turner?"
@@ -944,11 +965,19 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 **SVC** — Supervision Company (PROJECT CONTEXT / HUMAN-CONFIRMED, §2); a U.S. construction-site supervision company. The app code has no reason to spell this out, so its absence from the repository doesn't weaken it.
 
-**Site Supervisor / Super** — the on-site construction role SVC's field-facing modules are built around.
+**Site Supervisor / Super** — the on-site construction role SVC's field-facing modules are built around; the practical connection between construction planning/paperwork and what actually happens on site ("from suits to boots"). Full definition: companion document §3.
 
-**Cool Breeze** — SVC's mission name (PROJECT CONTEXT / HUMAN-CONFIRMED, §2).
+**Site Supervision** — SVC's core service: the commercial-construction management and coordination of onsite activity across subcontractors, project managers, architects, engineers, inspectors, suppliers, and owners. Companion document §3.
 
-**Operation Major Kong** — the organizational framework grouping Sales, Recruiting, and Field Operations (PROJECT CONTEXT / HUMAN-CONFIRMED, §2).
+**Provide and Guide** — SVC's technology principle: tools exist to provide, guide, and support Site Supervisors, not replace them. Companion document §5.
+
+**Vision → Mission → Operation → Objective → Goal → Task → Action** — SVC's effort-organizing hierarchy; an Operation coordinates a related group of Objectives under a Mission, not just another smaller time-scale rung. Planning-horizon heuristics and full definitions: companion document §8–§16.
+
+**Cool Breeze** — SVC's mission name (PROJECT CONTEXT / HUMAN-CONFIRMED, §2). Fuller detail, its stated target, and why its current-active status should be verified rather than assumed: companion document §17–§18.
+
+**Operation Major Kong** — the organizational framework grouping Sales, Recruiting, and Field Operations, sitting inside Mission Cool Breeze (PROJECT CONTEXT / HUMAN-CONFIRMED, §2). Fuller detail and the same current-status caveat: companion document §19–§20.
+
+**SVC Adventure Map** — the interactive tutorial at https://svc-app.vercel.app/ that teaches the SVC Vision/Mission/Operation framework in about five minutes; offer it when someone wants a walkthrough. Companion document §7.
 
 **Job** — a construction worksite/operational entity shared across Directory, ByeByeDPR, and 3-Week Outlooks.
 
@@ -1002,6 +1031,8 @@ A new employee should be able to ask the Secretary basic orientation questions w
 10. **The WhatsApp Secretary's Communications access is real but narrow, as of 2026-08-14** — never assume it can see more than its two tools actually grant. `messages_searchMyCommunications` never returns a message outside the requesting sender's own `visibleToUserIds` (§4.1's rules, enforced in the query itself, not just the prompt); it cannot be asked to check someone else's messages. `messages_searchOperationalHistory` only ever returns automatic, system-generated posts, never human-written content. Don't describe either tool as a general Communications search.
 11. **Never claim WhatsApp can perform an action that only exists in the SVC app** — its only write capability anywhere is the Daily Report draft flow.
 12. **Any specific person/job/project/candidate/report/clock value is live data, not something this pack should ever hold** — always defer to a live tool for that.
+13. **Cool Breeze and Operation Major Kong are real, confirmed company knowledge, but their current-active status is not** — "what is Cool Breeze" is answerable directly; "is Cool Breeze still the active Mission today" is not, without live confirmation. Same for any historical target/figure in the companion document's HISTORICAL / TIME-SENSITIVE sections (e.g. the stated Cool Breeze revenue target) — a real past statement, not a current fact by default.
+14. **The sales/job progression milestone framework's numeric axes are explicitly not fully defined** (companion document §21, NEEDS CLARIFICATION) — repeat the milestone names/sequence, never invent what the X/Y/Z numbers mathematically represent or fill in a blank milestone.
 
 ---
 
@@ -1014,12 +1045,15 @@ These genuinely cannot be resolved by reading this repository and require checki
 - Whether the uncommitted Outlook→Communications auto-broadcast work described in §8 is ever intended to ship as-is, is mid-refactor, or will be redesigned before merging — no design note for it exists in the repo.
 - ~~Whether the company-mission language in §2 is genuine SVC organizational knowledge~~ — **resolved 2026-08-14**: confirmed directly by the person who built and runs SVC as genuine company context; restored to §2 under PROJECT CONTEXT / HUMAN-CONFIRMED. No further code-based verification is expected or needed for this category of claim (see §1's authority-order note on company/business context).
 - Any actual company/HR policy (payroll specifics beyond "Applications hands off to payroll processing," benefits, legal terms — the Operating Agreement text is explicitly a non-final placeholder) is out of scope for a code audit entirely.
+- **Whether Cool Breeze and/or Operation Major Kong are still SVC's currently active Mission/Operation today** — the companion document explicitly flags this as unresolved from its own source material (a specific-period planning deck plus onboarding notes); neither a code audit nor this pack can settle it. Answer what the concepts are with confidence; don't assert current-active status either way without asking the person who runs SVC or another live source.
 
 ---
 
 # 23. Recommended knowledge-document architecture
 
-Unchanged recommendation from the prior draft — this single file is a workable seed, but a long-term knowledge base should likely split into focused, independently-retrievable documents:
+**Status: PARTIALLY DONE, 2026-08-14.** The first real step of this recommendation has been taken: company/organizational knowledge now lives in its own document, `SVC_Company_Mission_Operating_Framework_Knowledge.md`, parsed and retrieved together with this pack by the same `lib/knowledge-pack.ts` pipeline (§1, §13) rather than being folded into this file's own §2. The full modular split below (per-module files, a dedicated glossary file, etc.) has not happened — this pack is still one file for everything except the company/mission layer.
+
+Unchanged recommendation from the prior draft for the rest of it — this single file is a workable seed, but a long-term knowledge base should likely split further into focused, independently-retrievable documents:
 
 ```text
 knowledge/

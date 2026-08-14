@@ -7,12 +7,12 @@ import { KNOWLEDGE_PACK_SOURCE, searchKnowledgeChunks } from "@/lib/knowledge-pa
  *
  * This used to read a small, hand-curated set of entries from a Firestore
  * `companyKnowledge` collection (seeded by the now-retired
- * `scripts/seed-company-knowledge.ts`). It now reads from the same single
- * source of truth as the deeper `knowledge_search`/`knowledge_getSection`
- * tools (`lib/whatsapp-secretary/tools/knowledge.ts`) —
- * `SVC_AI_Secretary_Canonical_Knowledge_Pack.md`, parsed and scored by
- * `lib/knowledge-pack.ts` — so there is one coherent knowledge system instead
- * of two. This function still only returns a small, pre-scored slice (never
+ * `scripts/seed-company-knowledge.ts`). It now reads from the same source
+ * pool as the deeper `knowledge_search`/`knowledge_getSection` tools
+ * (`lib/whatsapp-secretary/tools/knowledge.ts`) — `lib/knowledge-pack.ts`,
+ * which parses and scores both the canonical product/module pack and the
+ * company/mission companion document together — so there is one coherent
+ * knowledge system instead of two. This function still only returns a small, pre-scored slice (never
  * the whole document): it's the guaranteed baseline folded directly into the
  * system prompt before the tool loop even starts, matching Directory's own
  * "deterministic prefetch, then tool-calling for more" pattern. An internal
@@ -77,6 +77,6 @@ export async function findRelevantCompanyKnowledge(
     id: chunk.id,
     title: chunk.title,
     content: chunk.content.slice(0, MAX_ENTRY_CHARACTERS),
-    source: `${KNOWLEDGE_PACK_SOURCE} § ${chunk.breadcrumb}`,
+    source: `${chunk.source} § ${chunk.breadcrumb}`,
   }))
 }

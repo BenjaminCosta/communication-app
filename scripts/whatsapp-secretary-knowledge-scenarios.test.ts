@@ -205,11 +205,17 @@ test("scenario: follow-up memory continues a knowledge thread using conversation
   assert.match(reply, /Quest Coral/)
 })
 
-test("scenario: a PROJECT CONTEXT / HUMAN-CONFIRMED company-identity question is answered directly, not hedged", async () => {
+test("scenario: a confidently-labeled company-identity question is answered directly, not hedged", async () => {
   // As of the 2026-08-14 company-context merge, §2's org-language material
   // (Cool Breeze, Operation Major Kong, etc.) is explicitly labeled
   // PROJECT CONTEXT / HUMAN-CONFIRMED, not something to hedge on for lack of
-  // a code trail — this proves retrieval actually surfaces that framing.
+  // a code trail. As of the same-day company/mission companion document
+  // integration, a Cool Breeze query now more often surfaces THAT document's
+  // own richer section instead, confidently labeled COMPANY-SOURCE CONFIRMED
+  // (a different vocabulary, same "don't hedge on this" meaning) — this test
+  // accepts either label, since which one wins is a retrieval-ranking detail,
+  // not the thing being verified (that real company knowledge is answered
+  // directly, not treated as unverifiable).
   const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = { knowledge: () => createKnowledgeTools() }
 
@@ -231,7 +237,7 @@ test("scenario: a PROJECT CONTEXT / HUMAN-CONFIRMED company-identity question is
   )
 
   assert.match(reply, /Cool Breeze/)
-  assert.match(sectionContent, /PROJECT CONTEXT \/ HUMAN-CONFIRMED/)
+  assert.match(sectionContent, /PROJECT CONTEXT \/ HUMAN-CONFIRMED|COMPANY-SOURCE CONFIRMED/)
 })
 
 test("scenario: a genuinely NEEDS VERIFICATION product question (deployment status, not company identity) surfaces that uncertainty", async () => {

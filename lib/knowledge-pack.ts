@@ -2,19 +2,33 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 
 /**
- * Parses `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` into searchable
- * chunks and provides lexical retrieval over them.
+ * Parses the SVC knowledge documents into searchable chunks and provides
+ * lexical retrieval over them — one shared pool drawn from two files, not two
+ * separate knowledge systems:
  *
- * This is the single source of stable SVC company/product knowledge for the
+ *  - `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` — code-audited
+ *    product/module knowledge (how the SVC app works).
+ *  - `SVC_Company_Mission_Operating_Framework_Knowledge.md` — company/
+ *    organizational knowledge (what SVC is, Site Supervision, the Vision →
+ *    Mission → Operation → Objective → Goal → Task → Action framework, Cool
+ *    Breeze, Operation Major Kong, the Adventure Map). Each of its chunk ids
+ *    is prefixed `mission-` (see `parseKnowledgePackMarkdown`'s `idPrefix`)
+ *    since both files independently number their sections `# 0.`, `# 1.`, …
+ *    and would otherwise collide.
+ *
+ * Every chunk carries a `source` field (which file it came from), consumed by
+ * `lib/company-knowledge.ts` and `lib/whatsapp-secretary/tools/knowledge.ts`
+ * for citation — nothing else about retrieval treats the two files
+ * differently. This is the single source of stable SVC knowledge for the
  * WhatsApp Secretary (`lib/company-knowledge.ts`'s always-injected baseline
  * grounding) and, deeper on demand, the `knowledge_search`/`knowledge_getSection`
  * tools (`lib/whatsapp-secretary/tools/knowledge.ts`). It deliberately does
- * NOT call an embedding/LLM provider — the corpus is small (~40 chunks) and a
- * WhatsApp reply has to stay fast, so plain keyword scoring (the same
- * approach the codebase already uses for Directory's derived `keywords`
- * search and the old curated company-knowledge entries) is enough.
+ * NOT call an embedding/LLM provider — the corpus is small and a WhatsApp
+ * reply has to stay fast, so plain keyword scoring (the same approach the
+ * codebase already uses for Directory's derived `keywords` search and the old
+ * curated company-knowledge entries) is enough.
  *
- * Chunking is two-level, matching the document's own `# N. Title` /
+ * Chunking is two-level, matching each document's own `# N. Title` /
  * `## Subtitle` structure:
  *  - one "broad" chunk per top-level `# N. Title` section (its full text,
  *    including every nested `##` subsection) — good for "what is X" questions;
@@ -22,14 +36,17 @@ import path from "node:path"
  *    detail ("what fields does an Outlook task have").
  * Both are indexed together; search naturally returns whichever is the
  * better match. `###`-level headers (used only for the CONFIRMED / PRODUCT
- * DIRECTION / NEEDS VERIFICATION labels in §1) are not separate chunks — they
- * stay as plain text inside whichever `##`/`#` chunk contains them, which is
- * exactly what preserves the status-label wording verbatim in what a tool
- * returns.
+ * DIRECTION / NEEDS VERIFICATION labels in the canonical pack's §1) are not
+ * separate chunks — they stay as plain text inside whichever `##`/`#` chunk
+ * contains them, which is exactly what preserves the status-label wording
+ * verbatim in what a tool returns.
  */
 
 const KNOWLEDGE_PACK_FILENAME = "SVC_AI_Secretary_Canonical_Knowledge_Pack.md"
 export const KNOWLEDGE_PACK_SOURCE = KNOWLEDGE_PACK_FILENAME
+
+const COMPANY_MISSION_FILENAME = "SVC_Company_Mission_Operating_Framework_Knowledge.md"
+export const COMPANY_MISSION_KNOWLEDGE_SOURCE = COMPANY_MISSION_FILENAME
 
 const LEVEL1_HEADING = /^#\s+(\d+)\.\s+(.+?)\s*$/
 const LEVEL2_HEADING = /^##(?!#)\s+(.+?)\s*$/
@@ -45,6 +62,8 @@ export interface KnowledgeChunk {
   content: string
   /** First ~280 characters of `content`, for search-result previews. */
   excerpt: string
+  /** Which source markdown file this chunk was parsed from — see the module doc comment above. */
+  source: string
 }
 
 function slugify(value: string, maxLength = 60): string {
@@ -92,7 +111,21 @@ function trimChunkBody(lines: string[]): string {
   return body.join("\n")
 }
 
-export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
+export interface ParseKnowledgePackOptions {
+  /** Prepended to every chunk id from this parse (e.g. `"mission"` ->
+   * `mission-sec-7`), so two source files that each number their own
+   * sections `# 0.`, `# 1.`, … don't collide once merged into one pool.
+   * Omit for the default/primary source (unprefixed, matching every
+   * existing chunk id). */
+  idPrefix?: string
+  /** Recorded on every chunk as `KnowledgeChunk.source`. Defaults to the
+   * canonical pack's filename. */
+  source?: string
+}
+
+export function parseKnowledgePackMarkdown(raw: string, options: ParseKnowledgePackOptions = {}): KnowledgeChunk[] {
+  const idPrefix = options.idPrefix ? `${options.idPrefix}-` : ""
+  const source = options.source ?? KNOWLEDGE_PACK_FILENAME
   const lines = stripFrontmatter(raw).split("\n")
   const chunks: KnowledgeChunk[] = []
   const usedIds = new Set<string>()
@@ -133,6 +166,7 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
         parentId: sectionId,
         content,
         excerpt: buildExcerpt(content),
+        source,
       })
     }
     subTitle = null
@@ -152,6 +186,7 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
         parentId: sectionId,
         content,
         excerpt: buildExcerpt(content),
+        source,
       })
     }
     sectionLines = []
@@ -163,7 +198,7 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
       flushSection()
       sectionNumber = level1Match[1]!
       sectionTitle = level1Match[2]!
-      sectionId = uniqueId(`sec-${sectionNumber}`)
+      sectionId = uniqueId(`${idPrefix}sec-${sectionNumber}`)
       sectionLines = []
       continue
     }
@@ -190,20 +225,37 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
 let cachedChunks: KnowledgeChunk[] | null = null
 
 /**
- * Reads and parses the knowledge pack once per warm server instance.
+ * Reads and parses both knowledge documents once per warm server instance.
  * `path.join(process.cwd(), ...)` with a static literal is the pattern
- * Next.js's output file tracing recognizes, so the markdown file is included
- * in the deployed serverless function bundle automatically.
+ * Next.js's output file tracing recognizes, so each markdown file is
+ * included in the deployed serverless function bundle automatically — each
+ * `readFileSync` call site below must keep a literal filename constant
+ * directly in the `path.join(...)` call, not passed through a shared helper
+ * function parameter, or Next's tracer may not pick it up.
+ *
+ * The two files are read independently, each with its own try/catch: if one
+ * is missing or malformed, the other's knowledge still loads rather than the
+ * whole corpus going empty.
  */
 export function getKnowledgeChunks(): KnowledgeChunk[] {
   if (cachedChunks) return cachedChunks
+  const chunks: KnowledgeChunk[] = []
+
   try {
     const raw = readFileSync(path.join(process.cwd(), KNOWLEDGE_PACK_FILENAME), "utf8")
-    cachedChunks = parseKnowledgePackMarkdown(raw)
+    chunks.push(...parseKnowledgePackMarkdown(raw))
   } catch (error) {
-    console.error("Unable to read/parse the SVC knowledge pack.", error)
-    cachedChunks = []
+    console.error("Unable to read/parse the SVC canonical knowledge pack.", error)
   }
+
+  try {
+    const raw = readFileSync(path.join(process.cwd(), COMPANY_MISSION_FILENAME), "utf8")
+    chunks.push(...parseKnowledgePackMarkdown(raw, { idPrefix: "mission", source: COMPANY_MISSION_KNOWLEDGE_SOURCE }))
+  } catch (error) {
+    console.error("Unable to read/parse the SVC company mission knowledge.", error)
+  }
+
+  cachedChunks = chunks
   return cachedChunks
 }
 

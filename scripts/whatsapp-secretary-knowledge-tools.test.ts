@@ -21,14 +21,14 @@ function fakeProvider(overrides: Partial<KnowledgeToolsProvider> = {}): Knowledg
       state.searchCalls += 1
       if (overrides.search) return overrides.search(query, limit)
       return [
-        { id: "sec-7", title: "Quest Coral", breadcrumb: "Quest Coral", excerpt: "Quest Coral is SVC's project tracker." },
-        { id: "sec-7-purpose", title: "Purpose", breadcrumb: "Quest Coral — Purpose", excerpt: "It exists to..." },
+        { id: "sec-7", title: "Quest Coral", breadcrumb: "Quest Coral", excerpt: "Quest Coral is SVC's project tracker.", source: "SVC_AI_Secretary_Canonical_Knowledge_Pack.md" },
+        { id: "sec-7-purpose", title: "Purpose", breadcrumb: "Quest Coral — Purpose", excerpt: "It exists to...", source: "SVC_AI_Secretary_Canonical_Knowledge_Pack.md" },
       ].slice(0, limit)
     },
     getSection(id) {
       state.getSectionCalls += 1
       if (overrides.getSection) return overrides.getSection(id)
-      if (id === "sec-7") return { id: "sec-7", title: "Quest Coral", breadcrumb: "Quest Coral", content: "Full Quest Coral text." }
+      if (id === "sec-7") return { id: "sec-7", title: "Quest Coral", breadcrumb: "Quest Coral", content: "Full Quest Coral text.", source: "SVC_AI_Secretary_Canonical_Knowledge_Pack.md" }
       return null
     },
   }
@@ -122,6 +122,14 @@ test("knowledge_getSection: an exhausted budget short-circuits before calling th
   assert.equal(provider.getSectionCalls, 0)
 })
 
+test("knowledge_search: each result carries its own source rather than one blanket source for the whole call", async () => {
+  const provider = fakeProvider()
+  const [search] = createKnowledgeTools({ provider })
+  const result = await search!.run({ query: "what is quest coral" }, budget())
+  const sections = (result.data as { sections: Array<{ source: string }> }).sections
+  assert.ok(sections.every((section) => section.source === "SVC_AI_Secretary_Canonical_Knowledge_Pack.md"))
+})
+
 test("default provider (no injection) works end-to-end against the real knowledge pack", async () => {
   const [search, getSection] = createKnowledgeTools()
   const sharedBudget = budget()
@@ -133,4 +141,21 @@ test("default provider (no injection) works end-to-end against the real knowledg
 
   const sectionResult = await getSection!.run({ id: sections[0]!.id }, sharedBudget)
   assert.equal(sectionResult.empty, undefined)
+})
+
+test("default provider: a company/mission question retrieves the companion document, correctly sourced", async () => {
+  const [search, getSection] = createKnowledgeTools()
+  const sharedBudget = budget()
+
+  const searchResult = await search!.run({ query: "what is Cool Breeze" }, sharedBudget)
+  assert.equal(searchResult.empty, undefined)
+  const sections = (searchResult.data as { sections: Array<{ id: string; source: string }> }).sections
+  const coolBreeze = sections.find((section) => section.id.startsWith("mission-"))
+  assert.ok(coolBreeze, `expected a mission-prefixed result, got: ${sections.map((s) => s.id).join(", ")}`)
+  assert.equal(coolBreeze!.source, "SVC_Company_Mission_Operating_Framework_Knowledge.md")
+
+  const sectionResult = await getSection!.run({ id: coolBreeze!.id }, sharedBudget)
+  const section = (sectionResult.data as { section: { source: string; content: string } }).section
+  assert.equal(section.source, "SVC_Company_Mission_Operating_Framework_Knowledge.md")
+  assert.match(section.content, /Cool Breeze/i)
 })

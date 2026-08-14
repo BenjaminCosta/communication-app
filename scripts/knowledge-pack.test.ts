@@ -1,8 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+  COMPANY_MISSION_KNOWLEDGE_SOURCE,
   getKnowledgeChunkById,
   getKnowledgeChunks,
+  KNOWLEDGE_PACK_SOURCE,
   parseKnowledgePackMarkdown,
   resetKnowledgeChunksCacheForTests,
   searchKnowledgeChunks,
@@ -208,12 +210,12 @@ test("real knowledge pack: getKnowledgeChunkById returns null for an unknown id 
 // MIN_RELEVANCE_SCORE and returned nothing — even though the exact phrase is
 // right there in the document. ---
 
-test("real knowledge pack: a named-term query that only appears in body prose ('Cool Breeze') still surfaces the section that defines it", () => {
+test("real knowledge pack: a named-term query that only appears in body prose ('Cool Breeze') still surfaces a section that defines it", () => {
   const results = searchKnowledgeChunks("Cool Breeze", 5)
   assert.ok(results.length > 0, "expected at least one result for 'Cool Breeze'")
   assert.ok(
-    results.some((entry) => entry.chunk.id === "sec-2-organizational-language"),
-    `expected sec-2-organizational-language among results, got: ${results.map((r) => r.chunk.id).join(", ")}`,
+    results.some((entry) => /cool breeze/i.test(entry.chunk.content)),
+    `expected a Cool Breeze result, got: ${results.map((r) => r.chunk.id).join(", ")}`,
   )
 })
 
@@ -231,4 +233,84 @@ test("real knowledge pack: a natural self-referential question ('what does SVC s
       `expected sec-2-what-svc-is among results for "${query}", got: ${results.map((r) => r.chunk.id).join(", ")}`,
     )
   }
+})
+
+// --- Multi-source knowledge (2026-08-14): the company/mission companion
+// document is parsed and scored in the same pool as the canonical pack, not
+// a separate knowledge system. Every chunk knows which file it came from. ---
+
+test("parseKnowledgePackMarkdown: idPrefix and source default to the canonical pack's own, unprefixed scheme when omitted", () => {
+  const chunks = parseKnowledgePackMarkdown(FIXTURE)
+  assert.ok(chunks.some((chunk) => chunk.id === "sec-1"))
+  assert.ok(chunks.every((chunk) => chunk.source === KNOWLEDGE_PACK_SOURCE))
+})
+
+test("parseKnowledgePackMarkdown: an idPrefix namespaces every chunk id and a custom source is recorded on every chunk", () => {
+  const chunks = parseKnowledgePackMarkdown(FIXTURE, { idPrefix: "mission", source: COMPANY_MISSION_KNOWLEDGE_SOURCE })
+  assert.ok(chunks.some((chunk) => chunk.id === "mission-sec-1"))
+  assert.ok(!chunks.some((chunk) => chunk.id === "sec-1"), "the unprefixed id must not also exist")
+  const subOne = chunks.find((chunk) => chunk.id === "mission-sec-1-alpha-sub-one")
+  assert.ok(subOne, "expected the level-2 chunk's id to be namespaced too, via its parent")
+  assert.equal(subOne!.parentId, "mission-sec-1")
+  assert.ok(chunks.every((chunk) => chunk.source === COMPANY_MISSION_KNOWLEDGE_SOURCE))
+})
+
+test("real knowledge base: getKnowledgeChunks() includes chunks from both documents, correctly and distinctly sourced, with no id collisions", () => {
+  resetKnowledgeChunksCacheForTests()
+  const chunks = getKnowledgeChunks()
+  const packChunks = chunks.filter((chunk) => chunk.source === KNOWLEDGE_PACK_SOURCE)
+  const missionChunks = chunks.filter((chunk) => chunk.source === COMPANY_MISSION_KNOWLEDGE_SOURCE)
+
+  assert.ok(packChunks.length > 40, `expected 40+ canonical-pack chunks, got ${packChunks.length}`)
+  assert.ok(missionChunks.length > 15, `expected 15+ companion-document chunks, got ${missionChunks.length}`)
+  assert.equal(packChunks.length + missionChunks.length, chunks.length, "every chunk must be attributed to exactly one of the two known sources")
+  assert.ok(missionChunks.every((chunk) => chunk.id.startsWith("mission-")))
+  assert.ok(packChunks.every((chunk) => !chunk.id.startsWith("mission-")))
+
+  const ids = chunks.map((chunk) => chunk.id)
+  assert.equal(new Set(ids).size, ids.length, "expected every chunk id across both documents to be unique")
+
+  // Regression guard: both files independently number sections "# 0.", "# 1.", …
+  // — without the mission- prefix these would collide directly.
+  assert.ok(chunks.some((chunk) => chunk.id === "sec-2"))
+  assert.ok(chunks.some((chunk) => chunk.id === "mission-sec-2"))
+})
+
+test("real knowledge base: 'what is Cool Breeze' now surfaces the companion document's richer, freshness-labeled section, correctly sourced", () => {
+  const results = searchKnowledgeChunks("what is Cool Breeze", 5)
+  assert.ok(results.length > 0)
+  const top = results[0]!.chunk
+  assert.ok(top.id.startsWith("mission-"), `expected the companion document to win for 'Cool Breeze', got: ${top.id}`)
+  assert.equal(top.source, COMPANY_MISSION_KNOWLEDGE_SOURCE)
+  assert.ok(
+    results.some((entry) => /HISTORICAL|TIME-SENSITIVE|currentness/i.test(entry.chunk.content)),
+    `expected the freshness caveat to survive somewhere in the retrieved set, got: ${results.map((r) => r.chunk.id).join(", ")}`,
+  )
+})
+
+test("real knowledge base: 'Operation Major Kong' surfaces the companion document's section, which relates it back to Cool Breeze", () => {
+  const results = searchKnowledgeChunks("what is Operation Major Kong", 5)
+  assert.ok(results.length > 0)
+  assert.ok(results.some((entry) => entry.chunk.source === COMPANY_MISSION_KNOWLEDGE_SOURCE && /major kong/i.test(entry.chunk.content)))
+})
+
+test("real knowledge base: a Site Supervisor question is answerable from the companion document", () => {
+  const results = searchKnowledgeChunks("what is a Site Supervisor", 5)
+  assert.ok(results.length > 0)
+  assert.ok(results.some((entry) => entry.chunk.source === COMPANY_MISSION_KNOWLEDGE_SOURCE))
+})
+
+test("real knowledge base: the Vision/Mission/Operation hierarchy is retrievable and distinguishes Mission from Objective/Goal/Task horizons", () => {
+  const results = searchKnowledgeChunks("difference between a Mission an Objective and a Goal", 5)
+  assert.ok(results.length > 0)
+  const hierarchyResult = results.find((entry) => entry.chunk.source === COMPANY_MISSION_KNOWLEDGE_SOURCE)
+  assert.ok(hierarchyResult, `expected a companion-document hierarchy result, got: ${results.map((r) => r.chunk.id).join(", ")}`)
+})
+
+test("real knowledge base: the Adventure Map section is retrievable and preserves its real URL verbatim", () => {
+  const results = searchKnowledgeChunks("SVC Adventure Map tutorial", 5)
+  assert.ok(results.length > 0)
+  const adventureMap = results.find((entry) => /adventure map/i.test(entry.chunk.title))
+  assert.ok(adventureMap, `expected an Adventure Map result, got: ${results.map((r) => r.chunk.id).join(", ")}`)
+  assert.match(adventureMap!.chunk.content, /https:\/\/svc-app\.vercel\.app\//)
 })

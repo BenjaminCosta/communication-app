@@ -1,16 +1,20 @@
 import { z } from "zod"
-import { getKnowledgeChunkById, KNOWLEDGE_PACK_SOURCE, searchKnowledgeChunks } from "@/lib/knowledge-pack"
+import { getKnowledgeChunkById, searchKnowledgeChunks } from "@/lib/knowledge-pack"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 
 /**
  * Company Knowledge tools for the WhatsApp Secretary orchestrator — the
- * "how SVC works" counterpart to the live-data tools in every other file
- * under `tools/`. Backed by the same parsed, scored corpus
- * (`lib/knowledge-pack.ts`) as `lib/company-knowledge.ts`'s always-injected
- * baseline grounding, so there is exactly one knowledge system, just two ways
- * to reach it: a small guaranteed prefetch before the tool loop starts, and
- * these two tools for when the model needs a different section than the
- * prefetch guessed, or the full text of one it only saw an excerpt of.
+ * "how SVC works and what SVC is" counterpart to the live-data tools in every
+ * other file under `tools/`. Backed by the same parsed, scored corpus
+ * (`lib/knowledge-pack.ts`, drawing on both the canonical product/module pack
+ * and the company/mission companion document) as `lib/company-knowledge.ts`'s
+ * always-injected baseline grounding, so there is exactly one knowledge
+ * system, just two ways to reach it: a small guaranteed prefetch before the
+ * tool loop starts, and these two tools for when the model needs a different
+ * section than the prefetch guessed, or the full text of one it only saw an
+ * excerpt of. Each result carries its own `source` (which document it came
+ * from) rather than one blanket source for the whole call, since a single
+ * search can now legitimately return chunks from both documents.
  *
  * Deliberately two tools, not one, mirroring Directory's own search-then-
  * getEntityDetails shape: `knowledge_search` returns several short excerpts
@@ -30,6 +34,7 @@ export interface KnowledgeSearchResult {
   title: string
   breadcrumb: string
   excerpt: string
+  source: string
 }
 
 export interface KnowledgeSection {
@@ -37,6 +42,7 @@ export interface KnowledgeSection {
   title: string
   breadcrumb: string
   content: string
+  source: string
 }
 
 export interface KnowledgeToolsProvider {
@@ -52,6 +58,7 @@ function createServerKnowledgeToolsProvider(): KnowledgeToolsProvider {
         title: chunk.title,
         breadcrumb: chunk.breadcrumb,
         excerpt: chunk.excerpt,
+        source: chunk.source,
       }))
     },
     getSection(id) {
@@ -62,6 +69,7 @@ function createServerKnowledgeToolsProvider(): KnowledgeToolsProvider {
         title: chunk.title,
         breadcrumb: chunk.breadcrumb,
         content: chunk.content.slice(0, MAX_SECTION_CHARACTERS),
+        source: chunk.source,
       }
     },
   }
@@ -97,7 +105,7 @@ export function createKnowledgeTools(deps: { provider?: KnowledgeToolsProvider }
       budget.remainingRecords -= results.length
       return {
         summary: `${results.length} knowledge section(s) matched "${args.query}". Call knowledge_getSection for the full text of a relevant one.`,
-        data: { sections: results, source: KNOWLEDGE_PACK_SOURCE },
+        data: { sections: results },
       }
     },
   }
@@ -121,7 +129,7 @@ export function createKnowledgeTools(deps: { provider?: KnowledgeToolsProvider }
       if (!section) return { summary: `No knowledge section with id "${args.id}". Call knowledge_search first to find a valid id.`, empty: true }
 
       budget.remainingRecords -= 1
-      return { summary: `Full text of "${section.title}".`, data: { section, source: KNOWLEDGE_PACK_SOURCE } }
+      return { summary: `Full text of "${section.title}".`, data: { section } }
     },
   }
 
