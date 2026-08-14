@@ -21,18 +21,12 @@ import {
   type OutlookTask,
 } from "@/lib/outlook-core"
 import type { JobProfileViewModel } from "@/lib/directory-view-models"
-import type { MessageFileAttachment } from "@/lib/store"
-
-export interface OutlookPostPayload {
-  text: string
-  contextId: string
-  attachment?: MessageFileAttachment | null
-}
+import { publishOutlookVersionToComms } from "@/features/outlooks/outlook-comms-client"
+import { shareOrOpenOutlookPdf } from "@/features/outlooks/pdf/share-outlook-pdf"
 
 interface UseJobOutlookControllerInput {
   job: JobProfileViewModel
   userId: string
-  onPostUpdate?: (payload: OutlookPostPayload) => void
 }
 
 function outlookLoadMessage(error: Error): string {
@@ -51,7 +45,7 @@ function outlookPdfErrorMessage(error: unknown): string {
 }
 
 function tasksMatchVersion(tasks: OutlookTask[], version: JobOutlookVersion | null): version is JobOutlookVersion {
-  if (!version || version.pdf || tasks.length !== version.tasks.length) return false
+  if (!version || tasks.length !== version.tasks.length) return false
   const key = (task: OutlookTask) => [
     task.id,
     task.sortOrder,
@@ -70,7 +64,7 @@ function tasksMatchVersion(tasks: OutlookTask[], version: JobOutlookVersion | nu
   return tasks.every((task, index) => JSON.stringify(key(task)) === JSON.stringify(key(version.tasks[index])))
 }
 
-export function useJobOutlookController({ job, userId, onPostUpdate }: UseJobOutlookControllerInput) {
+export function useJobOutlookController({ job, userId }: UseJobOutlookControllerInput) {
   const [windowStart, setWindowStart] = useState(() => mondayForDate(new Date()))
   const window = useMemo(() => outlookWindow(windowStart), [windowStart])
   const [draft, setDraft] = useState<JobOutlookDraft | null>(null)
@@ -78,7 +72,7 @@ export function useJobOutlookController({ job, userId, onPostUpdate }: UseJobOut
   const [tasks, setTasks] = useState<OutlookTask[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const revisionRef = useRef<number | null>(null)
@@ -116,60 +110,27 @@ export function useJobOutlookController({ job, userId, onPostUpdate }: UseJobOut
   const scheduled = useMemo(() => scheduleOutlookTasks(tasks, window), [tasks, window])
   const latestVersion = versions[0] ?? null
 
-  const persist = async (nextTasks: OutlookTask[], message = "Draft saved.") => {
-    if (saving) return
-    setSaving(true)
-    setError("")
-    try {
-      const normalized = scheduleOutlookTasks(nextTasks, window).tasks
-      const revision = await saveJobOutlookDraft({
+  const publishPdfAndComms = async (nextTasks: OutlookTask[]): Promise<JobOutlookVersion> => {
+    let publishedVersion: JobOutlookVersion
+    if (tasksMatchVersion(nextTasks, latestVersion)) {
+      publishedVersion = latestVersion
+    } else {
+      const published = await publishJobOutlook({
         userId,
         jobId: job.sourceId,
         jobDirectoryId: job.id,
         window,
-        tasks: normalized,
+        tasks: nextTasks,
         expectedRevision: revisionRef.current,
       })
-      revisionRef.current = revision
-      setTasks(normalized)
-      setNotice(message)
-    } catch (err) {
-      setError(err instanceof OutlookConflictError ? err.message : "Changes could not be saved. Try again.")
-      throw err
-    } finally {
-      setSaving(false)
+      revisionRef.current = published.revision
+      publishedVersion = published.version
+      setTasks(publishedVersion.tasks)
     }
-  }
 
-  const selectWindowStart = (value: string) => {
-    if (!isIsoDate(value)) return
-    setWindowStart(value)
-  }
-
-  const generatePdf = async (nextTasks: OutlookTask[] = scheduled.tasks) => {
-    if (generatingPdf || saving) return
-    setGeneratingPdf(true)
-    setError("")
-    try {
-      let publishedVersion: JobOutlookVersion
-      if (tasksMatchVersion(nextTasks, latestVersion)) {
-        publishedVersion = latestVersion
-      } else {
-        const published = await publishJobOutlook({
-          userId,
-          jobId: job.sourceId,
-          jobDirectoryId: job.id,
-          window,
-          tasks: nextTasks,
-          expectedRevision: revisionRef.current,
-        })
-        revisionRef.current = published.revision
-        publishedVersion = published.version
-        setTasks(publishedVersion.tasks)
-      }
-      const [{ generateOutlookPdf }, { shareOrDownloadOutlookPdf }] = await Promise.all([
+    if (!publishedVersion.pdf) {
+      const [{ generateOutlookPdf }] = await Promise.all([
         import("@/features/outlooks/pdf/generate-outlook-pdf"),
-        import("@/features/outlooks/pdf/share-outlook-pdf"),
       ])
       const bytes = await generateOutlookPdf({
         jobName: job.name,
@@ -186,35 +147,97 @@ export function useJobOutlookController({ job, userId, onPostUpdate }: UseJobOut
         category: "report",
         caption: `3-Week Outlook · ${formatOutlookRange(window)} · Version ${publishedVersion.versionNumber}`,
       })
-      await attachPdfToOutlookVersion(job.sourceId, window.start, publishedVersion.id, {
+      const pdf = {
         directoryFileId: stored.id,
         storagePath: stored.storagePath,
         downloadUrl: stored.downloadUrl,
         fileName: stored.fileName,
+      }
+      await attachPdfToOutlookVersion(job.sourceId, window.start, publishedVersion.id, pdf)
+      publishedVersion = { ...publishedVersion, pdf }
+    }
+
+    await publishOutlookVersionToComms({
+      jobContextId: job.sourceId,
+      windowStart: window.start,
+      versionId: publishedVersion.id,
+    })
+    return publishedVersion
+  }
+
+  const persist = async (nextTasks: OutlookTask[], message = "Draft saved.") => {
+    if (saving || publishing) return
+    setSaving(true)
+    setError("")
+    const normalized = scheduleOutlookTasks(nextTasks, window).tasks
+    try {
+      const revision = await saveJobOutlookDraft({
+        userId,
+        jobId: job.sourceId,
+        jobDirectoryId: job.id,
+        window,
+        tasks: normalized,
+        expectedRevision: revisionRef.current,
       })
-      const outcome = await shareOrDownloadOutlookPdf(file, `3-Week Outlook · ${job.name}`)
+      revisionRef.current = revision
+      setTasks(normalized)
+    } catch (err) {
+      setError(err instanceof OutlookConflictError ? err.message : "Changes could not be saved. Try again.")
+      setSaving(false)
+      throw err
+    }
+
+    const schedule = scheduleOutlookTasks(normalized, window)
+    if (!schedule.canPublish) {
+      setNotice(`${message} Complete the required task details to publish the PDF.`)
+      setSaving(false)
+      return
+    }
+
+    setPublishing(true)
+    try {
+      await publishPdfAndComms(normalized)
+      setNotice(`${message} PDF updated and posted to Communications.`)
+    } catch (err) {
+      setError(`Changes were saved, but ${outlookPdfErrorMessage(err)}`)
+      throw err
+    } finally {
+      setPublishing(false)
+      setSaving(false)
+    }
+  }
+
+  const selectWindowStart = (value: string) => {
+    if (!isIsoDate(value)) return
+    setWindowStart(value)
+  }
+
+  const viewLatestPdf = () => {
+    if (!latestVersion?.pdf?.downloadUrl) return
+    globalThis.window.open(latestVersion.pdf.downloadUrl, "_blank", "noopener,noreferrer")
+  }
+
+  const shareLatestPdf = async () => {
+    if (!latestVersion?.pdf || saving || publishing) return
+    setPublishing(true)
+    setError("")
+    try {
+      const outcome = await shareOrOpenOutlookPdf(latestVersion.pdf, `3-Week Outlook · ${job.name}`)
       setNotice(
         outcome === "shared"
-          ? "PDF published and shared."
+          ? "PDF shared."
           : outcome === "downloaded"
-            ? "PDF published and downloaded."
-            : "PDF published. Sharing was cancelled.",
+            ? "PDF downloaded."
+            : outcome === "opened"
+              ? "PDF opened."
+              : "Sharing was cancelled.",
       )
     } catch (err) {
       setError(outlookPdfErrorMessage(err))
       throw err
     } finally {
-      setGeneratingPdf(false)
+      setPublishing(false)
     }
-  }
-
-  const postLatestVersion = () => {
-    if (!latestVersion?.pdf || !onPostUpdate) return
-    onPostUpdate({
-      text: buildPostText(job, latestVersion),
-      contextId: job.sourceId,
-      attachment: buildPostAttachment(latestVersion),
-    })
   }
 
   return {
@@ -226,34 +249,15 @@ export function useJobOutlookController({ job, userId, onPostUpdate }: UseJobOut
     latestVersion,
     loading,
     saving,
-    generatingPdf,
+    publishing,
     error,
     notice,
-    canPostUpdate: Boolean(latestVersion?.pdf && onPostUpdate),
+    hasPdf: Boolean(latestVersion?.pdf),
     setError,
     setNotice,
     persist,
     selectWindowStart,
-    generatePdf,
-    postLatestVersion,
-  }
-}
-
-function buildPostText(job: JobProfileViewModel, version: JobOutlookVersion): string {
-  return [
-    `3-Week Outlook · ${job.name}`,
-    `${formatOutlookRange(version.window)} · Version ${version.versionNumber}`,
-    "",
-    `${version.tasks.length} scheduled task${version.tasks.length === 1 ? "" : "s"}.`,
-  ].join("\n")
-}
-
-function buildPostAttachment(version: JobOutlookVersion): MessageFileAttachment | null {
-  if (!version.pdf?.downloadUrl) return null
-  return {
-    url: version.pdf.downloadUrl,
-    name: version.pdf.fileName || "3-week-outlook.pdf",
-    contentType: "application/pdf",
-    path: version.pdf.storagePath || undefined,
+    viewLatestPdf,
+    shareLatestPdf,
   }
 }

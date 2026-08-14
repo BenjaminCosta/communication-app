@@ -24,7 +24,7 @@ import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
 import { DirectoryNotesTab } from "@/components/directory/directory-notes-tab"
 import { DirectoryFilesTab } from "@/components/directory/directory-files-tab"
 import { DirectoryEditSheet } from "@/components/directory/directory-edit-sheet"
-import { ThreeWeekOutlookTab, type OutlookPostPayload } from "@/components/directory/outlooks/three-week-outlook-tab"
+import { ThreeWeekOutlookTab } from "@/components/directory/outlooks/three-week-outlook-tab"
 import { cn } from "@/lib/utils"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
 import { useDirectoryUserState } from "@/components/directory/directory-state-provider"
@@ -55,7 +55,6 @@ interface DirectoryProfileScreenProps {
   onBack: () => void
   onOpenEntity: (directoryId: string) => void
   companies?: Array<{ id: string; name: string }>
-  onPostOutlook?: (payload: OutlookPostPayload) => void
   className?: string
 }
 
@@ -66,7 +65,6 @@ export function DirectoryProfileScreen({
   onBack,
   onOpenEntity,
   companies = [],
-  onPostOutlook,
   className,
 }: DirectoryProfileScreenProps) {
   const [vm, setVm] = useState<DirectoryProfileViewModel | null>(null)
@@ -291,7 +289,6 @@ export function DirectoryProfileScreen({
               job={vm}
               userId={userId}
               companies={companies}
-              onPostUpdate={onPostOutlook}
               mode="full"
             />
           ) : (
@@ -368,7 +365,6 @@ export function DirectoryProfileScreen({
                     job={vm}
                     userId={userId}
                     companies={companies}
-                    onPostUpdate={onPostOutlook}
                     mode="embedded"
                     onSeeFullOutlook={() => setFullOutlook(true)}
                   />

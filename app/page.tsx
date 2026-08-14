@@ -50,7 +50,6 @@ import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
 import { PwaInstallAutoPrompt } from "@/components/pwa-install"
-import type { OutlookPostPayload } from "@/components/directory/outlooks/three-week-outlook-tab"
 // Secondary screens — lazy-loaded on demand (code splitting)
 const TagSheet = dynamic(() => import("@/components/tag-sheet").then((m) => ({ default: m.TagSheet })), { ssr: false })
 const RegisterScreen = dynamic(() => import("@/components/register-screen").then((m) => ({ default: m.RegisterScreen })), { ssr: false })
@@ -1590,15 +1589,6 @@ export default function Home() {
     setSelectedQuestCoralProjectId(null)
     navigateTo("quest-coral")
   }, [navigateTo])
-  const handlePostOutlook = useCallback((payload: OutlookPostPayload) => {
-    setComposeInitialProjectId(null)
-    setComposeInitialText(payload.text)
-    setComposeInitialContextIds([payload.contextId])
-    setComposeInitialAttachment(payload.attachment ?? null)
-    setComposeMode("fullscreen")
-    navigateTo("compose")
-  }, [navigateTo])
-
   // ── Context CRUD ──────────────────────────────────────────────────────
   const handleCreateContext = useCallback(async (name: string, description?: string): Promise<AppContext> => {
     if (!firebaseUser) throw new Error("Not authenticated")
@@ -2012,7 +2002,6 @@ export default function Home() {
                 onBack={handleDirectoryDetailBack}
                 onOpenEntity={goToDirectoryDetail}
                 companies={directoryCompanies}
-                onPostOutlook={handlePostOutlook}
               />
             )}
           </div>

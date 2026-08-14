@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Send, SlidersHorizontal, Sparkles } from "lucide-react"
+import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Share2, SlidersHorizontal, Sparkles } from "lucide-react"
 import { OutlookActionBar, type OutlookAction } from "@/components/directory/outlooks/outlook-action-bar"
 import { OutlookAdvancedView } from "@/components/directory/outlooks/outlook-advanced-view"
 import { OutlookAiCaptureSheet } from "@/components/directory/outlooks/outlook-ai-capture-sheet"
@@ -25,16 +25,12 @@ import {
 import type { JobProfileViewModel } from "@/lib/directory-view-models"
 import { cn } from "@/lib/utils"
 
-export type { OutlookPostPayload } from "@/features/outlooks/use-job-outlook-controller"
-import type { OutlookPostPayload } from "@/features/outlooks/use-job-outlook-controller"
-
 type OutlookScreenTab = "preview" | "advanced"
 
 interface ThreeWeekOutlookTabProps {
   job: JobProfileViewModel
   userId: string
   companies?: Array<{ id: string; name: string }>
-  onPostUpdate?: (payload: OutlookPostPayload) => void
   mode?: "embedded" | "full"
   onSeeFullOutlook?: () => void
 }
@@ -43,11 +39,10 @@ export function ThreeWeekOutlookTab({
   job,
   userId,
   companies = [],
-  onPostUpdate,
   mode = "full",
   onSeeFullOutlook,
 }: ThreeWeekOutlookTabProps) {
-  const controller = useJobOutlookController({ job, userId, onPostUpdate })
+  const controller = useJobOutlookController({ job, userId })
 
   if (controller.loading) {
     return mode === "embedded" ? <EmbeddedOutlookSkeleton /> : <FullOutlookSkeleton />
@@ -95,14 +90,14 @@ function DedicatedOutlookScreen({
     scheduled,
     latestVersion,
     saving,
-    generatingPdf,
+    publishing,
     error,
     notice,
-    canPostUpdate,
+    hasPdf,
     persist,
     selectWindowStart,
-    generatePdf,
-    postLatestVersion,
+    viewLatestPdf,
+    shareLatestPdf,
   } = controller
   const [activeTab, setActiveTab] = useState<OutlookScreenTab>("preview")
   const [quickUpdateOpen, setQuickUpdateOpen] = useState(false)
@@ -156,12 +151,11 @@ function DedicatedOutlookScreen({
   const actions = buildActions({
     activeTab,
     saving,
-    generatingPdf,
-    canPublish: activeTab === "advanced" ? advancedScheduled.canPublish : scheduled.canPublish,
-    canPostUpdate,
+    publishing,
+    hasPdf,
     onQuickUpdate: () => setQuickUpdateOpen(true),
-    onGeneratePdf: () => void generatePdf(activeTab === "advanced" ? advancedDrafts : scheduled.tasks).catch(() => {}),
-    onPostUpdate: postLatestVersion,
+    onViewPdf: viewLatestPdf,
+    onShare: () => void shareLatestPdf().catch(() => {}),
   })
   const visibleIssues = activeTab === "advanced" ? advancedScheduled.issues : scheduled.issues
 
@@ -191,7 +185,7 @@ function DedicatedOutlookScreen({
         <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.045] px-3 py-2 text-[9px] text-emerald-100/72">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/75" />
           Published version {latestVersion.versionNumber}
-          <span className="ml-auto text-muted-foreground/48">{latestVersion.pdf ? "PDF ready" : "PDF can be regenerated"}</span>
+          <span className="ml-auto text-muted-foreground/48">{latestVersion.pdf ? "PDF posted to Comms" : "PDF publishing"}</span>
         </div>
       )}
       {error && <p className="rounded-xl border border-orange-400/25 bg-orange-400/[0.07] px-3.5 py-3 text-xs leading-5 text-orange-100/85" role="alert">{error}</p>}
@@ -342,32 +336,30 @@ function updatedLabel(value: Date | null): string {
 function buildActions({
   activeTab,
   saving,
-  generatingPdf,
-  canPublish,
-  canPostUpdate,
+  publishing,
+  hasPdf,
   onQuickUpdate,
-  onGeneratePdf,
-  onPostUpdate,
+  onViewPdf,
+  onShare,
 }: {
   activeTab: OutlookScreenTab
   saving: boolean
-  generatingPdf: boolean
-  canPublish: boolean
-  canPostUpdate: boolean
+  publishing: boolean
+  hasPdf: boolean
   onQuickUpdate: () => void
-  onGeneratePdf: () => void
-  onPostUpdate: () => void
+  onViewPdf: () => void
+  onShare: () => void
 }): OutlookAction[] {
   if (activeTab === "advanced") {
     return [
-      { id: "pdf", label: generatingPdf ? "Generating..." : "Generate PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onGeneratePdf, disabled: saving || generatingPdf || !canPublish },
-      { id: "post", label: "Post update", icon: <Send className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPostUpdate, disabled: !canPostUpdate || saving || generatingPdf, tone: "accent" },
+      { id: "view", label: "View PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onViewPdf, disabled: saving || publishing || !hasPdf },
+      { id: "share", label: "Share", icon: <Share2 className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onShare, disabled: saving || publishing || !hasPdf, tone: "accent" },
     ]
   }
   return [
     { id: "quick", label: "Quick update", icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onQuickUpdate },
-    { id: "pdf", label: generatingPdf ? "Generating..." : "Generate PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onGeneratePdf, disabled: saving || generatingPdf || !canPublish },
-    { id: "post", label: "Post update", icon: <Send className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onPostUpdate, disabled: !canPostUpdate || saving || generatingPdf, tone: "accent" },
+    { id: "view", label: "View PDF", icon: <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onViewPdf, disabled: saving || publishing || !hasPdf },
+    { id: "share", label: "Share", icon: <Share2 className="h-3.5 w-3.5" strokeWidth={1.8} />, onClick: onShare, disabled: saving || publishing || !hasPdf, tone: "accent" },
   ]
 }
 
