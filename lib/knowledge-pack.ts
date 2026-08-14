@@ -68,13 +68,16 @@ function buildExcerpt(content: string, maxLength = 280): string {
   return `${lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut}…`
 }
 
-/** Drops the leading YAML frontmatter block (`---\n...\n---`), if present. */
+/** Drops the leading YAML frontmatter block (`---\n...\n---`), if present.
+ * Matches the closing fence as its own whole line, not a `---` substring
+ * anywhere in the raw text — a folded scalar value (e.g. `audit_note: >`)
+ * could otherwise contain a `---` that isn't the real closing fence. */
 function stripFrontmatter(raw: string): string {
-  if (!raw.startsWith("---")) return raw
-  const end = raw.indexOf("\n---", 3)
-  if (end === -1) return raw
-  const afterFence = raw.indexOf("\n", end + 4)
-  return afterFence === -1 ? "" : raw.slice(afterFence + 1)
+  const lines = raw.split("\n")
+  if (lines[0]?.trim() !== "---") return raw
+  const closeIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
+  if (closeIndex === -1) return raw
+  return lines.slice(closeIndex + 1).join("\n")
 }
 
 /** Trims a chunk's own trailing `---` horizontal-rule separator and blank lines. */
@@ -92,6 +95,23 @@ function trimChunkBody(lines: string[]): string {
 export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
   const lines = stripFrontmatter(raw).split("\n")
   const chunks: KnowledgeChunk[] = []
+  const usedIds = new Set<string>()
+
+  /** Guarantees a unique id even when two subsection titles slugify to the
+   * same (or an empty) string — `slug || fallback` alone can't do this
+   * because the fallback is only reachable when the whole templated string
+   * is falsy, which it never is. */
+  function uniqueId(base: string): string {
+    if (!usedIds.has(base)) {
+      usedIds.add(base)
+      return base
+    }
+    let suffix = 2
+    while (usedIds.has(`${base}-${suffix}`)) suffix += 1
+    const id = `${base}-${suffix}`
+    usedIds.add(id)
+    return id
+  }
 
   let sectionNumber: string | null = null
   let sectionTitle = ""
@@ -143,7 +163,7 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
       flushSection()
       sectionNumber = level1Match[1]!
       sectionTitle = level1Match[2]!
-      sectionId = `sec-${sectionNumber}`
+      sectionId = uniqueId(`sec-${sectionNumber}`)
       sectionLines = []
       continue
     }
@@ -152,7 +172,8 @@ export function parseKnowledgePackMarkdown(raw: string): KnowledgeChunk[] {
     if (level2Match) {
       flushSub()
       subTitle = level2Match[1]!
-      subId = `${sectionId}-${slugify(subTitle)}` || `${sectionId}-section`
+      const slug = slugify(subTitle)
+      subId = uniqueId(slug ? `${sectionId}-${slug}` : `${sectionId}-section`)
       subLines = []
       continue
     }
@@ -206,9 +227,16 @@ function normalize(value: string): string {
 }
 
 export function tokenizeKnowledgeQuery(value: string): string[] {
-  return normalize(value)
+  const tokens = normalize(value)
     .split(/[^a-z0-9]+/)
     .filter((token) => token.length >= 2 && !STOP_WORDS.has(token))
+  // "svc" appears in almost every chunk's content (it's the company name), so
+  // on its own it isn't a useful discriminator once the query has any other
+  // real term — dropping it here matches the old company-knowledge.ts scorer
+  // this module replaced, and keeps a query like "svc clocking" behaving the
+  // same as a plain "clocking" query instead of diluting scores toward
+  // whichever chunks merely happen to say "SVC" more often.
+  return tokens.length > 1 ? tokens.filter((token) => token !== "svc") : tokens
 }
 
 function hasToken(haystackTokens: Set<string>, token: string): boolean {
@@ -250,8 +278,16 @@ export function searchKnowledgeChunks(query: string, limit: number): ScoredKnowl
     return { chunk, score }
   })
 
-  return scored
-    .filter((entry) => entry.score >= MIN_RELEVANCE_SCORE)
-    .sort((first, second) => second.score - first.score || first.chunk.title.localeCompare(second.chunk.title))
-    .slice(0, Math.max(0, limit))
+  const ranked = scored.sort(
+    (first, second) => second.score - first.score || first.chunk.title.localeCompare(second.chunk.title),
+  )
+  // A flat absolute floor alone lets a chunk that only weakly matches (one
+  // content-only hit) ride along in the same result set as a chunk that's
+  // clearly what the question is about. Requiring every result to also be
+  // within 60% of the top score — mirroring the relative threshold
+  // `lib/company-knowledge.ts` used before this module replaced its data
+  // source — keeps a strong single match from being diluted by unrelated
+  // filler once a limit > 1 is requested.
+  const relevanceThreshold = Math.max(MIN_RELEVANCE_SCORE, (ranked[0]?.score ?? 0) * 0.6)
+  return ranked.filter((entry) => entry.score >= relevanceThreshold).slice(0, Math.max(0, limit))
 }

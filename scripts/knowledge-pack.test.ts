@@ -47,6 +47,14 @@ Beta top-level text, mentions widgets too.
 ## Beta sub with content
 
 Beta sub body.
+
+## !!!
+
+First symbol-only-titled subsection.
+
+## ???
+
+Second symbol-only-titled subsection (also slugifies to empty).
 `
 
 test("parseKnowledgePackMarkdown: skips the banner title and frontmatter", () => {
@@ -106,6 +114,19 @@ test("parseKnowledgePackMarkdown: ids are stable and namespaced by section numbe
   assert.ok(chunks.some((chunk) => chunk.id === "sec-2-beta-sub-with-content"))
 })
 
+test("parseKnowledgePackMarkdown: two subsections that both slugify to empty/the same string still get distinct, stable ids", () => {
+  const chunks = parseKnowledgePackMarkdown(FIXTURE)
+  const symbolChunks = chunks.filter((chunk) => chunk.parentId === "sec-2" && chunk.title.match(/^[!?]+$/))
+  assert.equal(symbolChunks.length, 2)
+  const ids = symbolChunks.map((chunk) => chunk.id)
+  assert.equal(new Set(ids).size, 2, `expected two distinct ids, got ${ids.join(", ")}`)
+})
+
+test("tokenizeKnowledgeQuery: drops the near-universal 'svc' token once the query has another real term, but keeps it alone", () => {
+  assert.deepEqual(tokenizeKnowledgeQuery("svc clocking"), ["clocking"])
+  assert.deepEqual(tokenizeKnowledgeQuery("svc"), ["svc"])
+})
+
 test("tokenizeKnowledgeQuery: strips stopwords, case, and diacritics; keeps short meaningful tokens", () => {
   assert.deepEqual(tokenizeKnowledgeQuery("What is the Outlook AI?"), ["outlook", "ai"])
   assert.deepEqual(tokenizeKnowledgeQuery("Clocking"), ["clocking"])
@@ -142,6 +163,15 @@ test("real knowledge pack: a clocking question surfaces clocking content, not an
   const results = searchKnowledgeChunks("how does clocking in and out work", 3)
   assert.ok(results.length > 0)
   assert.ok(results.some((entry) => entry.chunk.id.startsWith("sec-11")))
+})
+
+test("real knowledge pack: every returned result stays within 60% of the top score, even with a generous limit", () => {
+  const results = searchKnowledgeChunks("what is a 3-week outlook and how do I create one", 10)
+  assert.ok(results.length > 0)
+  const topScore = results[0]!.score
+  for (const entry of results) {
+    assert.ok(entry.score >= topScore * 0.6, `chunk "${entry.chunk.id}" scored ${entry.score}, below 60% of top score ${topScore}`)
+  }
 })
 
 test("real knowledge pack: an irrelevant query returns nothing rather than a weak guess", () => {
