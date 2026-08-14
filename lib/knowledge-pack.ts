@@ -231,20 +231,60 @@ export function tokenizeKnowledgeQuery(value: string): string[] {
     .split(/[^a-z0-9]+/)
     .filter((token) => token.length >= 2 && !STOP_WORDS.has(token))
   // "svc" appears in almost every chunk's content (it's the company name), so
-  // on its own it isn't a useful discriminator once the query has any other
-  // real term — dropping it here matches the old company-knowledge.ts scorer
-  // this module replaced, and keeps a query like "svc clocking" behaving the
-  // same as a plain "clocking" query instead of diluting scores toward
-  // whichever chunks merely happen to say "SVC" more often.
-  return tokens.length > 1 ? tokens.filter((token) => token !== "svc") : tokens
-}
-
-function hasToken(haystackTokens: Set<string>, token: string): boolean {
-  return haystackTokens.has(token)
+  // on its own it isn't a useful discriminator once the query has other real
+  // terms alongside it — dropping it there keeps a query like "svc clocking"
+  // behaving the same as a plain "clocking" query. But when "svc" and at most
+  // one other word are all that's left (e.g. "what does SVC stand for?" ->
+  // "svc", "stand"), "svc" usually *is* the actual subject of the question,
+  // not noise to discard — keep it in that case.
+  return tokens.length > 2 ? tokens.filter((token) => token !== "svc") : tokens
 }
 
 function tokenSet(value: string): Set<string> {
   return new Set(tokenizeKnowledgeQuery(value))
+}
+
+/**
+ * Cheap singular/plural tolerance without a stemming library or dictionary:
+ * also try the token with a trailing "s" added or removed (e.g. "stand" /
+ * "stands", "report" / "reports"). Long-enough tokens only, to avoid
+ * nonsense variants on short words. This is what lets a natural phrasing
+ * like "what does SVC stand for" find content written as "SVC stands for...".
+ */
+function tokenVariants(token: string): string[] {
+  if (token.length < 4) return [token]
+  return token.endsWith("s") ? [token, token.slice(0, -1)] : [token, `${token}s`]
+}
+
+function hasTokenOrVariant(haystackTokens: Set<string>, token: string): boolean {
+  return tokenVariants(token).some((variant) => haystackTokens.has(variant))
+}
+
+/**
+ * True if any two adjacent tokens from `queryTokens` (in the order the user
+ * asked them, singular/plural-tolerant) also appear adjacent to each other in
+ * `contentTokens`. Catches an exact multi-word named term or fact — e.g.
+ * "Cool Breeze", "Operation Major Kong", "SVC stands for" — that only ever
+ * appears in body prose, never in any chunk's title or breadcrumb. Without
+ * this, a two-token query like "Cool Breeze" can never clear
+ * `MIN_RELEVANCE_SCORE`: each token alone only earns the flat 1-point content
+ * weight, capping the total at 2 regardless of how squarely the phrase is the
+ * actual subject of the match.
+ */
+function hasAdjacentPhraseMatch(queryTokens: string[], contentTokens: string[]): boolean {
+  if (queryTokens.length < 2 || contentTokens.length < 2) return false
+  const contentBigrams = new Set<string>()
+  for (let i = 0; i < contentTokens.length - 1; i += 1) {
+    contentBigrams.add(`${contentTokens[i]} ${contentTokens[i + 1]}`)
+  }
+  for (let i = 0; i < queryTokens.length - 1; i += 1) {
+    for (const first of tokenVariants(queryTokens[i])) {
+      for (const second of tokenVariants(queryTokens[i + 1])) {
+        if (contentBigrams.has(`${first} ${second}`)) return true
+      }
+    }
+  }
+  return false
 }
 
 const MIN_RELEVANCE_SCORE = 3
@@ -268,13 +308,17 @@ export function searchKnowledgeChunks(query: string, limit: number): ScoredKnowl
   const scored = getKnowledgeChunks().map((chunk) => {
     const titleTokens = tokenSet(chunk.title)
     const breadcrumbTokens = tokenSet(chunk.breadcrumb)
-    const contentTokens = tokenSet(chunk.content)
+    const contentTokenList = tokenizeKnowledgeQuery(chunk.content)
+    const contentTokens = new Set(contentTokenList)
     let score = 0
     for (const token of queryTokens) {
-      if (hasToken(titleTokens, token)) score += 6
-      if (hasToken(breadcrumbTokens, token)) score += 3
-      if (hasToken(contentTokens, token)) score += 1
+      if (hasTokenOrVariant(titleTokens, token)) score += 6
+      if (hasTokenOrVariant(breadcrumbTokens, token)) score += 3
+      if (hasTokenOrVariant(contentTokens, token)) score += 1
     }
+    // Reward an exact adjacent phrase in the content as strongly as a title
+    // hit — see hasAdjacentPhraseMatch's doc comment for why this matters.
+    if (hasAdjacentPhraseMatch(queryTokens, contentTokenList)) score += 6
     return { chunk, score }
   })
 

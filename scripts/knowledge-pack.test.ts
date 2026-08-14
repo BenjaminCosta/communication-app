@@ -122,8 +122,19 @@ test("parseKnowledgePackMarkdown: two subsections that both slugify to empty/the
   assert.equal(new Set(ids).size, 2, `expected two distinct ids, got ${ids.join(", ")}`)
 })
 
-test("tokenizeKnowledgeQuery: drops the near-universal 'svc' token once the query has another real term, but keeps it alone", () => {
-  assert.deepEqual(tokenizeKnowledgeQuery("svc clocking"), ["clocking"])
+test("tokenizeKnowledgeQuery: drops the near-universal 'svc' token once the query has at least two other real terms, but keeps it alone or paired with just one", () => {
+  // Three or more meaningful tokens: "svc" is noise ("svc" appears in nearly
+  // every chunk), so drop it and let the more specific terms discriminate.
+  assert.deepEqual(tokenizeKnowledgeQuery("svc clocking hours today"), ["clocking", "hours", "today"])
+  // Exactly one other token: "svc" is very often the actual subject of a
+  // short self-referential question ("what does SVC stand for", "what is
+  // SVC"), not noise to discard — keep it. (Regression coverage for a real
+  // production incident: this query used to tokenize to just ["stand"],
+  // which — combined with "stands" vs "stand" never matching without the
+  // singular/plural tolerance below — meant "What does SVC stand for?"
+  // silently found nothing.)
+  assert.deepEqual(tokenizeKnowledgeQuery("svc clocking"), ["svc", "clocking"])
+  assert.deepEqual(tokenizeKnowledgeQuery("what does svc stand for"), ["svc", "stand"])
   assert.deepEqual(tokenizeKnowledgeQuery("svc"), ["svc"])
 })
 
@@ -189,4 +200,35 @@ test("real knowledge pack: the Outlook work-in-progress callout is retrievable a
 
 test("real knowledge pack: getKnowledgeChunkById returns null for an unknown id instead of throwing", () => {
   assert.equal(getKnowledgeChunkById("sec-does-not-exist"), null)
+})
+
+// --- Regression coverage for a real incident (2026-08-14): "Cool Breeze" and
+// "Operation Major Kong" only ever appear in body prose, never in a chunk
+// title/breadcrumb, so a two-token query for either originally scored below
+// MIN_RELEVANCE_SCORE and returned nothing — even though the exact phrase is
+// right there in the document. ---
+
+test("real knowledge pack: a named-term query that only appears in body prose ('Cool Breeze') still surfaces the section that defines it", () => {
+  const results = searchKnowledgeChunks("Cool Breeze", 5)
+  assert.ok(results.length > 0, "expected at least one result for 'Cool Breeze'")
+  assert.ok(
+    results.some((entry) => entry.chunk.id === "sec-2-organizational-language"),
+    `expected sec-2-organizational-language among results, got: ${results.map((r) => r.chunk.id).join(", ")}`,
+  )
+})
+
+test("real knowledge pack: 'Operation Major Kong' (body-prose-only phrase) is findable", () => {
+  const results = searchKnowledgeChunks("Operation Major Kong", 8)
+  assert.ok(results.length > 0, "expected at least one result for 'Operation Major Kong'")
+})
+
+test("real knowledge pack: a natural self-referential question ('what does SVC stand for') finds the company-identity section", () => {
+  for (const query of ["What does SVC stand for?", "what is SVC", "SVC stand for"]) {
+    const results = searchKnowledgeChunks(query, 5)
+    assert.ok(results.length > 0, `expected at least one result for "${query}"`)
+    assert.ok(
+      results.some((entry) => entry.chunk.id === "sec-2-what-svc-is"),
+      `expected sec-2-what-svc-is among results for "${query}", got: ${results.map((r) => r.chunk.id).join(", ")}`,
+    )
+  }
 })
