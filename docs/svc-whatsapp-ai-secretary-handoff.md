@@ -4,6 +4,119 @@ _Last updated: 2026-08-13. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## Company Knowledge integration (2026-08-13, same day)
+
+Prior work in this file (below) built the read orchestrator's **live-data**
+side — Directory, Quest Coral, Applications, Reports, Clocking, Outlooks. The
+**stable-knowledge** side was still a small, separately-maintained set of 5
+hand-written entries in a Firestore `companyKnowledge` collection
+(`lib/company-knowledge.ts`, seeded by
+`scripts/seed-company-knowledge.ts`/`configure-company-knowledge-access.ts`),
+folded once into the system prompt with no way for the model to search
+further. Separately, a full audit pass produced
+`SVC_AI_Secretary_Canonical_Knowledge_Pack.md` (repo root) — a much larger,
+code-verified, CONFIRMED/PRODUCT DIRECTION/NEEDS VERIFICATION-labeled
+knowledge document covering every module in depth. This change makes that
+document the Secretary's actual knowledge source, retrieved properly instead
+of either dumped whole into every prompt or left unused.
+
+**What changed:**
+
+- **`lib/knowledge-pack.ts`** (new) parses
+  `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` into ~90 searchable chunks —
+  one "broad" chunk per top-level `# N. Title` section (its full text,
+  including nested `##` subsections) and one "narrow" chunk per `##`
+  subsection — and provides presence-based keyword scoring over them
+  (title/breadcrumb-weighted, same style the old Firestore entries used).
+  `###`-level headings (used only for the CONFIRMED/PRODUCT
+  DIRECTION/NEEDS VERIFICATION labels) are not separate chunks, so that
+  status wording stays embedded verbatim in whichever chunk contains it — the
+  whole point is that the model sees it, not that it gets parsed away. The
+  file is read via `readFileSync(path.join(process.cwd(), ...))`, which
+  Next.js's output file tracing picked up automatically — confirmed present
+  in `.next/server/app/api/whatsapp/webhook/route.js.nft.json` after a real
+  `pnpm build`, so it deploys correctly to Vercel, not just `pnpm dev`.
+  Parsed chunks are cached per warm server instance.
+- **`lib/company-knowledge.ts`** (rewritten in place, same exported
+  `findRelevantCompanyKnowledge()` signature — zero changes needed in
+  `orchestrator.ts`, `prompt.ts`, or `route.ts`) now sources its always-on
+  prefetch (3 chunks, folded directly into the system prompt before the tool
+  loop starts — Directory's own "deterministic prefetch, then tool-calling"
+  pattern) from `lib/knowledge-pack.ts` instead of Firestore. A public/
+  unidentified sender still always gets exactly one small, hand-written safe
+  entry (unchanged in spirit, refreshed in wording), regardless of what they
+  ask — there is no scenario where an unrecognized number gets zero
+  knowledge context anymore.
+- **`lib/whatsapp-secretary/tools/knowledge.ts`** (new) adds two tools —
+  `knowledge_search` (short excerpts + section ids) and
+  `knowledge_getSection` (one section's full text, up to 3,000 characters) —
+  mirroring Directory's own search-then-getEntityDetails shape. This is what
+  lets the model go deeper than the 3-chunk prefetch when a question needs a
+  different section, a fuller tutorial, or more than the guessed-relevant
+  slice.
+- **`lib/whatsapp-secretary/tool-registry.ts`**: `"knowledge"` is a new
+  `SecretaryModule`, but deliberately gated by the existing
+  `accessPolicy.companyKnowledgeScope === "internal"` check rather than a new
+  per-module boolean — that field already exactly encoded public/internal for
+  knowledge purposes, so no change to `WhatsAppAccessPolicy`'s shape was
+  needed. A public sender still gets no tools at all (unchanged), just the
+  one fixed prompt entry.
+- **`lib/whatsapp-secretary/orchestrator.ts`**: `knowledge: createKnowledgeTools`
+  added to `DEFAULT_TOOL_FACTORIES` — the only change needed to wire it into
+  the real tool loop.
+- **`lib/whatsapp-secretary/prompt.ts`**: the base prompt now explicitly
+  frames Company Knowledge ("how SVC/its apps work — call knowledge_search/
+  knowledge_getSection") versus Live Data ("what's happening right now — the
+  other tools") as two deliberately different sources, instructs combining
+  both when a question needs both, and requires the model to relay a
+  section's CONFIRMED/PRODUCT DIRECTION/NEEDS VERIFICATION or in-progress/WIP
+  wording faithfully rather than flattening it into confident prose. The
+  prefetched knowledge block's prompt label now says "a quick-reference
+  starting point, not exhaustive" instead of implying it's the complete
+  answer.
+- **Retired**: `scripts/seed-company-knowledge.ts` and
+  `scripts/configure-company-knowledge-access.ts` (both only ever populated
+  the now-unread Firestore `companyKnowledge` collection — deleted rather
+  than left as dead scripts implying a data flow that no longer exists; the
+  collection itself was left alone in Firestore, just orphaned/unread, since
+  deleting production data wasn't part of this change).
+
+**Explicitly out of scope for this pass** (per the request): no new write
+capability; the Daily Report draft action is untouched; Messages/
+Communications access is still structurally impossible (the `"knowledge"`
+module name doesn't match the Messages/comms guard, and no knowledge chunk
+can grant a tool that isn't already registered); the uncommitted Outlook→
+Communications auto-broadcast work identified in the knowledge audit was not
+touched — the knowledge pack itself documents it as unshipped WIP (§8), and
+the Secretary now retrieves that exact section verbatim when relevant, so it
+will correctly tell a user the auto-broadcast isn't shipped rather than
+guessing either way.
+
+**Testing**: `pnpm test:whatsapp-secretary` grew from 87 to 125 tests, across
+5 new files — `scripts/knowledge-pack.test.ts` (parser correctness on a
+synthetic fixture + integration checks against the real file: chunk counts,
+ranking, that the Outlook WIP callout's wording survives parsing verbatim),
+`scripts/company-knowledge.test.ts` (public-scope safety/consistency,
+internal-scope relevance and the current-message → conversation-wide query
+fallback), `scripts/whatsapp-secretary-knowledge-tools.test.ts` (budget
+handling, empty/unknown-id paths, a real-file end-to-end smoke test), plus
+additive tests in `whatsapp-secretary-tool-registry.test.ts` (scope gating)
+and `whatsapp-secretary-orchestrator.test.ts` (real `DEFAULT_TOOL_FACTORIES`
+wiring, not just a test double). A new
+**`scripts/whatsapp-secretary-knowledge-scenarios.test.ts`** exercises the
+real orchestrator end-to-end (real knowledge tools + a scripted fake model
+playing a plausible tool-call sequence, since this offline suite has no
+Firebase Admin credentials for the live-data tools or a real OpenAI key) for
+each scenario category the integration was meant to cover: knowledge-only,
+live-data-only, knowledge+live-data combined, cross-module, follow-up memory,
+and a real retrieval of the pack's own NEEDS VERIFICATION section (the "Cool
+Breeze" caveat) proving uncertainty is actually surfaced, not invented past.
+This proves the plumbing end-to-end; it does not prove a live GPT model would
+choose the same tool sequence — that still needs the manual WhatsApp
+checklist below after deploying.
+
+`pnpm exec tsc --noEmit`, `pnpm build`, and `pnpm verify:fast` all pass.
+
 ## Read orchestrator upgrade (2026-08-12, same day)
 
 The reading side of the Secretary was rebuilt from a fixed-slice, single-shot
@@ -337,8 +450,8 @@ service or backend.
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; structurally blocks any Messages/Communications tool name. |
-| Company knowledge | `lib/company-knowledge.ts` | Curated, scoped Firebase knowledge retrieval (unchanged, folded into the system prompt outside the tool loop). |
-| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. |
+| Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over `SVC_AI_Secretary_Canonical_Knowledge_Pack.md`. A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
+| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. |
 | Usage guard | `lib/whatsapp-secretary/usage-guard.ts` | Per-identified-sender rolling rate limit over `whatsappSecretaryAiUsage` (mirrors `directoryAiUsage`). |
 | First write action | `lib/whatsapp-daily-report-drafts.ts` | Preview / confirm / cancel flow, using the established ByeByeDPR `/reports` document shape. Unchanged by the read-orchestrator work. |
 
@@ -537,9 +650,13 @@ Recognized internal users get a tool-calling orchestrator (see the "Read
 orchestrator upgrade" section above) that can call any of these, in
 combination, in one turn:
 
-- **Company Knowledge:** curated entries about SVC, apps, processes, onboarding,
-  and FAQs. Public users receive only public entries. (Not a tool — folded
-  into the prompt directly, unchanged.)
+- **Company Knowledge:** the full `SVC_AI_Secretary_Canonical_Knowledge_Pack.md`
+  (company overview, every module's purpose/tutorials/terminology, cross-module
+  workflows), retrieved via scored search rather than one fixed slice. A small
+  prefetch is folded into the prompt for every internal question; `knowledge_search`/
+  `knowledge_getSection` let the model retrieve a different or deeper section on
+  demand. Public users still get exactly one small, fixed, safe entry and no
+  knowledge tools at all.
 - **Directory:** the full tool stack — people, companies, jobs, contexts,
   relationships, connecting paths, shared contacts/jobs, and free-text notes
   (`searchRelevantNotes`, no longer excluded — see the 2026-08-12 "Directory
@@ -684,6 +801,7 @@ the existing unambiguous confirmation contract.
 
 ## Related documentation
 
+- [SVC AI Secretary Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — the Company Knowledge source `lib/knowledge-pack.ts` parses and retrieves from.
 - [ByeByeDPR product context](./svc-bye-bye-dpr-product-context.md)
 - [ByeByeDPR module context](./svc-bye-bye-dpr-module.md)
 - [SVC project context for AI agents](./svc-project-context-for-ai-agents.md)

@@ -181,6 +181,27 @@ test("returns the AiError's user-safe message instead of throwing, and fails the
   assert.equal(failCalls, 1)
 })
 
+test("real default tool factories construct successfully and include the knowledge tools for an internal sender", async () => {
+  const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  const capture: { input?: FakeRunConversationInput } = {}
+  const guard = { acquire: async () => fakeAcquiredRequest(), complete: async () => undefined, fail: async () => undefined }
+
+  // Deliberately omits `toolFactories` so every module's REAL factory
+  // (`DEFAULT_TOOL_FACTORIES` in orchestrator.ts) is exercised, proving the
+  // knowledge module is actually wired in end-to-end, not just reachable
+  // through a test double. `runConversation` is still faked so no real
+  // OpenAI/Firestore call happens — only tool *construction* (name/schema),
+  // never `.run()`, is exercised here.
+  await answerWhatsAppSecretaryQuestion(
+    { recentMessages: [{ role: "user", content: "how does clocking work" }], senderIdentity: identifiedIdentity, accessPolicy: access, companyKnowledge: [] },
+    { runConversation: fakeRunConversation("ok", capture) as never, usageGuard: guard },
+  )
+
+  const toolNames = capture.input?.tools.map((tool) => tool.function.name) ?? []
+  assert.ok(toolNames.includes("knowledge_search"), `expected knowledge_search among: ${toolNames.join(", ")}`)
+  assert.ok(toolNames.includes("knowledge_getSection"))
+})
+
 test("re-throws an unexpected (non-AiError) failure after failing the guard lease", async () => {
   const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
   let failCalls = 0

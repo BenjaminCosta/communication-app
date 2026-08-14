@@ -16,8 +16,11 @@ import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
  */
 
 /** The only modules this registry may ever aggregate. Messages/Communications
- * has no entry here and never can — see {@link assertNoMessagesTools}. */
-export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks"
+ * has no entry here and never can — see {@link assertNoMessagesTools}.
+ * `"knowledge"` is the stable Company Knowledge tools (§ below), not a live
+ * SVC data source — it is gated by `companyKnowledgeScope`, not one of the
+ * per-module `canRead*` flags, since it is not module-specific data. */
+export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge"
 
 /**
  * Bounded tool output. `data` is a compact, module-specific JSON shape (e.g. a
@@ -106,6 +109,11 @@ export function buildToolRegistry(
     ...(accessPolicy.canReadReports ? (["reports"] as const) : []),
     ...(accessPolicy.canReadClocking ? (["clocking"] as const) : []),
     ...(accessPolicy.canReadOutlooks ? (["outlooks"] as const) : []),
+    // Public senders already get a small fixed knowledge slice folded
+    // directly into the prompt (`lib/company-knowledge.ts`) with no tool
+    // loop at all — see `companyKnowledgeScope`'s doc comment. Deeper,
+    // searchable knowledge access is an internal-only capability.
+    ...(accessPolicy.companyKnowledgeScope === "internal" ? (["knowledge"] as const) : []),
   ]
 
   const tools: SecretaryTool[] = []

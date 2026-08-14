@@ -104,3 +104,14 @@ test("runSecretaryTool returns a structured error for invalid arguments instead 
   assert.equal(result.empty, true)
   assert.match(result.summary, /Invalid arguments/)
 })
+
+test("the knowledge module is gated by companyKnowledgeScope, not a canRead* flag", () => {
+  const internalAccess = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  const publicAccess = resolveWhatsAppAccessPolicy(null)
+  const factoriesWithKnowledge: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
+    knowledge: () => [fakeTool("knowledge_fakeSearch", "knowledge", 1)],
+  }
+
+  assert.ok(buildToolRegistry(internalAccess, factoriesWithKnowledge).has("knowledge_fakeSearch"))
+  assert.equal(buildToolRegistry(publicAccess, factoriesWithKnowledge).size, 0)
+})

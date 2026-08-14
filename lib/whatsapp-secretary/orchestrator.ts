@@ -29,6 +29,7 @@ import { createApplicationsTools } from "@/lib/whatsapp-secretary/tools/applicat
 import { createReportsTools } from "@/lib/whatsapp-secretary/tools/reports"
 import { createClockingTools } from "@/lib/whatsapp-secretary/tools/clocking"
 import { createOutlooksTools } from "@/lib/whatsapp-secretary/tools/outlooks"
+import { createKnowledgeTools } from "@/lib/whatsapp-secretary/tools/knowledge"
 import {
   createWhatsAppSecretaryPresentation,
   type WhatsAppOutgoingReply,
@@ -56,6 +57,7 @@ const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
   reports: createReportsTools,
   clocking: createClockingTools,
   outlooks: createOutlooksTools,
+  knowledge: createKnowledgeTools,
 }
 
 export interface WhatsAppSecretaryAnswerInput {

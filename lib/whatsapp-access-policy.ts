@@ -13,6 +13,11 @@ export type CompanyKnowledgeAccessScope = "public" | "internal"
 export type WhatsAppAccessPolicy = {
   level: "public" | "internal"
   principal: "anonymous" | "identified"
+  /** Selects the baseline knowledge slice folded into the prompt
+   * (`lib/company-knowledge.ts`) and, when `"internal"`, also gates the
+   * deeper `knowledge_search`/`knowledge_getSection` tools
+   * (`lib/whatsapp-secretary/tool-registry.ts`). A public sender never gets
+   * the knowledge tools — only the small fixed public entry in the prompt. */
   companyKnowledgeScope: CompanyKnowledgeAccessScope
   canReadDirectory: boolean
   canReadQuestCoral: boolean
