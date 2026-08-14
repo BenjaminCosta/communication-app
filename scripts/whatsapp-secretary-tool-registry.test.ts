@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { z } from "zod"
 import {
-  assertNoMessagesTools,
+  assertOnlyAllowedMessagesTools,
   buildToolRegistry,
   runSecretaryTool,
   toolSpecs,
@@ -63,17 +63,37 @@ test("toolSpecs produces OpenAI-shaped function specs", () => {
   assert.ok(specs.every((spec) => spec.type === "function" && typeof spec.function.name === "string"))
 })
 
-test("a Messages/Communications tool name is structurally rejected before it can reach OpenAI", () => {
+test("an unreviewed Messages/Communications-shaped tool name is still structurally rejected", () => {
   assert.throws(() => {
-    assertNoMessagesTools([fakeTool("messages_search", "directory", 1)])
+    assertOnlyAllowedMessagesTools([fakeTool("messages_search", "directory", 1)])
   }, /Messages\/Communications/)
   assert.throws(() => {
-    assertNoMessagesTools([fakeTool("comms_summarize", "directory", 1)])
+    assertOnlyAllowedMessagesTools([fakeTool("comms_summarize", "directory", 1)])
   })
   // A real module name must not accidentally match the guard.
   assert.doesNotThrow(() => {
-    assertNoMessagesTools([fakeTool("directory_searchCompanies", "directory", 1)])
+    assertOnlyAllowedMessagesTools([fakeTool("directory_searchCompanies", "directory", 1)])
   })
+})
+
+test("the two reviewed Messages tools are explicitly allowed through the same guard", () => {
+  assert.doesNotThrow(() => {
+    assertOnlyAllowedMessagesTools([
+      fakeTool("messages_searchOperationalHistory", "messages", 1),
+      fakeTool("messages_searchMyCommunications", "messages", 1),
+    ])
+  })
+})
+
+test("the messages module is gated by canReadMessages, like every other per-module flag", () => {
+  const internalAccess = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  const publicAccess = resolveWhatsAppAccessPolicy(null)
+  const factoriesWithMessages: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
+    messages: () => [fakeTool("messages_searchOperationalHistory", "messages", 1)],
+  }
+
+  assert.ok(buildToolRegistry(internalAccess, factoriesWithMessages).has("messages_searchOperationalHistory"))
+  assert.equal(buildToolRegistry(publicAccess, factoriesWithMessages).size, 0)
 })
 
 test("the shared budget is decremented consistently across calls into different modules", async () => {

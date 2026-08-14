@@ -15,12 +15,13 @@ import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
  * documents and never a whole collection.
  */
 
-/** The only modules this registry may ever aggregate. Messages/Communications
- * has no entry here and never can — see {@link assertNoMessagesTools}.
- * `"knowledge"` is the stable Company Knowledge tools (§ below), not a live
- * SVC data source — it is gated by `companyKnowledgeScope`, not one of the
- * per-module `canRead*` flags, since it is not module-specific data. */
-export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge"
+/** The only modules this registry may ever aggregate. `"knowledge"` is the
+ * stable Company Knowledge tools (§ below), not a live SVC data source — it
+ * is gated by `companyKnowledgeScope`, not one of the per-module `canRead*`
+ * flags, since it is not module-specific data. `"messages"` is the
+ * Communications read layer (`lib/whatsapp-secretary/tools/messages.ts`) —
+ * see {@link ALLOWED_MESSAGES_TOOL_NAMES} for why it's still name-guarded. */
+export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge" | "messages"
 
 /**
  * Bounded tool output. `data` is a compact, module-specific JSON shape (e.g. a
@@ -71,20 +72,28 @@ function emptyResult(summary: string): SecretaryToolResult {
 }
 
 /**
- * Structural, not just prompt-level, exclusion of Messages/Communications: no
- * tool with a name matching this pattern may ever reach OpenAI. This is
- * defense-in-depth — the primary control is that no file under
- * `lib/whatsapp-secretary/tools/` imports anything Messages-related, so the
- * capability does not exist in code. This assertion catches a future
- * accidental addition before it ships.
+ * Messages/Communications access used to be structurally impossible — any
+ * tool name matching this pattern was rejected outright. It is now a
+ * reviewed, deliberate capability (`lib/whatsapp-secretary/tools/messages.ts`),
+ * with its own privacy split baked into the tools themselves: automatic
+ * operational messages are open to any internal sender, but human-written
+ * messages are only ever read through a query hard-scoped server-side to the
+ * requesting sender's own `visibleToUserIds` — see that file for the actual
+ * enforcement, which cannot be expressed as a name-pattern check here.
+ *
+ * This guard keeps the original defense-in-depth intent for everything else:
+ * no *other* module may ever introduce a Messages/Communications-shaped tool
+ * by accident. Only the two names below are allowed to match the pattern.
  */
 const FORBIDDEN_TOOL_NAME_PATTERN = /message|comms?/i
 
-export function assertNoMessagesTools(tools: SecretaryTool[]): void {
+const ALLOWED_MESSAGES_TOOL_NAMES = new Set(["messages_searchOperationalHistory", "messages_searchMyCommunications"])
+
+export function assertOnlyAllowedMessagesTools(tools: SecretaryTool[]): void {
   for (const tool of tools) {
-    if (FORBIDDEN_TOOL_NAME_PATTERN.test(tool.name)) {
+    if (FORBIDDEN_TOOL_NAME_PATTERN.test(tool.name) && !ALLOWED_MESSAGES_TOOL_NAMES.has(tool.name)) {
       throw new Error(
-        `WhatsApp Secretary tool registry must never expose a Messages/Communications tool (found "${tool.name}").`,
+        `WhatsApp Secretary tool registry only allows the reviewed Messages/Communications tools (found "${tool.name}").`,
       )
     }
   }
@@ -109,6 +118,7 @@ export function buildToolRegistry(
     ...(accessPolicy.canReadReports ? (["reports"] as const) : []),
     ...(accessPolicy.canReadClocking ? (["clocking"] as const) : []),
     ...(accessPolicy.canReadOutlooks ? (["outlooks"] as const) : []),
+    ...(accessPolicy.canReadMessages ? (["messages"] as const) : []),
     // Public senders already get a small fixed knowledge slice folded
     // directly into the prompt (`lib/company-knowledge.ts`) with no tool
     // loop at all — see `companyKnowledgeScope`'s doc comment. Deeper,
@@ -122,7 +132,7 @@ export function buildToolRegistry(
     if (factory) tools.push(...factory())
   }
 
-  assertNoMessagesTools(tools)
+  assertOnlyAllowedMessagesTools(tools)
   return new Map(tools.map((tool) => [tool.name, tool]))
 }
 

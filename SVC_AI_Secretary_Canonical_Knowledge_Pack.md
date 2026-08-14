@@ -2,7 +2,7 @@
 title: "SVC AI Secretary — Canonical Company & Product Knowledge Pack"
 audience: "internal"
 language: "en"
-status: "audited-v3 / code-grounded product knowledge + restored human-confirmed company context"
+status: "audited-v3.1 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer"
 last_updated: "2026-08-14"
 purpose: "Stable company, product, workflow, and tutorial knowledge for the SVC AI Secretary"
 audit_note: >
@@ -15,7 +15,12 @@ audit_note: >
   PROJECT CONTEXT / HUMAN-CONFIRMED label (see §1), distinct from
   CODE / PRODUCT VERIFIED, without reopening any of v2's code-grounded product
   corrections. This document is also now the Secretary's actual live Company
-  Knowledge source (§13), parsed and retrieved by lib/knowledge-pack.ts.
+  Knowledge source (§13), parsed and retrieved by lib/knowledge-pack.ts. v3.1
+  (same day) documents the new Messages/Communications read layer (§13, §21) —
+  the one remaining structurally-excluded module through v3 — now a real,
+  deliberately privacy-split capability: automatic operational posts open to
+  any internal sender, human-written messages scoped to the requester's own
+  visibleToUserIds.
 ---
 
 # SVC AI Secretary — Canonical Company & Product Knowledge Pack
@@ -719,17 +724,18 @@ The stated priority order is:
 READ → UNDERSTAND → FIND → EXPLAIN → ROUTE
 ```
 
-before expanding broadly into `DO / WRITE`. The goal is for the Secretary to become excellent at finding and explaining SVC information before it becomes an automation surface for every application. This matches the current implementation closely: the only write capability anywhere is the bounded Daily Report draft flow (§10), while read access spans six modules (see "Model and orchestration" below).
+before expanding broadly into `DO / WRITE`. The goal is for the Secretary to become excellent at finding and explaining SVC information before it becomes an automation surface for every application. This matches the current implementation closely: the only write capability anywhere is the bounded Daily Report draft flow (§10), while read access spans seven modules, one of them (Messages) itself split across two different access rules (see "Model and orchestration" below).
 
 ## Access model (binary, enforced server-side)
 
 Resolved once per sender, from `lib/whatsapp-access-policy.ts`:
 
 - **Unknown/ambiguous number** → `public` scope: only curated public company-knowledge entries. No Directory, Quest Coral, Applications, Reports, Clocking, or Outlook access at all.
-- **Uniquely identified SVC person** (resolved by exact phone match against `/contacts`/`/users`, never fuzzy/suffix matching) → `internal` scope: read access across Directory, Quest Coral, Applications, ByeByeDPR reports, Clocking, and Outlooks.
+- **Uniquely identified SVC person** (resolved by exact phone match against `/contacts`/`/users`, never fuzzy/suffix matching) → `internal` scope: read access across Directory, Quest Coral, Applications, ByeByeDPR reports, Clocking, Outlooks, and Messages/Communications (with its own further split — see below).
 - **Daily Report draft creation specifically requires more than identification** — the sender must also have a *linked Firebase user id* (`canCreateDailyReportDraft`), since a report needs a real author. An identified contact without a linked account can read, but cannot create a draft.
+- **Messages/Communications is its own nested access decision**, not a flat boolean. `messages_searchOperationalHistory` (automatic, system-generated Communications posts — never human-typed text) is open to any internal sender, same as every other module. `messages_searchMyCommunications` (human-written Communications messages) is further scoped to `visibleToUserIds` — it only ever returns messages the requesting sender is already allowed to see in the app itself, resolved server-side from the access policy, never a model-supplied argument. A sender identified only by contact match (no linked Firebase user id) still gets `canReadMessages`, so the operational-history tool works for them, but the human-message tool returns an explained empty result — there is no uid to scope by.
 
-This is enforced in the backend/tool-registration layer, not merely as a prompt instruction — the tool registry structurally refuses to ever register a Messages/Communications-named tool, so Messages access isn't just discouraged, it's architecturally impossible from this path.
+This is enforced in the backend/tool-registration layer, not merely as a prompt instruction. Through 2026-08-13 the tool registry structurally refused to ever register any Messages/Communications-named tool at all. As of **2026-08-14** that exclusion was deliberately narrowed, not removed: the registry's guard (`assertOnlyAllowedMessagesTools`) still rejects any *unreviewed* tool name matching the Messages/Communications pattern — only the two tools above are allowlisted through it, and the human-message one enforces its own visibility scope in the query itself, not just in the prompt.
 
 ## Model and orchestration
 
@@ -743,6 +749,7 @@ Per-module read tools currently registered (all read-only, all bounded/paginated
 - **Reports**: per-job/global/per-author search with pagination, plus a cross-job "jobs without a recent report" tool.
 - **Clocking**: per-job history (never raw GPS, only whether a location was recorded), cross-job "most active jobs" ranking.
 - **Outlooks**: per-job task reads, cross-job "active outlooks today."
+- **Messages/Communications** (added 2026-08-14): `messages_searchOperationalHistory` reads automatic, system-generated Communications posts — 3-Week Outlook publishes, ByeByeDPR clock-in/out events, Daily Report submissions — filterable by job, date range, and category, open to any internal sender since this content is templated/factual, never human-typed. `messages_searchMyCommunications` reads human-written Communications messages, hard-scoped server-side to the requesting sender's own `visibleToUserIds` — the same ACL the Communications app itself enforces — so it can never surface another person's private message. Neither tool covers the other's content: an automatic broadcast never shows up in "my communications," and a human message never shows up in the operational feed, even though today's known Outlook-broadcast-to-everyone behavior (§8) would otherwise make a message's `visibleToUserIds` include far more people than intended.
 
 The only write capability is the ByeByeDPR **Daily Report draft** flow (§10's WhatsApp-specific rules): the user must give an exact job name plus report details, the assistant previews the structured draft, and only an explicit `CONFIRM DRAFT` (or `CONFIRM DAILY REPORT`) creates it — a bare "yes" is deliberately rejected, and repeat confirmations never create duplicates. The created report always stays `status: "draft"`; WhatsApp never submits/finalizes a report itself.
 
@@ -992,7 +999,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 7. **ByeByeDPR clock records don't actually store a location today**, even though the schema and API support one.
 8. **There is no attendance dashboard or hours-aggregation anywhere in ByeByeDPR** — it was built once and fully removed.
 9. **Supply by DPR does not exist.**
-10. **No Communications Message content or visibility beyond the recipient/visibility rules in §4.1 should ever be assumed** — the WhatsApp Secretary structurally cannot read Messages at all.
+10. **The WhatsApp Secretary's Communications access is real but narrow, as of 2026-08-14** — never assume it can see more than its two tools actually grant. `messages_searchMyCommunications` never returns a message outside the requesting sender's own `visibleToUserIds` (§4.1's rules, enforced in the query itself, not just the prompt); it cannot be asked to check someone else's messages. `messages_searchOperationalHistory` only ever returns automatic, system-generated posts, never human-written content. Don't describe either tool as a general Communications search.
 11. **Never claim WhatsApp can perform an action that only exists in the SVC app** — its only write capability anywhere is the Daily Report draft flow.
 12. **Any specific person/job/project/candidate/report/clock value is live data, not something this pack should ever hold** — always defer to a live tool for that.
 

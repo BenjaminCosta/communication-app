@@ -2,13 +2,14 @@ import "server-only"
 
 import type { DocumentData, Firestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { projectTagId } from "@/lib/store"
+import { projectTagId, type AutomaticMessageSourceModule } from "@/lib/store"
 
 const USERS_COLLECTION = "users"
 const CONTEXTS_COLLECTION = "contexts"
 const MESSAGES_COLLECTION = "messages"
 const PROJECTS_COLLECTION = "projects"
 const OUTLOOK_TAG_NAME = "3 Week Outlook"
+const OUTLOOK_SOURCE_MODULE: AutomaticMessageSourceModule = "three-week-outlook"
 
 export class OutlookCommsError extends Error {
   readonly code: string
@@ -130,7 +131,7 @@ export async function publishOutlookVersionToComms(input: PublishOutlookVersionT
     fileContentType: "application/pdf",
     filePath: storagePath,
     isFavorited: false,
-    sourceModule: "three-week-outlook",
+    sourceModule: OUTLOOK_SOURCE_MODULE,
     sourceOutlookVersionId: versionId,
     outlookVersionNumber: versionNumber,
     outlookTaskCount: taskCount,

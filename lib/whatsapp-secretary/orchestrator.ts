@@ -30,6 +30,7 @@ import { createReportsTools } from "@/lib/whatsapp-secretary/tools/reports"
 import { createClockingTools } from "@/lib/whatsapp-secretary/tools/clocking"
 import { createOutlooksTools } from "@/lib/whatsapp-secretary/tools/outlooks"
 import { createKnowledgeTools } from "@/lib/whatsapp-secretary/tools/knowledge"
+import { createMessagesTools } from "@/lib/whatsapp-secretary/tools/messages"
 import {
   createWhatsAppSecretaryPresentation,
   type WhatsAppOutgoingReply,
@@ -58,6 +59,7 @@ const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
   clocking: createClockingTools,
   outlooks: createOutlooksTools,
   knowledge: createKnowledgeTools,
+  messages: createMessagesTools,
 }
 
 export interface WhatsAppSecretaryAnswerInput {
@@ -136,7 +138,15 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
   }
   const history = messages.slice(0, -1)
 
-  const factories = { ...DEFAULT_TOOL_FACTORIES, ...deps.toolFactories }
+  // The messages module needs to know *who is asking* (to scope the human-
+  // message tool to their own visibleToUserIds) — every other module's
+  // factory takes no arguments, so this one default is overridden per-request
+  // here instead of widening SecretaryToolFactory's signature for everyone.
+  const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
+    ...DEFAULT_TOOL_FACTORIES,
+    messages: () => createMessagesTools({ actorUserId: input.accessPolicy.actorUserId }),
+    ...deps.toolFactories,
+  }
   const tools = buildToolRegistry(input.accessPolicy, factories)
   const runConversation = deps.runConversation ?? runToolConversation
   const guard = deps.usageGuard ?? {

@@ -25,6 +25,14 @@ export type WhatsAppAccessPolicy = {
   canReadReports: boolean
   canReadClocking: boolean
   canReadOutlooks: boolean
+  /** Gates the whole Messages/Communications module (both the automatic
+   * operational history tool and the human-message tool). The human-message
+   * tool applies a further, per-request scope on top of this: it only ever
+   * returns messages the requesting sender's own `visibleToUserIds` already
+   * includes, so an identified sender with no linked Firebase user id still
+   * gets this flag but that tool returns nothing for them (see
+   * `lib/whatsapp-secretary/tools/messages.ts`). */
+  canReadMessages: boolean
   /** Requires an identified, linked Firebase user because ByeByeDPR drafts are author-scoped. */
   canCreateDailyReportDraft: boolean
   /** Server-side authorization context. Never pass these IDs to a model. */
@@ -45,6 +53,7 @@ export function resolveWhatsAppAccessPolicy(identity: WhatsAppSenderIdentity | n
       canReadReports: false,
       canReadClocking: false,
       canReadOutlooks: false,
+      canReadMessages: false,
       canCreateDailyReportDraft: false,
     }
   }
@@ -59,6 +68,7 @@ export function resolveWhatsAppAccessPolicy(identity: WhatsAppSenderIdentity | n
     canReadReports: true,
     canReadClocking: true,
     canReadOutlooks: true,
+    canReadMessages: true,
     canCreateDailyReportDraft: Boolean(identity.userId),
     ...(identity.userId ? { actorUserId: identity.userId } : {}),
     actorPersonId: identity.personId,

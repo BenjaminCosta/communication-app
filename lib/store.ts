@@ -544,6 +544,26 @@ export function computeVisibleToUserIds(
   return [...visible]
 }
 
+/**
+ * `sourceModule` values whose Communications messages are automatically
+ * generated, factual, event-only text — never human-typed free text. Used by
+ * the WhatsApp Secretary's Messages read layer to split an operational
+ * event/history feed (readable by any internal user) from human-written
+ * messages (gated by `visibleToUserIds` like everywhere else).
+ *
+ * Deliberately excludes `"quest-coral"`: those messages mirror real human
+ * feedback text a person typed (see `lib/quest-coral-communications-server.ts`),
+ * not a system-generated event, even though they carry a `sourceModule`.
+ * A message with no `sourceModule` at all (the normal Compose flow) is also
+ * always human-written.
+ */
+export const AUTOMATIC_MESSAGE_SOURCE_MODULES = ["three-week-outlook", "bye-bye-dpr"] as const
+export type AutomaticMessageSourceModule = (typeof AUTOMATIC_MESSAGE_SOURCE_MODULES)[number]
+
+export function isAutomaticMessageSourceModule(sourceModule: string | undefined | null): boolean {
+  return Boolean(sourceModule) && (AUTOMATIC_MESSAGE_SOURCE_MODULES as readonly string[]).includes(sourceModule as string)
+}
+
 export function generateProjectId(): string {
   return `p${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }

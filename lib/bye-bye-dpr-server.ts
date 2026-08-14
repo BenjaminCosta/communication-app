@@ -61,7 +61,7 @@ import {
   listGeocodedDirectoryJobs,
   resolveDirectoryJob,
 } from "@/lib/bye-bye-dpr-directory-link"
-import { computeVisibleToUserIds } from "@/lib/store"
+import { computeVisibleToUserIds, type AutomaticMessageSourceModule } from "@/lib/store"
 import { structureDailyReportDraft } from "@/features/bye-bye-dpr/ai/server/daily-report-structuring-service"
 import { transcribeReportAudio as transcribeReportAudioAi } from "@/features/bye-bye-dpr/ai/server/transcription-service"
 import { generateDailyReportPdf } from "@/features/bye-bye-dpr/pdf/generate-daily-report-pdf"
@@ -327,6 +327,8 @@ export async function suggestNearestJob(principal: ByeByeDprPrincipal, location:
 
 // ── Communications integration ─────────────────────────────────────────
 
+const BYE_BYE_DPR_SOURCE_MODULE: AutomaticMessageSourceModule = "bye-bye-dpr"
+
 export interface CreateAutomaticCommsPostInput {
   authorUid: string
   job: Job
@@ -378,6 +380,7 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
     updatedAt: FieldValue.serverTimestamp(),
     timestamp: FieldValue.serverTimestamp(),
     isFavorited: false,
+    sourceModule: BYE_BYE_DPR_SOURCE_MODULE,
   }
 
   const ref = await db.collection("messages").add(msgData)

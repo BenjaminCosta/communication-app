@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createKnowledgeTools, type KnowledgeToolsProvider } from "../lib/whatsapp-secretary/tools/knowledge"
-import { assertNoMessagesTools } from "../lib/whatsapp-secretary/tool-registry"
+import { assertOnlyAllowedMessagesTools } from "../lib/whatsapp-secretary/tool-registry"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 
 function budget(overrides: Partial<SecretaryToolBudget> = {}): SecretaryToolBudget {
@@ -38,7 +38,7 @@ test("tool names/module are correctly shaped and never match the Messages/Commun
   const tools = createKnowledgeTools({ provider: fakeProvider() })
   assert.deepEqual(tools.map((tool) => tool.name).sort(), ["knowledge_getSection", "knowledge_search"])
   assert.ok(tools.every((tool) => tool.module === "knowledge"))
-  assert.doesNotThrow(() => assertNoMessagesTools(tools))
+  assert.doesNotThrow(() => assertOnlyAllowedMessagesTools(tools))
 })
 
 test("knowledge_search: returns results, decrements the shared budget by the result count", async () => {

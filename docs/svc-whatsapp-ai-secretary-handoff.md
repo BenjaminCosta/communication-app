@@ -1,8 +1,76 @@
 # SVC AI Secretary — WhatsApp handoff
 
-_Last updated: 2026-08-13. This is the operational handoff for continuing the
+_Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
+
+## Messages/Communications read layer (2026-08-14)
+
+Communications was the one remaining structurally-excluded module (see the
+architecture table below for where the exclusion lived in code). This makes
+it a real, deliberately bounded capability instead, split across two tools
+with different access rules, because Communications messages are not
+uniformly private or uniformly safe:
+
+- **`messages_searchOperationalHistory`** — automatic, system-generated
+  Communications posts only (3-Week Outlook publishes, ByeByeDPR clock-in/out
+  events, Daily Report submissions). This content is templated/factual by
+  construction (job name, event, timestamp — never free text a person typed),
+  so it is open to any internal sender, matching every other live-data tool.
+  Filterable by job, date range, and `category` (`outlook` | `clocking` |
+  `daily-report`).
+- **`messages_searchMyCommunications`** — human-written Communications
+  messages, hard-scoped server-side to `visibleToUserIds array-contains
+  <the requesting sender's own Firebase uid>` — the exact ACL the
+  Communications app itself enforces. The model never supplies whose messages
+  to check; the actor id comes from the access policy the orchestrator
+  already resolved, not model input, and there is no argument that could
+  widen the scope. A sender with no linked Firebase user id (contact-only
+  identity) gets an empty, explained result — there is no uid to scope by.
+
+**Why `sourceModule` alone wasn't a safe "automatic" signal**: Quest Coral's
+Feedback→Communications bridge sets `sourceModule: "quest-coral"` but mirrors
+real human-typed feedback text — not an event. Meanwhile ByeByeDPR's own
+automatic posts (`createAutomaticCommsPost` in `lib/bye-bye-dpr-server.ts`)
+set no `sourceModule` at all before this change. Both were fixed at the
+source: `lib/store.ts` now exports `AUTOMATIC_MESSAGE_SOURCE_MODULES`
+(`"three-week-outlook"`, `"bye-bye-dpr"`) and `isAutomaticMessageSourceModule()`
+as the one shared classification, and `createAutomaticCommsPost` now sets
+`sourceModule: "bye-bye-dpr"`. Quest Coral and undefined `sourceModule` both
+fall through to "human-written," gated by `messages_searchMyCommunications`.
+
+**Registry change**: `lib/whatsapp-secretary/tool-registry.ts`'s old
+`assertNoMessagesTools` (blanket rejection of any tool name matching
+`/message|comms?/i`) is now `assertOnlyAllowedMessagesTools` — the same
+regex guard, but with an explicit two-name allowlist
+(`messages_searchOperationalHistory`, `messages_searchMyCommunications`) so a
+*future, different* Messages-shaped tool from an unrelated module is still
+caught. A new `canReadMessages` policy flag gates the whole module, same
+shape as every other `canRead*` flag. The human-message tool needs to know
+*who is asking*, which no other module's factory does — rather than widening
+`SecretaryToolFactory`'s signature for every module,
+`orchestrator.ts` overrides just the `messages` factory per-request with a
+closure capturing `accessPolicy.actorUserId`.
+
+**Firestore indexes**: two new composite indexes were added to
+`firestore.indexes.json` — `(contextIds ARRAY_CONTAINS, sourceModule ASC,
+timestamp DESC)` for per-job operational history, and `(sourceModule ASC,
+timestamp DESC)` for company-wide operational history. **Not yet deployed —
+needs an explicit `firebase deploy --only firestore:indexes` and the user's
+sign-off**, per the standing rule on production Firebase changes. The
+human-message tool needed no new index — it reuses the already-deployed
+`(visibleToUserIds ARRAY_CONTAINS, timestamp DESC)` index and filters
+job/type in memory over a bounded overfetch, the same "bounded slice, refine
+in memory" pattern `reports.ts`/`outlooks.ts` already use for combos with no
+dedicated index.
+
+New tests: `scripts/whatsapp-secretary-messages-tools.test.ts` (provider-level
+unit coverage — job resolution/ambiguity, date/category/type filtering,
+budget, actor-scoping, the no-linked-account graceful path) and
+`scripts/whatsapp-secretary-messages-scenarios.test.ts` (real orchestrator,
+scripted model, fixture provider — permissions, automatic-vs-human,
+job/date filtering across the JSON tool-call boundary, a follow-up turn, and
+a cross-module round mixing a Messages tool with another module's tool).
 
 ## Company Knowledge integration (2026-08-13, same day)
 
@@ -211,10 +279,13 @@ What changed:
   strengthening" section below; both cross-job tools fan out over
   `job-fanout.ts`'s small, bounded active-job list instead of needing a new
   `collectionGroup` index).
-- Messages/Communications access is structurally impossible, not just
-  prompt-denied: no tool file imports anything Messages-related, and
-  `lib/whatsapp-secretary/tool-registry.ts` asserts no tool name can ever
-  match `/message|comms?/i` before the tool list reaches OpenAI.
+- Messages/Communications access was structurally impossible through
+  2026-08-13. As of **2026-08-14** it is a deliberate, reviewed, privacy-split
+  capability — see the "Messages/Communications read layer (2026-08-14)"
+  section above. `lib/whatsapp-secretary/tool-registry.ts`'s guard
+  (renamed `assertOnlyAllowedMessagesTools`) still asserts no *other* tool
+  name can ever match `/message|comms?/i`; only the two named, reviewed
+  `messages_*` tools are allowlisted through it.
 - New `whatsappSecretaryAiUsage` Firestore collection (usage-rate guard,
   mirrors Directory's own `directoryAiUsage` pattern) — not yet deployed as a
   rules change since Admin SDK writes bypass rules; nothing new needed there.
@@ -231,7 +302,8 @@ What changed:
 
 - The real WhatsApp end-to-end manual test pass (deployed now; see the
   Testing section below for the checklist to run against the live number).
-- Any new write capability, or any Messages/Communications access.
+- Any new write capability. (Messages/Communications *read* access shipped
+  2026-08-14 — see above; this remains read-only, no new write path.)
 - Per-role/per-worker granular permissions — access stays binary
   public/internal.
 
@@ -449,9 +521,9 @@ service or backend.
 | Identity | `lib/whatsapp-svc-identity.ts` | Exact phone normalization and safe lookup across `/contacts` and `/users`; ambiguous or missing matches return `null`. |
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
-| Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; structurally blocks any Messages/Communications tool name. |
+| Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
 | Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over `SVC_AI_Secretary_Canonical_Knowledge_Pack.md`. A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
-| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. |
+| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge,messages}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. `messages` is the Communications read layer (2026-08-14) — see above; unlike every other module it is further actor-scoped for its human-message tool. |
 | Usage guard | `lib/whatsapp-secretary/usage-guard.ts` | Per-identified-sender rolling rate limit over `whatsappSecretaryAiUsage` (mirrors `directoryAiUsage`). |
 | First write action | `lib/whatsapp-daily-report-drafts.ts` | Preview / confirm / cancel flow, using the established ByeByeDPR `/reports` document shape. Unchanged by the read-orchestrator work. |
 
