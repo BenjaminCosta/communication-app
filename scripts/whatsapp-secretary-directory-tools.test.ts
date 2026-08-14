@@ -238,3 +238,74 @@ test("never calls the keyword fallback when the exact/prefix lookup already foun
   const result = await searchCompanies.run({ query: "74 Construction" }, budget())
   assert.equal(result.empty, undefined)
 })
+
+// --- directory_getActiveUsers (2026-08-14): reuses the exact "active now"
+// signal the web app itself shows (lastSeen within the last 90s) ---
+
+test("directory_getActiveUsers is registered alongside the rest of the Directory stack", () => {
+  const tools = createDirectoryTools({ provider: createFixtureProvider(), activeUsersProvider: async () => [] })
+  assert.ok(tools.some((tool) => tool.name === "directory_getActiveUsers"))
+})
+
+test("directory_getActiveUsers returns the users the injected provider reports as currently active", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    activeUsersProvider: async () => [
+      { name: "Jordan Blake", role: "Superintendent" },
+      { name: "Sam Rivera", role: null },
+    ],
+  })
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  assert.ok(getActiveUsers)
+
+  const result = await getActiveUsers.run({}, budget())
+  assert.equal(result.empty, undefined)
+  const data = result.data as { users: Array<{ name: string; role: string | null }> }
+  assert.deepEqual(data.users, [
+    { name: "Jordan Blake", role: "Superintendent" },
+    { name: "Sam Rivera", role: null },
+  ])
+})
+
+test("directory_getActiveUsers reports no one active rather than guessing", async () => {
+  const tools = createDirectoryTools({ provider: createFixtureProvider(), activeUsersProvider: async () => [] })
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  assert.ok(getActiveUsers)
+
+  const result = await getActiveUsers.run({}, budget())
+  assert.equal(result.empty, true)
+})
+
+test("directory_getActiveUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    activeUsersProvider: async () => {
+      throw new Error("must not be called when the budget is exhausted")
+    },
+  })
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  assert.ok(getActiveUsers)
+
+  const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }
+  const result = await getActiveUsers.run({}, exhausted)
+  assert.equal(result.empty, true)
+})
+
+test("directory_getActiveUsers caps returned users by the shared budget's remainingRecords", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    activeUsersProvider: async () => [
+      { name: "A", role: null },
+      { name: "B", role: null },
+      { name: "C", role: null },
+    ],
+  })
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  assert.ok(getActiveUsers)
+
+  const sharedBudget: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 2 }
+  const result = await getActiveUsers.run({}, sharedBudget)
+  const data = result.data as { users: unknown[] }
+  assert.equal(data.users.length, 2)
+  assert.equal(sharedBudget.remainingRecords, 0)
+})

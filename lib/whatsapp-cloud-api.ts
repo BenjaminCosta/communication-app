@@ -79,6 +79,26 @@ export async function sendWhatsAppText(to: string, body: string): Promise<WhatsA
   }, "send")) as WhatsAppSendResult
 }
 
+/** Sends an image message by URL — Meta's servers fetch the link directly, no upload step needed. */
+export async function sendWhatsAppImage(to: string, input: { link: string; caption?: string }): Promise<WhatsAppSendResult> {
+  return (await postWhatsAppMessage({
+    messaging_product: "whatsapp",
+    to: resolveWhatsAppRecipient(to),
+    type: "image",
+    image: { link: input.link, ...(input.caption ? { caption: input.caption } : {}) },
+  }, "image send")) as WhatsAppSendResult
+}
+
+/** Sends a document message by URL — same fetch-by-link mechanism as {@link sendWhatsAppImage}. */
+export async function sendWhatsAppDocument(to: string, input: { link: string; filename: string; caption?: string }): Promise<WhatsAppSendResult> {
+  return (await postWhatsAppMessage({
+    messaging_product: "whatsapp",
+    to: resolveWhatsAppRecipient(to),
+    type: "document",
+    document: { link: input.link, filename: input.filename, ...(input.caption ? { caption: input.caption } : {}) },
+  }, "document send")) as WhatsAppSendResult
+}
+
 /** Sends a native WhatsApp list for a bounded, already-authorized choice. */
 async function sendWhatsAppList(
   to: string,
@@ -134,11 +154,39 @@ function textFallbackForInteractiveReply(reply: WhatsAppOutgoingReply): string {
 }
 
 /**
+ * Best-effort follow-up sends for any attachments (report PDFs, Communications
+ * images/files) the deterministic presentation layer resolved. These
+ * supplement the primary reply rather than replace it, so each is sent and
+ * caught independently — one failed attachment never hides the answer that
+ * already went out, and never blocks the others.
+ */
+async function sendWhatsAppAttachments(to: string, attachments: NonNullable<WhatsAppOutgoingReply["attachments"]>): Promise<void> {
+  for (const attachment of attachments) {
+    try {
+      if (attachment.kind === "image") {
+        await sendWhatsAppImage(to, { link: attachment.url, caption: attachment.caption })
+      } else {
+        await sendWhatsAppDocument(to, { link: attachment.url, filename: attachment.filename ?? "file", caption: attachment.caption })
+      }
+    } catch {
+      console.warn(`Failed to deliver a WhatsApp ${attachment.kind} attachment; the primary reply was still sent.`)
+    }
+  }
+}
+
+/**
  * Delivers a reply in its native presentation when available. A text fallback
  * preserves the answer and destination if an account/client rejects a native
  * interactive type, so a UX enhancement cannot suppress a normal response.
+ * Any attachments are sent as follow-up messages after the primary reply.
  */
 export async function sendWhatsAppReply(to: string, reply: WhatsAppOutgoingReply): Promise<WhatsAppSendResult> {
+  const result = await sendWhatsAppReplyPrimary(to, reply)
+  if (reply.attachments?.length) await sendWhatsAppAttachments(to, reply.attachments)
+  return result
+}
+
+async function sendWhatsAppReplyPrimary(to: string, reply: WhatsAppOutgoingReply): Promise<WhatsAppSendResult> {
   if (reply.presentation?.kind === "list") {
     try {
       return await sendWhatsAppList(to, reply.presentation)

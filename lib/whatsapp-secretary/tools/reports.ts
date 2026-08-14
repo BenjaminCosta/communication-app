@@ -42,6 +42,8 @@ const REPORTS_COLLECTION = "reports"
 const CONTACTS_COLLECTION = "contacts"
 const MAX_REPORT_SECTION_CHARACTERS = 440
 const MAX_STALE_JOBS_RETURNED = 10
+/** Matches the bucket name `lib/bye-bye-dpr-server.ts` already signs report PDF URLs against. */
+const STORAGE_BUCKET = "svc-comms.firebasestorage.app"
 
 type RecordValue = Record<string, unknown>
 type ReportStatus = "draft" | "submitted"
@@ -55,6 +57,8 @@ export interface DailyReportSummary {
   workCompleted: string | null
   issuesOrDelays: string | null
   nextSteps: string | null
+  /** Only used server-side to build a WhatsApp attachment (see `buildReportAttachments`) — stripped by `toModelReport` before the model ever sees it. */
+  pdfStoragePath: string | null
 }
 
 export interface StaleJobReportSummary {
@@ -107,7 +111,71 @@ function mapReport(data: RecordValue, jobName: string): DailyReportSummary {
     workCompleted: compactSection(structuredData?.workCompleted),
     issuesOrDelays: compactSection(structuredData?.issuesOrDelays),
     nextSteps: compactSection(structuredData?.nextSteps),
+    pdfStoragePath: asString(data.pdfStoragePath) || null,
   }
+}
+
+/**
+ * Strips the internal-only `pdfStoragePath` before a report reaches the
+ * model, replacing it with a plain `hasPdf` boolean — enough for the model to
+ * say "I'm sending the PDF" instead of declining, without ever seeing the
+ * path or a URL it could leak, invent, or mis-type. The deterministic
+ * response-ux layer (`attachmentsFromExecutions`) decides whether to
+ * actually attach it, using `presentation.attachments` from
+ * `buildReportAttachments` below, not this field.
+ */
+function toModelReport({ pdfStoragePath, ...report }: DailyReportSummary): Omit<DailyReportSummary, "pdfStoragePath"> & { hasPdf: boolean } {
+  return { ...report, hasPdf: Boolean(pdfStoragePath) }
+}
+
+type ReportAttachment = { kind: "document"; url: string; filename: string; caption: string }
+
+/** Mints a signed, directly-fetchable URL for one report PDF, or `null` if signing fails. Injectable so tests never touch real Storage. */
+export interface ReportPdfSigner {
+  sign(pdfStoragePath: string): Promise<string | null>
+}
+
+function createServerReportPdfSigner(): ReportPdfSigner {
+  return {
+    async sign(pdfStoragePath) {
+      try {
+        const { getStorage } = await import("firebase-admin/storage")
+        const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
+        const [url] = await bucket.file(pdfStoragePath).getSignedUrl({ action: "read", expires: "01-01-2500" })
+        return url
+      } catch {
+        return null
+      }
+    },
+  }
+}
+
+/**
+ * Mints a long-lived signed URL for each report that actually has a
+ * generated PDF (only submitted reports do), so the deterministic
+ * `whatsapp-response-ux.ts` layer can attach it as a real WhatsApp document
+ * message when the user's question asks for the file — the model itself
+ * never sees this path or URL. Best-effort per report: one failed signing
+ * call is dropped, never blocks the others or the answer already computed.
+ */
+async function buildReportAttachments(reports: DailyReportSummary[], signer: ReportPdfSigner): Promise<ReportAttachment[]> {
+  const withPaths = reports.filter((report) => report.pdfStoragePath)
+  if (withPaths.length === 0) return []
+
+  const signed = await Promise.all(
+    withPaths.map(async (report): Promise<ReportAttachment | null> => {
+      const url = await signer.sign(report.pdfStoragePath as string)
+      if (!url) return null
+      const dateLabel = (report.submittedAt ?? report.createdAt)?.slice(0, 10)
+      return {
+        kind: "document",
+        url,
+        filename: `Daily Report - ${report.jobName}${dateLabel ? ` - ${dateLabel}` : ""}.pdf`,
+        caption: `Daily Report — ${report.jobName}${dateLabel ? ` (${dateLabel})` : ""}`,
+      }
+    }),
+  )
+  return signed.filter((entry): entry is ReportAttachment => entry !== null)
 }
 
 async function getAdminDb(): Promise<Firestore> {
@@ -123,7 +191,7 @@ async function attachJobNames(db: Firestore, reports: Array<RecordValue & { jobI
 }
 
 function reportQueryFields<T extends { select: (...fieldPaths: string[]) => T }>(query: T): T {
-  return query.select("jobId", "authorId", "type", "status", "structuredData.workCompleted", "structuredData.issuesOrDelays", "structuredData.nextSteps", "createdAt", "submittedAt")
+  return query.select("jobId", "authorId", "type", "status", "structuredData.workCompleted", "structuredData.issuesOrDelays", "structuredData.nextSteps", "createdAt", "submittedAt", "pdfStoragePath")
 }
 
 function createServerReportsToolsProvider(): ReportsToolsProvider {
@@ -197,6 +265,7 @@ export function createReportsTools(
     resolveJobsByName?: (name: string) => Promise<WhatsAppReportJob[]>
     resolveAuthorIdByName?: (name: string) => Promise<string | null>
     listJobsProvider?: () => Promise<FanOutJob[]>
+    pdfSigner?: ReportPdfSigner
   } = {},
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerReportsToolsProvider()
@@ -205,6 +274,7 @@ export function createReportsTools(
     deps.resolveJobsByName ??
     ((name: string) => resolveJobByNameViaDirectory(name, directoryProvider, (candidate) => findWhatsAppReportJobsByNameCandidates([candidate])))
   const resolveAuthorId = deps.resolveAuthorIdByName ?? ((name: string) => resolveAuthorIdByName(directoryProvider, name))
+  const pdfSigner = deps.pdfSigner ?? createServerReportPdfSigner()
   const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
 
   const searchDailyReportsForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; cursor?: string; limit?: number }> = {
@@ -252,7 +322,12 @@ export function createReportsTools(
       })
       budget.remainingRecords -= reports.length
       if (reports.length === 0) return { summary: `No Daily Reports were retrieved for "${jobs[0].name}" in that range.`, empty: true }
-      return { summary: `${reports.length} Daily Report(s) for "${jobs[0].name}", newest first.`, data: { reports, nextCursor } }
+      const attachments = await buildReportAttachments(reports, pdfSigner)
+      return {
+        summary: `${reports.length} Daily Report(s) for "${jobs[0].name}", newest first.`,
+        data: { reports: reports.map(toModelReport), nextCursor },
+        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+      }
     },
   }
 
@@ -276,7 +351,12 @@ export function createReportsTools(
       const reports = await provider.getRecentReports({ since: args.since, limit })
       budget.remainingRecords -= reports.length
       if (reports.length === 0) return { summary: "No recent Daily Reports were retrieved.", empty: true }
-      return { summary: `${reports.length} recent Daily Report(s), newest first.`, data: { reports } }
+      const attachments = await buildReportAttachments(reports, pdfSigner)
+      return {
+        summary: `${reports.length} recent Daily Report(s), newest first.`,
+        data: { reports: reports.map(toModelReport) },
+        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+      }
     },
   }
 
@@ -314,7 +394,12 @@ export function createReportsTools(
       const reports = await provider.getReportsByAuthor(authorId, { status: args.status, since: args.since, until: args.until, limit })
       budget.remainingRecords -= reports.length
       if (reports.length === 0) return { summary: `No Daily Reports were retrieved for "${args.personName}".`, empty: true }
-      return { summary: `${reports.length} Daily Report(s) by "${args.personName}".`, data: { reports } }
+      const attachments = await buildReportAttachments(reports, pdfSigner)
+      return {
+        summary: `${reports.length} Daily Report(s) by "${args.personName}".`,
+        data: { reports: reports.map(toModelReport) },
+        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+      }
     },
   }
 

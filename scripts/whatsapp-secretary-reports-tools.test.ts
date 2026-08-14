@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { createReportsTools, type DailyReportSummary, type ReportsToolsProvider, type StaleJobReportSummary } from "../lib/whatsapp-secretary/tools/reports"
+import { createReportsTools, type DailyReportSummary, type ReportPdfSigner, type ReportsToolsProvider, type StaleJobReportSummary } from "../lib/whatsapp-secretary/tools/reports"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 import type { WhatsAppReportJob } from "../lib/whatsapp-reports"
 import type { FanOutJob } from "../lib/whatsapp-secretary/tools/job-fanout"
@@ -19,6 +19,7 @@ function makeReport(overrides: Partial<DailyReportSummary> = {}): DailyReportSum
     workCompleted: "Installed framing.",
     issuesOrDelays: null,
     nextSteps: "Finish east wall.",
+    pdfStoragePath: null,
     ...overrides,
   }
 }
@@ -198,4 +199,89 @@ test("reports_getJobsWithoutRecentReports reports nothing rather than guessing w
 
   const result = await getJobsWithoutRecentReports.run({}, budget())
   assert.equal(result.empty, true)
+})
+
+// --- Report PDF attachments (2026-08-14): the model never sees pdfStoragePath
+// or a signed URL — only the deterministic response-ux layer does, via
+// `presentation.attachments`, built from an injectable signer so tests never
+// touch real Firebase Storage. ---
+
+function fixturePdfSigner(overrides: Partial<ReportPdfSigner> = {}): ReportPdfSigner {
+  return {
+    async sign(pdfStoragePath) {
+      return `https://signed.example/${pdfStoragePath}`
+    },
+    ...overrides,
+  }
+}
+
+test("reports_searchDailyReportsForJob: a submitted report with a PDF produces a presentation attachment, and pdfStoragePath never reaches data", async () => {
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      async getReportsForJob() {
+        return { reports: [makeReport({ pdfStoragePath: "reports/report-1.pdf" })], nextCursor: null }
+      },
+    }),
+    resolveJobsByName: fixtureJobResolver([{ id: "job-north-ridge", name: "North Ridge" }]),
+    pdfSigner: fixturePdfSigner(),
+  })
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  assert.ok(searchDailyReportsForJob)
+
+  const result = await searchDailyReportsForJob.run({ jobName: "North Ridge" }, budget())
+  const data = result.data as { reports: Array<Record<string, unknown>> }
+  assert.equal(data.reports[0]?.pdfStoragePath, undefined, "the model-facing data must never include pdfStoragePath")
+
+  const presentation = result.presentation as { attachments: Array<{ kind: string; url: string; filename: string }> } | undefined
+  assert.ok(presentation?.attachments?.length === 1)
+  assert.equal(presentation.attachments[0]?.kind, "document")
+  assert.equal(presentation.attachments[0]?.url, "https://signed.example/reports/report-1.pdf")
+  assert.match(presentation.attachments[0]?.filename ?? "", /North Ridge/)
+})
+
+test("reports_searchDailyReportsForJob: a report with no PDF produces no presentation at all", async () => {
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      async getReportsForJob() {
+        return { reports: [makeReport({ pdfStoragePath: null })], nextCursor: null }
+      },
+    }),
+    resolveJobsByName: fixtureJobResolver([{ id: "job-north-ridge", name: "North Ridge" }]),
+    pdfSigner: fixturePdfSigner({
+      sign: async () => {
+        throw new Error("must not be called when no report has a pdfStoragePath")
+      },
+    }),
+  })
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  assert.ok(searchDailyReportsForJob)
+
+  const result = await searchDailyReportsForJob.run({ jobName: "North Ridge" }, budget())
+  assert.equal(result.presentation, undefined)
+})
+
+test("reports_getRecentDailyReports: a failed signing attempt (signer returns null) is dropped, and other attachments still come through", async () => {
+  const tools = createReportsTools({
+    provider: createFixtureProvider({
+      async getRecentReports() {
+        return [
+          makeReport({ jobId: "job-a", jobName: "Job A", pdfStoragePath: "reports/a.pdf" }),
+          makeReport({ jobId: "job-b", jobName: "Job B", pdfStoragePath: "reports/b.pdf" }),
+        ]
+      },
+    }),
+    pdfSigner: fixturePdfSigner({
+      async sign(pdfStoragePath) {
+        if (pdfStoragePath === "reports/a.pdf") return null
+        return `https://signed.example/${pdfStoragePath}`
+      },
+    }),
+  })
+  const getRecentDailyReports = tools.find((tool) => tool.name === "reports_getRecentDailyReports")
+  assert.ok(getRecentDailyReports)
+
+  const result = await getRecentDailyReports.run({}, budget())
+  const presentation = result.presentation as { attachments: Array<{ url: string }> } | undefined
+  assert.equal(presentation?.attachments?.length, 1)
+  assert.equal(presentation?.attachments?.[0]?.url, "https://signed.example/reports/b.pdf")
 })

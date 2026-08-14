@@ -36,6 +36,9 @@ function makeOperationalPost(overrides: Partial<OperationalMessageSummary> = {})
     jobName: "Appaloosa",
     text: "3-Week Outlook · Appaloosa\n2026-08-03 · Version 1\n\n5 scheduled tasks.",
     createdAt: "2026-08-03T00:00:00.000Z",
+    imageUrl: null,
+    fileUrl: null,
+    fileName: null,
     ...overrides,
   }
 }
@@ -47,6 +50,9 @@ function makeHumanMessage(overrides: Partial<HumanMessageSummary> = {}): HumanMe
     type: "progress",
     text: "Framing crew is on site today.",
     createdAt: "2026-08-04T00:00:00.000Z",
+    imageUrl: null,
+    fileUrl: null,
+    fileName: null,
     ...overrides,
   }
 }

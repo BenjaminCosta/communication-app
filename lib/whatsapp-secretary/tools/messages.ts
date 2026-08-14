@@ -70,6 +70,10 @@ export interface OperationalMessageSummary {
   jobName: string | null
   text: string
   createdAt: string | null
+  /** Only used server-side to build a WhatsApp attachment (e.g. an Outlook PDF) — stripped before the model sees it. */
+  imageUrl: string | null
+  fileUrl: string | null
+  fileName: string | null
 }
 
 export interface HumanMessageSummary {
@@ -78,6 +82,10 @@ export interface HumanMessageSummary {
   type: MessageType
   text: string
   createdAt: string | null
+  /** Only used server-side to build a WhatsApp attachment — stripped before the model sees it. */
+  imageUrl: string | null
+  fileUrl: string | null
+  fileName: string | null
 }
 
 export interface MessagesToolsProvider {
@@ -137,6 +145,53 @@ function operationalCategory(data: RecordValue): OperationalMessageCategory | nu
 async function getAdminDb(): Promise<Firestore> {
   const { getFirestore } = await import("firebase-admin/firestore")
   return getFirestore(await getFirebaseAdminApp())
+}
+
+function messageAttachmentFields(data: RecordValue): { imageUrl: string | null; fileUrl: string | null; fileName: string | null } {
+  return {
+    imageUrl: asString(data.imageUrl) || null,
+    fileUrl: asString(data.fileUrl) || null,
+    fileName: asString(data.fileName) || null,
+  }
+}
+
+/**
+ * Strips the internal-only attachment URLs/filename before a message reaches
+ * the model, replacing them with a plain `hasAttachment` boolean. The model
+ * never gets the URL (it can't leak, invent, or mis-type what it never saw),
+ * but it still needs to know a file/photo exists so it can say "I'm sending
+ * the photo" instead of "I can't share photos" — the deterministic
+ * response-ux layer decides whether to actually attach it (see
+ * `buildMessageAttachments` below and `attachmentsFromExecutions` in
+ * `lib/whatsapp-response-ux.ts`).
+ */
+function toModelOperationalMessage({ imageUrl, fileUrl, fileName: _fileName, ...post }: OperationalMessageSummary): RecordValue {
+  return { ...post, hasAttachment: Boolean(imageUrl || fileUrl) }
+}
+
+function toModelHumanMessage({ imageUrl, fileUrl, fileName: _fileName, ...message }: HumanMessageSummary): RecordValue {
+  return { ...message, hasAttachment: Boolean(imageUrl || fileUrl) }
+}
+
+type MessagesAttachment = { kind: "image" | "document"; url: string; filename?: string; caption: string }
+
+/**
+ * Builds ready-to-send WhatsApp attachments straight from `imageUrl`/
+ * `fileUrl`, which are already real, directly-fetchable Firebase download
+ * URLs stored on the message doc — no signing needed (unlike report PDFs,
+ * which need a fresh signed URL minted from a bare storage path). The model
+ * never sees these; only the deterministic response-ux layer does, and only
+ * when the user's question actually asked for the file (see
+ * `attachmentsFromExecutions` in `lib/whatsapp-response-ux.ts`).
+ */
+function buildMessageAttachments(messages: Array<{ imageUrl: string | null; fileUrl: string | null; fileName: string | null; authorName: string; jobName: string | null }>): MessagesAttachment[] {
+  const attachments: MessagesAttachment[] = []
+  for (const message of messages) {
+    const caption = `${message.authorName}${message.jobName ? ` — ${message.jobName}` : ""}`
+    if (message.imageUrl) attachments.push({ kind: "image", url: message.imageUrl, caption })
+    if (message.fileUrl) attachments.push({ kind: "document", url: message.fileUrl, filename: message.fileName ?? undefined, caption })
+  }
+  return attachments
 }
 
 /** Best-effort, batched, capped — mirrors `reports.ts`'s `attachJobNames`. */
@@ -207,6 +262,7 @@ function createServerMessagesToolsProvider(): MessagesToolsProvider {
           jobName: firstJobName(contextIds, jobNames),
           text: messageText(doc),
           createdAt: toIso(doc.timestamp ?? doc.createdAt),
+          ...messageAttachmentFields(doc),
         })
         if (mapped.length >= options.limit) break
       }
@@ -236,6 +292,7 @@ function createServerMessagesToolsProvider(): MessagesToolsProvider {
           type,
           text: messageText(doc),
           createdAt: toIso(doc.timestamp ?? doc.createdAt),
+          ...messageAttachmentFields(doc),
         })
         if (mapped.length >= options.limit) break
       }
@@ -314,9 +371,11 @@ export function createMessagesTools(
       if (posts.length === 0) {
         return { summary: `No automatic Communications history was retrieved${resolvedJobName ? ` for "${resolvedJobName}"` : ""}.`, empty: true }
       }
+      const attachments = buildMessageAttachments(posts)
       return {
         summary: `${posts.length} automatic Communications post(s)${resolvedJobName ? ` for "${resolvedJobName}"` : ""}, newest first.`,
-        data: { posts },
+        data: { posts: posts.map(toModelOperationalMessage) },
+        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
       }
     },
   }
@@ -373,9 +432,11 @@ export function createMessagesTools(
       if (messages.length === 0) {
         return { summary: `No visible Communications messages were retrieved${resolvedJobName ? ` for "${resolvedJobName}"` : ""}.`, empty: true }
       }
+      const attachments = buildMessageAttachments(messages)
       return {
         summary: `${messages.length} Communications message(s) visible to this sender${resolvedJobName ? ` for "${resolvedJobName}"` : ""}, newest first.`,
-        data: { messages },
+        data: { messages: messages.map(toModelHumanMessage) },
+        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
       }
     },
   }

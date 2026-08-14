@@ -22,6 +22,9 @@ function makeOperationalPost(overrides: Partial<OperationalMessageSummary> = {})
     jobName: "Appaloosa",
     text: "3-Week Outlook · Appaloosa\n2026-08-03 · Version 1\n\n5 scheduled tasks.",
     createdAt: "2026-08-03T00:00:00.000Z",
+    imageUrl: null,
+    fileUrl: null,
+    fileName: null,
     ...overrides,
   }
 }
@@ -33,6 +36,9 @@ function makeHumanMessage(overrides: Partial<HumanMessageSummary> = {}): HumanMe
     type: "progress",
     text: "Framing crew is on site today.",
     createdAt: "2026-08-04T00:00:00.000Z",
+    imageUrl: null,
+    fileUrl: null,
+    fileName: null,
     ...overrides,
   }
 }
@@ -299,4 +305,67 @@ test("messages_searchMyCommunications reports ambiguity across matching jobs wit
   const result = await tool.run({ jobName: "North Ridge" }, budget())
   const data = result.data as { candidates?: Array<{ name: string }> }
   assert.equal(data.candidates?.length, 2)
+})
+
+// --- Attachments (2026-08-14): imageUrl/fileUrl/fileName never reach the
+// model's data, only the deterministic presentation layer. ---
+
+test("messages_searchOperationalHistory: an Outlook post with a PDF produces a presentation attachment, and fileUrl never reaches data", async () => {
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      async searchOperationalHistory() {
+        return [makeOperationalPost({ fileUrl: "https://firebasestorage.googleapis.com/outlook.pdf", fileName: "Outlook.pdf" })]
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchOperationalHistory")
+  assert.ok(tool)
+
+  const result = await tool.run({}, budget())
+  const data = result.data as { posts: Array<Record<string, unknown>> }
+  assert.equal(data.posts[0]?.fileUrl, undefined)
+
+  const presentation = result.presentation as { attachments: Array<{ kind: string; url: string; filename?: string }> } | undefined
+  assert.equal(presentation?.attachments?.length, 1)
+  assert.equal(presentation.attachments[0]?.kind, "document")
+  assert.equal(presentation.attachments[0]?.url, "https://firebasestorage.googleapis.com/outlook.pdf")
+})
+
+test("messages_searchOperationalHistory: a post with no attachment fields produces no presentation", async () => {
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      async searchOperationalHistory() {
+        return [makeOperationalPost()]
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchOperationalHistory")
+  assert.ok(tool)
+  const result = await tool.run({}, budget())
+  assert.equal(result.presentation, undefined)
+})
+
+test("messages_searchMyCommunications: a human message with an image produces a presentation attachment, and imageUrl never reaches data", async () => {
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      async searchMyCommunications() {
+        return [makeHumanMessage({ imageUrl: "https://firebasestorage.googleapis.com/photo.jpg" })]
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+    actorUserId: "user-sender",
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchMyCommunications")
+  assert.ok(tool)
+
+  const result = await tool.run({}, budget())
+  const data = result.data as { messages: Array<Record<string, unknown>> }
+  assert.equal(data.messages[0]?.imageUrl, undefined)
+
+  const presentation = result.presentation as { attachments: Array<{ kind: string; url: string; caption?: string }> } | undefined
+  assert.equal(presentation?.attachments?.length, 1)
+  assert.equal(presentation.attachments[0]?.kind, "image")
+  assert.match(presentation.attachments[0]?.caption ?? "", /Sam Rivera/)
 })

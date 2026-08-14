@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { DIRECTORY_TOOLS, runDirectoryTool } from "@/features/directory/ai/server/tools/definitions"
 import { createServerDirectoryProvider } from "@/features/directory/ai/server/tools/provider"
 import type { DirectoryDataProvider, DirectoryTool } from "@/features/directory/ai/server/tools/types"
@@ -230,19 +231,75 @@ export function createServerDirectoryProviderWithKeywordFallback(): DirectoryDat
   return createHybridDirectoryProvider(createServerDirectoryProvider(), createServerKeywordSearchProvider())
 }
 
+/**
+ * "Active now" presence — reuses the exact same signal the web app itself
+ * shows: `app/page.tsx` writes `lastSeen: serverTimestamp()` to `/users/{uid}`
+ * every 60s while a tab is open/visible, and its own `activeUsers` memo
+ * defines "active" as `lastSeen` within the last 90 seconds. This tool asks
+ * the identical question over WhatsApp rather than inventing a different
+ * "active" definition (there is no login-history or last-30-days concept
+ * anywhere in this app to fall back to). Single-field range query on
+ * `lastSeen`, automatically indexed by Firestore — no composite index needed.
+ */
+const ACTIVE_USER_WINDOW_SECONDS = 90
+const MAX_ACTIVE_USERS_RETURNED = 30
+
+export interface ActiveUserSummary {
+  name: string
+  role: string | null
+}
+
+async function fetchActiveUsers(): Promise<ActiveUserSummary[]> {
+  const { getFirestore, Timestamp } = await import("firebase-admin/firestore")
+  const db = getFirestore(await getFirebaseAdminApp())
+  const cutoff = Timestamp.fromMillis(Date.now() - ACTIVE_USER_WINDOW_SECONDS * 1000)
+  const snapshot = await db
+    .collection("users")
+    .where("lastSeen", ">=", cutoff)
+    .orderBy("lastSeen", "desc")
+    .limit(MAX_ACTIVE_USERS_RETURNED)
+    .get()
+  return snapshot.docs.map((doc) => {
+    const data = doc.data() as Record<string, unknown>
+    const name = typeof data.name === "string" ? data.name.trim() : ""
+    const role = typeof data.role === "string" ? data.role.trim() : ""
+    return { name: name || "Unnamed user", role: role || null }
+  })
+}
+
+function createActiveUsersTool(fetchActive: () => Promise<ActiveUserSummary[]>): SecretaryTool<Record<string, never>> {
+  return {
+    name: "directory_getActiveUsers",
+    module: "directory",
+    description: `Lists SVC users currently active in the app right now — had the app open in the last ${ACTIVE_USER_WINDOW_SECONDS} seconds, the same "active now" presence signal the app itself shows. Use this for "who's active/online right now" questions. This is NOT a login/registration list and NOT clock-in status (use a clocking tool for who's clocked in) — it only reflects this exact moment, with no history.`,
+    parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
+    schema: z.object({}),
+    async run(_args, budget): Promise<SecretaryToolResult> {
+      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const users = await fetchActive()
+      const limited = users.slice(0, Math.max(0, Math.min(users.length, budget.remainingRecords)))
+      budget.remainingRecords -= limited.length
+      if (limited.length === 0) return { summary: "No SVC users are currently active in the app right now.", empty: true }
+      return { summary: `${limited.length} SVC user(s) currently active in the app right now.`, data: { users: limited } }
+    },
+  }
+}
+
 export function createDirectoryTools(
   deps: {
     provider?: DirectoryDataProvider
     contactDetailsProvider?: DirectoryContactDetailsProvider
     keywordSearchProvider?: DirectoryKeywordSearchProvider
+    activeUsersProvider?: () => Promise<ActiveUserSummary[]>
   } = {},
 ): SecretaryTool[] {
   const baseProvider = deps.provider ?? createServerDirectoryProvider()
   const keywordSearch = deps.keywordSearchProvider ?? createServerKeywordSearchProvider()
   const provider = createHybridDirectoryProvider(baseProvider, keywordSearch)
   const getContactDetails = deps.contactDetailsProvider ?? createServerContactDetailsProvider()
+  const fetchActive = deps.activeUsersProvider ?? fetchActiveUsers
 
-  return DIRECTORY_TOOLS.map(
+  const directoryTools = DIRECTORY_TOOLS.map(
     (tool: DirectoryTool<never>): SecretaryTool => ({
       name: `directory_${tool.name}`,
       module: "directory",
@@ -265,4 +322,6 @@ export function createDirectoryTools(
       },
     }),
   )
+
+  return [...directoryTools, createActiveUsersTool(fetchActive)]
 }

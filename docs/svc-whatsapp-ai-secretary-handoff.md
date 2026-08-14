@@ -4,6 +4,80 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## Active users + native file/photo attachments (2026-08-14, later still)
+
+Driven by a real WhatsApp transcript the user shared: `directory_getActiveUsers`
+had no answer for "who are the active users" (previously undefined), and every
+"give me the link/PDF/photo" question got a hard refusal pointing back to the
+SVC app, even though the underlying content (a Daily Report PDF, a Communications
+image) was already something the sender was authorized to see.
+
+**Active users** — `lib/whatsapp-secretary/tools/directory.ts` gained
+`directory_getActiveUsers`, reusing the *exact* signal the web app itself
+already shows: `app/page.tsx` writes `lastSeen: serverTimestamp()` to
+`/users/{uid}` every 60s while a tab is open/visible, and its own `activeUsers`
+memo defines "active" as `lastSeen` within the last 90 seconds. The tool asks
+the identical question server-side (`users` collection, single-field range
+query on `lastSeen`, no new index needed) rather than inventing a different
+"active" definition — there is no login-history concept anywhere in this app
+to fall back to. Gated by the existing `canReadDirectory` flag, no new
+access-policy field.
+
+**Native file/photo attachments** — the model is *never* given a storage path
+or download URL; that would risk it leaking, inventing, or mistyping one. The
+capability is instead entirely deterministic and server-side, mirroring how a
+deep-link CTA is already built:
+
+- `lib/whatsapp-secretary/tools/reports.ts`: `DailyReportSummary` gained an
+  internal-only `pdfStoragePath`. `toModelReport()` strips it before the model
+  sees `data`, replacing it with a plain `hasPdf: boolean`. A new injectable
+  `ReportPdfSigner` (`createServerReportPdfSigner()` by default) mints a
+  long-lived signed URL via the Admin SDK (same pattern
+  `lib/bye-bye-dpr-server.ts`'s `fileReportIntoDirectory` already uses) for
+  every report that actually has a generated PDF (only submitted ones do),
+  put into `presentation.attachments` — never `data`.
+- `lib/whatsapp-secretary/tools/messages.ts`: `OperationalMessageSummary`/
+  `HumanMessageSummary` gained internal-only `imageUrl`/`fileUrl`/`fileName`
+  (already real, directly-fetchable Firebase download URLs stored on the
+  message doc — no signing needed, unlike reports). Same strip-and-replace-
+  with-a-boolean treatment (`hasAttachment`), same `presentation.attachments`
+  target.
+- `lib/whatsapp-response-ux.ts`: new `attachmentsFromExecutions()` — only
+  attaches when the question's own wording asked for the file
+  (`ATTACHMENT_INTENT_PATTERN`, mirroring `continuationCta`'s existing
+  question-intent-matching technique), picks the most recent qualifying tool
+  call, caps at 3 files. Wired into `createWhatsAppSecretaryPresentation()`'s
+  return value as a new `attachments` field, independent of `presentation`
+  (list/CTA) — an attachment supplements the answer, it doesn't replace its
+  rendering.
+- `lib/whatsapp-cloud-api.ts`: new `sendWhatsAppImage`/`sendWhatsAppDocument`
+  (Meta's Cloud API "send by link" message types — Meta's servers fetch the
+  URL directly, no upload step). `sendWhatsAppReply` now sends the primary
+  reply first, then each attachment as an independent, individually-caught
+  follow-up message — one failed attachment never hides the answer already
+  sent, and never blocks the others.
+
+**The `hasPdf`/`hasAttachment` signal exists on purpose, found via live
+verification**: the first working version had the model saying "I can't
+share photos here" in the same turn a photo was genuinely being attached
+right after — technically correct (the model truly never had the URL) but
+confusing for the actual recipient. Fixed by giving the model this one
+boolean so it can say "sending it now" instead of declining, and the system
+prompt now explains the contract explicitly.
+
+**Verified live** (real OpenAI call, fixture data — no real Firestore/Storage
+touched) across 5 scenarios: "give me the report link" → correct PDF
+attachment + correct phrasing; a plain report-content question → no
+attachment; "show me the photo" → correct image attachment + correct
+phrasing; "who's active right now" → correct names; a vague "firebase link"
+question with no resolvable job context → correctly declined without
+guessing, and proactively explained the real capability instead. `pnpm
+verify:fast` green throughout (`pnpm test:whatsapp-secretary` grew further —
+see test files under `scripts/whatsapp-secretary-*`,
+`scripts/whatsapp-cloud-api.test.ts`, `scripts/whatsapp-response-ux.test.ts`).
+
+Implementation + tests only — not pushed or deployed as of this writing.
+
 ## Company/mission knowledge companion document (2026-08-14, later)
 
 A second knowledge document, `SVC_Company_Mission_Operating_Framework_Knowledge.md`

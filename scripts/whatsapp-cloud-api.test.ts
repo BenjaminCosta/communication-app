@@ -2,6 +2,28 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { markWhatsAppMessageRead, sendWhatsAppReply } from "../lib/whatsapp-cloud-api"
 
+function withFetchCapture<T>(run: (bodies: Array<Record<string, unknown>>) => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch
+  const originalAccessToken = process.env.WHATSAPP_ACCESS_TOKEN
+  const originalPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const bodies: Array<Record<string, unknown>> = []
+
+  process.env.WHATSAPP_ACCESS_TOKEN = "test-access-token"
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "test-phone-number-id"
+  globalThis.fetch = async (_input, init) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), { status: 200 })
+  }
+
+  return run(bodies).finally(() => {
+    globalThis.fetch = originalFetch
+    if (originalAccessToken === undefined) delete process.env.WHATSAPP_ACCESS_TOKEN
+    else process.env.WHATSAPP_ACCESS_TOKEN = originalAccessToken
+    if (originalPhoneNumberId === undefined) delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    else process.env.WHATSAPP_PHONE_NUMBER_ID = originalPhoneNumberId
+  })
+}
+
 test("marks an inbound message as read and starts Meta's native typing indicator", async () => {
   const originalFetch = globalThis.fetch
   const originalAccessToken = process.env.WHATSAPP_ACCESS_TOKEN
@@ -167,4 +189,79 @@ test("sends the official CTA URL payload for an SVC deep link", async () => {
     if (originalPhoneNumberId === undefined) delete process.env.WHATSAPP_PHONE_NUMBER_ID
     else process.env.WHATSAPP_PHONE_NUMBER_ID = originalPhoneNumberId
   }
+})
+
+test("sends the primary text reply, then each attachment as its own follow-up message", async () => {
+  await withFetchCapture(async (bodies) => {
+    await sendWhatsAppReply("15551234567", {
+      text: "Here's Courtney's Daily Report.",
+      attachments: [
+        { kind: "document", url: "https://firebasestorage.googleapis.com/report.pdf", filename: "Daily Report.pdf", caption: "Daily Report — Appaloosa" },
+        { kind: "image", url: "https://firebasestorage.googleapis.com/photo.jpg", caption: "Sam Rivera — Appaloosa" },
+      ],
+    })
+
+    assert.equal(bodies.length, 3, "expected the text reply plus two attachment sends")
+    assert.deepEqual(bodies[0], {
+      messaging_product: "whatsapp",
+      to: "15551234567",
+      type: "text",
+      text: { body: "Here's Courtney's Daily Report." },
+    })
+    assert.deepEqual(bodies[1], {
+      messaging_product: "whatsapp",
+      to: "15551234567",
+      type: "document",
+      document: { link: "https://firebasestorage.googleapis.com/report.pdf", filename: "Daily Report.pdf", caption: "Daily Report — Appaloosa" },
+    })
+    assert.deepEqual(bodies[2], {
+      messaging_product: "whatsapp",
+      to: "15551234567",
+      type: "image",
+      image: { link: "https://firebasestorage.googleapis.com/photo.jpg", caption: "Sam Rivera — Appaloosa" },
+    })
+  })
+})
+
+test("a failed attachment send does not throw and does not block the primary reply or the other attachments", async () => {
+  const originalFetch = globalThis.fetch
+  const originalAccessToken = process.env.WHATSAPP_ACCESS_TOKEN
+  const originalPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const bodies: Array<Record<string, unknown>> = []
+
+  process.env.WHATSAPP_ACCESS_TOKEN = "test-access-token"
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "test-phone-number-id"
+  let call = 0
+  globalThis.fetch = async (_input, init) => {
+    call += 1
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    if (call === 2) return new Response(JSON.stringify({ error: { message: "failed" } }), { status: 500 })
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), { status: 200 })
+  }
+
+  try {
+    await assert.doesNotReject(
+      sendWhatsAppReply("15551234567", {
+        text: "Two photos from today.",
+        attachments: [
+          { kind: "image", url: "https://firebasestorage.googleapis.com/broken.jpg" },
+          { kind: "image", url: "https://firebasestorage.googleapis.com/ok.jpg" },
+        ],
+      }),
+    )
+    assert.equal(bodies.length, 3, "expected the text reply plus both attachment attempts, despite the first attachment failing")
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalAccessToken === undefined) delete process.env.WHATSAPP_ACCESS_TOKEN
+    else process.env.WHATSAPP_ACCESS_TOKEN = originalAccessToken
+    if (originalPhoneNumberId === undefined) delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    else process.env.WHATSAPP_PHONE_NUMBER_ID = originalPhoneNumberId
+  }
+})
+
+test("sendWhatsAppReply with no attachments sends only the primary reply", async () => {
+  await withFetchCapture(async (bodies) => {
+    await sendWhatsAppReply("15551234567", { text: "Just an answer, no files." })
+    assert.equal(bodies.length, 1)
+  })
 })

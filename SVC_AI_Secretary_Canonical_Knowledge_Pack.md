@@ -2,7 +2,7 @@
 title: "SVC AI Secretary — Canonical Company & Product Knowledge Pack"
 audience: "internal"
 language: "en"
-status: "audited-v3.2 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer + company/mission companion document"
+status: "audited-v3.3 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer + company/mission companion document + WhatsApp file attachments + active users"
 last_updated: "2026-08-14"
 purpose: "Stable company, product, workflow, and tutorial knowledge for the SVC AI Secretary"
 audit_note: >
@@ -29,7 +29,12 @@ audit_note: >
   independent evidence-label vocabulary and an explicit HISTORICAL /
   TIME-SENSITIVE distinction this pack did not previously have a label for.
   This pack's own §2 was not rewritten, only cross-referenced, to avoid
-  disturbing already-audited content.
+  disturbing already-audited content. v3.3 (same day) documents two more
+  capabilities driven by a real WhatsApp transcript review: directory_getActiveUsers
+  (§13) and native WhatsApp file/photo attachments for report PDFs and
+  Communications images/files (§13, §21 items 15-16) — the model is only ever
+  given a hasPdf/hasAttachment boolean, never a URL; the deterministic
+  response-ux layer decides whether to actually send the file.
 ---
 
 # SVC AI Secretary — Canonical Company & Product Knowledge Pack
@@ -762,13 +767,15 @@ The Secretary is a genuine cross-module tool-calling orchestrator (`runToolConve
 
 Per-module read tools currently registered (all read-only, all bounded/paginated, never a raw collection dump):
 
-- **Directory**: the full tool stack — search people/companies/jobs, entity details, relationships, shared-contact/shared-job lookups, connecting-path search, and note search (with a keyword-fallback layer for partial/misspelled names). Includes a same-day fix that attaches phone/email onto person results specifically for WhatsApp, since every WhatsApp sender who can reach Directory tools at all is already a uniquely identified internal user by construction.
+- **Directory**: the full tool stack — search people/companies/jobs, entity details, relationships, shared-contact/shared-job lookups, connecting-path search, and note search (with a keyword-fallback layer for partial/misspelled names). Includes a same-day fix that attaches phone/email onto person results specifically for WhatsApp, since every WhatsApp sender who can reach Directory tools at all is already a uniquely identified internal user by construction. Also `directory_getActiveUsers` (added 2026-08-14): who currently has the app open right now (`lastSeen` within the last 90 seconds) — the exact same live "active now" presence signal the web app's own UI already shows, not a login/registration list or clock-in status.
 - **Quest Coral**: search projects, get one project (incl. its Project Context), get updates with real date-range/cursor pagination, cross-project recent-activity feed.
 - **Applications**: search candidates, review queue, per-job application history.
 - **Reports**: per-job/global/per-author search with pagination, plus a cross-job "jobs without a recent report" tool.
 - **Clocking**: per-job history (never raw GPS, only whether a location was recorded), cross-job "most active jobs" ranking.
 - **Outlooks**: per-job task reads, cross-job "active outlooks today."
 - **Messages/Communications** (added 2026-08-14): `messages_searchOperationalHistory` reads automatic, system-generated Communications posts — 3-Week Outlook publishes, ByeByeDPR clock-in/out events, Daily Report submissions — filterable by job, date range, and category, open to any internal sender since this content is templated/factual, never human-typed. `messages_searchMyCommunications` reads human-written Communications messages, hard-scoped server-side to the requesting sender's own `visibleToUserIds` — the same ACL the Communications app itself enforces — so it can never surface another person's private message. Neither tool covers the other's content: an automatic broadcast never shows up in "my communications," and a human message never shows up in the operational feed, even though today's known Outlook-broadcast-to-everyone behavior (§8) would otherwise make a message's `visibleToUserIds` include far more people than intended.
+
+**File/photo attachments** (added 2026-08-14): a Daily Report PDF, an Outlook PDF, or a Communications image/file can now be delivered as a real native WhatsApp attachment — not a text link — when the user's question actually asks for the file (e.g. "send me the report", "show me the photo"). The mechanism is entirely deterministic and server-side, mirroring how a deep-link CTA is built: the reports/messages tools put a signed URL (reports; minted fresh via Admin SDK, since only a bare storage path is stored) or the message's already-real download URL (Communications images/files, already public-with-token) into `presentation.attachments`, which the model's own `data` never includes — the model only sees a `hasPdf`/`hasAttachment` boolean, enough to say "sending it now" without ever holding a URL it could leak, invent, or mistype. `lib/whatsapp-response-ux.ts`'s `attachmentsFromExecutions` then decides, from the question's own wording, whether to actually attach it, capped at 3 files per turn. `lib/whatsapp-cloud-api.ts` gained `sendWhatsAppImage`/`sendWhatsAppDocument` (Meta's Cloud API "send by link" message types) to deliver them as follow-up messages after the primary text reply.
 
 The only write capability is the ByeByeDPR **Daily Report draft** flow (§10's WhatsApp-specific rules): the user must give an exact job name plus report details, the assistant previews the structured draft, and only an explicit `CONFIRM DRAFT` (or `CONFIRM DAILY REPORT`) creates it — a bare "yes" is deliberately rejected, and repeat confirmations never create duplicates. The created report always stays `status: "draft"`; WhatsApp never submits/finalizes a report itself.
 
@@ -1033,6 +1040,8 @@ A new employee should be able to ask the Secretary basic orientation questions w
 12. **Any specific person/job/project/candidate/report/clock value is live data, not something this pack should ever hold** — always defer to a live tool for that.
 13. **Cool Breeze and Operation Major Kong are real, confirmed company knowledge, but their current-active status is not** — "what is Cool Breeze" is answerable directly; "is Cool Breeze still the active Mission today" is not, without live confirmation. Same for any historical target/figure in the companion document's HISTORICAL / TIME-SENSITIVE sections (e.g. the stated Cool Breeze revenue target) — a real past statement, not a current fact by default.
 14. **The sales/job progression milestone framework's numeric axes are explicitly not fully defined** (companion document §21, NEEDS CLARIFICATION) — repeat the milestone names/sequence, never invent what the X/Y/Z numbers mathematically represent or fill in a blank milestone.
+15. **A report/message PDF or photo can be sent as a real WhatsApp attachment, as of 2026-08-14 — but never as a text link.** The model is never given a storage path or download URL, only a `hasPdf`/`hasAttachment` boolean; the deterministic response-ux layer (not the model) decides whether to actually send the file, only when the question's own wording asked for it. The system prompt's "never reveal storage/download links" guardrail still means exactly what it says for anything the model could type into its own reply — it does not mean the file itself can never reach the user; those are two different delivery paths.
+16. **"Active users" means active in the app right now (last 90 seconds), nothing else** — `directory_getActiveUsers` reuses the exact same live presence signal the web app's own UI shows. It is not a login/registration list, not historical activity, and not clock-in status.
 
 ---
 

@@ -34,10 +34,27 @@ export type WhatsAppReplyPresentation =
       url: string
     }
 
+/**
+ * A file to send as a native follow-up WhatsApp message (image or document),
+ * built here from already-authorized tool `presentation` data — never from
+ * anything the model saw or could invent. `url` must already be a real,
+ * directly-fetchable link (a Firestore-stored download URL, or an
+ * Admin-SDK-minted signed URL) resolved by the tool that produced it.
+ */
+export type WhatsAppMediaAttachment = {
+  kind: "image" | "document"
+  url: string
+  /** Required in practice for `"document"` — WhatsApp shows this as the file name. */
+  filename?: string
+  caption?: string
+}
+
 /** The persisted assistant text plus the optional native WhatsApp rendering. */
 export type WhatsAppOutgoingReply = {
   text: string
   presentation?: WhatsAppReplyPresentation
+  /** Sent as follow-up messages after the primary reply — see `sendWhatsAppReply`. */
+  attachments?: WhatsAppMediaAttachment[]
 }
 
 export type WhatsAppSecretaryToolExecution = {
@@ -150,6 +167,48 @@ function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): 
   return applicationCta ?? directoryCta
 }
 
+const MAX_ATTACHMENTS = 3
+
+/**
+ * Only attach a file when the question actually asked for one — otherwise
+ * every ordinary report/message question would push an unwanted PDF/image
+ * follow-up. Mirrors `continuationCta`'s question-intent-matching pattern.
+ */
+const ATTACHMENT_INTENT_PATTERN = /\b(?:send|share|show|give|get|attach)\w*\b[\s\S]{0,40}\b(?:files?|pdfs?|documents?|docs?|photos?|pictures?|images?|pics?|links?|attachments?)\b/i
+
+/**
+ * Pulls ready-to-send attachments straight from already-authorized tool
+ * `presentation` data (never `data`, which is what the model saw) — each
+ * qualifying tool (`reports.ts`, `messages.ts`) builds its own
+ * `presentation.attachments` entries, already shaped as `{kind, url,
+ * filename?, caption?}`, since only the tool itself knows what kind of file
+ * it actually has. This function only filters by question intent, picks the
+ * most recent qualifying tool call, and caps the count.
+ */
+function attachmentsFromExecutions(executions: WhatsAppSecretaryToolExecution[], question: string): WhatsAppMediaAttachment[] {
+  if (!ATTACHMENT_INTENT_PATTERN.test(question)) return []
+
+  for (const execution of [...executions].reverse()) {
+    const presentation = asRecord(execution.result.presentation)
+    const items = presentation && Array.isArray(presentation.attachments) ? presentation.attachments : null
+    if (!items || items.length === 0) continue
+
+    const attachments = items
+      .map(asRecord)
+      .filter((record): record is RecordValue => record !== null)
+      .map((record): WhatsAppMediaAttachment | null => {
+        const url = asString(record.url)
+        const kind = record.kind === "image" ? "image" as const : record.kind === "document" ? "document" as const : null
+        if (!url || !kind) return null
+        return { kind, url, filename: asString(record.filename) || undefined, caption: asString(record.caption) || undefined }
+      })
+      .filter((attachment): attachment is WhatsAppMediaAttachment => attachment !== null)
+
+    if (attachments.length > 0) return attachments.slice(0, MAX_ATTACHMENTS)
+  }
+  return []
+}
+
 function continuationCta(question: string): { buttonText: string; url: string } | null {
   if (/\b(?:approve|reject|review|request information)\b[\s\S]{0,60}\b(?:application|candidate)\b/i.test(question)) {
     return { buttonText: "Open Applications", url: buildModuleDeepLink("applications") }
@@ -198,9 +257,12 @@ export function createWhatsAppSecretaryPresentation(input: {
 
   const cta = directCtaFromExecutions(input.executions) ?? continuationCta(input.question)
   const text = clamp(input.answer, MAX_CTA_BODY_CHARACTERS)
-  return cta
-    ? { text, presentation: { kind: "cta_url", body: text, buttonText: cta.buttonText, url: cta.url } }
-    : { text }
+  const attachments = attachmentsFromExecutions(input.executions, input.question)
+  return {
+    text,
+    ...(cta ? { presentation: { kind: "cta_url" as const, body: text, buttonText: cta.buttonText, url: cta.url } } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  }
 }
 
 function firstName(name: string): string {

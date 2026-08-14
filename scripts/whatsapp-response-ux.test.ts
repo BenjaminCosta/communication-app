@@ -100,3 +100,113 @@ test("uses a short discovery greeting for a first hello", () => {
   assert.match(reply.text, /Who manages North Ridge/)
   assert.doesNotMatch(reply.text, /unused/)
 })
+
+// --- Attachments (2026-08-14): only attached when the question actually asks
+// for the file, built from presentation data a tool already authorized —
+// never from what the model saw. ---
+
+function reportExecutionWithAttachment(overrides: Partial<{ kind: string; url: string; filename: string; caption: string }> = {}) {
+  return {
+    name: "reports_searchDailyReportsForJob",
+    result: {
+      summary: "1 Daily Report for North Ridge.",
+      data: { reports: [{ jobName: "North Ridge" }] },
+      presentation: {
+        attachments: [{ kind: "document", url: "https://signed.example/report.pdf", filename: "Daily Report.pdf", caption: "Daily Report — North Ridge", ...overrides }],
+      },
+    },
+  }
+}
+
+test("attaches a file when the question explicitly asks for it", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Here's Courtney's Daily Report for North Ridge.",
+    question: "Can you give me the link of the daily report from Courtney Roberts",
+    executions: [reportExecutionWithAttachment()],
+  })
+  assert.equal(reply.attachments?.length, 1)
+  assert.equal(reply.attachments?.[0]?.kind, "document")
+  assert.equal(reply.attachments?.[0]?.url, "https://signed.example/report.pdf")
+})
+
+test("does not attach a file for an ordinary question that never asked for one", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "The latest Daily Report for North Ridge covers framing progress.",
+    question: "What's the latest report for North Ridge?",
+    executions: [reportExecutionWithAttachment()],
+  })
+  assert.equal(reply.attachments, undefined)
+})
+
+test("does not attach anything when no qualifying tool execution has attachment data", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "The project is on track.",
+    question: "Can you send me the file?",
+    executions: [{ name: "questCoral_getProject", result: { summary: "ok", data: { project: { name: "Onboarding" } } } }],
+  })
+  assert.equal(reply.attachments, undefined)
+})
+
+test("caps attachments at 3 even if a tool returned more", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Here are today's photos.",
+    question: "Show me the photos from today",
+    executions: [
+      {
+        name: "messages_searchMyCommunications",
+        result: {
+          summary: "4 messages",
+          data: { messages: [] },
+          presentation: {
+            attachments: [
+              { kind: "image", url: "https://x/1.jpg" },
+              { kind: "image", url: "https://x/2.jpg" },
+              { kind: "image", url: "https://x/3.jpg" },
+              { kind: "image", url: "https://x/4.jpg" },
+            ],
+          },
+        },
+      },
+    ],
+  })
+  assert.equal(reply.attachments?.length, 3)
+})
+
+test("picks the most recent qualifying tool execution when several ran in one turn", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Here's the file.",
+    question: "Send me the file",
+    executions: [
+      reportExecutionWithAttachment({ url: "https://signed.example/older.pdf" }),
+      {
+        name: "messages_searchMyCommunications",
+        result: {
+          summary: "1 message",
+          data: { messages: [] },
+          presentation: { attachments: [{ kind: "image", url: "https://x/newer.jpg" }] },
+        },
+      },
+    ],
+  })
+  assert.equal(reply.attachments?.length, 1)
+  assert.equal(reply.attachments?.[0]?.url, "https://x/newer.jpg")
+})
+
+test("an ambiguous-candidate list never also carries attachments", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Several records matched.",
+    question: "Send me the file",
+    executions: [
+      {
+        name: "directory_searchPeople",
+        result: {
+          summary: "2 people matched.",
+          data: { records: [{ id: "p1", name: "Alex Rivera" }, { id: "p2", name: "Alex Kim" }] },
+        },
+      },
+      reportExecutionWithAttachment(),
+    ],
+  })
+  assert.equal(reply.presentation?.kind, "list")
+  assert.equal(reply.attachments, undefined)
+})
