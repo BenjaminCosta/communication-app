@@ -151,7 +151,7 @@ export interface StructuredJsonSchema {
   schema: Record<string, unknown>
 }
 
-export type OpenAiReasoningEffort = "minimal" | "low" | "medium" | "high"
+export type OpenAiReasoningEffort = "none" | "minimal" | "low" | "medium" | "high"
 export type OpenAiVerbosity = "low" | "medium" | "high"
 
 /**
@@ -267,6 +267,7 @@ export async function runToolConversation(
 
   for (let round = 0; round <= input.maxToolRounds; round += 1) {
     const isFinalRound = round === input.maxToolRounds
+    const includesTools = !isFinalRound
     const response = await openAiFetch(config, "/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,9 +279,18 @@ export async function runToolConversation(
           json_schema: { name: input.schema.name, schema: input.schema.schema, strict: true },
         },
         // Withhold tools on the final round so the model must commit to an answer.
-        ...(isFinalRound ? {} : { tools: input.tools, tool_choice: "auto" }),
-        ...(input.reasoningEffort ? { reasoning_effort: input.reasoningEffort } : {}),
-        ...(input.verbosity ? { verbosity: input.verbosity } : {}),
+        ...(includesTools ? { tools: input.tools, tool_choice: "auto" } : {}),
+        // Some reasoning models (confirmed live: gpt-5.6-terra) apply a
+        // non-"none" reasoning effort by default and reject a
+        // /v1/chat/completions request that combines that with `tools`
+        // ("Function tools with reasoning_effort are not supported... use
+        // /v1/responses or set reasoning_effort to 'none'"). Simply omitting
+        // the field is NOT enough — the model's own default still applies
+        // and still gets rejected — so a tool-bearing round must explicitly
+        // send "none". The caller's requested reasoning effort (e.g. "low")
+        // still applies on the final, tool-less round.
+        ...(input.reasoningEffort ? { reasoning_effort: includesTools ? "none" : input.reasoningEffort } : {}),
+        ...(!includesTools && input.verbosity ? { verbosity: input.verbosity } : {}),
         max_completion_tokens: input.maxOutputTokens ?? 2000,
       }),
     })
