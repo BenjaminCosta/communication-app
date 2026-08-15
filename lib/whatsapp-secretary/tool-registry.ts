@@ -83,6 +83,11 @@ export interface SecretaryToolContext {
   actorUserId?: string
   /** What this sender can actually reach — used by the capability guide. */
   enabledModules: SecretaryModule[]
+  /** True only for a sender with a linked SVC account; gates every write tool. */
+  canWrite: boolean
+  /** Server-side only. Write tools need these to key their deterministic, idempotent records. */
+  senderPhoneNumber?: string
+  requestMessageId?: string
 }
 
 /**
@@ -99,15 +104,77 @@ export interface SecretaryToolBudget {
   remainingRecords: number
 }
 
+/**
+ * What a confirmed write actually did. Returned by {@link SecretaryTool.commit},
+ * which is the ONLY place in this system that writes.
+ */
+export interface WriteCommitResult {
+  kind: "created" | "already-created" | "expired" | "failed"
+  /** Ready-to-send reply text. Deterministic — never passed through the model. */
+  reply: string
+}
+
+/** Server-resolved context for a commit. None of it comes from model input. */
+export interface WriteCommitContext {
+  senderPhoneNumber: string
+  actorUserId: string
+  actorPersonId: string
+  /** The message that produced the preview — seeds deterministic record ids. */
+  requestMessageId: string
+  /** The message that confirmed it — recorded on the action for idempotency. */
+  confirmationMessageId: string
+}
+
 export interface SecretaryTool<Args = unknown> {
   name: string
   module: SecretaryModule
+  /**
+   * `"read"` (the default) or `"write"`.
+   *
+   * A write tool's `run()` is a **preview only** — it must never mutate
+   * anything. It returns the preview text plus a `presentation.pendingWrite`
+   * envelope; the deterministic layer persists that and tells the user the
+   * exact phrase to confirm with. Only {@link SecretaryTool.commit}, reached
+   * from that confirmation and never from the tool loop, performs the write.
+   *
+   * This is the generalization of the Daily Report draft flow, which used to
+   * be a bespoke regex branch ahead of the orchestrator. Making it a tool is
+   * what lets the model *compose* a write with a read (resolve a job, then
+   * preview a report for it) — something the regex path structurally could
+   * not do — while preview + explicit confirmation + transactional
+   * idempotency become framework guarantees instead of per-action code.
+   */
+  kind?: "read" | "write"
   description: string
   /** JSON Schema advertised to OpenAI. */
   parameters: Record<string, unknown>
   /** Server-side validation — the model's arguments are never trusted. */
   schema: z.ZodType<Args>
   run(args: Args, budget: SecretaryToolBudget): Promise<SecretaryToolResult>
+  /** Required on (and only on) write tools. Performs the real, idempotent write. */
+  commit?(args: Args, context: WriteCommitContext): Promise<WriteCommitResult>
+}
+
+export function isWriteTool(tool: SecretaryTool): boolean {
+  return tool.kind === "write"
+}
+
+/**
+ * Structural guarantee, checked at registry build time: a write tool must
+ * supply a `commit`, and a read tool must not. Without this, a tool could
+ * declare itself a write and silently have no commit path (its preview would
+ * be persisted and the confirmation would do nothing), or a read tool could
+ * quietly carry write code the tool loop would happily execute.
+ */
+export function assertWriteToolContract(tools: SecretaryTool[]): void {
+  for (const tool of tools) {
+    if (isWriteTool(tool) && typeof tool.commit !== "function") {
+      throw new Error(`Write tool "${tool.name}" must implement commit().`)
+    }
+    if (!isWriteTool(tool) && typeof tool.commit === "function") {
+      throw new Error(`Read tool "${tool.name}" must not implement commit() — declare kind: "write".`)
+    }
+  }
 }
 
 function emptyResult(summary: string): SecretaryToolResult {
@@ -225,6 +292,7 @@ export function buildToolRegistry(
   }
 
   assertOnlyAllowedMessagesTools(tools)
+  assertWriteToolContract(tools)
   return new Map(tools.map((tool) => [tool.name, tool]))
 }
 

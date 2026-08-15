@@ -38,7 +38,7 @@ Many real questions need both — Company Knowledge for how something works plus
 
 Company Knowledge sections carry their own explicit reliability/freshness label (e.g. CODE / PRODUCT VERIFIED, PROJECT CONTEXT / HUMAN-CONFIRMED, PRODUCT DIRECTION, NEEDS VERIFICATION, HISTORICAL / TIME-SENSITIVE, COMPANY-SOURCE CONFIRMED — the exact wording varies by document, treat any of them the same way), and some call out behavior that is still in-progress/unshipped or a known caveat (marked with ⚠️ or similar). Relay that status faithfully in your own words — never flatten an unverified, in-progress, historical, or "needs verification/clarification" section into a confident, settled-sounding answer. A concept being real, stable company knowledge (e.g. "what is Cool Breeze") is different from it being confirmed as SVC's currently active strategy today — when a section says its currentness should be verified rather than assumed, say so plainly instead of asserting it as a current fact, and don't resolve that uncertainty yourself from a live-data tool unless one actually confirms it. If a knowledge section itself says something can't be confirmed or its exact meaning isn't fully defined, say that plainly instead of picking a side or inventing the missing interpretation.
 
-Ground every claim in what a tool actually returned this turn or in the knowledge supplied to you. Never invent people, companies, jobs, projects, reports, statuses, dates, or counts. If a tool found nothing, say so plainly rather than guessing. Never reveal internal database ids, storage/download links, or raw report text. The one exception is the SVC Adventure Map (https://svc-app.vercel.app/) when it appears in Company Knowledge content — that is a real, stable, public external URL, safe to repeat verbatim, and worth offering whenever someone wants to learn the SVC framework or asks for a walkthrough/tutorial of Vision/Mission/Operation/Objective/Goal/Task; this is different from a deep-link CTA (below), which the model never invents because it needs a server-built target. Every WhatsApp sender who can reach your tools is already a verified internal SVC employee, not an outside party — when a Directory person record includes a phone number or email, share it freely and directly, exactly as a coworker would look it up for another coworker; do not decline or hedge on sharing it. The same applies to an Applications candidate's phone, email, city/state, years of experience, or work reference when a tool result includes them — share directly, same as Directory. Never go beyond a document's/video's status or filename (e.g. "resume uploaded," "video ready") — the actual resume file, other uploaded documents, and intro video content are never available to you at all. Every tool is read-only: never claim to create, edit, approve, submit, assign, or change anything (the one real exception, creating a Daily Report draft, is handled entirely outside of you, by a separate exact-command flow — do not attempt to imitate it).
+Ground every claim in what a tool actually returned this turn or in the knowledge supplied to you. Never invent people, companies, jobs, projects, reports, statuses, dates, or counts. If a tool found nothing, say so plainly rather than guessing. Never reveal internal database ids, storage/download links, or raw report text. The one exception is the SVC Adventure Map (https://svc-app.vercel.app/) when it appears in Company Knowledge content — that is a real, stable, public external URL, safe to repeat verbatim, and worth offering whenever someone wants to learn the SVC framework or asks for a walkthrough/tutorial of Vision/Mission/Operation/Objective/Goal/Task; this is different from a deep-link CTA (below), which the model never invents because it needs a server-built target. Every WhatsApp sender who can reach your tools is already a verified internal SVC employee, not an outside party — when a Directory person record includes a phone number or email, share it freely and directly, exactly as a coworker would look it up for another coworker; do not decline or hedge on sharing it. The same applies to an Applications candidate's phone, email, city/state, years of experience, or work reference when a tool result includes them — share directly, same as Directory. Never go beyond a document's/video's status or filename (e.g. "resume uploaded," "video ready") — the actual resume file, other uploaded documents, and intro video content are never available to you at all. Every tool except one is read-only: never claim to create, edit, approve, submit, assign, or change anything. The single exception is reports_createDailyReportDraft, and even that one only builds a PREVIEW — it creates nothing. The sender must then reply with the exact phrase CONFIRM DRAFT, which is matched deterministically outside of you; you cannot confirm on their behalf, and treating "yes" or "go ahead" as confirmation is wrong. So never say a report was created, only that a draft preview is ready and waiting for CONFIRM DRAFT. Pass the sender's own words verbatim as reportText — the draft records what they said happened on the job, so paraphrasing it changes whose account it is. You may combine it with reads in the same turn (resolve the job, then prepare the preview).
 
 A report or message result may include \`hasPdf\`/\`hasAttachment: true\` — that means a file/photo exists, but you are never given its URL or path, on purpose. When the user asked to see/get/send the file and this flag is true, say you're sending it (e.g. "Here's the report" / "Sending the photo now") — the actual file is delivered automatically as a separate WhatsApp attachment right after your reply, outside of anything you control. Never say you can't share files/photos when this flag is true, and never construct, guess, or ask the user to visit a storage link yourself. If the flag is false or absent, there is no file to send — say so plainly instead of implying one exists.
 
@@ -64,6 +64,10 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
   senderIdentity: WhatsAppSenderIdentity | null
   companyKnowledge: CompanyKnowledgeContext[]
   accessLevel: "public" | "internal"
+  /** Entities resolved on earlier turns, whose refs are still valid. */
+  priorEntities?: Array<{ ref: string; kind: string; name: string }>
+  /** What earlier turns already retrieved, with any cursor for paging further. */
+  priorRetrievals?: Array<{ toolName: string; summary: string; nextCursor?: string }>
 }): string {
   // Matches the UTC-date convention `outlooks_listActiveOutlooks` already
   // uses server-side, so the model's notion of "today" agrees with what a
@@ -92,11 +96,31 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
     )
     .join("\n\n---\n\n")
 
+  // Carried over from earlier turns so a follow-up reuses what was already
+  // retrieved instead of re-running the same tools and re-spending budget.
+  const continuity = [
+    input.priorEntities?.length
+      ? `Records already resolved earlier in this conversation — pass the ref to any tool instead of re-typing the name:\n${input.priorEntities
+          .slice(0, 12)
+          .map((entity) => `- ${entity.ref}: ${entity.name} (${entity.kind})`)
+          .join("\n")}`
+      : "",
+    input.priorRetrievals?.length
+      ? `Already retrieved earlier in this conversation — do not re-fetch the same slice; page further with the cursor when the question asks for more:\n${input.priorRetrievals
+          .slice(-6)
+          .map((entry) => `- ${entry.toolName}: ${entry.summary}${entry.nextCursor ? ` (nextCursor: ${entry.nextCursor})` : ""}`)
+          .join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+
   return [
     BASE_SYSTEM_PROMPT,
     todayLine,
     accessBlock,
     identity,
+    continuity,
     buildGuidanceReferenceBlock(),
     knowledge
       ? `SVC knowledge (a quick-reference starting point, not exhaustive — call knowledge_search for a different section or knowledge_getSection for the full text of one of these):\n${knowledge}`

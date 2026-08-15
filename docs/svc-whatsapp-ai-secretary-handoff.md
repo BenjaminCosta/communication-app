@@ -4,7 +4,58 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Catalog consolidation: 37 → 23 tools (2026-08-14, latest)
+## Writes as tools + cross-turn memory (2026-08-15, latest)
+
+Steps 6 and 7 of the architecture review — the last two — implemented in their
+own pass, as sequenced.
+
+**The write framework.** `SecretaryTool` gained `kind: "read" | "write"` and
+`commit()`. A write tool's `run()` is a **pure preview** that mutates nothing
+and returns a `presentation.pendingWrite` envelope
+(`lib/whatsapp-secretary/pending-writes.ts`); the deterministic layer persists
+it on the conversation document, and only `commit()` — reached from an
+exact-phrase confirmation matched **before the model runs** — writes anything.
+`assertWriteToolContract` enforces the shape at registry build: a write tool
+without a `commit`, or a read tool with one, throws.
+
+**The Daily Report draft is now that first write tool**
+(`lib/whatsapp-secretary/tools/report-writes.ts`), replacing the regex branch
+that used to run ahead of the orchestrator. **No safety property moved**:
+`commit()` delegates to the existing, unmodified store transaction, same
+`sha256(sender)` action document, same deterministic `actionKey`/`reportId`, so
+the `/reports` write is byte-identical and a repeat confirmation still says
+"already created". Two safety properties were *added* — the envelope carries
+the **resolved job** (so a confirmation writes against the job that was
+previewed, not whatever a name re-resolves to later), and a preview now expires
+after 24 hours. A narrow fallback still honors any in-flight preview created by
+the old path; delete it once none can plausibly remain.
+
+The real gain: the model can **compose** a write with a read in one turn —
+verified live, `reports_search` then `reports_createDailyReportDraft`.
+
+**Cross-turn memory.** The resolver gained `hydrate()`/`minted()`, and the
+conversation document now carries `resolvedEntities` plus a compact
+`retrievals` digest. A ref minted last turn resolves this turn with **no lookup
+at all**, re-asking by name reuses the same entity (so a follow-up cannot drift
+onto a different record than the answer it follows up on), and the prompt
+carries prior refs and `nextCursor` values forward so a follow-up pages instead
+of restarting.
+
+**Live eval, all five checks passed first time** (real model, fixture
+providers, a spy store that fails loudly if a preview writes): draft tool
+selected and previewed with **no store write**; no false claim of creation;
+read+write composed in one turn; "yes"/"go ahead"/"confirm it" all failed to
+confirm while only the exact phrase reached commit; turn two reused turn one's
+ref. It also showed `truncated` working end to end — the model volunteered
+"More reports may exist beyond this result."
+
+One cosmetic bug caught: the confirmation contract printed twice, since the
+Daily Report preview already ends with it. `formatPendingWriteReply` now
+appends only when the preview hasn't already stated it.
+
+Tests 276 → 299. **Final catalog: 24 tools** (23 reads + 1 write).
+
+## Catalog consolidation: 37 → 23 tools (2026-08-14)
 
 Steps 1–5 of the architecture review below, implemented. **Steps 6 (write
 framework) and 7 (memory) are not done** — see that document's

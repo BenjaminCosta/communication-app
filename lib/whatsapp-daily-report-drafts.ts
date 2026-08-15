@@ -94,15 +94,18 @@ function readPendingDraft(value: unknown): WhatsAppPendingDailyReportDraft | nul
   return mapped.actionKey && mapped.reportId && mapped.actorUserId && mapped.job.id && mapped.job.name ? mapped : null
 }
 
-function senderHash(phoneNumber: string): string {
+/** Exported so the generic write framework keys the same server-only action record. */
+export function senderHash(phoneNumber: string): string {
   return createHash("sha256").update(phoneNumber).digest("hex")
 }
 
-function actionKey(phoneNumber: string, messageId: string): string {
+/** Exported so the write tool derives the same deterministic idempotency key. */
+export function actionKey(phoneNumber: string, messageId: string): string {
   return createHash("sha256").update(`whatsapp-daily-report-draft:${phoneNumber}:${messageId}`).digest("hex")
 }
 
-function reportIdForAction(key: string): string {
+/** Exported so the write tool derives the same deterministic report id. */
+export function reportIdForAction(key: string): string {
   return `whatsapp-draft-${key.slice(0, 40)}`
 }
 
@@ -163,7 +166,8 @@ function extractReportSource(messages: WhatsAppSecretaryConversationMessage[]): 
   return ""
 }
 
-function formatPreview(draft: WhatsAppPendingDailyReportDraft): string {
+/** Exported so the write tool's preview text is identical to the legacy flow's. */
+export function formatPreview(draft: WhatsAppPendingDailyReportDraft): string {
   const fields = draft.structuredData
   return [
     "Daily Report draft preview",
@@ -190,7 +194,8 @@ async function getAdminDb(): Promise<Firestore> {
   return getFirestore(await getFirebaseAdminApp())
 }
 
-function createServerDraftStore(): WhatsAppDailyReportDraftStore {
+/** Exported so the write tool commits through the exact same proven transaction. */
+export function createServerDraftStore(): WhatsAppDailyReportDraftStore {
   return {
     async savePreview(input) {
       const db = await getAdminDb()
@@ -276,7 +281,7 @@ function createServerDraftStore(): WhatsAppDailyReportDraftStore {
   }
 }
 
-function hasReportContent(data: DailyReportStructuredData): boolean {
+export function hasReportContent(data: DailyReportStructuredData): boolean {
   return Object.values(data).some((value) => typeof value === "string" && value.trim().length > 0)
 }
 

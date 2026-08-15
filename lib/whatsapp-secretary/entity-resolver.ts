@@ -86,6 +86,19 @@ export interface EntityResolver {
   resolveArg(arg: EntityArg, kind: EntityKind): Promise<EntityResolution>
   /** Look up an already-minted ref. Returns null for an unknown/expired handle. */
   lookup(ref: string): ResolvedEntity | null
+  /**
+   * Re-seed entities resolved on a previous turn.
+   *
+   * Without this, every ref died at the end of its request: a follow-up like
+   * "and what about its reports?" had to re-resolve the name from scratch,
+   * paying the lookup again and — worse — risking landing on a different
+   * record than the answer the user is following up on. Rehydrating makes a
+   * ref stable across the conversation, which is what makes a follow-up cheap
+   * *and* consistent.
+   */
+  hydrate(entities: ResolvedEntity[]): void
+  /** Everything resolved this turn, for persisting into the next one. */
+  minted(): ResolvedEntity[]
 }
 
 export interface JobLookupRecord {
@@ -315,6 +328,24 @@ export function createEntityResolver(lookups: EntityLookups): EntityResolver {
 
     lookup(ref) {
       return byRef.get(ref.trim()) ?? null
+    },
+
+    hydrate(entities) {
+      for (const entity of entities) {
+        if (!entity.ref || byRef.has(entity.ref)) continue
+        byRef.set(entity.ref, entity)
+        // Seed the name cache too, so re-asking by name this turn is also free
+        // and lands on the same entity the ref points at.
+        cache.set(`${entity.kind}:${normalizeQuery(entity.name)}`, Promise.resolve({ status: "found", entity }))
+        // Keep minting past whatever the previous turn used, so a new entity
+        // this turn can never collide with a rehydrated handle.
+        const numeric = Number.parseInt(entity.ref.replace(/^e/, ""), 10)
+        if (Number.isFinite(numeric) && numeric >= nextRef) nextRef = numeric + 1
+      }
+    },
+
+    minted() {
+      return [...byRef.values()]
     },
   }
 }

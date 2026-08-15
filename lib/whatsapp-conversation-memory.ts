@@ -3,6 +3,8 @@ import { createHash } from "node:crypto"
 import type { WhatsAppSecretaryConversationMessage } from "@/lib/whatsapp-secretary/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import type { WhatsAppOnboardingState } from "@/lib/whatsapp-secretary/onboarding"
+import type { PendingWriteEnvelope } from "@/lib/whatsapp-secretary/pending-writes"
+import type { ResolvedEntity } from "@/lib/whatsapp-secretary/entity-resolver"
 import type { WhatsAppOutgoingReply, WhatsAppReplyPresentation } from "@/lib/whatsapp-response-ux"
 
 const CONVERSATIONS_COLLECTION = "whatsappConversations"
@@ -33,6 +35,32 @@ export type PreparedWhatsAppConversation = {
    * its lifetime, id, and privacy posture are identical to the transcript's.
    */
   onboarding: WhatsAppOnboardingState | null
+  /**
+   * A preview awaiting the sender's exact confirmation phrase. Kept on the
+   * conversation document so the confirmation is matched deterministically,
+   * before the model runs, by `lib/whatsapp-secretary/pending-writes.ts`.
+   */
+  pendingWrite: PendingWriteEnvelope | null
+  /**
+   * Entities resolved on previous turns, re-seeded into this turn's resolver.
+   *
+   * Tool *results* were never persisted — only the final assistant text — so a
+   * follow-up could not reuse the prior turn's structured data and had to
+   * re-call tools and re-spend budget, with the added risk that re-resolving
+   * the same name landed on a different record than the answer being followed
+   * up on. Carrying the resolved entities forward makes a ref stable across
+   * the whole conversation.
+   */
+  resolvedEntities: ResolvedEntity[]
+  /** Compact record of what the last turn retrieved, so the model can page rather than restart. */
+  retrievals: ConversationRetrieval[]
+}
+
+/** One tool call's compact trace, small enough to fold into the next prompt. */
+export type ConversationRetrieval = {
+  toolName: string
+  summary: string
+  nextCursor?: string
 }
 
 async function getAdminDb(): Promise<Firestore> {
@@ -122,6 +150,52 @@ function readOnboardingState(value: unknown): WhatsAppOnboardingState | null {
   return { lastIntroAtMs, capabilitySignature }
 }
 
+const MAX_PERSISTED_ENTITIES = 24
+const MAX_PERSISTED_RETRIEVALS = 8
+
+function readPendingWrite(value: unknown): PendingWriteEnvelope | null {
+  const envelope = asRecord(value)
+  if (!envelope) return null
+  const toolName = typeof envelope.toolName === "string" ? envelope.toolName : ""
+  const summary = typeof envelope.summary === "string" ? envelope.summary.slice(0, MAX_STORED_MESSAGE_CHARACTERS) : ""
+  const confirmPhrase = typeof envelope.confirmPhrase === "string" ? envelope.confirmPhrase.slice(0, 80) : ""
+  const cancelPhrase = typeof envelope.cancelPhrase === "string" ? envelope.cancelPhrase.slice(0, 80) : ""
+  const requestMessageId = typeof envelope.requestMessageId === "string" ? envelope.requestMessageId : ""
+  const createdAtMs = typeof envelope.createdAtMs === "number" && Number.isFinite(envelope.createdAtMs) ? envelope.createdAtMs : 0
+  if (!toolName || !summary || !confirmPhrase || !cancelPhrase || !requestMessageId || !createdAtMs) return null
+  return { toolName, args: envelope.args ?? {}, summary, confirmPhrase, cancelPhrase, requestMessageId, createdAtMs }
+}
+
+function readResolvedEntities(value: unknown): ResolvedEntity[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(asRecord)
+    .filter((entity): entity is RecordValue => entity !== null)
+    .map((entity) => ({
+      ref: typeof entity.ref === "string" ? entity.ref : "",
+      kind: entity.kind as ResolvedEntity["kind"],
+      name: typeof entity.name === "string" ? entity.name : "",
+      sourceIds: (asRecord(entity.sourceIds) ?? {}) as ResolvedEntity["sourceIds"],
+      meta: (asRecord(entity.meta) ?? {}) as ResolvedEntity["meta"],
+    }))
+    .filter((entity) => entity.ref && entity.name && entity.kind)
+    .slice(-MAX_PERSISTED_ENTITIES)
+}
+
+function readRetrievals(value: unknown): ConversationRetrieval[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(asRecord)
+    .filter((entry): entry is RecordValue => entry !== null)
+    .map((entry) => ({
+      toolName: typeof entry.toolName === "string" ? entry.toolName : "",
+      summary: typeof entry.summary === "string" ? entry.summary.slice(0, 300) : "",
+      ...(typeof entry.nextCursor === "string" && entry.nextCursor ? { nextCursor: entry.nextCursor.slice(0, 60) } : {}),
+    }))
+    .filter((entry) => entry.toolName && entry.summary)
+    .slice(-MAX_PERSISTED_RETRIEVALS)
+}
+
 function conversationDocumentId(senderPhoneNumber: string): string {
   // Keep the phone number out of the Firestore document path while retaining one conversation per sender.
   return createHash("sha256").update(senderPhoneNumber).digest("hex")
@@ -148,6 +222,9 @@ export async function prepareWhatsAppConversation(input: {
     const snapshot = await transaction.get(conversationRef)
     const recentMessages = readRecentMessages(snapshot.data()?.recentMessages)
     const onboarding = readOnboardingState(snapshot.data()?.onboarding)
+    const pendingWrite = readPendingWrite(snapshot.data()?.pendingWrite)
+    const resolvedEntities = readResolvedEntities(snapshot.data()?.resolvedEntities)
+    const retrievals = readRetrievals(snapshot.data()?.retrievals)
     const existingReply = recentMessages.find(
       (message) => message.role === "assistant" && message.replyToMessageId === input.messageId,
     )
@@ -158,6 +235,9 @@ export async function prepareWhatsAppConversation(input: {
         existingReply: toOutgoingReply(existingReply),
         isFirstInteraction: recentMessages.every((message) => message.id === input.messageId),
         onboarding,
+        pendingWrite,
+        resolvedEntities,
+        retrievals,
       }
     }
 
@@ -190,6 +270,9 @@ export async function prepareWhatsAppConversation(input: {
       existingReply: null,
       isFirstInteraction: recentMessages.length === 0 || recentMessages.every((message) => message.id === input.messageId),
       onboarding,
+      pendingWrite,
+      resolvedEntities,
+      retrievals,
     }
   })
 }
@@ -206,6 +289,10 @@ export async function storeWhatsAppAssistantReply(input: {
   replyToMessageId: string
   reply: WhatsAppOutgoingReply
   onboarding?: WhatsAppOnboardingState
+  /** `null` explicitly clears a pending preview (confirmed, cancelled or expired). */
+  pendingWrite?: PendingWriteEnvelope | null
+  resolvedEntities?: ResolvedEntity[]
+  retrievals?: ConversationRetrieval[]
 }): Promise<WhatsAppOutgoingReply> {
   const db = await getAdminDb()
   const conversationRef = db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(input.senderPhoneNumber))
@@ -239,6 +326,9 @@ export async function storeWhatsAppAssistantReply(input: {
         recentMessages: updatedMessages,
         updatedAtMs: Date.now(),
         ...(input.onboarding ? { onboarding: input.onboarding } : {}),
+        ...(input.pendingWrite !== undefined ? { pendingWrite: input.pendingWrite } : {}),
+        ...(input.resolvedEntities ? { resolvedEntities: input.resolvedEntities.slice(-MAX_PERSISTED_ENTITIES) } : {}),
+        ...(input.retrievals ? { retrievals: input.retrievals.slice(-MAX_PERSISTED_RETRIEVALS) } : {}),
       },
       { merge: true },
     )

@@ -35,6 +35,7 @@ function toolContext(overrides: Partial<SecretaryToolContext> = {}): SecretaryTo
     identity: identifiedIdentity,
     actorUserId: identifiedIdentity.userId,
     enabledModules: [],
+    canWrite: false,
     ...overrides,
   }
 }

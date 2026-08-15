@@ -29,13 +29,15 @@ import { createDirectoryTools } from "@/lib/whatsapp-secretary/tools/directory"
 import { createQuestCoralTools } from "@/lib/whatsapp-secretary/tools/quest-coral"
 import { createApplicationsTools } from "@/lib/whatsapp-secretary/tools/applications"
 import { createReportsTools } from "@/lib/whatsapp-secretary/tools/reports"
+import { createReportWriteTools } from "@/lib/whatsapp-secretary/tools/report-writes"
 import { createClockingTools } from "@/lib/whatsapp-secretary/tools/clocking"
 import { createOutlooksTools } from "@/lib/whatsapp-secretary/tools/outlooks"
 import { createKnowledgeTools } from "@/lib/whatsapp-secretary/tools/knowledge"
 import { createMessagesTools } from "@/lib/whatsapp-secretary/tools/messages"
 import { createMeTools } from "@/lib/whatsapp-secretary/tools/me"
 import { createSvcTools } from "@/lib/whatsapp-secretary/tools/svc"
-import { createEntityResolver, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { createEntityResolver, type EntityResolver, type ResolvedEntity } from "@/lib/whatsapp-secretary/entity-resolver"
+import { formatPendingWriteReply, type PendingWriteEnvelope } from "@/lib/whatsapp-secretary/pending-writes"
 import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
 import { selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import {
@@ -81,11 +83,24 @@ function truncateReply(value: string, max: number): string {
  * context removes that asymmetry, and `resolver` is what lets every module
  * stop resolving entity names on its own.
  */
-const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
+export const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
   directory: (context) => createDirectoryTools({ resolver: context.resolver }),
   questCoral: (context) => createQuestCoralTools({ resolver: context.resolver }),
   applications: (context) => createApplicationsTools({ resolver: context.resolver }),
-  reports: (context) => createReportsTools({ resolver: context.resolver }),
+  reports: (context) => [
+    ...createReportsTools({ resolver: context.resolver }),
+    // The one write capability, registered alongside its module's reads so the
+    // model can compose them. Yields nothing without a linked account.
+    ...(context.canWrite
+      ? createReportWriteTools({
+          resolver: context.resolver,
+          actorUserId: context.actorUserId,
+          actorPersonId: context.identity?.personId,
+          senderPhoneNumber: context.senderPhoneNumber,
+          requestMessageId: context.requestMessageId,
+        })
+      : []),
+  ],
   clocking: (context) => createClockingTools({ resolver: context.resolver }),
   outlooks: (context) => createOutlooksTools({ resolver: context.resolver }),
   knowledge: () => createKnowledgeTools(),
@@ -103,6 +118,13 @@ export interface WhatsAppSecretaryAnswerInput {
   senderIdentity: WhatsAppSenderIdentity | null
   accessPolicy: WhatsAppAccessPolicy
   companyKnowledge: CompanyKnowledgeContext[]
+  /** Required for the write framework's deterministic, idempotent record ids. */
+  senderPhoneNumber?: string
+  requestMessageId?: string
+  /** Entities resolved on previous turns — re-seeded so a ref stays valid across the conversation. */
+  priorEntities?: ResolvedEntity[]
+  /** What previous turns retrieved, so a follow-up can page instead of restarting. */
+  priorRetrievals?: Array<{ toolName: string; summary: string; nextCursor?: string }>
 }
 
 export interface WhatsAppSecretaryDeps {
@@ -120,7 +142,15 @@ export interface WhatsAppSecretaryDeps {
   }
 }
 
-export type WhatsAppSecretaryAnswer = WhatsAppOutgoingReply
+export type WhatsAppSecretaryAnswer = WhatsAppOutgoingReply & {
+  /**
+   * Server-only, for the webhook to persist. Never sent to WhatsApp: a
+   * `pendingWrite` is the confirmation envelope the deterministic layer
+   * stores, and `memory` is what makes the next turn's refs and cursors reusable.
+   */
+  pendingWrite?: PendingWriteEnvelope
+  memory?: { resolvedEntities: ResolvedEntity[]; retrievals: Array<{ toolName: string; summary: string; nextCursor?: string }> }
+}
 
 const answerResultSchema = z.object({ answer: z.string() })
 
@@ -181,11 +211,16 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
   }
   // One resolver per question, so a name resolved by one tool is the *same*
   // entity for every other tool this turn — and is resolved exactly once.
+  const resolver = deps.resolver ?? createEntityResolver(createServerEntityLookups())
+  if (input.priorEntities?.length) resolver.hydrate(input.priorEntities)
   const context: SecretaryToolContext = {
-    resolver: deps.resolver ?? createEntityResolver(createServerEntityLookups()),
+    resolver,
     identity: input.senderIdentity,
     ...(input.accessPolicy.actorUserId ? { actorUserId: input.accessPolicy.actorUserId } : {}),
     enabledModules: enabledSecretaryModules(input.accessPolicy),
+    canWrite: input.accessPolicy.canCreateDailyReportDraft,
+    ...(input.senderPhoneNumber ? { senderPhoneNumber: input.senderPhoneNumber } : {}),
+    ...(input.requestMessageId ? { requestMessageId: input.requestMessageId } : {}),
   }
   const tools = buildToolRegistry(input.accessPolicy, factories, context)
   const runConversation = deps.runConversation ?? runToolConversation
@@ -204,6 +239,8 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
     senderIdentity: input.senderIdentity,
     companyKnowledge: input.companyKnowledge,
     accessLevel: input.accessPolicy.level,
+    ...(input.priorEntities?.length ? { priorEntities: input.priorEntities.map((entity) => ({ ref: entity.ref, kind: entity.kind, name: entity.name })) } : {}),
+    ...(input.priorRetrievals?.length ? { priorRetrievals: input.priorRetrievals } : {}),
   })
 
   const uid = input.accessPolicy.actorUserId ?? input.accessPolicy.actorPersonId
@@ -272,11 +309,34 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
       toolRounds,
       recordCount: WHATSAPP_SECRETARY_AI_LIMITS.maxTotalRecords - budget.remainingRecords,
     })
-    return createWhatsAppSecretaryPresentation({
+    const presented = createWhatsAppSecretaryPresentation({
       answer: truncateReply(parsed.data.answer.trim(), MAX_REPLY_CHARACTERS),
       question: current.content,
       executions: toolExecutions,
     })
+
+    // A write preview's reply text is built deterministically from the
+    // envelope, not from the model's prose: the confirmation contract is a
+    // safety property, and a paraphrase of "reply CONFIRM DRAFT" is exactly
+    // the kind of thing that must not drift.
+    const pendingWrite = pendingWriteFromExecutions(toolExecutions)
+    const reply: WhatsAppSecretaryAnswer = pendingWrite
+      ? { text: formatPendingWriteReply(pendingWrite), pendingWrite }
+      : presented
+
+    return {
+      ...reply,
+      memory: {
+        resolvedEntities: resolver.minted(),
+        retrievals: toolExecutions
+          .filter((execution) => !execution.result.empty)
+          .map((execution) => ({
+            toolName: execution.name,
+            summary: execution.result.summary,
+            ...(execution.result.nextCursor ? { nextCursor: execution.result.nextCursor } : {}),
+          })),
+      },
+    }
   } catch (error) {
     if (acquired && uid) await guard.fail(uid, acquired).catch(() => undefined)
     const toolNames = toolExecutions.map((execution) => execution.name)
@@ -289,6 +349,19 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
     logWhatsAppSecretaryAi({ event: "failed", operation: "ask", requestId, errorCode: "unknown", toolNames, emptyToolNames })
     throw error
   }
+}
+
+/**
+ * Pulls a write preview's envelope off the server-only `presentation` channel.
+ * Takes the most recent one: if the model previewed twice in a turn, the last
+ * preview is the one the sender was actually shown.
+ */
+function pendingWriteFromExecutions(executions: WhatsAppSecretaryToolExecution[]): PendingWriteEnvelope | undefined {
+  for (const execution of [...executions].reverse()) {
+    const presentation = execution.result.presentation as { pendingWrite?: PendingWriteEnvelope } | undefined
+    if (presentation?.pendingWrite?.toolName) return presentation.pendingWrite
+  }
+  return undefined
 }
 
 /** Every call in a round runs concurrently — independent Firestore reads across

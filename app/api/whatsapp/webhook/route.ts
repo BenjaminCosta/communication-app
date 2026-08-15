@@ -1,7 +1,16 @@
 import { findRelevantCompanyKnowledge } from "@/lib/company-knowledge"
-import { prepareWhatsAppConversation, storeWhatsAppAssistantReply } from "@/lib/whatsapp-conversation-memory"
+import { prepareWhatsAppConversation, storeWhatsAppAssistantReply, type PreparedWhatsAppConversation } from "@/lib/whatsapp-conversation-memory"
 import { resolveWhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
-import { handleWhatsAppDailyReportDraftAction } from "@/lib/whatsapp-daily-report-drafts"
+import {
+  handleWhatsAppDailyReportDraftAction,
+  isWhatsAppDailyReportDraftCancellation,
+  isWhatsAppDailyReportDraftConfirmation,
+} from "@/lib/whatsapp-daily-report-drafts"
+import { resolvePendingWrite } from "@/lib/whatsapp-secretary/pending-writes"
+import { buildToolRegistry, enabledSecretaryModules, type SecretaryToolContext } from "@/lib/whatsapp-secretary/tool-registry"
+import { createEntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
+import { DEFAULT_TOOL_FACTORIES } from "@/lib/whatsapp-secretary/orchestrator"
 import { resolveWhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
@@ -14,7 +23,6 @@ import {
   type WhatsAppOnboardingState,
 } from "@/lib/whatsapp-secretary/onboarding"
 import { getSelfContextSnapshot, selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
-import { enabledSecretaryModules } from "@/lib/whatsapp-secretary/tool-registry"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { createHmac, timingSafeEqual } from "node:crypto"
@@ -159,6 +167,81 @@ async function resolveSecretaryIntroduction(input: {
   }
 }
 
+
+/**
+ * Matches an inbound message against this sender's stored write preview.
+ *
+ * Returns null for anything that is not an exact confirmation or cancellation,
+ * so an unrelated question simply flows on to the normal Secretary path and
+ * the preview stays pending. The tool registry is rebuilt here with the same
+ * access policy the orchestrator would use, so a sender whose access changed
+ * between preview and confirmation cannot commit something they may no longer
+ * do.
+ */
+async function resolvePendingWriteForSender(input: {
+  text: string
+  conversation: PreparedWhatsAppConversation
+  identity: WhatsAppSenderIdentity | null
+  accessPolicy: WhatsAppAccessPolicy
+  senderPhoneNumber: string
+  confirmationMessageId: string
+}): Promise<{ kind: string; reply: string } | null> {
+  const envelope = input.conversation.pendingWrite
+  if (!envelope || !input.identity || !input.accessPolicy.actorUserId) return null
+
+  const context: SecretaryToolContext = {
+    resolver: createEntityResolver(createServerEntityLookups()),
+    identity: input.identity,
+    actorUserId: input.accessPolicy.actorUserId,
+    enabledModules: enabledSecretaryModules(input.accessPolicy),
+    canWrite: input.accessPolicy.canCreateDailyReportDraft,
+    senderPhoneNumber: input.senderPhoneNumber,
+    requestMessageId: envelope.requestMessageId,
+  }
+  const tools = buildToolRegistry(input.accessPolicy, DEFAULT_TOOL_FACTORIES, context)
+
+  const outcome = await resolvePendingWrite({
+    text: input.text,
+    envelope,
+    tools,
+    context: {
+      senderPhoneNumber: input.senderPhoneNumber,
+      actorUserId: input.accessPolicy.actorUserId,
+      actorPersonId: input.identity.personId,
+      requestMessageId: envelope.requestMessageId,
+      confirmationMessageId: input.confirmationMessageId,
+    },
+  })
+
+  if (outcome.kind === "none") return null
+  if (outcome.kind === "committed") return { kind: outcome.result.kind, reply: outcome.result.reply }
+  return { kind: outcome.kind, reply: outcome.reply }
+}
+
+/**
+ * Safety net for a preview created by the pre-tool regex flow that may still be
+ * pending in `/whatsappReportDraftActions` with no envelope on the conversation
+ * document. Only ever consulted when there is no envelope, and only for the two
+ * exact commands — so it cannot start a new legacy preview, just honor an
+ * in-flight one. Delete once no legacy preview can plausibly remain.
+ */
+async function resolveLegacyDraftCommand(input: {
+  text: string
+  senderPhoneNumber: string
+  messageId: string
+  recentMessages: Parameters<typeof handleWhatsAppDailyReportDraftAction>[0]["recentMessages"]
+  identity: WhatsAppSenderIdentity | null
+}): Promise<{ kind: string; reply: string } | null> {
+  if (!isWhatsAppDailyReportDraftConfirmation(input.text) && !isWhatsAppDailyReportDraftCancellation(input.text)) return null
+  const action = await handleWhatsAppDailyReportDraftAction({
+    senderPhoneNumber: input.senderPhoneNumber,
+    messageId: input.messageId,
+    recentMessages: input.recentMessages,
+    identity: input.identity,
+  })
+  return action ? { kind: `legacy-${action.kind}`, reply: action.reply } : null
+}
+
 /** Avoids repeated model calls when Meta retries delivery of the same inbound message. */
 async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Promise<WhatsAppOutgoingReply> {
   const now = Date.now()
@@ -196,23 +279,36 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           isFirstInteraction: conversation.isFirstInteraction,
           message: message.text,
         })
-        const dailyReportDraftAction = await handleWhatsAppDailyReportDraftAction({
-          senderPhoneNumber: message.senderPhoneNumber,
-          messageId: message.messageId,
-          recentMessages: conversation.recentMessages,
-          identity: senderIdentity,
-        })
-        if (dailyReportDraftAction) {
-          console.info("Handled WhatsApp Daily Report draft action", {
-            kind: dailyReportDraftAction.kind,
-            actorIdentified: senderIdentity !== null,
-          })
-          const draftReply: WhatsAppOutgoingReply = { text: dailyReportDraftAction.reply }
+        // A pending write is resolved BEFORE the model runs and entirely
+        // outside it: an exact-phrase confirmation must never depend on the
+        // model agreeing that the sender meant yes.
+        const writeOutcome =
+          (await resolvePendingWriteForSender({
+            text: message.text,
+            conversation,
+            identity: senderIdentity,
+            accessPolicy,
+            senderPhoneNumber: message.senderPhoneNumber,
+            confirmationMessageId: message.messageId,
+          })) ??
+          (conversation.pendingWrite
+            ? null
+            : await resolveLegacyDraftCommand({
+                text: message.text,
+                senderPhoneNumber: message.senderPhoneNumber,
+                messageId: message.messageId,
+                recentMessages: conversation.recentMessages,
+                identity: senderIdentity,
+              }))
+        if (writeOutcome) {
+          console.info("Resolved a pending WhatsApp write", { kind: writeOutcome.kind })
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: introduction.apply(draftReply),
+            reply: introduction.apply({ text: writeOutcome.reply }),
             ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
+            // Always clears: confirmed, cancelled and expired all end the preview.
+            pendingWrite: null,
           })
         } else {
           const companyKnowledge = await findRelevantCompanyKnowledge(
@@ -228,12 +324,19 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             senderIdentity,
             accessPolicy,
             companyKnowledge,
+            senderPhoneNumber: message.senderPhoneNumber,
+            requestMessageId: message.messageId,
+            priorEntities: conversation.resolvedEntities,
+            priorRetrievals: conversation.retrievals,
           })
+          const { pendingWrite, memory, ...outgoing } = generatedReply
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: introduction.apply(generatedReply),
+            reply: introduction.apply(outgoing),
             ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
+            ...(pendingWrite ? { pendingWrite } : {}),
+            ...(memory ? { resolvedEntities: memory.resolvedEntities, retrievals: memory.retrievals } : {}),
           })
         }
       } finally {

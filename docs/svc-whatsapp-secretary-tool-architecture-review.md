@@ -4,12 +4,11 @@ _Reviewed 2026-08-14 against `lib/whatsapp-secretary/` at commit `7a04dfc`._
 _Scope: orchestrator, tool registry, all nine module tool files, Knowledge,
 Live Data, memory, access control, and tool-calling structure._
 
-> **Status: steps 1–5 implemented 2026-08-14** (same day). The catalog is now
-> **23 tools, down from 37**, with the shared entity resolver, the cross-module
-> dossier, and `truncated`/`totalMatched` in place. **Steps 6 (write framework)
-> and 7 (memory) are NOT done** — see "Implementation status" at the end of this
-> document for exactly what landed, what a live eval caught, and why the last
-> two steps were deliberately not bundled in.
+> **Status: fully implemented.** Steps 1–5 landed 2026-08-14 (catalog **37 →
+> 23**, shared entity resolver, cross-module dossier, `truncated`/`totalMatched`);
+> steps 6 (write framework) and 7 (cross-turn memory) landed 2026-08-15 in their
+> own pass, as sequenced. See "Implementation status" at the end for what
+> shipped and what the live evals caught.
 
 Published reference copy (same content, better formatted for scanning):
 <https://claude.ai/code/artifact/1d6c6a83-8459-4dd4-8713-48233c1323e8>
@@ -322,22 +321,63 @@ A prompt paragraph was also added: pass a job name straight to the module tool
 that needs it rather than pre-resolving it in Directory, since every tool now
 resolves names itself.
 
-### Not done — steps 6 and 7
+### Landed — steps 6 and 7 (2026-08-15, separate pass)
 
-**Step 6 (write framework)** and **step 7 (memory)** were deliberately left
-out of this pass, not overlooked:
+Deliberately not bundled with the catalog rename: bundling would have defeated
+the very gate that caught the disambiguation bug, since a regression could not
+then be attributed to one change or the other.
 
-- The write framework has to restructure the Daily Report draft flow, which
-  owns the only production write this system has, has a real draft sitting in
-  Firestore that must not be disturbed, and carries preview/confirm/idempotency
-  guarantees that deserve their own verification pass.
-- The memory upgrade changes the shape of `/whatsappConversations` documents.
+**Step 6 — writes as tools.** `SecretaryTool` gained `kind: "read" | "write"`
+and `commit()`. A write tool's `run()` is a **pure preview** that mutates
+nothing; it returns a `presentation.pendingWrite` envelope
+(`lib/whatsapp-secretary/pending-writes.ts`) which the deterministic layer
+persists on the conversation document. Only `commit()`, reached from an
+exact-phrase confirmation matched **before the model runs**, writes anything.
+`assertWriteToolContract` makes the shape structural: a write tool without a
+`commit`, or a read tool with one, fails at registry build.
 
-Bundling either with a 37 → 23 catalog rename would defeat the very gate that
-just caught a real bug: with both changes in one deploy, a regression could not
-be attributed to one or the other. The plan's own ordering puts them after the
-read consolidation for this reason. They remain the next two steps, in that
-order.
+The Daily Report draft became the first write tool
+(`tools/report-writes.ts`) — and **none of its safety properties moved**:
+`commit()` delegates to the existing, unmodified store transaction, keyed by
+the same `sha256(sender)` document and the same deterministic
+`actionKey`/`reportId`, so the `/reports` document written is byte-identical
+and a repeat confirmation still returns "already created". Two properties were
+*added*: the envelope carries the **resolved job**, so a confirmation writes
+against the job that was previewed rather than whatever a name would
+re-resolve to hours later; and a preview expires after 24h rather than staying
+confirmable forever. A narrow fallback keeps any in-flight legacy preview
+confirmable, and can be deleted once none can plausibly remain.
+
+What this buys, beyond tidiness: the model can now **compose** a write with a
+read in one turn — verified live, `reports_search` then
+`reports_createDailyReportDraft` — which the pre-orchestrator regex path was
+structurally incapable of.
+
+**Step 7 — cross-turn memory.** The resolver gained `hydrate()`/`minted()`, and
+the conversation document now carries `resolvedEntities` and a compact
+`retrievals` digest. So a ref minted last turn still resolves this turn **with
+no lookup at all**, re-asking by name reuses the same entity, and the prompt
+carries prior refs and `nextCursor` values forward so a follow-up pages instead
+of restarting. Ref minting continues past rehydrated handles, so a new entity
+can never collide with a carried one.
+
+**Live eval of the write path** (real model, fixture providers, a spy store
+that fails loudly if a preview writes) — all five checks passed first time:
+the draft tool was selected and produced a preview with **no store write at
+all**; the model did not falsely claim creation; read+write composed in one
+turn; "yes" / "go ahead" / "confirm it" all failed to confirm while only the
+exact phrase reached commit; and turn two reused turn one's ref without
+re-resolving. The `truncated` flag was visibly working end-to-end too — the
+model volunteered "More reports may exist beyond this result."
+
+One cosmetic bug the eval caught: the confirmation contract was printed twice,
+because the Daily Report's own preview text already ends with it.
+`formatPendingWriteReply` now appends only when the tool's preview hasn't
+already stated it.
+
+Tests 276 → 299. `pnpm verify:fast` and `pnpm build` green.
+
+**Final catalog: 24 tools** — 23 reads plus the one write.
 
 ## Related documentation
 
