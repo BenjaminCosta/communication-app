@@ -39,6 +39,7 @@ const MODULE_CAPABILITIES: Record<SecretaryModule, string> = {
   messages: "Communications — automatic operational posts (Outlook publishes, clock events, submitted reports, completed applications), plus the messages you personally can already see in the app.",
   knowledge: "SVC company knowledge — how each SVC app works, step-by-step tutorials, terminology, and the SVC Vision → Mission → Operation → Objective → Goal → Task framework.",
   me: "Your own SVC context — who I recognize you as, the jobs and companies linked to you, your projects, your reports, and what's open right now.",
+  svc: "A single cross-module summary of any job, person, company or project — its Outlook, reports, clock activity, operational history and linked records in one answer.",
 }
 
 /**

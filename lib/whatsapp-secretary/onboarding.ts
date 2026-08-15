@@ -61,6 +61,7 @@ const MODULE_LABELS: Record<SecretaryModule, string> = {
   messages: "Communications",
   knowledge: "SVC how-to knowledge",
   me: "your own SVC context",
+  svc: "cross-module summaries of any job or project",
 }
 
 /**

@@ -3,7 +3,13 @@
 _Reviewed 2026-08-14 against `lib/whatsapp-secretary/` at commit `7a04dfc`._
 _Scope: orchestrator, tool registry, all nine module tool files, Knowledge,
 Live Data, memory, access control, and tool-calling structure._
-_**No code was changed by this review.** It is a plan, not a changelog._
+
+> **Status: steps 1–5 implemented 2026-08-14** (same day). The catalog is now
+> **23 tools, down from 37**, with the shared entity resolver, the cross-module
+> dossier, and `truncated`/`totalMatched` in place. **Steps 6 (write framework)
+> and 7 (memory) are NOT done** — see "Implementation status" at the end of this
+> document for exactly what landed, what a live eval caught, and why the last
+> two steps were deliberately not bundled in.
 
 Published reference copy (same content, better formatted for scanning):
 <https://claude.ai/code/artifact/1d6c6a83-8459-4dd4-8713-48233c1323e8>
@@ -265,6 +271,73 @@ silently. Move one module at a time, and gate each on the live-eval harness
 (real model + fixture providers) that already exists in this repo, the same
 approach that confirmed all seven personalization phrasings routed to the
 intended tool on 2026-08-14.
+
+## Implementation status (2026-08-14)
+
+### Landed — steps 1 through 5
+
+| Step | What shipped |
+| --- | --- |
+| 1 | `lib/whatsapp-secretary/entity-resolver.ts` + `tools/entity-lookups.ts`. One resolution per name per request, one entity carrying every id (`contextId` *and* `byeByeDprJobId` together), opaque per-request `ref` handles the model passes between tools. The six duplicated resolution sites now all route through it. |
+| 2 | `svc_getEntityDossier` (`tools/svc.ts` + `tools/dossier-sources.ts`). Each section gated by its own module's access flag **before any query runs**, each source failing independently, and `emptySections` vs `unavailableSections` reported separately so "nothing on file" and "this record can't have that" never read alike. |
+| 3 | Directory **13 → 5**: `search({query,type?})`, `getEntity({ref\|name,include})`, `findConnection({from,to,mode})`, `searchNotes`, `listUsers({presence})`. The latent wrong-type relationship bug is gone — `getEntity` picks the underlying relationship view from the *resolved* entity's real type, so a mismatch is now impossible rather than silent. |
+| 4 | `truncated` / `totalMatched` / `nextCursor` on `SecretaryToolResult`, plus shared `allowedPageSize()` / `spendBudget()` helpers. The bounded-slice guardrail is machine-checkable instead of aspirational. |
+| 5 | Quest Coral 5 → 3, Applications 4 → 2, Reports 4 → 2, Outlooks 2 → 1. Messages stayed at 2 deliberately (the privacy split is the model). Clocking stayed at 2 (two genuinely different questions). |
+
+**Also landed, not in the original plan**: `SecretaryToolContext` — one
+per-request object (`resolver`, `identity`, `actorUserId`, `enabledModules`)
+passed to every factory. This removed the two bespoke per-request factory
+overrides the review had flagged as an asymmetry, and is the seam any future
+context-needing module uses.
+
+**Final catalog: 23 tools** (directory 5, questCoral 3, applications 2, reports
+2, clocking 2, outlooks 1, knowledge 2, messages 2, me 3, svc 1). One more than
+the 22 projected, because `me` was left at three tools rather than folded to
+two — its three tools answer genuinely different questions and none of them
+takes an argument, so there was nothing to merge.
+
+### What the live eval caught
+
+The review named the main execution risk as "a merged tool with a less sharp
+description can regress selection accuracy — which fails silently", and
+prescribed gating on the live-eval harness. That gate earned its keep: a
+16-question run against the real model scored **10/16 on the first pass**.
+
+The root cause was not a tool description. It was a **real pre-existing bug in
+the presentation layer**, exposed by the consolidation: any search returning
+more than one record was rendered as a native disambiguation list. That
+conflated "a search found ten matches, here is the data for my next step" with
+"I cannot proceed until you pick one". Because the merged `directory_search`
+spans people, companies and jobs when no `type` is given, it returns more rows
+than the old typed searches did — so a broad question like "what's going on
+with North Ridge?" had the model run one exploratory search and the user got
+"I found 10 possible records. Select the right one" instead of an answer.
+
+Fixed by keying the disambiguation list **only** on the resolver's explicit
+`data.candidates` shape, which is now the one and only way ambiguity is
+reported. Re-run: **16/16**, and faster — the broad-summary questions dropped
+from ~4.5s (wrong) to ~3.0s (one dossier call). A regression test guards it.
+
+A prompt paragraph was also added: pass a job name straight to the module tool
+that needs it rather than pre-resolving it in Directory, since every tool now
+resolves names itself.
+
+### Not done — steps 6 and 7
+
+**Step 6 (write framework)** and **step 7 (memory)** were deliberately left
+out of this pass, not overlooked:
+
+- The write framework has to restructure the Daily Report draft flow, which
+  owns the only production write this system has, has a real draft sitting in
+  Firestore that must not be disturbed, and carries preview/confirm/idempotency
+  guarantees that deserve their own verification pass.
+- The memory upgrade changes the shape of `/whatsappConversations` documents.
+
+Bundling either with a 37 → 23 catalog rename would defeat the very gate that
+just caught a real bug: with both changes in one deploy, a regression could not
+be attributed to one or the other. The plan's own ordering puts them after the
+read consolidation for this reason. They remain the next two steps, in that
+order.
 
 ## Related documentation
 

@@ -40,13 +40,13 @@ const activeJobs: FanOutJob[] = [
 test("Outlooks tools are namespaced", () => {
   const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, ["outlooks_getOutlookForJob", "outlooks_listActiveOutlooks"])
+  assert.deepEqual(names, ["outlooks_get"])
   assert.ok(tools.every((tool) => tool.module === "outlooks"))
 })
 
-test("outlooks_getOutlookForJob resolves the job via Directory and returns a real deep link", async () => {
+test("outlooks_get resolves the job via Directory and returns a real deep link", async () => {
   const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
-  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_getOutlookForJob")
+  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_get")
   assert.ok(getOutlookForJob)
 
   const result = await getOutlookForJob.run({ jobName: "Appaloosa" }, budget())
@@ -57,34 +57,34 @@ test("outlooks_getOutlookForJob resolves the job via Directory and returns a rea
   assert.match(presentation?.deepLink ?? "", /\?directory=job__appaloosa&view=outlook$/)
 })
 
-test("outlooks_getOutlookForJob reports not-found when the job has no outlook yet", async () => {
+test("outlooks_get reports not-found when the job has no outlook yet", async () => {
   const tools = createOutlooksTools({
     provider: createFixtureProvider({ getOutlookForJob: async () => null }),
     directoryProvider: createDirectoryFixtureProvider(),
   })
-  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_getOutlookForJob")
+  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_get")
   assert.ok(getOutlookForJob)
 
   const result = await getOutlookForJob.run({ jobName: "Appaloosa" }, budget())
   assert.equal(result.empty, true)
 })
 
-test("outlooks_getOutlookForJob reports not-found for an unresolvable job name, never guessing", async () => {
+test("outlooks_get reports not-found for an unresolvable job name, never guessing", async () => {
   const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
-  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_getOutlookForJob")
+  const getOutlookForJob = tools.find((tool) => tool.name === "outlooks_get")
   assert.ok(getOutlookForJob)
 
   const result = await getOutlookForJob.run({ jobName: "A Job That Does Not Exist" }, budget())
   assert.equal(result.empty, true)
 })
 
-test("outlooks_listActiveOutlooks returns only jobs whose window covers the given date, skipping unlinked/outlook-less jobs", async () => {
+test("outlooks_get returns only jobs whose window covers the given date, skipping unlinked/outlook-less jobs", async () => {
   const tools = createOutlooksTools({
     provider: createFixtureProvider(),
     directoryProvider: createDirectoryFixtureProvider(),
     listJobsProvider: async () => activeJobs,
   })
-  const listActiveOutlooks = tools.find((tool) => tool.name === "outlooks_listActiveOutlooks")
+  const listActiveOutlooks = tools.find((tool) => tool.name === "outlooks_get")
   assert.ok(listActiveOutlooks)
 
   const result = await listActiveOutlooks.run({ onDate: "2026-08-13" }, budget())
@@ -95,13 +95,13 @@ test("outlooks_listActiveOutlooks returns only jobs whose window covers the give
   assert.equal(presentation?.deepLinks?.[0]?.jobName, "Appaloosa")
 })
 
-test("outlooks_listActiveOutlooks defaults to today and reports none active without guessing", async () => {
+test("outlooks_get defaults to today and reports none active without guessing", async () => {
   const tools = createOutlooksTools({
     provider: createFixtureProvider(),
     directoryProvider: createDirectoryFixtureProvider(),
     listJobsProvider: async () => activeJobs,
   })
-  const listActiveOutlooks = tools.find((tool) => tool.name === "outlooks_listActiveOutlooks")
+  const listActiveOutlooks = tools.find((tool) => tool.name === "outlooks_get")
   assert.ok(listActiveOutlooks)
 
   // Warehouse's window (Jun 1-21) and Appaloosa's (Aug 3-23) both miss this date.

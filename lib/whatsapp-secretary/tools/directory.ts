@@ -8,7 +8,13 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { tokenize } from "@/lib/directory-core"
 import type { DirectoryType } from "@/lib/directory"
 import { deriveNameFromEmail } from "@/lib/store"
-import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import type { SecretaryTool, SecretaryToolBudget, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import {
+  describeUnresolved,
+  entityArgSchema,
+  toModelEntity,
+  type EntityResolver,
+} from "@/lib/whatsapp-secretary/entity-resolver"
 
 /**
  * Directory adapter — the full "Ask SVC Directory" tool stack (nothing
@@ -271,20 +277,50 @@ async function fetchActiveUsers(): Promise<ActiveUserSummary[]> {
   })
 }
 
-function createActiveUsersTool(fetchActive: () => Promise<ActiveUserSummary[]>): SecretaryTool<Record<string, never>> {
+/**
+ * Presence and roster used to be two tools whose descriptions were mostly
+ * spent explaining that they were not each other — the clearest possible
+ * signal that the distinction is a parameter, not a tool boundary. One tool,
+ * one `presence` argument, and the description can now spend its length on
+ * what the data actually means instead of on disambiguation.
+ */
+function createUsersTool(
+  fetchActive: () => Promise<ActiveUserSummary[]>,
+  fetchAllRegistered: () => Promise<ActiveUserSummary[]>,
+): SecretaryTool<{ presence?: "active" | "all" }> {
   return {
-    name: "directory_getActiveUsers",
+    name: "directory_listUsers",
     module: "directory",
-    description: `Lists SVC users currently active in the app right now — had the app open in the last ${ACTIVE_USER_WINDOW_SECONDS} seconds, the same "active now" presence signal the app itself shows. Use this for "who's active/online right now" questions. This is NOT a login/registration list (use directory_listRegisteredUsers for "who's registered"/"what users exist") and NOT clock-in status (use a clocking tool for who's clocked in) — it only reflects this exact moment, with no history.`,
-    parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
-    schema: z.object({}),
-    async run(_args, budget): Promise<SecretaryToolResult> {
+    description: `List SVC app user accounts. \`presence: "active"\` (default) is who has the app open right now — a ${ACTIVE_USER_WINDOW_SECONDS}-second window, the same live signal the app's own UI shows, with no history. \`presence: "all"\` is every registered account regardless of whether they're online. Neither is clock-in status (use a clocking tool for who's on a job), and neither is the broader Directory contact list, which also holds external non-user contacts.`,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        presence: { type: "string", enum: ["active", "all"], description: "Defaults to active (online right now)." },
+      },
+    },
+    schema: z.object({ presence: z.enum(["active", "all"]).optional() }),
+    async run(args, budget): Promise<SecretaryToolResult> {
       if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-      const users = await fetchActive()
+      const presence = args.presence ?? "active"
+      const users = presence === "all" ? await fetchAllRegistered() : await fetchActive()
       const limited = users.slice(0, Math.max(0, Math.min(users.length, budget.remainingRecords)))
       budget.remainingRecords -= limited.length
-      if (limited.length === 0) return { summary: "No SVC users are currently active in the app right now.", empty: true }
-      return { summary: `${limited.length} SVC user(s) currently active in the app right now.`, data: { users: limited } }
+      if (limited.length === 0) {
+        return {
+          summary: presence === "all" ? "No registered SVC users were retrieved." : "No SVC users are currently active in the app right now.",
+          empty: true,
+        }
+      }
+      return {
+        summary:
+          presence === "all"
+            ? `${limited.length} registered SVC user account(s).`
+            : `${limited.length} SVC user(s) currently active in the app right now.`,
+        data: { presence, users: limited },
+        ...(users.length > limited.length ? { truncated: true, totalMatched: users.length } : {}),
+      }
     },
   }
 }
@@ -317,27 +353,52 @@ async function fetchAllRegisteredUsers(): Promise<ActiveUserSummary[]> {
   })
 }
 
-function createRegisteredUsersTool(fetchAll: () => Promise<ActiveUserSummary[]>): SecretaryTool<Record<string, never>> {
-  return {
-    name: "directory_listRegisteredUsers",
-    module: "directory",
-    description:
-      "Lists every SVC user registered in the app (has an account), regardless of whether they're currently active. Use this for \"what users are there\"/\"who's registered\"/\"all users\" questions. This is NOT who's online right now (use directory_getActiveUsers for that) and NOT the broader Directory contact list (which also includes external, non-app-user contacts) — this is specifically registered app accounts.",
-    parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
-    schema: z.object({}),
-    async run(_args, budget): Promise<SecretaryToolResult> {
-      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-      const users = await fetchAll()
-      const limited = users.slice(0, Math.max(0, Math.min(users.length, budget.remainingRecords)))
-      budget.remainingRecords -= limited.length
-      if (limited.length === 0) return { summary: "No registered SVC users were retrieved.", empty: true }
-      return { summary: `${limited.length} registered SVC user(s).`, data: { users: limited } }
-    },
-  }
+/**
+ * Directory's own tool stack is 11 tools, but several of them are the same
+ * function with a different constant baked in — `searchPeople`/`searchCompanies`/
+ * `searchJobs` are one `searchTool()` called three times, `findSharedContacts`/
+ * `findSharedJobs` are one `intersectionTool()` called twice, and the three
+ * relationship tools are one `relationshipTool()` called three times.
+ *
+ * That shape is right for Directory's own single-domain Ask endpoint, where
+ * the tool list is the whole menu. It is wrong for a cross-module orchestrator
+ * whose menu also has to hold eight other modules: each extra entry costs
+ * selection accuracy, and accuracy failures here are silent (a wrong tool
+ * returns a plausible answer, not an error).
+ *
+ * So this adapter presents **five** WhatsApp-facing tools over the same
+ * eleven implementations, with the constant that used to pick a tool becoming
+ * an ordinary parameter. Nothing is lost — every underlying capability is
+ * still reachable, and the merged tools gained optional filters the split ones
+ * never had.
+ *
+ * One real bug is fixed by the merge rather than papered over: the three
+ * relationship tools all take a composite `directoryId` (`person__abc`) which
+ * *already encodes the entity type*, so the model was being asked to pick a
+ * tool from information its own argument carried — and picking wrong returned
+ * whatever the mismatched `pick` pulled off the relation object, with no
+ * error. `directory_getEntity` now chooses the underlying relationship tool
+ * from the **resolved entity's real type**, so a mismatch is impossible.
+ */
+
+const DIRECTORY_TOOL = new Map(DIRECTORY_TOOLS.map((tool) => [tool.name, tool as DirectoryTool<never>]))
+
+const RELATIONSHIP_TOOL_FOR: Record<"person" | "company" | "job", string> = {
+  person: "getPersonRelationships",
+  company: "getCompanyRelationships",
+  job: "getJobRelationships",
+}
+
+type DirectorySearchType = "person" | "company" | "job"
+const SEARCH_TOOL_FOR: Record<DirectorySearchType, string> = {
+  person: "searchPeople",
+  company: "searchCompanies",
+  job: "searchJobs",
 }
 
 export function createDirectoryTools(
   deps: {
+    resolver?: EntityResolver
     provider?: DirectoryDataProvider
     contactDetailsProvider?: DirectoryContactDetailsProvider
     keywordSearchProvider?: DirectoryKeywordSearchProvider
@@ -351,30 +412,226 @@ export function createDirectoryTools(
   const getContactDetails = deps.contactDetailsProvider ?? createServerContactDetailsProvider()
   const fetchActive = deps.activeUsersProvider ?? fetchActiveUsers
   const fetchAllRegistered = deps.registeredUsersProvider ?? fetchAllRegisteredUsers
+  const resolver = deps.resolver
 
-  const directoryTools = DIRECTORY_TOOLS.map(
-    (tool: DirectoryTool<never>): SecretaryTool => ({
-      name: `directory_${tool.name}`,
-      module: "directory",
-      description: tool.description,
-      parameters: tool.parameters,
-      schema: tool.schema,
-      async run(args, budget): Promise<SecretaryToolResult> {
-        const result = await runDirectoryTool(tool.name, args, provider, budget)
-        const records = result.records ? await enrichPersonRecords(result.records, provider, getContactDetails) : undefined
-        return {
-          summary: result.summary,
-          empty: result.empty,
-          data: {
-            ...(records ? { records } : {}),
-            ...(result.notes ? { notes: result.notes } : {}),
-            ...(result.paths ? { paths: result.paths } : {}),
-            ...(result.counts ? { counts: result.counts } : {}),
-          },
-        }
+  /** Runs one underlying Directory tool and enriches person records, as before. */
+  async function runUnderlying(name: string, args: unknown, budget: SecretaryToolBudget) {
+    const tool = DIRECTORY_TOOL.get(name)
+    if (!tool) return null
+    const result = await runDirectoryTool(name, args as never, provider, budget)
+    const records = result.records ? await enrichPersonRecords(result.records, provider, getContactDetails) : undefined
+    return { ...result, records }
+  }
+
+  const search: SecretaryTool<{ query: string; type?: DirectorySearchType; limit?: number }> = {
+    name: "directory_search",
+    module: "directory",
+    description:
+      "Search the SVC Directory for people, companies or jobs by name, alias, role, company or location. Omit `type` to search all three at once when you don't know which kind of record the name refers to. Returns compact records including a person's phone/email when on file, plus a `ref` for each result you can pass to directory_getEntity or any other tool instead of re-typing the name.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: { type: "string", description: "Name or keywords to find." },
+        type: { type: "string", enum: ["person", "company", "job"], description: "Optional. Omit to search people, companies and jobs together." },
+        limit: { type: "number", description: "Max records to return (1-15)." },
       },
+    },
+    schema: z.object({
+      query: z.string().min(1).max(200),
+      type: z.enum(["person", "company", "job"]).optional(),
+      limit: z.number().int().min(1).max(15).optional(),
     }),
-  )
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const types: DirectorySearchType[] = args.type ? [args.type] : ["person", "company", "job"]
+      const results = await Promise.all(
+        types.map((type) => runUnderlying(SEARCH_TOOL_FOR[type], { query: args.query, limit: args.limit }, budget)),
+      )
 
-  return [...directoryTools, createActiveUsersTool(fetchActive), createRegisteredUsersTool(fetchAllRegistered)]
+      const records = results.flatMap((result) => result?.records ?? [])
+      const totalMatched = results.reduce((total, result) => total + (result?.counts?.matches ?? 0), 0)
+      if (records.length === 0) {
+        return { summary: `No Directory ${args.type ?? "record"}s matched that search.`, empty: true }
+      }
+
+      // Mint refs so the model can drill down without re-resolving by name.
+      const refs = resolver
+        ? await Promise.all(records.slice(0, 8).map(async (record) => {
+            const resolution = await resolver.resolve(record.name, record.type === "company" ? "company" : record.type === "job" ? "job" : "person")
+            return resolution.status === "found" ? { ref: resolution.entity.ref, name: record.name } : null
+          }))
+        : []
+
+      return {
+        summary: `${totalMatched || records.length} Directory record(s) matched.`,
+        data: {
+          records,
+          ...(refs.filter(Boolean).length > 0 ? { refs: refs.filter(Boolean) } : {}),
+        },
+        ...(totalMatched > records.length ? { truncated: true, totalMatched } : {}),
+      }
+    },
+  }
+
+  const getEntity: SecretaryTool<{ ref?: string; name?: string; type?: DirectorySearchType; include?: Array<"relationships" | "notes"> }> = {
+    name: "directory_getEntity",
+    module: "directory",
+    description:
+      "Get everything the Directory holds about one person, company or job: its full record (including phone/email for a person), and optionally the records related to it and the free-text notes mentioning it. Pass `ref` from an earlier result when you have one, otherwise `name`. Use `include: [\"relationships\"]` for \"who works with X\" / \"what jobs is X on\" — the correct relationship view is chosen automatically from the record's real type.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        ...entityArgSchema("person", "The person, company or job name."),
+        type: { type: "string", enum: ["person", "company", "job"], description: "Which kind of record the name refers to. Helps disambiguate; optional when passing a ref." },
+        include: {
+          type: "array",
+          items: { type: "string", enum: ["relationships", "notes"] },
+          description: "Extra sections to fetch alongside the record itself.",
+        },
+      },
+    },
+    schema: z.object({
+      ref: z.string().max(20).optional(),
+      name: z.string().min(1).max(200).optional(),
+      type: z.enum(["person", "company", "job"]).optional(),
+      include: z.array(z.enum(["relationships", "notes"])).max(2).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      if (!resolver) return { summary: "Entity resolution is unavailable.", empty: true }
+      if (!args.ref && !args.name) return { summary: "Provide a ref or a name.", empty: true }
+
+      const kind = args.type ?? "person"
+      let resolution = await resolver.resolveArg({ ref: args.ref, name: args.name }, kind)
+      // Without an explicit type, a name that isn't a person is still probably
+      // a real record — try the other two kinds before giving up.
+      if (resolution.status === "not-found" && !args.type && args.name) {
+        for (const fallback of ["company", "job"] as const) {
+          const attempt = await resolver.resolve(args.name, fallback)
+          if (attempt.status !== "not-found") {
+            resolution = attempt
+            break
+          }
+        }
+      }
+      if (resolution.status !== "found") {
+        return describeUnresolved(resolution, kind, args.name ?? args.ref ?? "")
+      }
+
+      const entity = resolution.entity
+      const directoryId = entity.sourceIds.directoryId
+      if (!directoryId) {
+        return { summary: `"${entity.name}" has no SVC Directory record.`, empty: true }
+      }
+
+      const include = new Set(args.include ?? [])
+      const entityType = (entity.kind === "company" || entity.kind === "job" ? entity.kind : "person") as DirectorySearchType
+      const [details, relationships, notes] = await Promise.all([
+        runUnderlying("getEntityDetails", { directoryId }, budget),
+        include.has("relationships") ? runUnderlying(RELATIONSHIP_TOOL_FOR[entityType], { directoryId }, budget) : Promise.resolve(null),
+        include.has("notes") ? runUnderlying("searchRelevantNotes", { query: entity.name, entityIds: [directoryId] }, budget) : Promise.resolve(null),
+      ])
+
+      return {
+        summary: details?.summary ?? `Details for ${entity.name}.`,
+        empty: !details || details.empty,
+        data: {
+          entity: toModelEntity(entity),
+          ...(details?.records ? { records: details.records } : {}),
+          ...(details?.counts ? { counts: details.counts } : {}),
+          ...(relationships?.records ? { related: relationships.records } : {}),
+          ...(relationships?.counts ? { relatedCounts: relationships.counts } : {}),
+          ...(notes?.notes ? { notes: notes.notes } : {}),
+        },
+      }
+    },
+  }
+
+  const findConnection: SecretaryTool<{ fromRef?: string; fromName?: string; toRef?: string; toName?: string; mode?: "path" | "sharedPeople" | "sharedJobs" }> = {
+    name: "directory_findConnection",
+    module: "directory",
+    description:
+      "Find how two Directory records relate. `mode: \"path\"` (default) walks the relationship graph and returns the actual chain (company → job → person → company) so the answer can cite it. `mode: \"sharedPeople\"` / `\"sharedJobs\"` returns what both records have in common. Accepts refs from earlier results or plain names.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        fromRef: { type: "string", description: "Ref of the first record from an earlier result." },
+        fromName: { type: "string", description: "Name of the first record." },
+        toRef: { type: "string", description: "Ref of the second record." },
+        toName: { type: "string", description: "Name of the second record." },
+        mode: { type: "string", enum: ["path", "sharedPeople", "sharedJobs"], description: "Defaults to path." },
+      },
+    },
+    schema: z.object({
+      fromRef: z.string().max(20).optional(),
+      fromName: z.string().min(1).max(200).optional(),
+      toRef: z.string().max(20).optional(),
+      toName: z.string().min(1).max(200).optional(),
+      mode: z.enum(["path", "sharedPeople", "sharedJobs"]).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      if (!resolver) return { summary: "Entity resolution is unavailable.", empty: true }
+
+      /** Either endpoint may be any kind, so try each until one resolves. */
+      async function resolveEither(ref?: string, name?: string) {
+        for (const kind of ["person", "company", "job"] as const) {
+          const resolution = await resolver!.resolveArg({ ref, name }, kind)
+          if (resolution.status === "found" && resolution.entity.sourceIds.directoryId) return resolution.entity
+        }
+        return null
+      }
+
+      const [from, to] = await Promise.all([resolveEither(args.fromRef, args.fromName), resolveEither(args.toRef, args.toName)])
+      if (!from) return { summary: `No Directory record matches "${args.fromName ?? args.fromRef ?? ""}".`, empty: true }
+      if (!to) return { summary: `No Directory record matches "${args.toName ?? args.toRef ?? ""}".`, empty: true }
+
+      const mode = args.mode ?? "path"
+      const result =
+        mode === "path"
+          ? await runUnderlying("findConnectingPaths", { fromId: from.sourceIds.directoryId, toId: to.sourceIds.directoryId }, budget)
+          : await runUnderlying(mode === "sharedPeople" ? "findSharedContacts" : "findSharedJobs", {
+              entityIdA: from.sourceIds.directoryId,
+              entityIdB: to.sourceIds.directoryId,
+            }, budget)
+
+      if (!result) return { summary: "That connection lookup is unavailable.", empty: true }
+      return {
+        summary: result.summary,
+        empty: result.empty,
+        data: {
+          ...(result.records ? { records: result.records } : {}),
+          ...(result.paths ? { paths: result.paths } : {}),
+          ...(result.counts ? { counts: result.counts } : {}),
+        },
+      }
+    },
+  }
+
+  const searchNotes: SecretaryTool<{ query: string; limit?: number }> = {
+    name: "directory_searchNotes",
+    module: "directory",
+    description:
+      "Search free-text Directory notes — the written context people record about a person, company or job that isn't a structured field. Use this when a question needs background or history rather than a record's fields.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: { type: "string", description: "What to look for in the notes." },
+        limit: { type: "number", description: "Max notes to return (1-5)." },
+      },
+    },
+    schema: z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(5).optional() }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const result = await runUnderlying("searchRelevantNotes", { query: args.query, limit: args.limit }, budget)
+      if (!result) return { summary: "Note search is unavailable.", empty: true }
+      return { summary: result.summary, empty: result.empty, data: { ...(result.notes ? { notes: result.notes } : {}) } }
+    },
+  }
+
+  return [search, getEntity, findConnection, searchNotes, createUsersTool(fetchActive, fetchAllRegistered)]
 }

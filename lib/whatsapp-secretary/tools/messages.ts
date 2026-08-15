@@ -6,6 +6,7 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID } from "@/lib/bye-bye-dpr-tags"
 import { AUTOMATIC_MESSAGE_SOURCE_MODULES, isAutomaticMessageSourceModule, projectTagId, type MessageType } from "@/lib/store"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 
 /**
  * Communications (Messages) read layer for the WhatsApp Secretary.
@@ -352,6 +353,7 @@ function messageHasTag(data: RecordValue, tagId: string): boolean {
 
 export function createMessagesTools(
   deps: {
+    resolver?: EntityResolver
     provider?: MessagesToolsProvider
     directoryProvider?: DirectoryDataProvider
     resolveTag?: TagResolver
@@ -365,8 +367,29 @@ export function createMessagesTools(
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
   const resolveTag = deps.resolveTag ?? resolveTagIdFromFirestore
   const actorUserId = deps.actorUserId
+  const resolver = deps.resolver
 
-  const searchOperationalHistory: SecretaryTool<{ jobName?: string; since?: string; until?: string; category?: OperationalMessageCategory; tag?: string; limit?: number }> = {
+  /** One job-resolution path for both tools: the shared resolver when present, the legacy Directory lookup otherwise. */
+  async function resolveJob(
+    ref: string | undefined,
+    name: string | undefined,
+  ): Promise<{ contextId: string; jobName: string } | { failed: SecretaryToolResult }> {
+    if (resolver) {
+      const resolution = await resolver.resolveArg({ ref, name }, "job")
+      if (resolution.status !== "found") return { failed: describeUnresolved(resolution, "job", name ?? ref ?? "") }
+      const contextId = resolution.entity.sourceIds.contextId
+      if (!contextId) return { failed: { summary: `"${resolution.entity.name}" isn't linked to a Directory job context.`, empty: true } }
+      return { contextId, jobName: resolution.entity.name }
+    }
+    const legacy = await resolveJobContextId(directoryProvider, name as string)
+    if (!legacy) return { failed: { summary: `No job matches "${name}".`, empty: true } }
+    if ("ambiguous" in legacy) {
+      return { failed: { summary: `More than one job matches "${name}". Ask which one.`, data: { candidates: legacy.candidates } } }
+    }
+    return { contextId: legacy.contextId, jobName: legacy.jobName }
+  }
+
+  const searchOperationalHistory: SecretaryTool<{ jobRef?: string; jobName?: string; since?: string; until?: string; category?: OperationalMessageCategory; tag?: string; limit?: number }> = {
     name: "messages_searchOperationalHistory",
     module: "messages",
     description:
@@ -376,6 +399,7 @@ export function createMessagesTools(
       additionalProperties: false,
       required: [],
       properties: {
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
         jobName: { type: "string", description: "Optional job name to scope the history to." },
         since: { type: "string", description: "Only posts on/after this ISO date." },
         until: { type: "string", description: "Only posts on/before this ISO date." },
@@ -385,6 +409,7 @@ export function createMessagesTools(
       },
     },
     schema: z.object({
+      jobRef: z.string().max(20).optional(),
       jobName: z.string().min(1).max(160).optional(),
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
@@ -395,12 +420,9 @@ export function createMessagesTools(
     async run(args, budget): Promise<SecretaryToolResult> {
       let contextId: string | undefined
       let resolvedJobName: string | undefined
-      if (args.jobName) {
-        const resolved = await resolveJobContextId(directoryProvider, args.jobName)
-        if (!resolved) return { summary: `No job matches "${args.jobName}".`, empty: true }
-        if ("ambiguous" in resolved) {
-          return { summary: `More than one job matches "${args.jobName}". Ask which one.`, data: { candidates: resolved.candidates } }
-        }
+      if (args.jobRef || args.jobName) {
+        const resolved = await resolveJob(args.jobRef, args.jobName)
+        if ("failed" in resolved) return resolved.failed
         contextId = resolved.contextId
         resolvedJobName = resolved.jobName
       }
@@ -432,7 +454,7 @@ export function createMessagesTools(
     },
   }
 
-  const searchMyCommunications: SecretaryTool<{ jobName?: string; since?: string; until?: string; type?: MessageType; tag?: string; limit?: number }> = {
+  const searchMyCommunications: SecretaryTool<{ jobRef?: string; jobName?: string; since?: string; until?: string; type?: MessageType; tag?: string; limit?: number }> = {
     name: "messages_searchMyCommunications",
     module: "messages",
     description:
@@ -442,6 +464,7 @@ export function createMessagesTools(
       additionalProperties: false,
       required: [],
       properties: {
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
         jobName: { type: "string", description: "Optional job/context name to scope the search to." },
         since: { type: "string", description: "Only messages on/after this ISO date." },
         until: { type: "string", description: "Only messages on/before this ISO date." },
@@ -451,6 +474,7 @@ export function createMessagesTools(
       },
     },
     schema: z.object({
+      jobRef: z.string().max(20).optional(),
       jobName: z.string().min(1).max(160).optional(),
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
@@ -468,12 +492,9 @@ export function createMessagesTools(
 
       let contextId: string | undefined
       let resolvedJobName: string | undefined
-      if (args.jobName) {
-        const resolved = await resolveJobContextId(directoryProvider, args.jobName)
-        if (!resolved) return { summary: `No job matches "${args.jobName}".`, empty: true }
-        if ("ambiguous" in resolved) {
-          return { summary: `More than one job matches "${args.jobName}". Ask which one.`, data: { candidates: resolved.candidates } }
-        }
+      if (args.jobRef || args.jobName) {
+        const resolved = await resolveJob(args.jobRef, args.jobName)
+        if ("failed" in resolved) return resolved.failed
         contextId = resolved.contextId
         resolvedJobName = resolved.jobName
       }

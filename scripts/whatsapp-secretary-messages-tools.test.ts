@@ -105,7 +105,11 @@ test("messages_searchMyCommunications' schema never accepts a target-user argume
   const tool = tools.find((entry) => entry.name === "messages_searchMyCommunications")
   assert.ok(tool)
   const properties = Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties)
-  assert.deepEqual(properties.sort(), ["jobName", "limit", "since", "tag", "type", "until"].sort())
+  // `jobRef` is an opaque entity handle minted this turn, not an identity — it
+  // can only ever narrow the search to a job, never redirect it at a person.
+  assert.deepEqual(properties.sort(), ["jobName", "jobRef", "limit", "since", "tag", "type", "until"].sort())
+  // The load-bearing assertion: nothing in the schema can name whose messages to read.
+  assert.ok(!properties.some((property) => /user|person|actor|uid|sender|whose/i.test(property)))
 })
 
 test("messages_searchOperationalHistory resolves a job name via Directory and returns automatic posts", async () => {

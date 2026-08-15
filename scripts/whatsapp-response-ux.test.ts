@@ -2,19 +2,19 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { addSecretaryIntroduction, isDiscoveryMessage, createWhatsAppSecretaryPresentation } from "../lib/whatsapp-response-ux"
 
-test("uses a native list only for multiple explicit Directory search matches", () => {
+test("uses a native list for an explicit ambiguity, from the resolver's one shared shape", () => {
   const reply = createWhatsAppSecretaryPresentation({
     answer: "Several records matched.",
     question: "Who is Alex?",
     executions: [
       {
-        name: "directory_searchPeople",
+        name: "directory_getEntity",
         result: {
-          summary: "2 people matched.",
+          summary: 'More than one person matches "Alex". Ask which one.',
           data: {
-            records: [
-              { id: "person__alex-1", name: "Alex Rivera", role: "Foreman", companyName: "SVC" },
-              { id: "person__alex-2", name: "Alex Kim", role: "Project Manager", companyName: "North Ridge" },
+            candidates: [
+              { ref: "e1", kind: "person", name: "Alex Rivera", role: "Foreman", companyName: "SVC" },
+              { ref: "e2", kind: "person", name: "Alex Kim", role: "Project Manager", companyName: "North Ridge" },
             ],
           },
         },
@@ -23,11 +23,33 @@ test("uses a native list only for multiple explicit Directory search matches", (
   })
 
   assert.equal(reply.presentation?.kind, "list")
-  assert.match(reply.text, /2 possible people/)
+  assert.match(reply.text, /2 possible persons/)
   assert.deepEqual(reply.presentation?.kind === "list" ? reply.presentation.rows : [], [
     { id: "svc-choice-1", title: "Alex Rivera", description: "Foreman · SVC" },
     { id: "svc-choice-2", title: "Alex Kim", description: "Project Manager · North Ridge" },
   ])
+})
+
+test("a search returning several records is data for the model, NOT a question for the user", () => {
+  // Regression guard from a live eval: treating any multi-record search as a
+  // disambiguation prompt hijacked broad questions — the model ran one
+  // exploratory Directory search and the user got "I found 10 possible
+  // records" instead of an answer.
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "North Ridge has an active Outlook and two reports this week.",
+    question: "What's going on with North Ridge?",
+    executions: [
+      {
+        name: "directory_search",
+        result: {
+          summary: "10 Directory record(s) matched.",
+          data: { records: [{ id: "job__a", name: "North Ridge" }, { id: "job__b", name: "North Ridge Tower" }] },
+        },
+      },
+    ],
+  })
+  assert.notEqual(reply.presentation?.kind, "list")
+  assert.match(reply.text, /North Ridge has an active Outlook/)
 })
 
 test("uses a direct Project CTA from an already retrieved project id", () => {
@@ -60,11 +82,11 @@ test("prioritizes a resolved project CTA over a supporting Directory lookup", ()
     question: "What is the project status?",
     executions: [
       {
-        name: "directory_searchPeople",
+        name: "directory_search",
         result: { summary: "1 person matched.", data: { records: [{ id: "person__maya", name: "Maya Lin" }] } },
       },
       {
-        name: "questCoral_getProjectUpdates",
+        name: "questCoral_getProject",
         result: { summary: "1 update.", data: { updates: [] }, presentation: { projectId: "proj-onboarding" } },
       },
     ],
@@ -142,7 +164,7 @@ test("keeps a disambiguation list intact and only re-bodies it with the introduc
 
 function reportExecutionWithAttachment(overrides: Partial<{ kind: string; url: string; filename: string; caption: string }> = {}) {
   return {
-    name: "reports_searchDailyReportsForJob",
+    name: "reports_search",
     result: {
       summary: "1 Daily Report for North Ridge.",
       data: { reports: [{ jobName: "North Ridge" }] },
@@ -233,10 +255,10 @@ test("an ambiguous-candidate list never also carries attachments", () => {
     question: "Send me the file",
     executions: [
       {
-        name: "directory_searchPeople",
+        name: "directory_getEntity",
         result: {
-          summary: "2 people matched.",
-          data: { records: [{ id: "p1", name: "Alex Rivera" }, { id: "p2", name: "Alex Kim" }] },
+          summary: 'More than one person matches "Alex". Ask which one.',
+          data: { candidates: [{ ref: "e1", kind: "person", name: "Alex Rivera" }, { ref: "e2", kind: "person", name: "Alex Kim" }] },
         },
       },
       reportExecutionWithAttachment(),

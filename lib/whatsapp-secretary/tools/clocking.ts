@@ -4,6 +4,7 @@ import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { findWhatsAppReportJobsByNameCandidates, type WhatsAppReportJob } from "@/lib/whatsapp-reports"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { listActiveJobsForFanOut, resolveJobByNameViaDirectory, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
@@ -142,6 +143,7 @@ function createServerClockingToolsProvider(): ClockingToolsProvider {
 
 export function createClockingTools(
   deps: {
+    resolver?: EntityResolver
     provider?: ClockingToolsProvider
     directoryProvider?: DirectoryDataProvider
     resolveJobsByName?: (name: string) => Promise<WhatsAppReportJob[]>
@@ -154,8 +156,9 @@ export function createClockingTools(
     deps.resolveJobsByName ??
     ((name: string) => resolveJobByNameViaDirectory(name, directoryProvider, (candidate) => findWhatsAppReportJobsByNameCandidates([candidate])))
   const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
+  const resolver = deps.resolver
 
-  const getClockHistoryForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; limit?: number }> = {
+  const getClockHistoryForJob: SecretaryTool<{ jobRef?: string; jobName?: string; since?: string; until?: string; limit?: number }> = {
     name: "clocking_getClockHistoryForJob",
     module: "clocking",
     description:
@@ -163,8 +166,9 @@ export function createClockingTools(
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["jobName"],
+      required: [],
       properties: {
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
         jobName: { type: "string", description: "The job's name." },
         since: { type: "string", description: "Only clock-ins on/after this ISO date." },
         until: { type: "string", description: "Only clock-ins on/before this ISO date." },
@@ -172,18 +176,28 @@ export function createClockingTools(
       },
     },
     schema: z.object({
-      jobName: z.string().min(1).max(160),
+      jobRef: z.string().max(20).optional(),
+      jobName: z.string().min(1).max(160).optional(),
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
       limit: z.number().int().min(1).max(MAX_HISTORY_ITEMS).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
-      const jobs = await resolveJobsByName(args.jobName)
-      if (jobs.length === 0) return { summary: `No ByeByeDPR job matches "${args.jobName}".`, empty: true }
-      if (jobs.length > 1) {
-        return {
-          summary: `More than one job matches "${args.jobName}". Ask which one.`,
-          data: { candidates: jobs.map((job) => ({ name: job.name })) },
+      let jobs: WhatsAppReportJob[]
+      if (resolver) {
+        const resolution = await resolver.resolveArg({ ref: args.jobRef, name: args.jobName }, "job")
+        if (resolution.status !== "found") return describeUnresolved(resolution, "job", args.jobName ?? args.jobRef ?? "")
+        const jobId = resolution.entity.sourceIds.byeByeDprJobId
+        if (!jobId) return { summary: `"${resolution.entity.name}" has no linked ByeByeDPR job, so it has no clock history.`, empty: true }
+        jobs = [{ id: jobId, name: resolution.entity.name }]
+      } else {
+        jobs = await resolveJobsByName(args.jobName as string)
+        if (jobs.length === 0) return { summary: `No ByeByeDPR job matches "${args.jobName}".`, empty: true }
+        if (jobs.length > 1) {
+          return {
+            summary: `More than one job matches "${args.jobName}". Ask which one.`,
+            data: { candidates: jobs.map((job) => ({ name: job.name })) },
+          }
         }
       }
 

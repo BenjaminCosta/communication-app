@@ -12,7 +12,8 @@ import {
   type ProjectTimelinePhase,
   type UpdateType,
 } from "@/lib/quest-coral-core"
-import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, entityArgSchema, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
 /**
@@ -320,6 +321,15 @@ function createHybridQuestCoralProvider(
   }
 }
 
+/**
+ * The real provider with its keyword fallback already wired — exported so the
+ * shared entity resolver reuses this exact search behavior (exact/prefix, then
+ * bounded in-memory token rerank) instead of re-implementing project lookup.
+ */
+export function createServerQuestCoralProviderWithFallback(): QuestCoralToolsProvider {
+  return createHybridQuestCoralProvider(createServerQuestCoralProvider(), createServerQuestCoralKeywordSearchProvider())
+}
+
 /** Resolves exactly one project by name, or returns a compact ambiguous/not-found result. */
 async function resolveOneProject(
   provider: QuestCoralToolsProvider,
@@ -332,116 +342,146 @@ async function resolveOneProject(
 }
 
 export function createQuestCoralTools(
-  deps: { provider?: QuestCoralToolsProvider; keywordSearchProvider?: QuestCoralKeywordSearchProvider } = {},
+  deps: { resolver?: EntityResolver; provider?: QuestCoralToolsProvider; keywordSearchProvider?: QuestCoralKeywordSearchProvider } = {},
 ): SecretaryTool[] {
   const baseProvider = deps.provider ?? createServerQuestCoralProvider()
   const keywordSearch = deps.keywordSearchProvider ?? createServerQuestCoralKeywordSearchProvider()
   const provider = createHybridQuestCoralProvider(baseProvider, keywordSearch)
+  const resolver = deps.resolver
 
-  const searchProjects: SecretaryTool<{ query: string; limit?: number }> = {
+  /**
+   * Searching by name and listing everything were two tools apart only in
+   * whether `query` was supplied — so `query` is optional now, and a status
+   * filter works in both cases.
+   */
+  const searchProjects: SecretaryTool<{ query?: string; status?: ProjectStatus; limit?: number }> = {
     name: "questCoral_searchProjects",
     module: "questCoral",
-    description: "Search Quest Coral projects by name. Returns compact matching projects (status, progress, owner).",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["query"],
-      properties: {
-        query: { type: "string", description: "Project name or a close guess at it." },
-        limit: { type: "number", description: "Max projects to return (1-5)." },
-      },
-    },
-    schema: z.object({ query: z.string().min(1).max(160), limit: z.number().int().min(1).max(MAX_PROJECT_MATCHES).optional() }),
-    async run(args): Promise<SecretaryToolResult> {
-      const matches = await provider.findProjectsByName(args.query, args.limit ?? MAX_PROJECT_MATCHES)
-      if (matches.length === 0) return { summary: "No Quest Coral project matched that search.", empty: true }
-      return {
-        summary: `${matches.length} project(s) matched.`,
-        data: { projects: matches.map(toModelProject) },
-        ...(matches.length === 1 ? { presentation: { projectId: matches[0].id } } : {}),
-      }
-    },
-  }
-
-  const getProject: SecretaryTool<{ projectName: string }> = {
-    name: "questCoral_getProject",
-    module: "questCoral",
     description:
-      "Get one Quest Coral project's full details (status, progress, owner, people involved, next step, timeline, and its written Project Context) by exact or close name match.",
+      "Find Quest Coral projects. With `query`, searches by name; without it, lists every project newest-updated first — so it answers both 'how's the Beach project going' and 'what projects are there'. Optional `status` filter applies either way. Returns compact records (status, progress, owner) plus a `ref` you can pass to questCoral_getProject or svc_getEntityDossier.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["projectName"],
-      properties: { projectName: { type: "string", description: "The project's name." } },
-    },
-    schema: z.object({ projectName: z.string().min(1).max(160) }),
-    async run(args): Promise<SecretaryToolResult> {
-      const resolved = await resolveOneProject(provider, args.projectName)
-      if (resolved.kind === "not-found") return { summary: `No Quest Coral project matches "${args.projectName}".`, empty: true }
-      if (resolved.kind === "ambiguous") {
-        return {
-          summary: `More than one project matches "${args.projectName}". Ask which one.`,
-          data: { candidates: resolved.matches.map((project) => ({ name: project.name, status: project.status, ownerName: project.ownerName })) },
-        }
-      }
-      const projectContext = await provider.getProjectContext(resolved.project.id)
-      return {
-        summary: `Details for Quest Coral project "${resolved.project.name}".`,
-        data: { project: toModelProject(resolved.project), projectContext },
-        presentation: { projectId: resolved.project.id },
-      }
-    },
-  }
-
-  const getProjectUpdates: SecretaryTool<{ projectName: string; since?: string; until?: string; cursor?: string; limit?: number }> = {
-    name: "questCoral_getProjectUpdates",
-    module: "questCoral",
-    description:
-      "List one Quest Coral project's activity feed (updates, feedback, blockers, Red Team Reviews), newest first. Supports an optional date range (`since`/`until`, ISO dates) and a `cursor` (the `nextCursor` from a previous call) to page into older updates.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["projectName"],
+      required: [],
       properties: {
-        projectName: { type: "string", description: "The project's name." },
-        since: { type: "string", description: "Only updates on/after this ISO date, e.g. 2026-07-01." },
-        until: { type: "string", description: "Only updates on/before this ISO date." },
-        cursor: { type: "string", description: "Opaque pagination cursor from a previous call's nextCursor, to fetch older updates." },
-        limit: { type: "number", description: "Max updates to return (1-12)." },
+        query: { type: "string", description: "Project name or a close guess. Omit to list all projects." },
+        status: { type: "string", enum: PROJECT_STATUS_ORDER, description: "Optional: only projects in this status." },
+        limit: { type: "number", description: "Max projects to return (1-12)." },
       },
     },
     schema: z.object({
-      projectName: z.string().min(1).max(160),
+      query: z.string().min(1).max(160).optional(),
+      status: z.enum(PROJECT_STATUS_ORDER as [ProjectStatus, ...ProjectStatus[]]).optional(),
+      limit: z.number().int().min(1).max(12).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const limit = allowedPageSize(budget, args.limit, 12)
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      const matches = args.query
+        ? (await provider.findProjectsByName(args.query, Math.max(limit, MAX_PROJECT_MATCHES))).filter(
+            (project) => !args.status || project.status === args.status,
+          )
+        : await provider.listAllProjects({ status: args.status, limit })
+
+      if (matches.length === 0) {
+        return { summary: args.query ? "No Quest Coral project matched that search." : "No Quest Coral projects were retrieved.", empty: true }
+      }
+      const page = matches.slice(0, limit)
+      budget.remainingRecords -= page.length
+
+      const refs = resolver
+        ? (await Promise.all(page.map(async (project) => {
+            const resolution = await resolver.resolve(project.name, "project")
+            return resolution.status === "found" ? { ref: resolution.entity.ref, name: project.name } : null
+          }))).filter(Boolean)
+        : []
+
+      return {
+        summary: `${page.length} Quest Coral project(s)${args.query ? " matched" : ", newest-updated first"}.`,
+        data: { projects: page.map(toModelProject), ...(refs.length > 0 ? { refs } : {}) },
+        ...(matches.length > page.length ? { truncated: true, totalMatched: matches.length } : {}),
+        ...(page.length === 1 ? { presentation: { projectId: page[0].id } } : {}),
+      }
+    },
+  }
+
+  /**
+   * Details and the activity feed were two tools that both had to resolve the
+   * same project first — a guaranteed two-round drill-down for a single
+   * "how's X going" question. `include` makes it one round.
+   */
+  const getProject: SecretaryTool<{ ref?: string; name?: string; include?: Array<"context" | "updates">; since?: string; until?: string; cursor?: string; limit?: number }> = {
+    name: "questCoral_getProject",
+    module: "questCoral",
+    description:
+      "Get one Quest Coral project: status, progress, owner, people involved, next step and timeline — plus, with `include`, its written Project Context and/or its activity feed (updates, feedback, blockers, Red Team Reviews) in the same call. The feed supports a date range and a `cursor` for paging into older updates. Pass `ref` from an earlier result when you have one, otherwise `name`.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        ...entityArgSchema("project", "The project's name."),
+        include: {
+          type: "array",
+          items: { type: "string", enum: ["context", "updates"] },
+          description: "Extra sections: the written Project Context, and/or the activity feed.",
+        },
+        since: { type: "string", description: "Feed only: updates on/after this ISO date." },
+        until: { type: "string", description: "Feed only: updates on/before this ISO date." },
+        cursor: { type: "string", description: "Feed only: pagination cursor from a previous call's nextCursor." },
+        limit: { type: "number", description: "Feed only: max updates to return (1-12)." },
+      },
+    },
+    schema: z.object({
+      ref: z.string().max(20).optional(),
+      name: z.string().min(1).max(160).optional(),
+      include: z.array(z.enum(["context", "updates"])).max(2).optional(),
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
       cursor: z.string().max(60).optional(),
       limit: z.number().int().min(1).max(12).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
-      const resolved = await resolveOneProject(provider, args.projectName)
-      if (resolved.kind === "not-found") return { summary: `No Quest Coral project matches "${args.projectName}".`, empty: true }
-      if (resolved.kind === "ambiguous") {
-        return {
-          summary: `More than one project matches "${args.projectName}". Ask which one.`,
-          data: { candidates: resolved.matches.map((project) => ({ name: project.name, status: project.status })) },
+      let project: QuestCoralProjectSummary | null = null
+      if (resolver && (args.ref || args.name)) {
+        const resolution = await resolver.resolveArg({ ref: args.ref, name: args.name }, "project")
+        if (resolution.status !== "found") return describeUnresolved(resolution, "project", args.name ?? args.ref ?? "")
+        const projectId = resolution.entity.sourceIds.questCoralProjectId
+        const byName = await provider.findProjectsByName(resolution.entity.name, MAX_PROJECT_MATCHES)
+        project = byName.find((candidate) => candidate.id === projectId) ?? byName[0] ?? null
+      } else if (args.name) {
+        const resolved = await resolveOneProject(provider, args.name)
+        if (resolved.kind === "not-found") return { summary: `No Quest Coral project matches "${args.name}".`, empty: true }
+        if (resolved.kind === "ambiguous") {
+          return {
+            summary: `More than one project matches "${args.name}". Ask which one.`,
+            data: { candidates: resolved.matches.map((entry) => ({ name: entry.name, status: entry.status, ownerName: entry.ownerName })) },
+          }
         }
+        project = resolved.project
       }
+      if (!project) return { summary: "Provide a ref or a project name.", empty: true }
 
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, budget.maxRecordsPerTool, budget.remainingRecords))
-      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const include = new Set(args.include ?? [])
+      const limit = include.has("updates") ? allowedPageSize(budget, args.limit, 12) : 0
+      const [projectContext, feed] = await Promise.all([
+        include.has("context") ? provider.getProjectContext(project.id) : Promise.resolve(null),
+        limit > 0
+          ? provider.getProjectUpdates(project.id, { since: args.since, until: args.until, cursor: args.cursor, limit })
+          : Promise.resolve({ updates: [], nextCursor: null as string | null }),
+      ])
+      budget.remainingRecords -= feed.updates.length + 1
 
-      const { updates, nextCursor } = await provider.getProjectUpdates(resolved.project.id, {
-        since: args.since,
-        until: args.until,
-        cursor: args.cursor,
-        limit,
-      })
-      budget.remainingRecords -= updates.length
-      if (updates.length === 0) return { summary: `No activity was retrieved for "${resolved.project.name}" in that range.`, empty: true }
       return {
-        summary: `${updates.length} update(s) for "${resolved.project.name}", newest first.`,
-        data: { updates: updates.map(toModelUpdate), nextCursor },
-        presentation: { projectId: resolved.project.id },
+        summary: `Details for Quest Coral project "${project.name}"${feed.updates.length > 0 ? `, with ${feed.updates.length} recent update(s)` : ""}.`,
+        data: {
+          project: toModelProject(project),
+          ...(projectContext ? { projectContext } : {}),
+          ...(include.has("updates") ? { updates: feed.updates.map(toModelUpdate) } : {}),
+        },
+        ...(feed.nextCursor ? { nextCursor: feed.nextCursor, truncated: true } : {}),
+        presentation: { projectId: project.id },
       }
     },
   }
@@ -472,31 +512,5 @@ export function createQuestCoralTools(
     },
   }
 
-  const listAllProjects: SecretaryTool<{ status?: ProjectStatus; limit?: number }> = {
-    name: "questCoral_listAllProjects",
-    module: "questCoral",
-    description:
-      "List every Quest Coral project, newest-updated first — for 'what projects are there' or 'what's in Quest Coral' without naming one. Optional `status` filter. Use questCoral_searchProjects instead when the user already named a specific project.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        status: { type: "string", enum: PROJECT_STATUS_ORDER, description: "Optional: only projects in this status." },
-        limit: { type: "number", description: "Max projects to return (1-12)." },
-      },
-    },
-    schema: z.object({ status: z.enum(PROJECT_STATUS_ORDER as [ProjectStatus, ...ProjectStatus[]]).optional(), limit: z.number().int().min(1).max(12).optional() }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, 12, budget.remainingRecords))
-
-      const projects = await provider.listAllProjects({ status: args.status, limit })
-      budget.remainingRecords -= projects.length
-      if (projects.length === 0) return { summary: "No Quest Coral projects were retrieved.", empty: true }
-      return { summary: `${projects.length} Quest Coral project(s), newest-updated first.`, data: { projects: projects.map(toModelProject) } }
-    },
-  }
-
-  return [searchProjects, getProject, getProjectUpdates, listRecentActivity, listAllProjects]
+  return [searchProjects, getProject, listRecentActivity]
 }

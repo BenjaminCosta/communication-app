@@ -66,13 +66,7 @@ function createFixtureProvider(overrides: Partial<QuestCoralToolsProvider> = {})
 test("Quest Coral tools are namespaced", () => {
   const tools = createQuestCoralTools({ provider: createFixtureProvider() })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, [
-    "questCoral_searchProjects",
-    "questCoral_getProject",
-    "questCoral_getProjectUpdates",
-    "questCoral_listRecentActivity",
-    "questCoral_listAllProjects",
-  ])
+  assert.deepEqual(names, ["questCoral_searchProjects", "questCoral_getProject", "questCoral_listRecentActivity"])
   assert.ok(tools.every((tool) => tool.module === "questCoral"))
 })
 
@@ -81,7 +75,7 @@ test("questCoral_getProject returns project details for an exact name match", as
   const getProject = tools.find((tool) => tool.name === "questCoral_getProject")
   assert.ok(getProject)
 
-  const result = await getProject.run({ projectName: "Customer Onboarding Redesign" }, budget())
+  const result = await getProject.run({ name: "Customer Onboarding Redesign", include: ["context"] }, budget())
   const data = result.data as { project?: QuestCoralProjectSummary; projectContext?: string | null }
   assert.equal(data.project?.name, "Customer Onboarding Redesign")
   assert.match(data.projectContext ?? "", /Purpose/)
@@ -92,18 +86,18 @@ test("questCoral_getProject reports ambiguity instead of guessing", async () => 
   const getProject = tools.find((tool) => tool.name === "questCoral_getProject")
   assert.ok(getProject)
 
-  const result = await getProject.run({ projectName: "Ambiguous Project" }, budget())
+  const result = await getProject.run({ name: "Ambiguous Project" }, budget())
   const data = result.data as { candidates?: Array<{ name: string }> }
   assert.equal(data.candidates?.length, 2)
 })
 
-test("questCoral_getProjectUpdates returns updates and decrements the shared budget", async () => {
+test("questCoral_getProject returns updates and decrements the shared budget", async () => {
   const tools = createQuestCoralTools({ provider: createFixtureProvider() })
-  const getProjectUpdates = tools.find((tool) => tool.name === "questCoral_getProjectUpdates")
+  const getProjectUpdates = tools.find((tool) => tool.name === "questCoral_getProject")
   assert.ok(getProjectUpdates)
 
   const sharedBudget = budget()
-  const result = await getProjectUpdates.run({ projectName: "Customer Onboarding Redesign", since: "2026-07-01" }, sharedBudget)
+  const result = await getProjectUpdates.run({ name: "Customer Onboarding Redesign", include: ["updates"], since: "2026-07-01" }, sharedBudget)
   const data = result.data as { updates?: QuestCoralUpdateSummary[] }
   assert.equal(data.updates?.length, 1)
   assert.ok(sharedBudget.remainingRecords < 24)
@@ -136,7 +130,7 @@ test("questCoral_searchProjects falls back to keyword search when the exact/pref
     provider: createFixtureProvider(),
     keywordSearchProvider: async (tokens, limit) => {
       assert.ok(tokens.includes("rollout"))
-      assert.equal(limit, 5)
+      assert.equal(limit, 12)
       return [crewScheduling]
     },
   })
@@ -163,12 +157,12 @@ test("never calls the Quest Coral keyword fallback when the exact/prefix lookup 
   assert.equal(data.projects?.length, 1)
 })
 
-// --- questCoral_listAllProjects (2026-08-14): "what projects are there"
+// --- questCoral_searchProjects (2026-08-14): "what projects are there"
 // without naming one ---
 
-test("questCoral_listAllProjects lists every project without a name argument", async () => {
+test("questCoral_searchProjects lists every project without a name argument", async () => {
   const tools = createQuestCoralTools({ provider: createFixtureProvider() })
-  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
   assert.ok(listAllProjects)
 
   const result = await listAllProjects.run({}, budget())
@@ -178,7 +172,7 @@ test("questCoral_listAllProjects lists every project without a name argument", a
   assert.ok(data.projects?.some((project) => project.name === "Field Crew Scheduling Rollout"))
 })
 
-test("questCoral_listAllProjects filters by status when given", async () => {
+test("questCoral_searchProjects filters by status when given", async () => {
   const tools = createQuestCoralTools({
     provider: createFixtureProvider({
       async listAllProjects(options) {
@@ -187,16 +181,16 @@ test("questCoral_listAllProjects filters by status when given", async () => {
       },
     }),
   })
-  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
   assert.ok(listAllProjects)
 
   const result = await listAllProjects.run({ status: "at_risk" }, budget())
   assert.equal(result.empty, true)
 })
 
-test("questCoral_listAllProjects respects the shared budget", async () => {
+test("questCoral_searchProjects respects the shared budget", async () => {
   const tools = createQuestCoralTools({ provider: createFixtureProvider() })
-  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_searchProjects")
   assert.ok(listAllProjects)
 
   const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }

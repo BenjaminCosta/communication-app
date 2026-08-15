@@ -3,7 +3,8 @@ import type { Firestore, Timestamp } from "firebase-admin/firestore"
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { findWhatsAppReportJobsByNameCandidates, type WhatsAppReportJob } from "@/lib/whatsapp-reports"
-import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { listActiveJobsForFanOut, resolveJobByNameViaDirectory, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
@@ -260,6 +261,7 @@ async function resolveAuthorIdByName(directoryProvider: DirectoryDataProvider, p
 
 export function createReportsTools(
   deps: {
+    resolver?: EntityResolver
     provider?: ReportsToolsProvider
     directoryProvider?: DirectoryDataProvider
     resolveJobsByName?: (name: string) => Promise<WhatsAppReportJob[]>
@@ -270,6 +272,7 @@ export function createReportsTools(
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerReportsToolsProvider()
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProviderWithKeywordFallback()
+  const resolver = deps.resolver
   const resolveJobsByName =
     deps.resolveJobsByName ??
     ((name: string) => resolveJobByNameViaDirectory(name, directoryProvider, (candidate) => findWhatsAppReportJobsByNameCandidates([candidate])))
@@ -277,17 +280,27 @@ export function createReportsTools(
   const pdfSigner = deps.pdfSigner ?? createServerReportPdfSigner()
   const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
 
-  const searchDailyReportsForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; cursor?: string; limit?: number }> = {
-    name: "reports_searchDailyReportsForJob",
+  /**
+   * Per-job, per-author and portfolio-wide report reads were three tools that
+   * differed only in which filter they applied to the same query. They are one
+   * tool with optional filters now — which also means a question that combines
+   * them ("Courtney's reports on North Ridge since Monday") is expressible,
+   * where before the model had to pick one filter and drop the other.
+   */
+  const search: SecretaryTool<{ jobRef?: string; jobName?: string; authorName?: string; status?: ReportStatus; since?: string; until?: string; cursor?: string; limit?: number }> = {
+    name: "reports_search",
     module: "reports",
     description:
-      "List ByeByeDPR Daily Reports for one job, newest first. Supports an optional date range (`since`/`until`, ISO dates) and a `cursor` (the `nextCursor` from a previous call) to page into older reports. This is a bounded slice, not a complete day-level audit — never treat an absence here as proof a report is missing or overdue.",
+      "Search ByeByeDPR Daily Reports, newest first. Filter by job (`jobRef` from an earlier result, or `jobName`), by author (`authorName` — must be a recognized SVC user with a linked account), by `status`, and by date range (`since`/`until`, ISO dates). Omit every filter for the most recent reports across all jobs. Page into older reports with `cursor` from a previous call's `nextCursor`. Results are a bounded slice, not a day-level audit — a `truncated` flag tells you when more exist; never treat an absence here as proof a report is missing or overdue.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["jobName"],
+      required: [],
       properties: {
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
         jobName: { type: "string", description: "The job's name." },
+        authorName: { type: "string", description: "The report author's name." },
+        status: { type: "string", enum: ["draft", "submitted"], description: "Defaults to all when searching a job, submitted when searching by author." },
         since: { type: "string", description: "Only reports created on/after this ISO date." },
         until: { type: "string", description: "Only reports created on/before this ISO date." },
         cursor: { type: "string", description: "Opaque pagination cursor from a previous call's nextCursor." },
@@ -295,116 +308,78 @@ export function createReportsTools(
       },
     },
     schema: z.object({
-      jobName: z.string().min(1).max(160),
+      jobRef: z.string().max(20).optional(),
+      jobName: z.string().min(1).max(160).optional(),
+      authorName: z.string().min(1).max(160).optional(),
+      status: z.enum(["draft", "submitted"]).optional(),
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
       cursor: z.string().max(60).optional(),
       limit: z.number().int().min(1).max(12).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
-      const jobs = await resolveJobsByName(args.jobName)
-      if (jobs.length === 0) return { summary: `No ByeByeDPR job matches "${args.jobName}".`, empty: true }
-      if (jobs.length > 1) {
-        return {
-          summary: `More than one job matches "${args.jobName}". Ask which one.`,
-          data: { candidates: jobs.map((job) => ({ name: job.name })) },
+      const limit = allowedPageSize(budget, args.limit, 12)
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      let job: { id: string; name: string } | null = null
+      if (args.jobRef || args.jobName) {
+        if (resolver) {
+          const resolution = await resolver.resolveArg({ ref: args.jobRef, name: args.jobName }, "job")
+          if (resolution.status !== "found") return describeUnresolved(resolution, "job", args.jobName ?? args.jobRef ?? "")
+          const jobId = resolution.entity.sourceIds.byeByeDprJobId
+          if (!jobId) return { summary: `"${resolution.entity.name}" has no linked ByeByeDPR job, so it has no Daily Reports.`, empty: true }
+          job = { id: jobId, name: resolution.entity.name }
+        } else {
+          const jobs = await resolveJobsByName(args.jobName as string)
+          if (jobs.length === 0) return { summary: `No ByeByeDPR job matches "${args.jobName}".`, empty: true }
+          if (jobs.length > 1) {
+            return { summary: `More than one job matches "${args.jobName}". Ask which one.`, data: { candidates: jobs.map((entry) => ({ name: entry.name })) } }
+          }
+          job = jobs[0]
         }
       }
 
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, budget.maxRecordsPerTool, budget.remainingRecords))
-      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-
-      const { reports, nextCursor } = await provider.getReportsForJob(jobs[0].id, jobs[0].name, {
-        since: args.since,
-        until: args.until,
-        cursor: args.cursor,
-        limit,
-      })
-      budget.remainingRecords -= reports.length
-      if (reports.length === 0) return { summary: `No Daily Reports were retrieved for "${jobs[0].name}" in that range.`, empty: true }
-      const attachments = await buildReportAttachments(reports, pdfSigner)
-      return {
-        summary: `${reports.length} Daily Report(s) for "${jobs[0].name}", newest first.`,
-        data: { reports: reports.map(toModelReport), nextCursor },
-        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+      let authorId: string | null = null
+      if (args.authorName) {
+        authorId = await resolveAuthorId(args.authorName)
+        if (!authorId) {
+          return { summary: `"${args.authorName}" could not be resolved to a linked SVC user, so no reports can be looked up by author.`, empty: true }
+        }
       }
-    },
-  }
 
-  const getRecentDailyReports: SecretaryTool<{ since?: string; limit?: number }> = {
-    name: "reports_getRecentDailyReports",
-    module: "reports",
-    description: "List the most recent ByeByeDPR Daily Reports across all jobs, newest first. Optional `since` (ISO date) bounds how far back to look.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        since: { type: "string", description: "Only reports created on/after this ISO date." },
-        limit: { type: "number", description: "Max reports to return (1-12)." },
-      },
-    },
-    schema: z.object({ since: z.string().max(40).optional(), limit: z.number().int().min(1).max(12).optional() }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, budget.maxRecordsPerTool, budget.remainingRecords))
-      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-      const reports = await provider.getRecentReports({ since: args.since, limit })
-      budget.remainingRecords -= reports.length
-      if (reports.length === 0) return { summary: "No recent Daily Reports were retrieved.", empty: true }
-      const attachments = await buildReportAttachments(reports, pdfSigner)
-      return {
-        summary: `${reports.length} recent Daily Report(s), newest first.`,
-        data: { reports: reports.map(toModelReport) },
-        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+      // Author filtering runs on its own composite index, so an author query
+      // takes that path and narrows to the job in memory when both are given.
+      let reports: DailyReportSummary[]
+      let nextCursor: string | null = null
+      if (authorId) {
+        const byAuthor = await provider.getReportsByAuthor(authorId, { status: args.status, since: args.since, until: args.until, limit: limit + (job ? 8 : 0) })
+        reports = job ? byAuthor.filter((report) => report.jobId === job.id).slice(0, limit) : byAuthor.slice(0, limit)
+      } else if (job) {
+        const page = await provider.getReportsForJob(job.id, job.name, { since: args.since, until: args.until, cursor: args.cursor, limit })
+        reports = args.status ? page.reports.filter((report) => report.status === args.status) : page.reports
+        nextCursor = page.nextCursor
+      } else {
+        const recent = await provider.getRecentReports({ since: args.since, limit })
+        reports = args.status ? recent.filter((report) => report.status === args.status) : recent
       }
-    },
-  }
 
-  const getDailyReportsByAuthor: SecretaryTool<{ personName: string; status?: ReportStatus; since?: string; until?: string; limit?: number }> = {
-    name: "reports_getDailyReportsByAuthor",
-    module: "reports",
-    description:
-      "List ByeByeDPR Daily Reports written by one identified SVC person (defaults to submitted reports), newest first. The person must be a recognized SVC user with a linked account; otherwise nothing is found.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["personName"],
-      properties: {
-        personName: { type: "string", description: "The report author's name." },
-        status: { type: "string", enum: ["draft", "submitted"], description: "Defaults to submitted." },
-        since: { type: "string", description: "Only reports created on/after this ISO date." },
-        until: { type: "string", description: "Only reports created on/before this ISO date." },
-        limit: { type: "number", description: "Max reports to return (1-12)." },
-      },
-    },
-    schema: z.object({
-      personName: z.string().min(1).max(160),
-      status: z.enum(["draft", "submitted"]).optional(),
-      since: z.string().max(40).optional(),
-      until: z.string().max(40).optional(),
-      limit: z.number().int().min(1).max(12).optional(),
-    }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      const authorId = await resolveAuthorId(args.personName)
-      if (!authorId) return { summary: `"${args.personName}" could not be resolved to a linked SVC user, so no reports can be looked up by author.`, empty: true }
-
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, budget.maxRecordsPerTool, budget.remainingRecords))
-      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-
-      const reports = await provider.getReportsByAuthor(authorId, { status: args.status, since: args.since, until: args.until, limit })
       budget.remainingRecords -= reports.length
-      if (reports.length === 0) return { summary: `No Daily Reports were retrieved for "${args.personName}".`, empty: true }
+      const scope = job ? ` for "${job.name}"` : args.authorName ? ` by "${args.authorName}"` : ""
+      if (reports.length === 0) return { summary: `No Daily Reports were retrieved${scope}.`, empty: true }
+
       const attachments = await buildReportAttachments(reports, pdfSigner)
       return {
-        summary: `${reports.length} Daily Report(s) by "${args.personName}".`,
+        summary: `${reports.length} Daily Report(s)${scope}, newest first.`,
         data: { reports: reports.map(toModelReport) },
+        ...(nextCursor ? { nextCursor, truncated: true } : {}),
+        ...(reports.length === limit && !nextCursor ? { truncated: true } : {}),
         ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
       }
     },
   }
 
   const getJobsWithoutRecentReports: SecretaryTool<{ withinDays?: number; limit?: number }> = {
-    name: "reports_getJobsWithoutRecentReports",
+    name: "reports_getCoverageGaps",
     module: "reports",
     description:
       "For active ByeByeDPR jobs, list each job's most recent Daily Report date, oldest/none first — for portfolio-wide questions like 'which jobs don't have a recent report'. Only includes jobs whose most recent report (if any) is older than `withinDays` (default 14), or that have none on file. This states only what was retrieved: never say a report is 'missing' or 'required' — this data has no reporting cadence to infer from, only report dates that were or weren't found.",
@@ -458,5 +433,5 @@ export function createReportsTools(
     },
   }
 
-  return [searchDailyReportsForJob, getRecentDailyReports, getDailyReportsByAuthor, getJobsWithoutRecentReports]
+  return [search, getJobsWithoutRecentReports]
 }

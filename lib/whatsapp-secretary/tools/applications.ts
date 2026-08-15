@@ -4,7 +4,8 @@ import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { APPLICATION_STATUS_META, APPLICATION_STATUS_ORDER, type ApplicationStatus, type DocumentStatus, type IntroVideoState } from "@/lib/applications-core"
 import { tokenize } from "@/lib/directory-core"
-import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
@@ -316,8 +317,18 @@ function createHybridApplicationsProvider(
   }
 }
 
+/**
+ * The real provider with its keyword fallback already wired — exported so the
+ * shared entity resolver reuses this exact candidate-search behavior instead
+ * of re-implementing it.
+ */
+export function createServerApplicationsProviderWithFallback(): ApplicationsToolsProvider {
+  return createHybridApplicationsProvider(createServerApplicationsProvider(), createServerApplicationsKeywordSearchProvider())
+}
+
 export function createApplicationsTools(
   deps: {
+    resolver?: EntityResolver
     provider?: ApplicationsToolsProvider
     directoryProvider?: DirectoryDataProvider
     keywordSearchProvider?: ApplicationsKeywordSearchProvider
@@ -327,28 +338,94 @@ export function createApplicationsTools(
   const keywordSearch = deps.keywordSearchProvider ?? createServerApplicationsKeywordSearchProvider()
   const provider = createHybridApplicationsProvider(baseProvider, keywordSearch)
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProviderWithKeywordFallback()
+  const resolver = deps.resolver
 
-  const searchCandidates: SecretaryTool<{ query: string; limit?: number }> = {
-    name: "applications_searchCandidates",
+  /**
+   * Candidate search, job-scoped history and "list everything" were three
+   * tools separated only by which filter they applied. One tool with optional
+   * filters covers all three — and makes the combination expressible
+   * ("submitted applications for North Ridge since Monday"), which the split
+   * tools could not express at all.
+   */
+  const search: SecretaryTool<{ query?: string; status?: ApplicationStatus; jobRef?: string; jobName?: string; since?: string; until?: string; limit?: number }> = {
+    name: "applications_search",
     module: "applications",
-    description: "Search Applications by candidate name. Returns compact matching applications (status, job, trade, agreement status).",
+    description:
+      "Search Applications. Filter by candidate name (`query`), by `status`, by job (`jobRef` from an earlier result, or `jobName`), and by last-updated date range (`since`/`until`). Omit every filter to list every application newest-updated first. Returns each candidate's details including phone, email, city/state, experience, document and intro-video status — share those directly with internal senders. The resume/documents/video content itself is never available, only status and filename.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["query"],
+      required: [],
       properties: {
-        query: { type: "string", description: "Candidate name or a close guess at it." },
-        limit: { type: "number", description: "Max applications to return (1-5)." },
+        query: { type: "string", description: "Candidate name or a close guess. Omit to list all." },
+        status: { type: "string", enum: APPLICATION_STATUS_ORDER, description: "Optional status filter." },
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
+        jobName: { type: "string", description: "Only applications linked to this job." },
+        since: { type: "string", description: "Only applications updated on/after this ISO date." },
+        until: { type: "string", description: "Only applications updated on/before this ISO date." },
+        limit: { type: "number", description: "Max applications to return (1-12)." },
       },
     },
-    schema: z.object({ query: z.string().min(1).max(160), limit: z.number().int().min(1).max(MAX_CANDIDATE_MATCHES).optional() }),
-    async run(args): Promise<SecretaryToolResult> {
-      const matches = await provider.findCandidatesByName(args.query, args.limit ?? MAX_CANDIDATE_MATCHES)
-      if (matches.length === 0) return { summary: "No matching application was found for that candidate name.", empty: true }
+    schema: z.object({
+      query: z.string().min(1).max(160).optional(),
+      status: z.enum(APPLICATION_STATUS_ORDER as [ApplicationStatus, ...ApplicationStatus[]]).optional(),
+      jobRef: z.string().max(20).optional(),
+      jobName: z.string().min(1).max(160).optional(),
+      since: z.string().max(40).optional(),
+      until: z.string().max(40).optional(),
+      limit: z.number().int().min(1).max(12).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const limit = allowedPageSize(budget, args.limit, 12)
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      let jobEntityId: string | undefined
+      let jobLabel = ""
+      if (args.jobRef || args.jobName) {
+        if (resolver) {
+          const resolution = await resolver.resolveArg({ ref: args.jobRef, name: args.jobName }, "job")
+          if (resolution.status !== "found") return describeUnresolved(resolution, "job", args.jobName ?? args.jobRef ?? "")
+          jobEntityId = resolution.entity.sourceIds.directoryId
+          jobLabel = resolution.entity.name
+        } else {
+          const jobMatches = await directoryProvider.findByName(args.jobName as string, { type: "job", limit: 5 })
+          if (jobMatches.length === 0) return { summary: `No job matches "${args.jobName}".`, empty: true }
+          if (jobMatches.length > 1) {
+            return {
+              summary: `More than one job matches "${args.jobName}". Ask which one.`,
+              data: { candidates: jobMatches.map((job) => ({ name: job.name, location: job.location })) },
+            }
+          }
+          jobEntityId = jobMatches[0].id
+          jobLabel = jobMatches[0].name
+        }
+      }
+
+      let matches: ApplicationSummary[]
+      if (args.query) {
+        matches = await provider.findCandidatesByName(args.query, Math.max(limit, MAX_CANDIDATE_MATCHES))
+      } else if (jobEntityId) {
+        matches = await provider.getApplicationsForJob(jobEntityId, { since: args.since, until: args.until, limit })
+      } else {
+        matches = await provider.listAllApplications({ status: args.status, limit })
+      }
+
+      // Filters the chosen query path could not express server-side are
+      // applied in memory over its bounded page, the same "bounded slice,
+      // refine in memory" pattern the other modules already use.
+      if (args.status) matches = matches.filter((application) => application.status === args.status)
+      if (jobEntityId && args.query) matches = matches.filter((application) => application.jobName === jobLabel)
+
+      if (matches.length === 0) {
+        return { summary: `No applications were retrieved${jobLabel ? ` for "${jobLabel}"` : ""}.`, empty: true }
+      }
+      const page = matches.slice(0, limit)
+      budget.remainingRecords -= page.length
       return {
-        summary: `${matches.length} application(s) matched.`,
-        data: { applications: matches.map(toModelApplication) },
-        presentation: singleApplicationPresentation(matches),
+        summary: `${page.length} application(s)${jobLabel ? ` for "${jobLabel}"` : ""}${args.query ? " matched" : ""}.`,
+        data: { applications: page.map(toModelApplication) },
+        ...(matches.length > page.length ? { truncated: true, totalMatched: matches.length } : {}),
+        presentation: singleApplicationPresentation(page),
       }
     },
   }
@@ -381,83 +458,5 @@ export function createApplicationsTools(
     },
   }
 
-  const getApplicationsForJob: SecretaryTool<{ jobName: string; since?: string; until?: string; limit?: number }> = {
-    name: "applications_getApplicationsForJob",
-    module: "applications",
-    description: "List Applications linked to one job, newest-activity first. Supports an optional date range (`since`/`until`, ISO dates) on last-updated time.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["jobName"],
-      properties: {
-        jobName: { type: "string", description: "The job's name." },
-        since: { type: "string", description: "Only applications updated on/after this ISO date." },
-        until: { type: "string", description: "Only applications updated on/before this ISO date." },
-        limit: { type: "number", description: "Max applications to return (1-12)." },
-      },
-    },
-    schema: z.object({
-      jobName: z.string().min(1).max(160),
-      since: z.string().max(40).optional(),
-      until: z.string().max(40).optional(),
-      limit: z.number().int().min(1).max(12).optional(),
-    }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      const jobMatches = await directoryProvider.findByName(args.jobName, { type: "job", limit: 5 })
-      if (jobMatches.length === 0) return { summary: `No job matches "${args.jobName}".`, empty: true }
-      if (jobMatches.length > 1) {
-        return {
-          summary: `More than one job matches "${args.jobName}". Ask which one.`,
-          data: { candidates: jobMatches.map((job) => ({ name: job.name, location: job.location })) },
-        }
-      }
-
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, budget.maxRecordsPerTool, budget.remainingRecords))
-      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-
-      const applications = await provider.getApplicationsForJob(jobMatches[0].id, { since: args.since, until: args.until, limit })
-      budget.remainingRecords -= applications.length
-      if (applications.length === 0) return { summary: `No applications were retrieved for "${jobMatches[0].name}".`, empty: true }
-      return {
-        summary: `${applications.length} application(s) for "${jobMatches[0].name}".`,
-        data: { applications: applications.map(toModelApplication) },
-        presentation: singleApplicationPresentation(applications),
-      }
-    },
-  }
-
-  const listAllApplications: SecretaryTool<{ status?: ApplicationStatus; limit?: number }> = {
-    name: "applications_listAllApplications",
-    module: "applications",
-    description:
-      "List every Application, newest-updated first — for 'what applications are there' or 'what's in Applications' without naming a candidate or job. Optional `status` filter. Use applications_searchCandidates instead when the user already named a candidate.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        status: { type: "string", enum: APPLICATION_STATUS_ORDER, description: "Optional: only applications in this status." },
-        limit: { type: "number", description: "Max applications to return (1-12)." },
-      },
-    },
-    schema: z.object({
-      status: z.enum(APPLICATION_STATUS_ORDER as [ApplicationStatus, ...ApplicationStatus[]]).optional(),
-      limit: z.number().int().min(1).max(12).optional(),
-    }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
-      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, 12, budget.remainingRecords))
-
-      const applications = await provider.listAllApplications({ status: args.status, limit })
-      budget.remainingRecords -= applications.length
-      if (applications.length === 0) return { summary: "No applications were retrieved.", empty: true }
-      return {
-        summary: `${applications.length} application(s), newest-updated first.`,
-        data: { applications: applications.map(toModelApplication) },
-        presentation: singleApplicationPresentation(applications),
-      }
-    },
-  }
-
-  return [searchCandidates, getReviewQueue, getApplicationsForJob, listAllApplications]
+  return [search, getReviewQueue]
 }

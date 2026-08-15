@@ -4,7 +4,64 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Tool/orchestrator architecture review (2026-08-14, latest — plan, no code changed)
+## Catalog consolidation: 37 → 23 tools (2026-08-14, latest)
+
+Steps 1–5 of the architecture review below, implemented. **Steps 6 (write
+framework) and 7 (memory) are not done** — see that document's
+"Implementation status" section for why they were deliberately not bundled in.
+
+What changed, in dependency order:
+
+1. **`lib/whatsapp-secretary/entity-resolver.ts`** — one shared "name → entity"
+   resolver. One resolution per name per request (memoized, promise-cached so
+   concurrent calls in the same round share one lookup), one entity carrying
+   *every* id at once (a job knows its Directory `contextId` and its ByeByeDPR
+   `jobId` together), and opaque per-request `ref` handles (`e1`, `e2`) that
+   the model passes between tools instead of retyping a name. The six
+   duplicated resolution sites with two different reranking implementations
+   are gone. Concrete wiring lives in `tools/entity-lookups.ts`, kept separate
+   so `entity-resolver.ts` has no Firebase import and unit-tests under plain
+   `tsx`.
+2. **`svc_getEntityDossier`** (`tools/svc.ts`) — the generic form of
+   `me_getMySvcContext`: everything SVC holds about one job/person/company/
+   project in a single call. Each section is gated by its own module's access
+   flag **before any query runs**, each source fails independently, and
+   `emptySections` vs `unavailableSections` are reported separately so
+   "nothing on file" never reads like "this record can't have that".
+3. **Directory 13 → 5** — `search({query,type?})`, `getEntity({ref|name,
+   include})`, `findConnection({from,to,mode})`, `searchNotes`,
+   `listUsers({presence})`. The latent wrong-type relationship bug is fixed
+   structurally: `getEntity` picks the underlying relationship view from the
+   resolved entity's *real* type, so a mismatch can no longer happen.
+4. **`truncated` / `totalMatched` / `nextCursor`** on `SecretaryToolResult`,
+   plus shared `allowedPageSize()` / `spendBudget()` helpers — the
+   bounded-slice guardrail is now machine-checkable rather than a prompt rule
+   the model had no way to honor.
+5. **Quest Coral 5 → 3, Applications 4 → 2, Reports 4 → 2, Outlooks 2 → 1.**
+   Messages stayed at 2 deliberately (the privacy split *is* the model, and a
+   `scope` parameter would invite the model to think it can widen it).
+6. **`SecretaryToolContext`** — one per-request object passed to every factory,
+   replacing the two bespoke overrides `messages`/`me` used to need.
+
+**A live eval caught a real bug, which is the point of having one.** The first
+16-question run against the real model scored 10/16. The cause was a
+pre-existing presentation bug the consolidation exposed: *any* search returning
+multiple records was rendered as a disambiguation list, conflating "here is
+data for my next step" with "pick one before I continue". Since the merged
+`directory_search` spans all three types when no `type` is given, a broad
+question had the model run one exploratory search and the user got "I found 10
+possible records" instead of an answer. Fixed by keying the list **only** on
+the resolver's explicit `data.candidates` shape. Re-run: **16/16**, and faster
+(broad-summary questions went from ~4.5s and wrong to ~3.0s via one dossier
+call). A regression test guards it.
+
+Tests grew 254 → 276, including two new suites
+(`whatsapp-secretary-entity-resolver`, `whatsapp-secretary-svc-dossier`) and a
+shared `scripts/secretary-test-resolver.ts` that builds the *real* resolver over
+fixture lookups — a per-module stub would test the opposite of what matters.
+`pnpm verify:fast` and `pnpm build` green.
+
+## Tool/orchestrator architecture review (2026-08-14 — the plan behind the above)
 
 A full review of the Secretary **as an AI orchestrator with tools**, against
 the question of whether it can keep growing into a much more capable company

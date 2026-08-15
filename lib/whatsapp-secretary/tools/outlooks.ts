@@ -5,6 +5,7 @@ import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
+import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
 /**
@@ -144,6 +145,7 @@ function createServerOutlooksToolsProvider(): OutlooksToolsProvider {
 
 export function createOutlooksTools(
   deps: {
+    resolver?: EntityResolver
     provider?: OutlooksToolsProvider
     directoryProvider?: DirectoryDataProvider
     listJobsProvider?: () => Promise<FanOutJob[]>
@@ -152,71 +154,87 @@ export function createOutlooksTools(
   const provider = deps.provider ?? createServerOutlooksToolsProvider()
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
   const listJobs = deps.listJobsProvider ?? listActiveJobsForFanOut
+  const resolver = deps.resolver
 
-  const getOutlookForJob: SecretaryTool<{ jobName: string; windowStart?: string }> = {
-    name: "outlooks_getOutlookForJob",
+  /**
+   * Per-job reads and the cross-job listing were two tools whose descriptions
+   * each had to point at the other. They are the same question at two scopes,
+   * so scope is the parameter: with a job, you get that job's tasks; without
+   * one, every job whose window covers the date.
+   */
+  const get: SecretaryTool<{ jobRef?: string; jobName?: string; windowStart?: string; onDate?: string; limit?: number }> = {
+    name: "outlooks_get",
     module: "outlooks",
     description:
-      "Get one job's 3-Week Outlook (scheduled tasks: trade, company, dates, status, completion). Without `windowStart`, returns the most recent week. For a cross-job question ('which jobs have an active outlook today'), use outlooks_listActiveOutlooks instead.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["jobName"],
-      properties: {
-        jobName: { type: "string", description: "The job's name." },
-        windowStart: { type: "string", description: "Optional ISO Monday date identifying a specific 3-week window." },
-      },
-    },
-    schema: z.object({ jobName: z.string().min(1).max(160), windowStart: z.string().max(20).optional() }),
-    async run(args, budget): Promise<SecretaryToolResult> {
-      const jobMatches = await directoryProvider.findByName(args.jobName, { type: "job", limit: 5 })
-      if (jobMatches.length === 0) return { summary: `No job matches "${args.jobName}".`, empty: true }
-      if (jobMatches.length > 1) {
-        return {
-          summary: `More than one job matches "${args.jobName}". Ask which one.`,
-          data: { candidates: jobMatches.map((job) => ({ name: job.name, location: job.location })) },
-        }
-      }
-
-      const job = jobMatches[0]
-      const outlook = await provider.getOutlookForJob(job.sourceId, args.windowStart)
-      if (!outlook) return { summary: `No 3-Week Outlook was retrieved for "${job.name}"${args.windowStart ? ` for ${args.windowStart}` : ""}.`, empty: true }
-
-      const allowed = Math.max(0, Math.min(MAX_TASKS_RETURNED, budget.maxRecordsPerTool, budget.remainingRecords))
-      const tasks = outlook.tasks.slice(0, allowed)
-      budget.remainingRecords -= tasks.length
-
-      const summary: OutlookSummary = {
-        windowStart: outlook.windowStart,
-        windowEnd: outlook.windowEnd,
-        taskCount: outlook.tasks.length,
-        tasks,
-        deepLink: buildOutlookDeepLink(job.id),
-      }
-      return {
-        summary: `3-Week Outlook for "${job.name}" (${outlook.windowStart} to ${outlook.windowEnd}), ${outlook.tasks.length} task(s).`,
-        data: { outlook: toModelOutlook(summary) },
-        presentation: { deepLink: summary.deepLink },
-      }
-    },
-  }
-
-  const listActiveOutlooks: SecretaryTool<{ onDate?: string; limit?: number }> = {
-    name: "outlooks_listActiveOutlooks",
-    module: "outlooks",
-    description:
-      "List every ByeByeDPR job whose 3-Week Outlook window covers a given date (defaults to today) — answers cross-job questions like 'are there any active outlooks today' or 'which jobs have an outlook this week'. Bounded to active jobs.",
+      "Read 3-Week Outlooks. With a job (`jobRef` from an earlier result, or `jobName`), returns that job's scheduled tasks — trade, company, dates, status, completion — for the most recent window, or for a specific `windowStart`. Without a job, lists every active job whose Outlook window covers `onDate` (defaults to today), which answers 'are there any active outlooks' and 'which jobs have an outlook this week'.",
     parameters: {
       type: "object",
       additionalProperties: false,
       required: [],
       properties: {
-        onDate: { type: "string", description: "ISO date to check (defaults to today), e.g. 2026-08-13." },
-        limit: { type: "number", description: "Max jobs to return (1-20)." },
+        jobRef: { type: "string", description: "Opaque job ref from an earlier result. Preferred over jobName." },
+        jobName: { type: "string", description: "The job's name. Omit for the cross-job listing." },
+        windowStart: { type: "string", description: "Per-job only: ISO Monday date identifying a specific 3-week window." },
+        onDate: { type: "string", description: "Cross-job only: ISO date to check, defaults to today." },
+        limit: { type: "number", description: "Cross-job only: max jobs to return (1-20)." },
       },
     },
-    schema: z.object({ onDate: z.string().max(20).optional(), limit: z.number().int().min(1).max(20).optional() }),
+    schema: z.object({
+      jobRef: z.string().max(20).optional(),
+      jobName: z.string().min(1).max(160).optional(),
+      windowStart: z.string().max(20).optional(),
+      onDate: z.string().max(20).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
     async run(args, budget): Promise<SecretaryToolResult> {
+      if (args.jobRef || args.jobName) {
+        let contextId: string | undefined
+        let jobName = args.jobName ?? ""
+        let deepLinkId: string | undefined
+
+        if (resolver) {
+          const resolution = await resolver.resolveArg({ ref: args.jobRef, name: args.jobName }, "job")
+          if (resolution.status !== "found") return describeUnresolved(resolution, "job", args.jobName ?? args.jobRef ?? "")
+          contextId = resolution.entity.sourceIds.contextId
+          jobName = resolution.entity.name
+          deepLinkId = resolution.entity.sourceIds.directoryId
+          if (!contextId) return { summary: `"${jobName}" isn't linked to a Directory job context, so it has no 3-Week Outlook.`, empty: true }
+        } else {
+          const jobMatches = await directoryProvider.findByName(args.jobName as string, { type: "job", limit: 5 })
+          if (jobMatches.length === 0) return { summary: `No job matches "${args.jobName}".`, empty: true }
+          if (jobMatches.length > 1) {
+            return {
+              summary: `More than one job matches "${args.jobName}". Ask which one.`,
+              data: { candidates: jobMatches.map((job) => ({ name: job.name, location: job.location })) },
+            }
+          }
+          contextId = jobMatches[0].sourceId
+          jobName = jobMatches[0].name
+          deepLinkId = jobMatches[0].id
+        }
+
+        const outlook = await provider.getOutlookForJob(contextId, args.windowStart)
+        if (!outlook) return { summary: `No 3-Week Outlook was retrieved for "${jobName}"${args.windowStart ? ` for ${args.windowStart}` : ""}.`, empty: true }
+
+        const allowed = Math.max(0, Math.min(MAX_TASKS_RETURNED, budget.maxRecordsPerTool, budget.remainingRecords))
+        const tasks = outlook.tasks.slice(0, allowed)
+        budget.remainingRecords -= tasks.length
+
+        const summary: OutlookSummary = {
+          windowStart: outlook.windowStart,
+          windowEnd: outlook.windowEnd,
+          taskCount: outlook.tasks.length,
+          tasks,
+          deepLink: buildOutlookDeepLink(deepLinkId ?? contextId),
+        }
+        return {
+          summary: `3-Week Outlook for "${jobName}" (${outlook.windowStart} to ${outlook.windowEnd}), ${outlook.tasks.length} task(s).`,
+          data: { outlook: toModelOutlook(summary) },
+          ...(outlook.tasks.length > tasks.length ? { truncated: true, totalMatched: outlook.tasks.length } : {}),
+          presentation: { deepLink: summary.deepLink },
+        }
+      }
+
       const onDate = args.onDate ?? new Date().toISOString().slice(0, 10)
       const limit = Math.max(1, Math.min(args.limit ?? 10, budget.maxRecordsPerTool, budget.remainingRecords))
       if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
@@ -225,21 +243,16 @@ export function createOutlooksTools(
       if (jobs.length === 0) return { summary: "No ByeByeDPR jobs are linked to a Directory job context, so no outlooks could be checked.", empty: true }
 
       const windows = await Promise.all(
-        jobs.map(async (job) => {
-          const window = await provider.getMostRecentOutlookWindow(job.directoryContextId as string)
-          return { job, window }
-        }),
+        jobs.map(async (job) => ({ job, window: await provider.getMostRecentOutlookWindow(job.directoryContextId as string) })),
       )
-      const active: ActiveOutlookSummary[] = windows
-        .filter((entry) => entry.window && isDateWithinWindow(onDate, entry.window.windowStart, entry.window.windowEnd))
-        .map((entry) => ({
-          jobName: entry.job.name,
-          windowStart: entry.window!.windowStart,
-          windowEnd: entry.window!.windowEnd,
-          taskCount: entry.window!.taskCount,
-          deepLink: buildOutlookDeepLink(entry.job.directoryContextId as string),
-        }))
-        .slice(0, limit)
+      const matching = windows.filter((entry) => entry.window && isDateWithinWindow(onDate, entry.window.windowStart, entry.window.windowEnd))
+      const active: ActiveOutlookSummary[] = matching.slice(0, limit).map((entry) => ({
+        jobName: entry.job.name,
+        windowStart: entry.window!.windowStart,
+        windowEnd: entry.window!.windowEnd,
+        taskCount: entry.window!.taskCount,
+        deepLink: buildOutlookDeepLink(entry.job.directoryContextId as string),
+      }))
 
       budget.remainingRecords -= active.length
       if (active.length === 0) {
@@ -248,10 +261,11 @@ export function createOutlooksTools(
       return {
         summary: `${active.length} job(s) have a 3-Week Outlook active on ${onDate}.`,
         data: { outlooks: active.map(toModelActiveOutlook) },
+        ...(matching.length > active.length ? { truncated: true, totalMatched: matching.length } : {}),
         presentation: { deepLinks: active.map((entry) => ({ jobName: entry.jobName, deepLink: entry.deepLink })) },
       }
     },
   }
 
-  return [getOutlookForJob, listActiveOutlooks]
+  return [get]
 }

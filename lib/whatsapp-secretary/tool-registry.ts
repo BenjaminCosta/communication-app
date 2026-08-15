@@ -1,6 +1,8 @@
 import type { z } from "zod"
 import type { OpenAiToolSpec } from "@/lib/ai/openai/client"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
+import type { EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 
 /**
  * Generic, module-agnostic tool contract for the WhatsApp Secretary
@@ -23,8 +25,11 @@ import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
  * see {@link ALLOWED_MESSAGES_TOOL_NAMES} for why it's still name-guarded.
  * `"me"` is the sender's own SVC context
  * (`lib/whatsapp-secretary/tools/me.ts`) — personalization over already-
- * permitted reads, never a wider scope. */
-export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge" | "messages" | "me"
+ * permitted reads, never a wider scope. `"svc"` is the cross-module dossier
+ * (`lib/whatsapp-secretary/tools/svc.ts`) — likewise a convenience over reads
+ * the other modules already permit, with each section gated by its own
+ * module's flag before any query runs. */
+export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge" | "messages" | "me" | "svc"
 
 /**
  * Bounded tool output. `data` is a compact, module-specific JSON shape (e.g. a
@@ -43,6 +48,41 @@ export interface SecretaryToolResult {
    */
   presentation?: unknown
   empty?: boolean
+  /**
+   * True when this result is a clipped view — by the per-tool cap, by the
+   * shared record budget, or by the tool's own page size.
+   *
+   * Without this the system prompt's standing guardrail ("never say something
+   * is missing just because it wasn't in a bounded result") was impossible for
+   * the model to actually honor: a short list looked identical whether it was
+   * the complete answer or the first few rows that happened to fit. Tools must
+   * set it whenever they dropped rows they could otherwise have returned.
+   */
+  truncated?: boolean
+  /** How many records genuinely matched, when the tool can know it cheaply. Pairs with {@link truncated}. */
+  totalMatched?: number
+  /** Opaque cursor for the next page, when the tool supports paging. */
+  nextCursor?: string
+}
+
+/**
+ * Per-request context every tool factory receives.
+ *
+ * Before this existed, the two modules that needed to know *who is asking*
+ * (`messages`, `me`) were special-cased with bespoke per-request factory
+ * overrides in the orchestrator. Passing one context object to every factory
+ * generalizes that: a future module needing the actor, the resolver, or the
+ * enabled-module list is one more field read, not another override.
+ */
+export interface SecretaryToolContext {
+  /** Shared, per-request "name → entity" resolution. See `entity-resolver.ts`. */
+  resolver: EntityResolver
+  /** Server-resolved sender. Never model input. */
+  identity: WhatsAppSenderIdentity | null
+  /** The requesting sender's linked Firebase uid, when they have one. */
+  actorUserId?: string
+  /** What this sender can actually reach — used by the capability guide. */
+  enabledModules: SecretaryModule[]
 }
 
 /**
@@ -102,7 +142,36 @@ export function assertOnlyAllowedMessagesTools(tools: SecretaryTool[]): void {
   }
 }
 
-export type SecretaryToolFactory = () => SecretaryTool[]
+export type SecretaryToolFactory = (context: SecretaryToolContext) => SecretaryTool[]
+
+/**
+ * Shared budget arithmetic, so "how many rows may I return, and was I clipped"
+ * is answered identically everywhere instead of being re-derived (slightly
+ * differently) in each tool. Returns the allowed page size; the caller reports
+ * `truncated` by comparing what it actually had against it.
+ */
+export function allowedPageSize(budget: SecretaryToolBudget, requested: number | undefined, hardCap: number): number {
+  return Math.max(0, Math.min(requested ?? hardCap, hardCap, budget.maxRecordsPerTool, budget.remainingRecords))
+}
+
+/**
+ * Spends budget for `returned` rows and reports whether the result was clipped.
+ * `available` is what the tool could have returned had nothing bounded it —
+ * pass the pre-slice length, or `undefined` when the source itself was already
+ * limited and the true total isn't known cheaply.
+ */
+export function spendBudget(
+  budget: SecretaryToolBudget,
+  returned: number,
+  available?: number,
+): { truncated?: boolean; totalMatched?: number } {
+  budget.remainingRecords -= returned
+  const truncated = available !== undefined && available > returned
+  return {
+    ...(truncated ? { truncated: true } : {}),
+    ...(available !== undefined ? { totalMatched: available } : {}),
+  }
+}
 
 /**
  * The modules one access policy actually turns on, in a stable order.
@@ -128,6 +197,11 @@ export function enabledSecretaryModules(accessPolicy: WhatsAppAccessPolicy): Sec
     // searchable knowledge access is an internal-only capability.
     ...(accessPolicy.companyKnowledgeScope === "internal" ? (["knowledge"] as const) : []),
     ...(accessPolicy.canReadOwnContext ? (["me"] as const) : []),
+    // The cross-module dossier is enabled alongside `me` because it is the
+    // same kind of capability — a bounded convenience over reads the other
+    // modules already permit. Its individual sections are still filtered by
+    // those modules' own flags inside the tool.
+    ...(accessPolicy.canReadOwnContext ? (["svc"] as const) : []),
   ]
 }
 
@@ -140,13 +214,14 @@ export function enabledSecretaryModules(accessPolicy: WhatsAppAccessPolicy): Sec
 export function buildToolRegistry(
   accessPolicy: WhatsAppAccessPolicy,
   factories: Partial<Record<SecretaryModule, SecretaryToolFactory>>,
+  context: SecretaryToolContext,
 ): Map<string, SecretaryTool> {
   const enabled = enabledSecretaryModules(accessPolicy)
 
   const tools: SecretaryTool[] = []
   for (const module of enabled) {
     const factory = factories[module]
-    if (factory) tools.push(...factory())
+    if (factory) tools.push(...factory(context))
   }
 
   assertOnlyAllowedMessagesTools(tools)

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createFixtureProvider } from "./directory-fixture"
 import { createDirectoryTools, rerankKeywordMatches, type DirectoryContactDetails } from "../lib/whatsapp-secretary/tools/directory"
+import { fixtureResolver, directoryRecord } from "./secretary-test-resolver"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 import type { DirectoryDataProvider } from "../features/directory/ai/server/tools/types"
 import type { DirectoryIndexRecord } from "../lib/ai/server/directory-data"
@@ -10,25 +11,27 @@ function budget(): SecretaryToolBudget {
   return { maxRecordsPerTool: 12, maxNotesPerTool: 5, maxNoteChars: 400, remainingRecords: 24 }
 }
 
-test("Directory tools are namespaced and include the full stack, including searchRelevantNotes", () => {
+test("Directory presents five consolidated tools over the full underlying stack", () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider() })
   const names = tools.map((tool) => tool.name)
-  assert.ok(names.includes("directory_searchPeople"))
-  assert.ok(names.includes("directory_searchCompanies"))
-  assert.ok(names.includes("directory_getEntityDetails"))
-  assert.ok(names.includes("directory_findConnectingPaths"))
-  // Every sender who can reach any Directory tool is already a uniquely
-  // identified internal SVC user (buildToolRegistry gates on canReadDirectory),
-  // so there is no narrower internal audience notes/relationship data needs
-  // protection from — nothing is excluded.
-  assert.ok(names.includes("directory_searchRelevantNotes"))
-  assert.ok(names.every((name) => name.startsWith("directory_")))
+  // Eleven Directory implementations, five model-facing entries: the constant
+  // that used to pick a tool (person/company/job, path/shared, presence) is a
+  // parameter now. Nothing underlying was dropped — notes and relationships
+  // are still reachable, since every sender who can reach any Directory tool
+  // is already a uniquely identified internal SVC user.
+  assert.deepEqual(names, [
+    "directory_search",
+    "directory_getEntity",
+    "directory_findConnection",
+    "directory_searchNotes",
+    "directory_listUsers",
+  ])
   assert.ok(tools.every((tool) => tool.module === "directory"))
 })
 
-test("directory_searchRelevantNotes results are passed through to the model", async () => {
+test("directory_searchNotes results are passed through to the model", async () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider() })
-  const searchNotes = tools.find((tool) => tool.name === "directory_searchRelevantNotes")
+  const searchNotes = tools.find((tool) => tool.name === "directory_searchNotes")
   assert.ok(searchNotes)
 
   const result = await searchNotes.run({ query: "electrical experience" }, budget())
@@ -36,23 +39,27 @@ test("directory_searchRelevantNotes results are passed through to the model", as
   assert.ok(data.notes?.some((note) => note.text.includes("electrical")))
 })
 
-test("directory_searchCompanies returns a compact, bounded record set", async () => {
+test("directory_search returns a compact, bounded record set", async () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider() })
-  const searchCompanies = tools.find((tool) => tool.name === "directory_searchCompanies")
+  const searchCompanies = tools.find((tool) => tool.name === "directory_search")
   assert.ok(searchCompanies)
 
-  const result = await searchCompanies.run({ query: "74 Construction" }, budget())
+  const result = await searchCompanies.run({ query: "74 Construction", type: "company" }, budget())
   assert.equal(result.empty, undefined)
   const data = result.data as { records?: Array<{ name: string }> }
   assert.ok(data.records?.some((record) => record.name === "74 Construction"))
 })
 
-test("directory_getEntityDetails resolves one entity and its relationship counts", async () => {
-  const tools = createDirectoryTools({ provider: createFixtureProvider() })
-  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntityDetails")
+test("directory_getEntity resolves one entity and its relationship counts", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    resolver: fixtureResolver({ people: [directoryRecord({ name: "John DeMarco", type: "person", sourceCollection: "contacts", sourceId: "contact-jdemarco", id: "person__jdemarco" })] }),
+    contactDetailsProvider: async () => new Map(),
+  })
+  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntity")
   assert.ok(getEntityDetails)
 
-  const result = await getEntityDetails.run({ directoryId: "person__jdemarco" }, budget())
+  const result = await getEntityDetails.run({ name: "John DeMarco", type: "person" }, budget())
   const data = result.data as { records?: Array<{ name: string }>; counts?: Record<string, number> }
   assert.ok(data.records?.some((record) => record.name === "John DeMarco"))
   assert.ok(typeof data.counts?.linkedCompanies === "number")
@@ -60,11 +67,11 @@ test("directory_getEntityDetails resolves one entity and its relationship counts
 
 test("the shared budget is decremented across a tool call", async () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider() })
-  const searchCompanies = tools.find((tool) => tool.name === "directory_searchCompanies")
+  const searchCompanies = tools.find((tool) => tool.name === "directory_search")
   assert.ok(searchCompanies)
 
   const sharedBudget = budget()
-  await searchCompanies.run({ query: "74 Construction" }, sharedBudget)
+  await searchCompanies.run({ query: "74 Construction", type: "company" }, sharedBudget)
   assert.ok(sharedBudget.remainingRecords < 24)
 })
 
@@ -85,6 +92,7 @@ function createContactsSourcedProvider(directoryId: string, sourceId: string): D
 test("enriches a person record with phone/email from a linked contact, for an internal sender", async () => {
   const tools = createDirectoryTools({
     provider: createContactsSourcedProvider("person__jdemarco", "contact-jdemarco"),
+    resolver: fixtureResolver({ people: [directoryRecord({ name: "John DeMarco", type: "person", sourceCollection: "contacts", sourceId: "contact-jdemarco", id: "person__jdemarco" })] }),
     contactDetailsProvider: async (sourceIds) => {
       const result = new Map<string, DirectoryContactDetails>()
       if (sourceIds.includes("contact-jdemarco")) {
@@ -93,10 +101,10 @@ test("enriches a person record with phone/email from a linked contact, for an in
       return result
     },
   })
-  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntityDetails")
+  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntity")
   assert.ok(getEntityDetails)
 
-  const result = await getEntityDetails.run({ directoryId: "person__jdemarco" }, budget())
+  const result = await getEntityDetails.run({ name: "John DeMarco", type: "person" }, budget())
   const data = result.data as { records?: Array<{ name: string; phone?: string; email?: string }> }
   const record = data.records?.find((entry) => entry.name === "John DeMarco")
   assert.equal(record?.phone, "+1 555-0100")
@@ -106,14 +114,15 @@ test("enriches a person record with phone/email from a linked contact, for an in
 test("never fabricates phone/email for a person with no linked contact details", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
+    resolver: fixtureResolver({ people: [directoryRecord({ name: "John DeMarco", type: "person", sourceCollection: "contexts", sourceId: "ctx-jdemarco", id: "person__jdemarco" })] }),
     contactDetailsProvider: async () => {
       throw new Error("must not be called when no person record resolves to a /contacts source")
     },
   })
-  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntityDetails")
+  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntity")
   assert.ok(getEntityDetails)
 
-  const result = await getEntityDetails.run({ directoryId: "person__jdemarco" }, budget())
+  const result = await getEntityDetails.run({ name: "John DeMarco", type: "person" }, budget())
   const data = result.data as { records?: Array<{ name: string; phone?: string; email?: string }> }
   const record = data.records?.find((entry) => entry.name === "John DeMarco")
   assert.equal(record?.phone, undefined)
@@ -147,7 +156,7 @@ test("falls back to keyword search when the exact/prefix name lookup finds nothi
       return [keywordRecord]
     },
   })
-  const searchJobs = tools.find((tool) => tool.name === "directory_searchJobs")
+  const searchJobs = tools.find((tool) => tool.name === "directory_search")
   assert.ok(searchJobs)
 
   const result = await searchJobs.run({ query: "Beach" }, budget())
@@ -232,22 +241,22 @@ test("never calls the keyword fallback when the exact/prefix lookup already foun
       throw new Error("must not be called when the primary lookup already found a match")
     },
   })
-  const searchCompanies = tools.find((tool) => tool.name === "directory_searchCompanies")
+  const searchCompanies = tools.find((tool) => tool.name === "directory_search")
   assert.ok(searchCompanies)
 
-  const result = await searchCompanies.run({ query: "74 Construction" }, budget())
+  const result = await searchCompanies.run({ query: "74 Construction", type: "company" }, budget())
   assert.equal(result.empty, undefined)
 })
 
-// --- directory_getActiveUsers (2026-08-14): reuses the exact "active now"
+// --- directory_listUsers (2026-08-14): reuses the exact "active now"
 // signal the web app itself shows (lastSeen within the last 90s) ---
 
-test("directory_getActiveUsers is registered alongside the rest of the Directory stack", () => {
+test("directory_listUsers is registered alongside the rest of the Directory stack", () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider(), activeUsersProvider: async () => [] })
-  assert.ok(tools.some((tool) => tool.name === "directory_getActiveUsers"))
+  assert.ok(tools.some((tool) => tool.name === "directory_listUsers"))
 })
 
-test("directory_getActiveUsers returns the users the injected provider reports as currently active", async () => {
+test("directory_listUsers returns the users the injected provider reports as currently active", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     activeUsersProvider: async () => [
@@ -255,7 +264,7 @@ test("directory_getActiveUsers returns the users the injected provider reports a
       { name: "Sam Rivera", role: null },
     ],
   })
-  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(getActiveUsers)
 
   const result = await getActiveUsers.run({}, budget())
@@ -267,23 +276,23 @@ test("directory_getActiveUsers returns the users the injected provider reports a
   ])
 })
 
-test("directory_getActiveUsers reports no one active rather than guessing", async () => {
+test("directory_listUsers reports no one active rather than guessing", async () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider(), activeUsersProvider: async () => [] })
-  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(getActiveUsers)
 
   const result = await getActiveUsers.run({}, budget())
   assert.equal(result.empty, true)
 })
 
-test("directory_getActiveUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
+test("directory_listUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     activeUsersProvider: async () => {
       throw new Error("must not be called when the budget is exhausted")
     },
   })
-  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(getActiveUsers)
 
   const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }
@@ -291,7 +300,7 @@ test("directory_getActiveUsers respects the shared budget and never calls the pr
   assert.equal(result.empty, true)
 })
 
-test("directory_getActiveUsers caps returned users by the shared budget's remainingRecords", async () => {
+test("directory_listUsers caps returned users by the shared budget's remainingRecords", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     activeUsersProvider: async () => [
@@ -300,7 +309,7 @@ test("directory_getActiveUsers caps returned users by the shared budget's remain
       { name: "C", role: null },
     ],
   })
-  const getActiveUsers = tools.find((tool) => tool.name === "directory_getActiveUsers")
+  const getActiveUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(getActiveUsers)
 
   const sharedBudget: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 2 }
@@ -310,15 +319,15 @@ test("directory_getActiveUsers caps returned users by the shared budget's remain
   assert.equal(sharedBudget.remainingRecords, 0)
 })
 
-// --- directory_listRegisteredUsers (2026-08-14): "who's registered" is a
+// --- directory_listUsers (2026-08-14): "who's registered" is a
 // different question from "who's active right now" ---
 
-test("directory_listRegisteredUsers is registered alongside the rest of the Directory stack", () => {
+test("directory_listUsers is registered alongside the rest of the Directory stack", () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider(), registeredUsersProvider: async () => [] })
-  assert.ok(tools.some((tool) => tool.name === "directory_listRegisteredUsers"))
+  assert.ok(tools.some((tool) => tool.name === "directory_listUsers"))
 })
 
-test("directory_listRegisteredUsers returns every user the injected provider reports, independent of presence", async () => {
+test("directory_listUsers returns every user the injected provider reports, independent of presence", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     registeredUsersProvider: async () => [
@@ -326,10 +335,10 @@ test("directory_listRegisteredUsers returns every user the injected provider rep
       { name: "Inactive Ivan", role: null },
     ],
   })
-  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(listRegisteredUsers)
 
-  const result = await listRegisteredUsers.run({}, budget())
+  const result = await listRegisteredUsers.run({ presence: "all" }, budget())
   assert.equal(result.empty, undefined)
   const data = result.data as { users: Array<{ name: string; role: string | null }> }
   assert.deepEqual(data.users, [
@@ -338,23 +347,23 @@ test("directory_listRegisteredUsers returns every user the injected provider rep
   ])
 })
 
-test("directory_listRegisteredUsers reports no one registered rather than guessing", async () => {
+test("directory_listUsers reports no one registered rather than guessing", async () => {
   const tools = createDirectoryTools({ provider: createFixtureProvider(), registeredUsersProvider: async () => [] })
-  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(listRegisteredUsers)
 
-  const result = await listRegisteredUsers.run({}, budget())
+  const result = await listRegisteredUsers.run({ presence: "all" }, budget())
   assert.equal(result.empty, true)
 })
 
-test("directory_listRegisteredUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
+test("directory_listUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     registeredUsersProvider: async () => {
       throw new Error("must not be called when the budget is exhausted")
     },
   })
-  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listUsers")
   assert.ok(listRegisteredUsers)
 
   const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }

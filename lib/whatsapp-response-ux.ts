@@ -127,25 +127,27 @@ function candidateSetFromExecutions(executions: WhatsAppSecretaryToolExecution[]
     const data = asRecord(execution.result.data)
     if (!data) continue
 
-    if (/^directory_searchPeople$/.test(execution.name)) {
-      const rows = namedCandidates(data.records, (record) => compactDescription(record.role, record.companyName, record.location))
-      if (rows.length > 1) return { labelPlural: "people", rows }
-    }
-    if (/^directory_searchCompanies$/.test(execution.name)) {
-      const rows = namedCandidates(data.records, (record) => compactDescription(record.location, record.subtitle))
-      if (rows.length > 1) return { labelPlural: "companies", rows }
-    }
-    if (/^directory_searchJobs$/.test(execution.name)) {
-      const rows = namedCandidates(data.records, (record) => compactDescription(record.companyName, record.location, record.status))
-      if (rows.length > 1) return { labelPlural: "jobs", rows }
-    }
-    if (/^questCoral_searchProjects$/.test(execution.name)) {
-      const rows = namedCandidates(data.projects, (record) => compactDescription(record.status, record.ownerName))
-      if (rows.length > 1) return { labelPlural: "projects", rows }
-    }
-    if (/^(?:questCoral_getProject|questCoral_getProjectUpdates|reports_searchDailyReportsForJob|clocking_getClockHistoryForJob|outlooks_getOutlookForJob|applications_getApplicationsForJob)$/.test(execution.name)) {
-      const rows = namedCandidates(data.candidates, (record) => compactDescription(record.location, record.status, record.ownerName))
-      if (rows.length > 1) return { labelPlural: "matches", rows }
+    // Only an EXPLICIT ambiguity signal becomes a disambiguation list.
+    //
+    // This used to also fire whenever a search tool merely returned several
+    // records — which conflated two different things: "a search found ten
+    // matches, here is the data" (input for the model's next step) and "I
+    // cannot proceed until you pick one" (a question for the user). Turning
+    // the former into a list hijacked the turn: a live eval of a broad
+    // question like "what's going on with North Ridge?" showed the model
+    // running one exploratory Directory search, the presentation layer
+    // replacing the whole reply with "I found 10 possible records", and the
+    // real answer never being produced.
+    //
+    // Ambiguity now has exactly one shape — the shared resolver's
+    // `describeUnresolved()` emits `data.candidates` and nothing else does —
+    // so keying on that alone is both simpler and correct.
+    const ambiguous = namedCandidates(data.candidates, (record) =>
+      compactDescription(record.role, record.companyName, record.location, record.status, record.ownerName),
+    )
+    if (ambiguous.length > 1) {
+      const kind = asString((asRecord(Array.isArray(data.candidates) ? data.candidates[0] : null))?.kind)
+      return { labelPlural: kind ? `${kind}s` : "matches", rows: ambiguous }
     }
   }
   return null
@@ -160,24 +162,24 @@ function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): 
     const presentation = asRecord(execution.result.presentation)
     if (!data && !presentation) continue
 
-    if (execution.name === "outlooks_getOutlookForJob") {
+    if (execution.name === "outlooks_get") {
       const deepLink = asString(presentation?.deepLink)
       if (deepLink) return { buttonText: "Open Outlook", url: deepLink }
     }
 
-    if (execution.name === "questCoral_searchProjects" || execution.name === "questCoral_getProject" || execution.name === "questCoral_getProjectUpdates") {
+    if (execution.name === "questCoral_searchProjects" || execution.name === "questCoral_getProject") {
       const id = asString(presentation?.projectId)
       if (id) return { buttonText: "Open Project", url: buildQuestCoralProjectDeepLink(id) }
     }
 
-    if (data && (execution.name === "directory_searchPeople" || execution.name === "directory_searchCompanies" || execution.name === "directory_searchJobs" || execution.name === "directory_getEntityDetails")) {
+    if (data && (execution.name === "directory_search" || execution.name === "directory_getEntity")) {
       const [record] = namedCandidates(data.records, () => undefined)
       const recordData = Array.isArray(data.records) ? asRecord(data.records[0]) : null
       const id = asString(recordData?.id)
       if (record && id) directoryCta = { buttonText: "Open Directory", url: buildDirectoryProfileDeepLink(id) }
     }
 
-    if (execution.name === "applications_searchCandidates" || execution.name === "applications_getApplicationsForJob") {
+    if (execution.name === "applications_search") {
       const id = asString(presentation?.applicationId)
       if (id) applicationCta = { buttonText: "Open Application", url: buildApplicationDeepLink(id) }
     }

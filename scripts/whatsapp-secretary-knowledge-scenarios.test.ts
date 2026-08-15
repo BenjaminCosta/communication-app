@@ -92,14 +92,14 @@ test("scenario: live-data-only question ('does Turner currently have an outlook'
   let knowledgeToolCalled = false
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
     knowledge: () => [fakeLiveTool("knowledge_search", "knowledge", () => { knowledgeToolCalled = true; return {} })],
-    outlooks: () => [fakeLiveTool("outlooks_getOutlookForJob", "outlooks", () => ({ found: false, jobName: "Turner" }))],
+    outlooks: () => [fakeLiveTool("outlooks_get", "outlooks", () => ({ found: false, jobName: "Turner" }))],
   }
 
   const reply = await answerWhatsAppSecretaryQuestion(
     { recentMessages: [{ role: "user", content: "Does Turner currently have an outlook?" }], senderIdentity: identifiedIdentity, accessPolicy: access, companyKnowledge: [] },
     {
       toolFactories: factories,
-      runConversation: scriptedRunConversation([{ toolName: "outlooks_getOutlookForJob", args: { jobName: "Turner" } }], "Turner doesn't currently have an active 3-Week Outlook.") as never,
+      runConversation: scriptedRunConversation([{ toolName: "outlooks_get", args: { jobName: "Turner" } }], "Turner doesn't currently have an active 3-Week Outlook.") as never,
       usageGuard: noopGuard,
     },
   )
@@ -112,7 +112,7 @@ test("scenario: knowledge + live data combined ('never made one for Turner, what
   const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
     knowledge: () => createKnowledgeTools(),
-    outlooks: () => [fakeLiveTool("outlooks_getOutlookForJob", "outlooks", () => ({ found: false, jobName: "Turner" }))],
+    outlooks: () => [fakeLiveTool("outlooks_get", "outlooks", () => ({ found: false, jobName: "Turner" }))],
   }
 
   const calledTools: string[] = []
@@ -122,8 +122,8 @@ test("scenario: knowledge + live data combined ('never made one for Turner, what
   ) => {
     const [knowledgeOut] = await input.onToolCalls([{ id: "1", name: "knowledge_search", arguments: JSON.stringify({ query: "how to create a 3-week outlook" }) }])
     calledTools.push("knowledge_search")
-    const [liveOut] = await input.onToolCalls([{ id: "2", name: "outlooks_getOutlookForJob", arguments: JSON.stringify({ jobName: "Turner" }) }])
-    calledTools.push("outlooks_getOutlookForJob")
+    const [liveOut] = await input.onToolCalls([{ id: "2", name: "outlooks_get", arguments: JSON.stringify({ jobName: "Turner" }) }])
+    calledTools.push("outlooks_get")
     const knowledgeFound = (JSON.parse(knowledgeOut!.content) as { empty?: boolean }).empty !== true
     const liveFound = (JSON.parse(liveOut!.content) as { data: { found: boolean } }).data.found
     return {
@@ -138,7 +138,7 @@ test("scenario: knowledge + live data combined ('never made one for Turner, what
     { toolFactories: factories, runConversation: runConversation as never, usageGuard: noopGuard },
   )
 
-  assert.deepEqual(calledTools, ["knowledge_search", "outlooks_getOutlookForJob"])
+  assert.deepEqual(calledTools, ["knowledge_search", "outlooks_get"])
   assert.match(reply, /knowledge found: true/)
   assert.match(reply, /false\)/)
 })
@@ -147,8 +147,8 @@ test("scenario: cross-module live data (person -> jobs -> reports) plus a knowle
   const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
     knowledge: () => createKnowledgeTools(),
-    directory: () => [fakeLiveTool("directory_searchPeople", "directory", () => ({ records: [{ id: "person__1", name: "John DeMarco" }] }))],
-    reports: () => [fakeLiveTool("reports_getRecentDailyReports", "reports", () => ({ reports: [{ jobName: "North Ridge", date: "2026-08-12" }] }))],
+    directory: () => [fakeLiveTool("directory_search", "directory", () => ({ records: [{ id: "person__1", name: "John DeMarco" }] }))],
+    reports: () => [fakeLiveTool("reports_search", "reports", () => ({ reports: [{ jobName: "North Ridge", date: "2026-08-12" }] }))],
   }
 
   const reply = await answerWhatsAppSecretaryQuestion(
@@ -157,8 +157,8 @@ test("scenario: cross-module live data (person -> jobs -> reports) plus a knowle
       toolFactories: factories,
       runConversation: scriptedRunConversation(
         [
-          { toolName: "directory_searchPeople", args: { query: "John" } },
-          { toolName: "reports_getRecentDailyReports", args: {} },
+          { toolName: "directory_search", args: { query: "John" } },
+          { toolName: "reports_search", args: {} },
           { toolName: "knowledge_search", args: { query: "what is a daily report" } },
         ],
         "John DeMarco's latest report is from North Ridge on Aug 12. A Daily Report is a field record of what happened, issues, and next steps.",

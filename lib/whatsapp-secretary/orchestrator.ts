@@ -12,6 +12,7 @@ import { buildWhatsAppSecretarySystemPrompt, WHATSAPP_SECRETARY_RESULT_SCHEMA } 
 import {
   buildToolRegistry,
   enabledSecretaryModules,
+  type SecretaryToolContext,
   runSecretaryTool,
   toolSpecs,
   type SecretaryModule,
@@ -33,6 +34,9 @@ import { createOutlooksTools } from "@/lib/whatsapp-secretary/tools/outlooks"
 import { createKnowledgeTools } from "@/lib/whatsapp-secretary/tools/knowledge"
 import { createMessagesTools } from "@/lib/whatsapp-secretary/tools/messages"
 import { createMeTools } from "@/lib/whatsapp-secretary/tools/me"
+import { createSvcTools } from "@/lib/whatsapp-secretary/tools/svc"
+import { createEntityResolver, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
 import { selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import {
   createWhatsAppSecretaryPresentation,
@@ -69,19 +73,28 @@ function truncateReply(value: string, max: number): string {
   return `${boundary.trimEnd()}…`
 }
 
+/**
+ * Every module receives the same per-request {@link SecretaryToolContext}.
+ *
+ * The two modules that need to know *who is asking* (`messages`, `me`) used to
+ * be special-cased with bespoke overrides built inline below; the shared
+ * context removes that asymmetry, and `resolver` is what lets every module
+ * stop resolving entity names on its own.
+ */
 const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
-  directory: createDirectoryTools,
-  questCoral: createQuestCoralTools,
-  applications: createApplicationsTools,
-  reports: createReportsTools,
-  clocking: createClockingTools,
-  outlooks: createOutlooksTools,
-  knowledge: createKnowledgeTools,
-  messages: createMessagesTools,
-  // `me` has no identity-free default: without a server-resolved actor there
-  // is no "me" to read. The per-request override below supplies one, and the
-  // registry only ever enables this module for an identified sender.
-  me: () => [],
+  directory: (context) => createDirectoryTools({ resolver: context.resolver }),
+  questCoral: (context) => createQuestCoralTools({ resolver: context.resolver }),
+  applications: (context) => createApplicationsTools({ resolver: context.resolver }),
+  reports: (context) => createReportsTools({ resolver: context.resolver }),
+  clocking: (context) => createClockingTools({ resolver: context.resolver }),
+  outlooks: (context) => createOutlooksTools({ resolver: context.resolver }),
+  knowledge: () => createKnowledgeTools(),
+  messages: (context) => createMessagesTools({ resolver: context.resolver, actorUserId: context.actorUserId }),
+  me: (context) =>
+    context.identity
+      ? createMeTools({ actor: selfContextActorFromIdentity(context.identity), enabledModules: context.enabledModules })
+      : [],
+  svc: (context) => createSvcTools({ resolver: context.resolver, enabledModules: context.enabledModules }),
 }
 
 export interface WhatsAppSecretaryAnswerInput {
@@ -95,6 +108,8 @@ export interface WhatsAppSecretaryAnswerInput {
 export interface WhatsAppSecretaryDeps {
   /** Override for tests — defaults to the real per-module tool factories. */
   toolFactories?: Partial<Record<SecretaryModule, SecretaryToolFactory>>
+  /** Override for tests — defaults to the real Firestore-backed entity resolver. */
+  resolver?: EntityResolver
   /** Override for tests — defaults to the real OpenAI tool-calling loop. */
   runConversation?: typeof runToolConversation
   /** Override for tests — defaults to the real Firestore-backed usage guard. */
@@ -160,26 +175,19 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
   }
   const history = messages.slice(0, -1)
 
-  // Two modules need to know *who is asking*: `messages` (to scope the
-  // human-message tool to their own visibleToUserIds) and `me` (whose entire
-  // subject is the sender). Every other module's factory takes no arguments,
-  // so these two defaults are overridden per-request here instead of widening
-  // SecretaryToolFactory's signature for everyone. In both cases the actor
-  // comes from the server-resolved access policy/identity, never from model
-  // input — there is no tool argument that could point either at someone else.
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
     ...DEFAULT_TOOL_FACTORIES,
-    messages: () => createMessagesTools({ actorUserId: input.accessPolicy.actorUserId }),
-    me: () =>
-      input.senderIdentity
-        ? createMeTools({
-            actor: selfContextActorFromIdentity(input.senderIdentity),
-            enabledModules: enabledSecretaryModules(input.accessPolicy),
-          })
-        : [],
     ...deps.toolFactories,
   }
-  const tools = buildToolRegistry(input.accessPolicy, factories)
+  // One resolver per question, so a name resolved by one tool is the *same*
+  // entity for every other tool this turn — and is resolved exactly once.
+  const context: SecretaryToolContext = {
+    resolver: deps.resolver ?? createEntityResolver(createServerEntityLookups()),
+    identity: input.senderIdentity,
+    ...(input.accessPolicy.actorUserId ? { actorUserId: input.accessPolicy.actorUserId } : {}),
+    enabledModules: enabledSecretaryModules(input.accessPolicy),
+  }
+  const tools = buildToolRegistry(input.accessPolicy, factories, context)
   const runConversation = deps.runConversation ?? runToolConversation
   const guard = deps.usageGuard ?? {
     acquire: acquireWhatsAppSecretaryAiRequest,

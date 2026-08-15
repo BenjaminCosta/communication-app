@@ -54,8 +54,11 @@ export async function listActiveJobsForFanOut(): Promise<FanOutJob[]> {
   })
 }
 
-/** Single-equality-filter lookup — no composite index needed. */
-async function lookupLinkedJobByContextId(directoryContextId: string): Promise<WhatsAppReportJob | null> {
+/** Single-equality-filter lookup — no composite index needed. Exported so the
+ * shared entity resolver (`lib/whatsapp-secretary/entity-resolver.ts`) reuses
+ * the exact same Directory-context → ByeByeDPR-job mapping rather than
+ * re-deriving it. */
+export async function lookupLinkedJobByContextId(directoryContextId: string): Promise<WhatsAppReportJob | null> {
   const { getFirestore } = await import("firebase-admin/firestore")
   const db = getFirestore(await getFirebaseAdminApp())
   const snapshot = await db.collection("jobs").where("directoryContextId", "==", directoryContextId).limit(1).get()

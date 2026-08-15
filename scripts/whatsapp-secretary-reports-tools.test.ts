@@ -49,21 +49,16 @@ function fixtureJobResolver(jobs: WhatsAppReportJob[]): (name: string) => Promis
 test("Reports tools are namespaced", () => {
   const tools = createReportsTools({ provider: createFixtureProvider(), resolveJobsByName: fixtureJobResolver([]) })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, [
-    "reports_searchDailyReportsForJob",
-    "reports_getRecentDailyReports",
-    "reports_getDailyReportsByAuthor",
-    "reports_getJobsWithoutRecentReports",
-  ])
+  assert.deepEqual(names, ["reports_search", "reports_getCoverageGaps"])
   assert.ok(tools.every((tool) => tool.module === "reports"))
 })
 
-test("reports_searchDailyReportsForJob resolves the job then lists reports with a cursor", async () => {
+test("reports_search resolves the job then lists reports with a cursor", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider(),
     resolveJobsByName: fixtureJobResolver([{ id: "job-north-ridge", name: "North Ridge" }]),
   })
-  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_search")
   assert.ok(searchDailyReportsForJob)
 
   const sharedBudget = budget()
@@ -73,7 +68,7 @@ test("reports_searchDailyReportsForJob resolves the job then lists reports with 
   assert.ok(sharedBudget.remainingRecords < 24)
 })
 
-test("reports_searchDailyReportsForJob reports ambiguity across matching jobs without guessing", async () => {
+test("reports_search reports ambiguity across matching jobs without guessing", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       getReportsForJob: async () => {
@@ -85,7 +80,7 @@ test("reports_searchDailyReportsForJob reports ambiguity across matching jobs wi
       { id: "job-b", name: "North Ridge B" },
     ]),
   })
-  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_search")
   assert.ok(searchDailyReportsForJob)
 
   const result = await searchDailyReportsForJob.run({ jobName: "North Ridge" }, budget())
@@ -93,9 +88,9 @@ test("reports_searchDailyReportsForJob reports ambiguity across matching jobs wi
   assert.equal(data.candidates?.length, 2)
 })
 
-test("reports_getRecentDailyReports lists across jobs", async () => {
+test("reports_search lists across jobs", async () => {
   const tools = createReportsTools({ provider: createFixtureProvider(), resolveJobsByName: fixtureJobResolver([]) })
-  const getRecentDailyReports = tools.find((tool) => tool.name === "reports_getRecentDailyReports")
+  const getRecentDailyReports = tools.find((tool) => tool.name === "reports_search")
   assert.ok(getRecentDailyReports)
 
   const result = await getRecentDailyReports.run({}, budget())
@@ -103,7 +98,7 @@ test("reports_getRecentDailyReports lists across jobs", async () => {
   assert.equal(data.reports?.length, 2)
 })
 
-test("reports_getDailyReportsByAuthor refuses to guess when the person cannot be resolved to a linked user", async () => {
+test("reports_search refuses to guess when the person cannot be resolved to a linked user", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       getReportsByAuthor: async () => {
@@ -113,23 +108,23 @@ test("reports_getDailyReportsByAuthor refuses to guess when the person cannot be
     resolveJobsByName: fixtureJobResolver([]),
     resolveAuthorIdByName: async () => null,
   })
-  const getDailyReportsByAuthor = tools.find((tool) => tool.name === "reports_getDailyReportsByAuthor")
+  const getDailyReportsByAuthor = tools.find((tool) => tool.name === "reports_search")
   assert.ok(getDailyReportsByAuthor)
 
-  const result = await getDailyReportsByAuthor.run({ personName: "Unlinked Person" }, budget())
+  const result = await getDailyReportsByAuthor.run({ authorName: "Unlinked Person" }, budget())
   assert.equal(result.empty, true)
 })
 
-test("reports_getDailyReportsByAuthor lists reports once the person resolves to a linked user", async () => {
+test("reports_search lists reports once the person resolves to a linked user", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider(),
     resolveJobsByName: fixtureJobResolver([]),
     resolveAuthorIdByName: async (name) => (name === "John DeMarco" ? "user-jdemarco" : null),
   })
-  const getDailyReportsByAuthor = tools.find((tool) => tool.name === "reports_getDailyReportsByAuthor")
+  const getDailyReportsByAuthor = tools.find((tool) => tool.name === "reports_search")
   assert.ok(getDailyReportsByAuthor)
 
-  const result = await getDailyReportsByAuthor.run({ personName: "John DeMarco" }, budget())
+  const result = await getDailyReportsByAuthor.run({ authorName: "John DeMarco" }, budget())
   const data = result.data as { reports?: DailyReportSummary[] }
   assert.equal(data.reports?.length, 1)
 })
@@ -138,7 +133,7 @@ function makeJob(overrides: Partial<FanOutJob> = {}): FanOutJob {
   return { id: "job-fresh", name: "Fresh Job", directoryContextId: null, ...overrides }
 }
 
-test("reports_getJobsWithoutRecentReports lists only stale/report-less jobs, oldest/none first", async () => {
+test("reports_getCoverageGaps lists only stale/report-less jobs, oldest/none first", async () => {
   const now = Date.now()
   const fresh = makeJob({ id: "job-fresh", name: "Fresh Job" })
   const stale = makeJob({ id: "job-stale", name: "Stale Job" })
@@ -156,7 +151,7 @@ test("reports_getJobsWithoutRecentReports lists only stale/report-less jobs, old
     resolveJobsByName: fixtureJobResolver([]),
     listJobsProvider: async () => [fresh, stale, never],
   })
-  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getCoverageGaps")
   assert.ok(getJobsWithoutRecentReports)
 
   const result = await getJobsWithoutRecentReports.run({ withinDays: 14 }, budget())
@@ -168,7 +163,7 @@ test("reports_getJobsWithoutRecentReports lists only stale/report-less jobs, old
   assert.equal(data.jobs?.[0]?.mostRecentReportAt, null)
 })
 
-test("reports_getJobsWithoutRecentReports reports every job is current, without guessing at cadence", async () => {
+test("reports_getCoverageGaps reports every job is current, without guessing at cadence", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       getMostRecentReportDateForJob: async () => new Date().toISOString(),
@@ -176,7 +171,7 @@ test("reports_getJobsWithoutRecentReports reports every job is current, without 
     resolveJobsByName: fixtureJobResolver([]),
     listJobsProvider: async () => [makeJob()],
   })
-  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getCoverageGaps")
   assert.ok(getJobsWithoutRecentReports)
 
   const result = await getJobsWithoutRecentReports.run({}, budget())
@@ -184,7 +179,7 @@ test("reports_getJobsWithoutRecentReports reports every job is current, without 
   assert.doesNotMatch(result.summary, /missing|required/i)
 })
 
-test("reports_getJobsWithoutRecentReports reports nothing rather than guessing when there are no active jobs", async () => {
+test("reports_getCoverageGaps reports nothing rather than guessing when there are no active jobs", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       getMostRecentReportDateForJob: async () => {
@@ -194,7 +189,7 @@ test("reports_getJobsWithoutRecentReports reports nothing rather than guessing w
     resolveJobsByName: fixtureJobResolver([]),
     listJobsProvider: async () => [],
   })
-  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getJobsWithoutRecentReports")
+  const getJobsWithoutRecentReports = tools.find((tool) => tool.name === "reports_getCoverageGaps")
   assert.ok(getJobsWithoutRecentReports)
 
   const result = await getJobsWithoutRecentReports.run({}, budget())
@@ -215,7 +210,7 @@ function fixturePdfSigner(overrides: Partial<ReportPdfSigner> = {}): ReportPdfSi
   }
 }
 
-test("reports_searchDailyReportsForJob: a submitted report with a PDF produces a presentation attachment, and pdfStoragePath never reaches data", async () => {
+test("reports_search: a submitted report with a PDF produces a presentation attachment, and pdfStoragePath never reaches data", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       async getReportsForJob() {
@@ -225,7 +220,7 @@ test("reports_searchDailyReportsForJob: a submitted report with a PDF produces a
     resolveJobsByName: fixtureJobResolver([{ id: "job-north-ridge", name: "North Ridge" }]),
     pdfSigner: fixturePdfSigner(),
   })
-  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_search")
   assert.ok(searchDailyReportsForJob)
 
   const result = await searchDailyReportsForJob.run({ jobName: "North Ridge" }, budget())
@@ -239,7 +234,7 @@ test("reports_searchDailyReportsForJob: a submitted report with a PDF produces a
   assert.match(presentation.attachments[0]?.filename ?? "", /North Ridge/)
 })
 
-test("reports_searchDailyReportsForJob: a report with no PDF produces no presentation at all", async () => {
+test("reports_search: a report with no PDF produces no presentation at all", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       async getReportsForJob() {
@@ -253,14 +248,14 @@ test("reports_searchDailyReportsForJob: a report with no PDF produces no present
       },
     }),
   })
-  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_searchDailyReportsForJob")
+  const searchDailyReportsForJob = tools.find((tool) => tool.name === "reports_search")
   assert.ok(searchDailyReportsForJob)
 
   const result = await searchDailyReportsForJob.run({ jobName: "North Ridge" }, budget())
   assert.equal(result.presentation, undefined)
 })
 
-test("reports_getRecentDailyReports: a failed signing attempt (signer returns null) is dropped, and other attachments still come through", async () => {
+test("reports_search: a failed signing attempt (signer returns null) is dropped, and other attachments still come through", async () => {
   const tools = createReportsTools({
     provider: createFixtureProvider({
       async getRecentReports() {
@@ -277,7 +272,7 @@ test("reports_getRecentDailyReports: a failed signing attempt (signer returns nu
       },
     }),
   })
-  const getRecentDailyReports = tools.find((tool) => tool.name === "reports_getRecentDailyReports")
+  const getRecentDailyReports = tools.find((tool) => tool.name === "reports_search")
   assert.ok(getRecentDailyReports)
 
   const result = await getRecentDailyReports.run({}, budget())
