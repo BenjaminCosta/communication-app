@@ -62,7 +62,7 @@ const MAX_HUMAN_OVERFETCH = 150
 const MAX_TEXT_CHARACTERS = 400
 
 type RecordValue = Record<string, unknown>
-export type OperationalMessageCategory = "outlook" | "clocking" | "daily-report"
+export type OperationalMessageCategory = "outlook" | "clocking" | "daily-report" | "application"
 
 export interface OperationalMessageSummary {
   category: OperationalMessageCategory
@@ -139,6 +139,7 @@ function operationalCategory(data: RecordValue): OperationalMessageCategory | nu
   if (sourceModule === "bye-bye-dpr") {
     return asString(data.projectId) === BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID ? "clocking" : "daily-report"
   }
+  if (sourceModule === "applications") return "application"
   return null
 }
 

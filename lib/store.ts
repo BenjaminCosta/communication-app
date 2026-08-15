@@ -557,7 +557,7 @@ export function computeVisibleToUserIds(
  * A message with no `sourceModule` at all (the normal Compose flow) is also
  * always human-written.
  */
-export const AUTOMATIC_MESSAGE_SOURCE_MODULES = ["three-week-outlook", "bye-bye-dpr"] as const
+export const AUTOMATIC_MESSAGE_SOURCE_MODULES = ["three-week-outlook", "bye-bye-dpr", "applications"] as const
 export type AutomaticMessageSourceModule = (typeof AUTOMATIC_MESSAGE_SOURCE_MODULES)[number]
 
 export function isAutomaticMessageSourceModule(sourceModule: string | undefined | null): boolean {

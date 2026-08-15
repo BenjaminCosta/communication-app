@@ -472,7 +472,7 @@ export function useCandidateApplication(token: string, options: CandidateApplica
         })
           .then(() => {
             if (latestDraftRef.current === next) dirtyRef.current = false
-            return submitCandidateApplication(id, name)
+            return submitCandidateApplication(id)
           })
           .catch(() => setSaveState("idle")),
       )

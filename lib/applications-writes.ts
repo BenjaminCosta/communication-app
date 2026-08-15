@@ -41,7 +41,6 @@ import {
   mapLinkDoc,
   toTimestamp,
 } from "@/lib/applications-store"
-import { candidateUid } from "@/lib/applications-core"
 import type {
   ActivityEvent,
   ActivityKind,
@@ -193,21 +192,28 @@ export async function requestVideoTranscription(applicationId: string): Promise<
 
 export async function submitCandidateApplication(
   applicationId: string,
-  candidateName: string,
 ): Promise<void> {
-  await updateDoc(doc(candidateDb, APPLICATIONS_COLLECTION, applicationId), {
-    status: "submitted",
-    submittedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  })
-  // A candidate may write their own activity (rules allow it for the session).
-  await addDoc(collection(candidateDb, APPLICATIONS_COLLECTION, applicationId, APPLICATION_ACTIVITY_SUBCOLLECTION), {
-    kind: "submitted",
-    actor: candidateName || "Candidate",
-    actorUid: candidateUid(applicationId),
-    message: "Submitted the application",
-    at: serverTimestamp(),
-  })
+  const user = auth.currentUser
+  if (!user) throw new ApplicationWriteError("Your session ended. Please reopen the application link.")
+
+  let response: Response
+  try {
+    response = await fetch("/api/applications/submit", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${await user.getIdToken()}`,
+      },
+    })
+  } catch {
+    throw new ApplicationWriteError("We couldn't submit this application right now.")
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+    throw new ApplicationWriteError(
+      typeof body.error === "string" ? body.error : "We couldn't submit this application right now.",
+    )
+  }
 }
 
 // ── Activity ────────────────────────────────────────────────────────────

@@ -38,8 +38,15 @@ import {
 } from "@/lib/applications-store"
 import { sealAgreementPdf } from "@/features/applications/agreement-pdf"
 import { createApplicationProfilePdf, type ApplicationProfilePdfInput } from "@/features/applications/application-profile-pdf"
+import { projectTagId, type AutomaticMessageSourceModule } from "@/lib/store"
+import type { DocumentData, Firestore } from "firebase-admin/firestore"
 
 const STORAGE_BUCKET = "svc-comms.firebasestorage.app"
+const USERS_COLLECTION = "users"
+const MESSAGES_COLLECTION = "messages"
+const PROJECTS_COLLECTION = "projects"
+const APPLICATIONS_ONBOARDING_TAG_NAME = "Applications/Onboarding"
+const APPLICATIONS_SOURCE_MODULE: AutomaticMessageSourceModule = "applications"
 
 export class ApplicationSessionError extends Error {
   readonly code: string
@@ -261,11 +268,17 @@ const APPLICATION_LINK_STEPS = new Set<ApplicationSectionId>(["general", "video"
 /** The one client-only marker that asks the server to create a new invite. */
 const NEW_APPLICATION_MARKER = "new-application"
 
-function applicationLinkData(link: ApplicationLink, Timestamp: { fromDate(value: Date): unknown }) {
+function applicationLinkData(
+  link: ApplicationLink,
+  Timestamp: { fromDate(value: Date): unknown },
+  issuer: StaffPrincipal,
+) {
   return {
     applicationId: link.applicationId,
     purpose: link.purpose,
     step: link.step,
+    issuedBy: issuer.uid,
+    issuedByName: issuer.name,
     createdAt: Timestamp.fromDate(new Date(link.createdAt)),
     expiresAt: Timestamp.fromDate(new Date(link.expiresAt)),
     revokedAt: null,
@@ -274,7 +287,11 @@ function applicationLinkData(link: ApplicationLink, Timestamp: { fromDate(value:
 }
 
 /** Server-side equivalent of the browser Firestore mapper for a new invite. */
-function newApplicationData(application: CandidateApplication, Timestamp: { fromDate(value: Date): unknown }) {
+function newApplicationData(
+  application: CandidateApplication,
+  Timestamp: { fromDate(value: Date): unknown },
+  issuer: StaffPrincipal,
+) {
   return {
     candidateName: application.candidateName,
     trade: application.trade,
@@ -298,6 +315,9 @@ function newApplicationData(application: CandidateApplication, Timestamp: { from
     createdAt: Timestamp.fromDate(new Date(application.createdAt)),
     updatedAt: Timestamp.fromDate(new Date(application.updatedAt)),
     submittedAt: null,
+    inviteCreatedBy: issuer.uid,
+    inviteCreatedByName: issuer.name,
+    inviteCreatedAt: Timestamp.fromDate(new Date(application.createdAt)),
     pendingRequest: null,
     previousStatus: null,
     agreementId: null,
@@ -369,7 +389,7 @@ export async function issueReviewerApplicationLink(
   await db.runTransaction(async (tx) => {
     if (creatingInvite) {
       const draft = blankApplication(applicationId, link.token, invite)
-      tx.create(applicationRef, newApplicationData(draft, Timestamp))
+      tx.create(applicationRef, newApplicationData(draft, Timestamp, reviewer))
       tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
         kind: "created",
         actor: reviewer.name,
@@ -382,7 +402,7 @@ export async function issueReviewerApplicationLink(
       if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
     }
 
-    tx.create(linkRef, applicationLinkData(link, Timestamp))
+    tx.create(linkRef, applicationLinkData(link, Timestamp, reviewer))
     tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
       kind: "link_generated",
       actor: reviewer.name,
@@ -663,6 +683,7 @@ export async function hardDeleteApplication(applicationId: string): Promise<void
     bucket.deleteFiles({ prefix: `application-uploads/${id}/documents/`, force: true }).catch(() => {}),
     bucket.deleteFiles({ prefix: `application-uploads/${id}/video/`, force: true }).catch(() => {}),
     bucket.deleteFiles({ prefix: `application-agreements/${id}/`, force: true }).catch(() => {}),
+    bucket.deleteFiles({ prefix: `application-completions/${id}/`, force: true }).catch(() => {}),
   ])
 
   const [activitySnapshot, linksSnapshot, agreementsSnapshot] = await Promise.all([
@@ -675,6 +696,7 @@ export async function hardDeleteApplication(applicationId: string): Promise<void
   activitySnapshot.docs.forEach((doc) => batch.delete(doc.ref))
   linksSnapshot.docs.forEach((doc) => batch.delete(doc.ref))
   agreementsSnapshot.docs.forEach((doc) => batch.delete(doc.ref))
+  batch.delete(db.collection(MESSAGES_COLLECTION).doc(applicationCompletionMessageId(id)))
   batch.delete(applicationRef)
   await batch.commit()
 }
@@ -835,9 +857,9 @@ export async function readSignedAgreementPdf(
  * Build a complete reviewer-only PDF snapshot. We never expose Storage URLs
  * in the export: the dashboard remains the controlled place to open originals.
  */
-export async function exportApplicationProfilePdf(
+/** Builds the existing reviewer PDF without recording a reviewer download. */
+async function buildApplicationProfilePdfArtifact(
   applicationId: string,
-  reviewer: StaffPrincipal,
 ): Promise<{ bytes: Uint8Array; fileName: string }> {
   const id = applicationId.trim()
   if (!id || id.length > 160) throw new ApplicationSessionError("invalid-request", "Invalid application.", 400)
@@ -922,6 +944,17 @@ export async function exportApplicationProfilePdf(
   }
 
   const bytes = await createApplicationProfilePdf(profile)
+  return { bytes, fileName: applicationProfileFileName(candidateName) }
+}
+
+export async function exportApplicationProfilePdf(
+  applicationId: string,
+  reviewer: StaffPrincipal,
+): Promise<{ bytes: Uint8Array; fileName: string }> {
+  const artifact = await buildApplicationProfilePdfArtifact(applicationId)
+  const db = await adminFirestore()
+  const id = applicationId.trim()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(id)
   await applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).add({
     kind: "note",
     actor: reviewer.name,
@@ -930,7 +963,236 @@ export async function exportApplicationProfilePdf(
     at: new Date(),
   })
 
-  return { bytes, fileName: applicationProfileFileName(candidateName) }
+  return artifact
+}
+
+interface ApplicationInviteCreator {
+  uid: string
+  name: string
+}
+
+interface ApplicationCompletionPdf {
+  storagePath: string
+  downloadUrl: string
+  fileName: string
+}
+
+function applicationCompletionMessageId(applicationId: string): string {
+  return `application-completion-${applicationId}`
+}
+
+function completionPdfFrom(value: unknown): ApplicationCompletionPdf | null {
+  const data = recordFromUnknown(value)
+  const storagePath = textFromUnknown(data.storagePath)
+  const downloadUrl = textFromUnknown(data.downloadUrl)
+  const fileName = textFromUnknown(data.fileName)
+  return storagePath && downloadUrl && fileName ? { storagePath, downloadUrl, fileName } : null
+}
+
+function submittedCandidateName(application: DocumentData): string {
+  const general = recordFromUnknown(application.general)
+  return textFromUnknown(general.fullName) || textFromUnknown(application.candidateName) || "Candidate"
+}
+
+async function resolveApplicationInviteCreator(
+  db: Firestore,
+  applicationId: string,
+  application: DocumentData,
+): Promise<ApplicationInviteCreator> {
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(applicationId)
+  let uid = textFromUnknown(application.inviteCreatedBy)
+  let name = textFromUnknown(application.inviteCreatedByName)
+
+  // Legacy invitations may not have persisted provenance, but their original
+  // `created` event has the same authoritative staff author when available.
+  if (!uid) {
+    const activitySnapshot = await applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).orderBy("at", "asc").limit(200).get()
+    const creationActivity = activitySnapshot.docs.find((entry) => textFromUnknown(entry.data().kind) === "created")
+    uid = textFromUnknown(creationActivity?.data().actorUid)
+    name = textFromUnknown(creationActivity?.data().actor)
+    if (uid && uid !== candidateUid(applicationId)) {
+      await applicationRef.set(
+        {
+          inviteCreatedBy: uid,
+          inviteCreatedByName: name || null,
+          inviteCreatedAt: creationActivity?.data().at ?? new Date(),
+        },
+        { merge: true },
+      )
+    }
+  }
+
+  if (!uid || uid === candidateUid(applicationId) || uid.includes("/")) {
+    throw new ApplicationSessionError("invite-creator-unavailable", "This application is missing its invitation creator.", 409)
+  }
+
+  const authorSnapshot = await db.collection(USERS_COLLECTION).doc(uid).get()
+  return { uid, name: textFromUnknown(authorSnapshot.data()?.name) || name || "SVC team" }
+}
+
+async function createApplicationCompletionPdf(applicationId: string): Promise<ApplicationCompletionPdf> {
+  const artifact = await buildApplicationProfilePdfArtifact(applicationId)
+  const { getStorage } = await import("firebase-admin/storage")
+  const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
+  const storagePath = `application-completions/${applicationId}/application-profile.pdf`
+  const file = bucket.file(storagePath)
+  await file.save(Buffer.from(artifact.bytes), {
+    contentType: "application/pdf",
+    metadata: { cacheControl: "private, max-age=0" },
+  })
+  const [downloadUrl] = await file.getSignedUrl({ action: "read", expires: "01-01-2500" })
+  return { storagePath, downloadUrl, fileName: artifact.fileName }
+}
+
+/** Publish or repair one deterministic Comms card for the submitted application. */
+async function publishApplicationCompletionToComms(
+  applicationId: string,
+  refreshPdf: boolean,
+): Promise<{ messageId: string }> {
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(applicationId)
+  const applicationSnapshot = await applicationRef.get()
+  if (!applicationSnapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+
+  const application = applicationSnapshot.data() ?? {}
+  if (textFromUnknown(application.status) !== "submitted") {
+    throw new ApplicationSessionError("not-submitted", "Only submitted applications can be shared in Communications.", 409)
+  }
+
+  const [creator, membersSnapshot, tagSnapshot] = await Promise.all([
+    resolveApplicationInviteCreator(db, applicationId, application),
+    db.collection(USERS_COLLECTION).get(),
+    db.collection(PROJECTS_COLLECTION).where("name", "==", APPLICATIONS_ONBOARDING_TAG_NAME).limit(2).get(),
+  ])
+  if (tagSnapshot.size !== 1) {
+    throw new ApplicationSessionError(
+      "applications-tag-unavailable",
+      `The required ${APPLICATIONS_ONBOARDING_TAG_NAME} tag is not available.`,
+      409,
+    )
+  }
+
+  let pdf = refreshPdf ? null : completionPdfFrom(application.completionPdf)
+  if (!pdf) {
+    pdf = await createApplicationCompletionPdf(applicationId)
+    await applicationRef.set(
+      { completionPdf: { ...pdf, generatedAt: new Date() }, updatedAt: new Date() },
+      { merge: true },
+    )
+  }
+
+  const visibleToUserIds = [...new Set([creator.uid, ...membersSnapshot.docs.map((member) => member.id)])]
+  const recipientIds = visibleToUserIds.filter((id) => id !== creator.uid)
+  const tagId = tagSnapshot.docs[0].id
+  const candidateName = submittedCandidateName(application)
+  const jobName = textFromUnknown(application.jobName)
+  const content = jobName ? `Application completed · ${candidateName}\n${jobName}` : `Application completed · ${candidateName}`
+  const jobContextId = textFromUnknown(application.jobEntityId)
+  const messageId = applicationCompletionMessageId(applicationId)
+  const messageRef = db.collection(MESSAGES_COLLECTION).doc(messageId)
+  const { FieldValue } = await import("firebase-admin/firestore")
+  const message = {
+    authorId: creator.uid,
+    senderId: creator.uid,
+    recipientIds,
+    peopleIds: recipientIds,
+    participants: [creator.uid, ...recipientIds],
+    visibleToUserIds,
+    projectIds: [tagId],
+    projectId: tagId,
+    tagIds: [projectTagId(tagId)],
+    content,
+    text: content,
+    type: "none" as const,
+    contactIds: [] as string[],
+    contextIds: jobContextId ? [jobContextId] : [],
+    fileUrl: pdf.downloadUrl,
+    fileName: pdf.fileName,
+    fileContentType: "application/pdf",
+    filePath: pdf.storagePath,
+    isFavorited: false,
+    sourceModule: APPLICATIONS_SOURCE_MODULE,
+    sourceApplicationId: applicationId,
+    applicationStatus: "submitted",
+  }
+
+  if (!((await messageRef.get()).exists)) {
+    try {
+      await messageRef.create({
+        ...message,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        timestamp: FieldValue.serverTimestamp(),
+      })
+    } catch (error) {
+      if (!((await messageRef.get()).exists)) throw error
+    }
+  }
+  await Promise.all([
+    messageRef.set({ ...message, updatedAt: FieldValue.serverTimestamp() }, { merge: true }),
+    applicationRef.set({ commsCompletionMessageId: messageId, updatedAt: FieldValue.serverTimestamp() }, { merge: true }),
+  ])
+  return { messageId }
+}
+
+export interface SubmitCandidateApplicationInput {
+  applicationId: string
+  linkHash: string
+  uid: string
+}
+
+/** Server-owned completion keeps the Comms event tied to a valid invite session. */
+export async function submitCandidateApplication(
+  input: SubmitCandidateApplicationInput,
+): Promise<{ messageId: string }> {
+  const applicationId = input.applicationId.trim()
+  if (!applicationId || applicationId.length > 160 || input.uid !== candidateUid(applicationId)) {
+    throw new ApplicationSessionError("forbidden", "This application isn't available for your session.", 403)
+  }
+  const activeLink = resolveLink(await loadLinkByHash(input.linkHash))
+  if (
+    !activeLink.ok ||
+    activeLink.link.applicationId !== applicationId ||
+    (activeLink.link.purpose !== "application" && activeLink.link.purpose !== "step")
+  ) {
+    throw new ApplicationSessionError("link-inactive", "This application link is no longer active. Ask for a new link.", 403)
+  }
+
+  const db = await adminFirestore()
+  const applicationRef = db.collection(APPLICATIONS_COLLECTION).doc(applicationId)
+  const { FieldValue, Timestamp } = await import("firebase-admin/firestore")
+  const submittedAt = new Date()
+  let refreshPdf = false
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(applicationRef)
+    if (!snapshot.exists) throw new ApplicationSessionError("not_found", "This application no longer exists.", 404)
+    const application = snapshot.data() ?? {}
+    const status = textFromUnknown(application.status)
+    if (status !== "draft" && status !== "needs_information" && status !== "submitted") {
+      throw new ApplicationSessionError("not-submittable", "This application can no longer be submitted.", 409)
+    }
+    if (status === "submitted") return
+
+    refreshPdf = true
+    const general = recordFromUnknown(application.general)
+    const candidateName = submittedCandidateName(application)
+    const trade = textFromUnknown(general.primaryTrade) || textFromUnknown(application.trade)
+    tx.update(applicationRef, {
+      status: "submitted",
+      candidateName,
+      ...(trade ? { trade } : {}),
+      submittedAt: Timestamp.fromDate(submittedAt),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.set(applicationRef.collection(APPLICATION_ACTIVITY_SUBCOLLECTION).doc(), {
+      kind: "submitted",
+      actor: candidateName,
+      actorUid: input.uid,
+      message: status === "needs_information" ? "Resubmitted the application" : "Submitted the application",
+      at: Timestamp.fromDate(submittedAt),
+    })
+  })
+  return publishApplicationCompletionToComms(applicationId, refreshPdf)
 }
 
 function agreementSigningExpired(agreement: { expiresAt?: unknown }, now = new Date()): boolean {
