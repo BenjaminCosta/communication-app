@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { Firestore } from "firebase-admin/firestore"
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { APPLICATION_STATUS_META, type ApplicationStatus } from "@/lib/applications-core"
+import { APPLICATION_STATUS_META, APPLICATION_STATUS_ORDER, type ApplicationStatus, type DocumentStatus, type IntroVideoState } from "@/lib/applications-core"
 import { tokenize } from "@/lib/directory-core"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
@@ -43,6 +43,12 @@ const MAX_KEYWORD_OVERFETCH_APPLICATIONS = 200
 
 type RecordValue = Record<string, unknown>
 
+export interface ApplicationDocumentStatus {
+  label: string
+  status: DocumentStatus
+  required: boolean
+}
+
 export interface ApplicationSummary {
   /** Kept server-side until the response UX builds a direct, authenticated SVC link. */
   id?: string
@@ -56,12 +62,26 @@ export interface ApplicationSummary {
   pendingRequest: string | null
   submittedAt: string | null
   updatedAt: string | null
+  /** Candidate contact info — shared the same way Directory person contact
+   * info already is with internal senders (every WhatsApp sender who can
+   * reach this tool is a uniquely identified internal SVC user). */
+  phone: string | null
+  email: string | null
+  cityState: string | null
+  yearsExperience: string | null
+  workReference: string | null
+  /** Just the file name, never the file itself/its download link. */
+  resumeFileName: string | null
+  videoState: IntroVideoState | null
+  documents: ApplicationDocumentStatus[]
 }
 
 export interface ApplicationsToolsProvider {
   findCandidatesByName(query: string, limit: number): Promise<ApplicationSummary[]>
   getReviewQueue(limitPerStatus: number): Promise<Record<ApplicationStatus, { count: number; recent: ApplicationSummary[] }>>
   getApplicationsForJob(jobEntityId: string, options: { since?: string; until?: string; limit: number }): Promise<ApplicationSummary[]>
+  /** Every application, newest-updated first — for "what applications are there" without naming a candidate/job. */
+  listAllApplications(options: { status?: ApplicationStatus; limit: number }): Promise<ApplicationSummary[]>
 }
 
 /** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
@@ -98,8 +118,30 @@ function mapStatus(value: unknown): ApplicationStatus {
   return typeof value === "string" && value in APPLICATION_STATUS_META ? (value as ApplicationStatus) : "draft"
 }
 
+const DOCUMENT_STATUSES: DocumentStatus[] = ["missing", "uploaded", "verified", "not_required"]
+function mapDocumentStatus(value: unknown): DocumentStatus {
+  return typeof value === "string" && (DOCUMENT_STATUSES as string[]).includes(value) ? (value as DocumentStatus) : "missing"
+}
+
+function mapDocuments(value: unknown): ApplicationDocumentStatus[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(asRecord)
+    .filter((doc): doc is RecordValue => doc !== null)
+    .map((doc) => ({ label: asString(doc.label), status: mapDocumentStatus(doc.status), required: doc.required !== false }))
+    .filter((doc) => doc.label)
+    .slice(0, 10)
+}
+
+const VIDEO_STATES: IntroVideoState[] = ["not_started", "processing", "ready"]
+function mapVideoState(value: unknown): IntroVideoState | null {
+  return typeof value === "string" && (VIDEO_STATES as string[]).includes(value) ? (value as IntroVideoState) : null
+}
+
 function mapApplication(data: RecordValue, id?: string): ApplicationSummary {
   const agreement = asRecord(data.agreement)
+  const general = asRecord(data.general)
+  const video = asRecord(data.video)
   const pendingRequest = asString(data.pendingRequest)
   return {
     ...(id ? { id } : {}),
@@ -113,6 +155,14 @@ function mapApplication(data: RecordValue, id?: string): ApplicationSummary {
     pendingRequest: pendingRequest ? pendingRequest.slice(0, MAX_PENDING_REQUEST_CHARACTERS) : null,
     submittedAt: toIso(data.submittedAt),
     updatedAt: toIso(data.updatedAt),
+    phone: asString(general?.phone) || null,
+    email: asString(general?.email) || null,
+    cityState: asString(general?.cityState) || null,
+    yearsExperience: asString(general?.yearsExperience) || null,
+    workReference: asString(general?.workReference) || null,
+    resumeFileName: asString(general?.resumeFileName) || null,
+    videoState: mapVideoState(video?.state),
+    documents: mapDocuments(data.documents),
   }
 }
 
@@ -148,6 +198,14 @@ function applicationQueryFields<T extends { select: (...fieldPaths: string[]) =>
     "pendingRequest",
     "submittedAt",
     "updatedAt",
+    "general.phone",
+    "general.email",
+    "general.cityState",
+    "general.yearsExperience",
+    "general.workReference",
+    "general.resumeFileName",
+    "video.state",
+    "documents",
   )
 }
 
@@ -201,6 +259,18 @@ function createServerApplicationsProvider(): ApplicationsToolsProvider {
       )
       if (options.until) query = query.where("updatedAt", "<=", new Date(options.until))
       if (options.since) query = query.where("updatedAt", ">=", new Date(options.since))
+      const snapshot = await query.limit(options.limit).get()
+      return snapshot.docs.map((document) => mapApplication(document.data() as RecordValue, document.id))
+    },
+    async listAllApplications(options) {
+      const db = await getAdminDb()
+      // (status ASC, updatedAt DESC) is already deployed and used by
+      // getReviewQueue above — no new index needed for the filtered case;
+      // omitting the filter drops to a single-field orderBy, also index-free.
+      let query = applicationQueryFields(db.collection(APPLICATIONS_COLLECTION).orderBy("updatedAt", "desc"))
+      if (options.status) {
+        query = applicationQueryFields(db.collection(APPLICATIONS_COLLECTION).where("status", "==", options.status).orderBy("updatedAt", "desc"))
+      }
       const snapshot = await query.limit(options.limit).get()
       return snapshot.docs.map((document) => mapApplication(document.data() as RecordValue, document.id))
     },
@@ -356,5 +426,38 @@ export function createApplicationsTools(
     },
   }
 
-  return [searchCandidates, getReviewQueue, getApplicationsForJob]
+  const listAllApplications: SecretaryTool<{ status?: ApplicationStatus; limit?: number }> = {
+    name: "applications_listAllApplications",
+    module: "applications",
+    description:
+      "List every Application, newest-updated first — for 'what applications are there' or 'what's in Applications' without naming a candidate or job. Optional `status` filter. Use applications_searchCandidates instead when the user already named a candidate.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        status: { type: "string", enum: APPLICATION_STATUS_ORDER, description: "Optional: only applications in this status." },
+        limit: { type: "number", description: "Max applications to return (1-12)." },
+      },
+    },
+    schema: z.object({
+      status: z.enum(APPLICATION_STATUS_ORDER as [ApplicationStatus, ...ApplicationStatus[]]).optional(),
+      limit: z.number().int().min(1).max(12).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, 12, budget.remainingRecords))
+
+      const applications = await provider.listAllApplications({ status: args.status, limit })
+      budget.remainingRecords -= applications.length
+      if (applications.length === 0) return { summary: "No applications were retrieved.", empty: true }
+      return {
+        summary: `${applications.length} application(s), newest-updated first.`,
+        data: { applications: applications.map(toModelApplication) },
+        presentation: singleApplicationPresentation(applications),
+      }
+    },
+  }
+
+  return [searchCandidates, getReviewQueue, getApplicationsForJob, listAllApplications]
 }

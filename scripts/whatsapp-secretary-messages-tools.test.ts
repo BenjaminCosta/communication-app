@@ -105,7 +105,7 @@ test("messages_searchMyCommunications' schema never accepts a target-user argume
   const tool = tools.find((entry) => entry.name === "messages_searchMyCommunications")
   assert.ok(tool)
   const properties = Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties)
-  assert.deepEqual(properties.sort(), ["jobName", "limit", "since", "type", "until"].sort())
+  assert.deepEqual(properties.sort(), ["jobName", "limit", "since", "tag", "type", "until"].sort())
 })
 
 test("messages_searchOperationalHistory resolves a job name via Directory and returns automatic posts", async () => {
@@ -368,4 +368,83 @@ test("messages_searchMyCommunications: a human message with an image produces a 
   assert.equal(presentation?.attachments?.length, 1)
   assert.equal(presentation.attachments[0]?.kind, "image")
   assert.match(presentation.attachments[0]?.caption ?? "", /Sam Rivera/)
+})
+
+// --- Tag search/filter (2026-08-14): Communications tags are backed by
+// /projects; resolveTag is an injectable seam (like directoryProvider for
+// job names) so tests never touch real Firestore. ---
+
+function fixtureTagResolver(tagId: string, tagName: string): (name: string) => Promise<{ tagId: string; tagName: string } | { ambiguous: true; candidates: Array<{ name: string }> } | null> {
+  return async (name) => (name === tagName ? { tagId, tagName } : null)
+}
+
+test("messages_searchOperationalHistory resolves a tag name and passes the tagId through to the provider", async () => {
+  const captured: { tagId?: string } = {}
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      async searchOperationalHistory(options) {
+        captured.tagId = options.tagId
+        return []
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+    resolveTag: fixtureTagResolver("tag-time-tracking", "Time Tracking"),
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchOperationalHistory")
+  assert.ok(tool)
+  await tool.run({ tag: "Time Tracking" }, budget())
+  assert.equal(captured.tagId, "tag-time-tracking")
+})
+
+test("messages_searchOperationalHistory returns an explained empty result when no tag matches", async () => {
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      searchOperationalHistory: async () => {
+        throw new Error("must not be called when the tag doesn't resolve")
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+    resolveTag: async () => null,
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchOperationalHistory")
+  assert.ok(tool)
+  const result = await tool.run({ tag: "Nonexistent Tag" }, budget())
+  assert.equal(result.empty, true)
+  assert.match(result.summary, /No Communications tag matches/)
+})
+
+test("messages_searchOperationalHistory reports ambiguity across matching tags without guessing", async () => {
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      searchOperationalHistory: async () => {
+        throw new Error("must not be called when the tag name is ambiguous")
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+    resolveTag: async () => ({ ambiguous: true, candidates: [{ name: "Daily Report" }, { name: "Daily Report " }] }),
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchOperationalHistory")
+  assert.ok(tool)
+  const result = await tool.run({ tag: "Daily Report" }, budget())
+  const data = result.data as { candidates?: Array<{ name: string }> }
+  assert.equal(data.candidates?.length, 2)
+})
+
+test("messages_searchMyCommunications resolves a tag name and passes the tagId through to the provider", async () => {
+  const captured: { tagId?: string } = {}
+  const tools = createMessagesTools({
+    provider: createFixtureProvider({
+      async searchMyCommunications(options) {
+        captured.tagId = options.tagId
+        return []
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+    resolveTag: fixtureTagResolver("tag-important", "Important"),
+    actorUserId: "user-sender",
+  })
+  const tool = tools.find((entry) => entry.name === "messages_searchMyCommunications")
+  assert.ok(tool)
+  await tool.run({ tag: "Important" }, budget())
+  assert.equal(captured.tagId, "tag-important")
 })

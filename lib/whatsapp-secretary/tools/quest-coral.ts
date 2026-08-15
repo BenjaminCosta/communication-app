@@ -91,6 +91,8 @@ export interface QuestCoralToolsProvider {
     options: { since?: string; until?: string; cursor?: string; limit: number },
   ): Promise<{ updates: QuestCoralUpdateSummary[]; nextCursor: string | null }>
   listRecentActivity(options: { since?: string; limit: number }): Promise<QuestCoralUpdateSummary[]>
+  /** Every project, newest-updated first — for "what projects are there" without naming one. */
+  listAllProjects(options: { status?: ProjectStatus; limit: number }): Promise<QuestCoralProjectSummary[]>
 }
 
 /** Test seam: swap for a fixture in offline tests instead of hitting Firestore. */
@@ -267,6 +269,18 @@ function createServerQuestCoralProvider(): QuestCoralToolsProvider {
         const data = document.data() as RecordValue
         return mapUpdate(data, namesById.get(asString(data.projectId)) || "Unnamed project")
       })
+    },
+    async listAllProjects(options) {
+      // No composite (status, updatedAt) index exists for this collection, and
+      // — per this file's own keyword-fallback precedent above — it doesn't
+      // need one: the collection is confirmed small in production, so a
+      // status filter is applied in memory over the same bounded overfetch
+      // rather than adding a new index for a rarely-combined filter.
+      const db = await getAdminDb()
+      const snapshot = await db.collection(PROJECTS_COLLECTION).orderBy("updatedAt", "desc").limit(MAX_KEYWORD_OVERFETCH_PROJECTS).get()
+      const projects = snapshot.docs.map((document) => mapProject(document.id, document.data() as RecordValue))
+      const filtered = options.status ? projects.filter((project) => project.status === options.status) : projects
+      return filtered.slice(0, options.limit)
     },
   }
 }
@@ -458,5 +472,31 @@ export function createQuestCoralTools(
     },
   }
 
-  return [searchProjects, getProject, getProjectUpdates, listRecentActivity]
+  const listAllProjects: SecretaryTool<{ status?: ProjectStatus; limit?: number }> = {
+    name: "questCoral_listAllProjects",
+    module: "questCoral",
+    description:
+      "List every Quest Coral project, newest-updated first — for 'what projects are there' or 'what's in Quest Coral' without naming one. Optional `status` filter. Use questCoral_searchProjects instead when the user already named a specific project.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        status: { type: "string", enum: PROJECT_STATUS_ORDER, description: "Optional: only projects in this status." },
+        limit: { type: "number", description: "Max projects to return (1-12)." },
+      },
+    },
+    schema: z.object({ status: z.enum(PROJECT_STATUS_ORDER as [ProjectStatus, ...ProjectStatus[]]).optional(), limit: z.number().int().min(1).max(12).optional() }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const limit = Math.max(1, Math.min(args.limit ?? budget.maxRecordsPerTool, 12, budget.remainingRecords))
+
+      const projects = await provider.listAllProjects({ status: args.status, limit })
+      budget.remainingRecords -= projects.length
+      if (projects.length === 0) return { summary: "No Quest Coral projects were retrieved.", empty: true }
+      return { summary: `${projects.length} Quest Coral project(s), newest-updated first.`, data: { projects: projects.map(toModelProject) } }
+    },
+  }
+
+  return [searchProjects, getProject, getProjectUpdates, listRecentActivity, listAllProjects]
 }

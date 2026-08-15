@@ -4,7 +4,7 @@ import { createServerDirectoryProvider } from "@/features/directory/ai/server/to
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID } from "@/lib/bye-bye-dpr-tags"
-import { AUTOMATIC_MESSAGE_SOURCE_MODULES, isAutomaticMessageSourceModule, type MessageType } from "@/lib/store"
+import { AUTOMATIC_MESSAGE_SOURCE_MODULES, isAutomaticMessageSourceModule, projectTagId, type MessageType } from "@/lib/store"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 
 /**
@@ -15,7 +15,7 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
  *
  * - `messages_searchOperationalHistory` reads automatic, system-generated
  *   Communications posts (3-Week Outlook publishes, ByeByeDPR clock-in/out,
- *   Daily Report submissions — see `isAutomaticMessageSourceModule` in
+ *   Daily Report submissions, and completed Applications — see `isAutomaticMessageSourceModule` in
  *   `lib/store.ts` for exactly which `sourceModule` values qualify and why
  *   Quest Coral's mirrored human feedback is deliberately excluded). This
  *   content is factual/templated by construction, so it's open to any
@@ -57,6 +57,7 @@ import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretar
 const MESSAGES_COLLECTION = "messages"
 const CONTEXTS_COLLECTION = "contexts"
 const USERS_COLLECTION = "users"
+const PROJECTS_COLLECTION = "projects"
 const MAX_RESULTS = 12
 const MAX_HUMAN_OVERFETCH = 150
 const MAX_TEXT_CHARACTERS = 400
@@ -94,6 +95,7 @@ export interface MessagesToolsProvider {
     since?: string
     until?: string
     category?: OperationalMessageCategory
+    tagId?: string
     limit: number
   }): Promise<OperationalMessageSummary[]>
   /** `actorUserId` is always required — this method must never be called without one. */
@@ -103,6 +105,7 @@ export interface MessagesToolsProvider {
     since?: string
     until?: string
     type?: MessageType
+    tagId?: string
     limit: number
   }): Promise<HumanMessageSummary[]>
 }
@@ -256,6 +259,7 @@ function createServerMessagesToolsProvider(): MessagesToolsProvider {
         const category = operationalCategory(doc)
         if (!category) continue
         if (options.category && category !== options.category) continue
+        if (options.tagId && !messageHasTag(doc, options.tagId)) continue
         const contextIds = asStringArray(doc.contextIds)
         mapped.push({
           category,
@@ -287,6 +291,7 @@ function createServerMessagesToolsProvider(): MessagesToolsProvider {
         if (options.contextId && !contextIds.includes(options.contextId)) continue
         const type = (asString(doc.type) || "none") as MessageType
         if (options.type && type !== options.type) continue
+        if (options.tagId && !messageHasTag(doc, options.tagId)) continue
         mapped.push({
           authorName: authorNames.get(asString(doc.authorId) || asString(doc.senderId)) || "Someone",
           jobName: firstJobName(contextIds, jobNames),
@@ -313,10 +318,43 @@ async function resolveJobContextId(
   return { contextId: matches[0].sourceId, jobName: matches[0].name }
 }
 
+export type TagResolution = { tagId: string; tagName: string } | { ambiguous: true; candidates: Array<{ name: string }> } | null
+/** Test seam: swap for a fixture in offline tests instead of hitting Firestore, matching `directoryProvider`'s role for job names. */
+export type TagResolver = (tagName: string) => Promise<TagResolution>
+
+/**
+ * Resolves a tag name argument to a `/projects` doc id — Communications tags
+ * are backed by `/projects` (see `projectToTag()`/`getMessageTagIds()` in
+ * `lib/store.ts`), the same collection ByeByeDPR's/Outlook's/Applications'
+ * own fixed automatic tags live in. Exact name match only, mirroring how
+ * those fixed tags are themselves looked up by name server-side (e.g.
+ * `existingDailyReportProjectId` in `lib/bye-bye-dpr-tags.ts`) — tag names
+ * are curated, not a large free-text space like job/person names.
+ */
+async function resolveTagIdFromFirestore(tagName: string): Promise<TagResolution> {
+  const db = await getAdminDb()
+  const snapshot = await db.collection(PROJECTS_COLLECTION).where("name", "==", tagName).limit(5).get()
+  if (snapshot.empty) return null
+  if (snapshot.size > 1) {
+    return { ambiguous: true, candidates: snapshot.docs.map((doc) => ({ name: asString((doc.data() as RecordValue).name) })) }
+  }
+  const doc = snapshot.docs[0]!
+  return { tagId: doc.id, tagName: asString((doc.data() as RecordValue).name) }
+}
+
+/** True when a message carries the given `/projects` tag, across every field that can express it. */
+function messageHasTag(data: RecordValue, tagId: string): boolean {
+  if (asString(data.projectId) === tagId) return true
+  if (asStringArray(data.projectIds).includes(tagId)) return true
+  if (asStringArray(data.tagIds).includes(projectTagId(tagId))) return true
+  return false
+}
+
 export function createMessagesTools(
   deps: {
     provider?: MessagesToolsProvider
     directoryProvider?: DirectoryDataProvider
+    resolveTag?: TagResolver
     /** The requesting WhatsApp sender's linked Firebase uid, if any — resolved
      * server-side by the orchestrator from the access policy, never supplied
      * by the model. Required for `messages_searchMyCommunications`. */
@@ -325,9 +363,10 @@ export function createMessagesTools(
 ): SecretaryTool[] {
   const provider = deps.provider ?? createServerMessagesToolsProvider()
   const directoryProvider = deps.directoryProvider ?? createServerDirectoryProvider()
+  const resolveTag = deps.resolveTag ?? resolveTagIdFromFirestore
   const actorUserId = deps.actorUserId
 
-  const searchOperationalHistory: SecretaryTool<{ jobName?: string; since?: string; until?: string; category?: OperationalMessageCategory; limit?: number }> = {
+  const searchOperationalHistory: SecretaryTool<{ jobName?: string; since?: string; until?: string; category?: OperationalMessageCategory; tag?: string; limit?: number }> = {
     name: "messages_searchOperationalHistory",
     module: "messages",
     description:
@@ -341,6 +380,7 @@ export function createMessagesTools(
         since: { type: "string", description: "Only posts on/after this ISO date." },
         until: { type: "string", description: "Only posts on/before this ISO date." },
         category: { type: "string", enum: ["outlook", "clocking", "daily-report"], description: "Optional: only this kind of automatic event." },
+        tag: { type: "string", description: "Optional Communications tag name to filter by (e.g. 'Time Tracking', 'Daily Report')." },
         limit: { type: "number", description: "Max posts to return (1-12)." },
       },
     },
@@ -349,6 +389,7 @@ export function createMessagesTools(
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
       category: z.enum(["outlook", "clocking", "daily-report"]).optional(),
+      tag: z.string().min(1).max(160).optional(),
       limit: z.number().int().min(1).max(MAX_RESULTS).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
@@ -364,10 +405,20 @@ export function createMessagesTools(
         resolvedJobName = resolved.jobName
       }
 
+      let tagId: string | undefined
+      if (args.tag) {
+        const resolvedTag = await resolveTag(args.tag)
+        if (!resolvedTag) return { summary: `No Communications tag matches "${args.tag}".`, empty: true }
+        if ("ambiguous" in resolvedTag) {
+          return { summary: `More than one tag matches "${args.tag}". Ask which one.`, data: { candidates: resolvedTag.candidates } }
+        }
+        tagId = resolvedTag.tagId
+      }
+
       if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
       const limit = Math.max(1, Math.min(args.limit ?? MAX_RESULTS, MAX_RESULTS, budget.remainingRecords))
 
-      const posts = await provider.searchOperationalHistory({ contextId, since: args.since, until: args.until, category: args.category, limit })
+      const posts = await provider.searchOperationalHistory({ contextId, since: args.since, until: args.until, category: args.category, tagId, limit })
       budget.remainingRecords -= posts.length
       if (posts.length === 0) {
         return { summary: `No automatic Communications history was retrieved${resolvedJobName ? ` for "${resolvedJobName}"` : ""}.`, empty: true }
@@ -381,7 +432,7 @@ export function createMessagesTools(
     },
   }
 
-  const searchMyCommunications: SecretaryTool<{ jobName?: string; since?: string; until?: string; type?: MessageType; limit?: number }> = {
+  const searchMyCommunications: SecretaryTool<{ jobName?: string; since?: string; until?: string; type?: MessageType; tag?: string; limit?: number }> = {
     name: "messages_searchMyCommunications",
     module: "messages",
     description:
@@ -395,6 +446,7 @@ export function createMessagesTools(
         since: { type: "string", description: "Only messages on/after this ISO date." },
         until: { type: "string", description: "Only messages on/before this ISO date." },
         type: { type: "string", enum: ["progress", "problem", "feedback", "decision", "none"], description: "Optional message type filter." },
+        tag: { type: "string", description: "Optional Communications tag name to filter by." },
         limit: { type: "number", description: "Max messages to return (1-12)." },
       },
     },
@@ -403,6 +455,7 @@ export function createMessagesTools(
       since: z.string().max(40).optional(),
       until: z.string().max(40).optional(),
       type: z.enum(["progress", "problem", "feedback", "decision", "none"]).optional(),
+      tag: z.string().min(1).max(160).optional(),
       limit: z.number().int().min(1).max(MAX_RESULTS).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
@@ -425,10 +478,20 @@ export function createMessagesTools(
         resolvedJobName = resolved.jobName
       }
 
+      let tagId: string | undefined
+      if (args.tag) {
+        const resolvedTag = await resolveTag(args.tag)
+        if (!resolvedTag) return { summary: `No Communications tag matches "${args.tag}".`, empty: true }
+        if ("ambiguous" in resolvedTag) {
+          return { summary: `More than one tag matches "${args.tag}". Ask which one.`, data: { candidates: resolvedTag.candidates } }
+        }
+        tagId = resolvedTag.tagId
+      }
+
       if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
       const limit = Math.max(1, Math.min(args.limit ?? MAX_RESULTS, MAX_RESULTS, budget.remainingRecords))
 
-      const messages = await provider.searchMyCommunications({ actorUserId, contextId, since: args.since, until: args.until, type: args.type, limit })
+      const messages = await provider.searchMyCommunications({ actorUserId, contextId, since: args.since, until: args.until, type: args.type, tagId, limit })
       budget.remainingRecords -= messages.length
       if (messages.length === 0) {
         return { summary: `No visible Communications messages were retrieved${resolvedJobName ? ` for "${resolvedJobName}"` : ""}.`, empty: true }

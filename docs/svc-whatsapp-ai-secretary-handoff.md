@@ -4,6 +4,59 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## List-all tools, tag search, and richer Applications details (2026-08-14, later still)
+
+Driven by another real-usage transcript review. Three additions, all
+implementation + tests only, not deployed:
+
+- **`questCoral_listAllProjects`** and **`applications_listAllApplications`**
+  — both modules previously required a name/query for everything ("what
+  projects/applications are there" had no answer). Both list newest-updated
+  first with an optional status filter. Quest Coral's filters in memory over
+  the same bounded overfetch its keyword-fallback already uses (no
+  `(status, updatedAt)` index exists for that small collection, and doesn't
+  need one). Applications' filters server-side — the `(status ASC, updatedAt
+  DESC)` index already exists and is already used by `getReviewQueue`.
+- **Tag search/filter for Messages** — both `messages_searchOperationalHistory`
+  and `messages_searchMyCommunications` gained a `tag` argument, resolved
+  against `/projects` (Communications tags' backing collection) via a new
+  injectable `resolveTag` seam (mirrors `directoryProvider` for job names).
+  Matches messages via `projectId`/`projectIds`/`tagIds`, covering every
+  field a tag can be expressed through.
+- **Richer Applications details** — `ApplicationSummary` gained `phone`,
+  `email`, `cityState`, `yearsExperience`, `workReference`,
+  `resumeFileName`, `videoState`, and a compact `documents[]`
+  (label/status/required) array. **This reverses a previously deliberate
+  exclusion** (candidate contact info was intentionally left out of
+  WhatsApp tool output on 2026-08-12 — see the memory file — reasoning:
+  candidates are a different privacy class from internal Directory
+  contacts). Reversed only on explicit user confirmation after being told
+  the tradeoff plainly. The actual resume file, other uploaded documents,
+  and intro video content remain unavailable — only status/filename, same
+  as before.
+
+**Correction to something I told the user during this task**: I initially
+said no PDF generator exists for a candidate's full application (only the
+signed Operating Agreement PDF does) — while investigating I found
+`features/applications/application-profile-pdf.ts` already exists (a real,
+pre-built, pure-data "candidate application export PDF" renderer, predating
+this session). The user had already chosen text-only details before I found
+it; implemented what was asked, flagged the correction for a future ask
+rather than re-opening the already-answered question.
+
+**Repo-sharing note**: mid-task, the other Codex session was actively
+editing `lib/applications-server.ts`, `lib/store.ts`, and
+`lib/whatsapp-secretary/tools/messages.ts` concurrently (building an
+Applications→Communications auto-post feature reusing that same PDF
+renderer and the exact PDF-attachment pattern built earlier the same day —
+extended `AUTOMATIC_MESSAGE_SOURCE_MODULES` with `"applications"`
+correctly, unprompted, matching this file's own design). A `git stash` on
+their in-progress file went stale mid-flight as they kept writing; resolved
+by diffing the stash against HEAD and their current file, confirming
+current-on-disk was strictly newer, then dropping the stale stash rather
+than popping it. They committed cleanly as `dd6838e` shortly after. No work
+was lost on either side. See [shared-repo-parallel-agent](shared-repo-parallel-agent.md).
+
 ## Active users + native file/photo attachments (2026-08-14, later still)
 
 Driven by a real WhatsApp transcript the user shared: `directory_getActiveUsers`

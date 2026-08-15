@@ -55,6 +55,10 @@ function createFixtureProvider(overrides: Partial<QuestCoralToolsProvider> = {})
     async listRecentActivity() {
       return [makeUpdate({}), makeUpdate({ projectId: "proj-crew", projectName: "Field Crew Scheduling Rollout", type: "blocker", isBlocker: true })]
     },
+    async listAllProjects(options) {
+      const all = [onboarding, crewScheduling]
+      return options.status ? all.filter((project) => project.status === options.status) : all
+    },
     ...overrides,
   }
 }
@@ -67,6 +71,7 @@ test("Quest Coral tools are namespaced", () => {
     "questCoral_getProject",
     "questCoral_getProjectUpdates",
     "questCoral_listRecentActivity",
+    "questCoral_listAllProjects",
   ])
   assert.ok(tools.every((tool) => tool.module === "questCoral"))
 })
@@ -156,4 +161,45 @@ test("never calls the Quest Coral keyword fallback when the exact/prefix lookup 
   const result = await searchProjects.run({ query: "Customer Onboarding Redesign" }, budget())
   const data = result.data as { projects?: QuestCoralProjectSummary[] }
   assert.equal(data.projects?.length, 1)
+})
+
+// --- questCoral_listAllProjects (2026-08-14): "what projects are there"
+// without naming one ---
+
+test("questCoral_listAllProjects lists every project without a name argument", async () => {
+  const tools = createQuestCoralTools({ provider: createFixtureProvider() })
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  assert.ok(listAllProjects)
+
+  const result = await listAllProjects.run({}, budget())
+  const data = result.data as { projects?: QuestCoralProjectSummary[] }
+  assert.equal(data.projects?.length, 2)
+  assert.ok(data.projects?.some((project) => project.name === "Customer Onboarding Redesign"))
+  assert.ok(data.projects?.some((project) => project.name === "Field Crew Scheduling Rollout"))
+})
+
+test("questCoral_listAllProjects filters by status when given", async () => {
+  const tools = createQuestCoralTools({
+    provider: createFixtureProvider({
+      async listAllProjects(options) {
+        assert.equal(options.status, "at_risk")
+        return []
+      },
+    }),
+  })
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  assert.ok(listAllProjects)
+
+  const result = await listAllProjects.run({ status: "at_risk" }, budget())
+  assert.equal(result.empty, true)
+})
+
+test("questCoral_listAllProjects respects the shared budget", async () => {
+  const tools = createQuestCoralTools({ provider: createFixtureProvider() })
+  const listAllProjects = tools.find((tool) => tool.name === "questCoral_listAllProjects")
+  assert.ok(listAllProjects)
+
+  const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }
+  const result = await listAllProjects.run({}, exhausted)
+  assert.equal(result.empty, true)
 })

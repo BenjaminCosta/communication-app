@@ -20,6 +20,14 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
     pendingRequest: null,
     submittedAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
+    phone: null,
+    email: null,
+    cityState: null,
+    yearsExperience: null,
+    workReference: null,
+    resumeFileName: null,
+    videoState: null,
+    documents: [],
     ...overrides,
   }
 }
@@ -45,6 +53,10 @@ function createFixtureProvider(overrides: Partial<ApplicationsToolsProvider> = {
     async getApplicationsForJob() {
       return [makeApplication()]
     },
+    async listAllApplications(options) {
+      const all = [makeApplication(), makeApplication({ candidateName: "Alex Kim", status: "draft" })]
+      return options.status ? all.filter((application) => application.status === options.status) : all
+    },
     ...overrides,
   }
 }
@@ -52,7 +64,7 @@ function createFixtureProvider(overrides: Partial<ApplicationsToolsProvider> = {
 test("Applications tools are namespaced", () => {
   const tools = createApplicationsTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, ["applications_searchCandidates", "applications_getReviewQueue", "applications_getApplicationsForJob"])
+  assert.deepEqual(names, ["applications_searchCandidates", "applications_getReviewQueue", "applications_getApplicationsForJob", "applications_listAllApplications"])
   assert.ok(tools.every((tool) => tool.module === "applications"))
 })
 
@@ -151,5 +163,86 @@ test("applications_searchCandidates reports no match without guessing, even afte
   assert.ok(searchCandidates)
 
   const result = await searchCandidates.run({ query: "Nonexistent Candidate" }, budget())
+  assert.equal(result.empty, true)
+})
+
+// --- Enriched candidate details (2026-08-14): phone/email/experience/
+// documents/video status, same sharing treatment as Directory contact info. ---
+
+test("applications_searchCandidates surfaces the candidate's contact and document/video details", async () => {
+  const tools = createApplicationsTools({
+    provider: createFixtureProvider({
+      async findCandidatesByName() {
+        return [
+          makeApplication({
+            phone: "+1 555-0142",
+            email: "jane.rivera@example.com",
+            cityState: "Newark, NJ",
+            yearsExperience: "6",
+            workReference: "Mike Torres, 555-0199",
+            resumeFileName: "jane-rivera-resume.pdf",
+            videoState: "ready",
+            documents: [{ label: "Photo ID", status: "verified", required: true }, { label: "Certification", status: "missing", required: true }],
+          }),
+        ]
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const searchCandidates = tools.find((tool) => tool.name === "applications_searchCandidates")
+  assert.ok(searchCandidates)
+
+  const result = await searchCandidates.run({ query: "Jane Rivera" }, budget())
+  const data = result.data as { applications?: ApplicationSummary[] }
+  const application = data.applications?.[0]
+  assert.equal(application?.phone, "+1 555-0142")
+  assert.equal(application?.email, "jane.rivera@example.com")
+  assert.equal(application?.yearsExperience, "6")
+  assert.equal(application?.videoState, "ready")
+  assert.deepEqual(application?.documents, [
+    { label: "Photo ID", status: "verified", required: true },
+    { label: "Certification", status: "missing", required: true },
+  ])
+})
+
+// --- applications_listAllApplications (2026-08-14): "what applications are
+// there" without naming a candidate or job ---
+
+test("applications_listAllApplications lists every application without a name argument", async () => {
+  const tools = createApplicationsTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
+  const listAllApplications = tools.find((tool) => tool.name === "applications_listAllApplications")
+  assert.ok(listAllApplications)
+
+  const result = await listAllApplications.run({}, budget())
+  const data = result.data as { applications?: ApplicationSummary[] }
+  assert.equal(data.applications?.length, 2)
+  assert.ok(data.applications?.some((application) => application.candidateName === "Jane Rivera"))
+  assert.ok(data.applications?.some((application) => application.candidateName === "Alex Kim"))
+})
+
+test("applications_listAllApplications filters by status when given", async () => {
+  const tools = createApplicationsTools({
+    provider: createFixtureProvider({
+      async listAllApplications(options) {
+        assert.equal(options.status, "draft")
+        return []
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const listAllApplications = tools.find((tool) => tool.name === "applications_listAllApplications")
+  assert.ok(listAllApplications)
+
+  const result = await listAllApplications.run({ status: "draft" }, budget())
+  assert.equal(result.empty, true)
+})
+
+test("applications_listAllApplications respects the shared budget", async () => {
+  const tools = createApplicationsTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
+  const listAllApplications = tools.find((tool) => tool.name === "applications_listAllApplications")
+  assert.ok(listAllApplications)
+
+  const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }
+  const result = await listAllApplications.run({}, exhausted)
   assert.equal(result.empty, true)
 })
