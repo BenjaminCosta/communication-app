@@ -29,6 +29,8 @@
     "emulator:seed-bye-bye-dpr-tags": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/seed-bye-bye-dpr-tags.mjs",
     "seed:quest-coral-context:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/seed-quest-coral-project-contexts.mjs",
     "seed:quest-coral-context:prod": "DRY_RUN=false CONFIRM_PROD_QUEST_CORAL_CONTEXT_SEED=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/seed-quest-coral-project-contexts.mjs",
+    "seed:ai-secretary-context:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/seed-ai-secretary-quest-coral-context.mjs",
+    "seed:ai-secretary-context:prod": "DRY_RUN=false CONFIRM_PROD_AI_SECRETARY_CONTEXT=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/seed-ai-secretary-quest-coral-context.mjs",
     "backfill:quest-coral-comms-contexts:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-communications-contexts.mjs",
     "backfill:quest-coral-comms-contexts:prod": "DRY_RUN=false CONFIRM_PROD_QUEST_CORAL_COMMS_CONTEXT_BACKFILL=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-communications-contexts.mjs",
     "backfill:quest-coral-feedbacks:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-feedback-messages.mjs",
