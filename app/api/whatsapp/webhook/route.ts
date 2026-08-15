@@ -368,9 +368,15 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             state: conversation.onboarding,
             nowMs: Date.now(),
             answeredAboutEntity: !pendingWrite && (memory?.resolvedEntities.length ?? 0) > 0,
+            introducedThisTurn: Boolean(introduction.onboarding),
           })
-          const nudgedOnboarding = nudge
-            ? { ...(introduction.onboarding ?? conversation.onboarding ?? { lastIntroAtMs: 0, capabilitySignature: "" }), lastCapabilityNudgeAtMs: Date.now() }
+          // Only ever stamps an onboarding record that really exists.
+          // Synthesizing a placeholder here wrote `capabilitySignature: ""`,
+          // which the reader correctly rejects — so the stamp was lost and the
+          // rate limit could never take hold.
+          const baseOnboarding = introduction.onboarding ?? conversation.onboarding
+          const nudgedOnboarding = nudge && baseOnboarding
+            ? { ...baseOnboarding, lastCapabilityNudgeAtMs: Date.now() }
             : introduction.onboarding
 
           reply = await storeWhatsAppAssistantReply({

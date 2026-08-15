@@ -141,13 +141,41 @@ function limitRecentMessages(messages: StoredConversationMessage[]): StoredConve
   return messages.slice(-MAX_RECENT_MESSAGES)
 }
 
+function millis(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+/**
+ * Reads the persisted onboarding record.
+ *
+ * **Every field must be read here.** An earlier version parsed only
+ * `lastIntroAtMs`/`capabilitySignature` and silently dropped the rest, which
+ * made `lastCapabilityNudgeAtMs` write-only: the progressive-discovery hint
+ * stored its timestamp, the next read threw it away, and so the "at most once
+ * every few days" rate limit never once applied — the hint appended itself to
+ * *every single answer* until it read as boilerplate. A field added to
+ * {@link WhatsAppOnboardingState} without a line here is a rate limit that
+ * does not exist.
+ */
 function readOnboardingState(value: unknown): WhatsAppOnboardingState | null {
   const state = asRecord(value)
   if (!state) return null
   const lastIntroAtMs = typeof state.lastIntroAtMs === "number" && Number.isFinite(state.lastIntroAtMs) ? state.lastIntroAtMs : null
   const capabilitySignature = typeof state.capabilitySignature === "string" ? state.capabilitySignature.slice(0, 400) : ""
   if (lastIntroAtMs === null || !capabilitySignature) return null
-  return { lastIntroAtMs, capabilitySignature }
+
+  const suggested = Array.isArray(state.suggestedCapabilities)
+    ? state.suggestedCapabilities.filter((entry): entry is string => typeof entry === "string").slice(0, 12)
+    : undefined
+
+  return {
+    lastIntroAtMs,
+    capabilitySignature,
+    ...(millis(state.firstSeenAtMs) ? { firstSeenAtMs: millis(state.firstSeenAtMs) as number } : {}),
+    ...(millis(state.guideCompletedAtMs) ? { guideCompletedAtMs: millis(state.guideCompletedAtMs) as number } : {}),
+    ...(millis(state.lastCapabilityNudgeAtMs) ? { lastCapabilityNudgeAtMs: millis(state.lastCapabilityNudgeAtMs) as number } : {}),
+    ...(suggested && suggested.length > 0 ? { suggestedCapabilities: suggested as WhatsAppOnboardingState["suggestedCapabilities"] } : {}),
+  }
 }
 
 const MAX_PERSISTED_ENTITIES = 24
@@ -195,6 +223,9 @@ function readRetrievals(value: unknown): ConversationRetrieval[] {
     .filter((entry) => entry.toolName && entry.summary)
     .slice(-MAX_PERSISTED_RETRIEVALS)
 }
+
+/** Test seam: the write/read round trip is where a dropped field silently disables a rate limit. */
+export const readOnboardingStateForTests = readOnboardingState
 
 function conversationDocumentId(senderPhoneNumber: string): string {
   // Keep the phone number out of the Firestore document path while retaining one conversation per sender.

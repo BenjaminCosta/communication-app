@@ -4,6 +4,7 @@ import { audienceForRole, buildCapabilityProfile, capabilityFocusLine } from "..
 import { buildGuidedTourReply, isShowMeAroundRequest, tourStops } from "../lib/whatsapp-secretary/guided-tour"
 import { CAPABILITY_NUDGE_INTERVAL_MS, buildCapabilityNudge } from "../lib/whatsapp-secretary/onboarding"
 import { addCapabilityHint, isCapabilityQuestion, isGreetingOnly } from "../lib/whatsapp-response-ux"
+import { readOnboardingStateForTests } from "../lib/whatsapp-conversation-memory"
 import type { SelfContextSnapshot } from "../lib/whatsapp-secretary/self-context"
 import type { SecretaryModule } from "../lib/whatsapp-secretary/tool-registry"
 
@@ -213,4 +214,64 @@ test("a hint is appended to an answer, but never at the cost of the answer", () 
   // Never when it would push the reply past the send cap.
   const long = addCapabilityHint({ text: "x".repeat(995) }, "I can also check its reports — just ask.")
   assert.equal(long.text.length, 995)
+})
+
+
+// --- The rate limit must survive a persistence round trip -----------------
+
+test("the nudge timestamp survives being written and read back", () => {
+  // This is the bug this suite exists to prevent. The reader originally parsed
+  // only lastIntroAtMs/capabilitySignature and dropped everything else, which
+  // made lastCapabilityNudgeAtMs write-only: the hint stamped it, the next read
+  // discarded it, and the "once every few days" limit never once applied — so
+  // the hint appended itself to every single answer until it read as
+  // boilerplate. A rate limit you cannot read is not a rate limit.
+  const stored = {
+    lastIntroAtMs: NOW - 1_000,
+    capabilitySignature: "v2|internal|directory,reports|role=site supervisor|account=linked",
+    firstSeenAtMs: NOW - 90_000,
+    guideCompletedAtMs: NOW - 50_000,
+    lastCapabilityNudgeAtMs: NOW - 2_000,
+    suggestedCapabilities: ["reports", "outlooks"],
+  }
+  const readBack = readOnboardingStateForTests(stored)
+  assert.equal(readBack?.lastCapabilityNudgeAtMs, NOW - 2_000)
+  assert.equal(readBack?.firstSeenAtMs, NOW - 90_000)
+  assert.equal(readBack?.guideCompletedAtMs, NOW - 50_000)
+  assert.deepEqual(readBack?.suggestedCapabilities, ["reports", "outlooks"])
+
+  // And with that timestamp intact, the limit actually holds.
+  assert.equal(
+    buildCapabilityNudge({ usedModules: ["reports"], enabledModules: ALL, state: readBack, nowMs: NOW, answeredAboutEntity: true }),
+    null,
+  )
+})
+
+test("never offers to check what the answer just covered", () => {
+  // The dossier and the daily brief each report as one module while having
+  // already spanned reports, outlooks, clocking and Communications. Offering to
+  // "also check its recent Daily Reports" right after a dossier is the exact
+  // monotony this guards against.
+  assert.equal(
+    buildCapabilityNudge({ usedModules: ["svc"], enabledModules: ALL, state: null, nowMs: NOW, answeredAboutEntity: true }),
+    null,
+  )
+  assert.equal(
+    buildCapabilityNudge({ usedModules: ["me"], enabledModules: ALL, state: null, nowMs: NOW, answeredAboutEntity: true }),
+    null,
+  )
+})
+
+test("never teaches on the same turn the introduction already listed capabilities", () => {
+  assert.equal(
+    buildCapabilityNudge({
+      usedModules: ["reports"],
+      enabledModules: ALL,
+      state: null,
+      nowMs: NOW,
+      answeredAboutEntity: true,
+      introducedThisTurn: true,
+    }),
+    null,
+  )
 })

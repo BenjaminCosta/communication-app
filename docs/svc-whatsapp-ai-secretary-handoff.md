@@ -4,7 +4,45 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Onboarding & discovery: first contact, guided tour, daily brief (2026-08-15, latest)
+## Fix: the capability hint was ending every single reply (2026-08-15, latest)
+
+Reported from real use: every answer was closing with "I can also check its
+recent Daily Reports, its 3-Week Outlook or who's clocked in — just ask." The
+hint was designed to fire at most once every three days; it was firing every
+turn, which turned a teaching device into boilerplate.
+
+**Root cause — a field added to a type but never to its reader.**
+`WhatsAppOnboardingState` gained `lastCapabilityNudgeAtMs`, but
+`readOnboardingState()` still parsed only `lastIntroAtMs` and
+`capabilitySignature`. So the timestamp was **write-only**: the hint stamped
+it, the next read silently dropped it, and the rate limit never once applied.
+A rate limit you cannot read back is not a rate limit. `firstSeenAtMs`,
+`guideCompletedAtMs` and `suggestedCapabilities` were being lost the same way.
+
+**Two more problems the same bug was masking:**
+
+- The hint was also *mechanically wrong* after broad answers. The cross-module
+  dossier and the daily brief each report as a single module (`svc`, `me`)
+  while having just covered reports, outlooks, clocking and Communications — so
+  the "which modules went unused?" check cheerfully offered to go check exactly
+  what the answer had already covered. Coverage is now expanded before the
+  diff, so those turns produce no hint at all.
+- The nudge path synthesized a placeholder onboarding record
+  (`capabilitySignature: ""`) when none existed, which the reader correctly
+  rejects — so even a correctly-read stamp could be discarded. It now only ever
+  stamps a record that really exists, and never teaches on the same turn an
+  introduction already listed capabilities.
+
+**Regression test added at the seam that failed**: a write → read round trip
+through `readOnboardingState`, asserting the timestamp survives *and* that the
+limit then holds. The original unit tests all passed while the feature was
+broken in production, because every one of them called `buildCapabilityNudge`
+with hand-built state — none crossed the persistence boundary where the field
+was being dropped.
+
+Tests 311 → 314.
+
+## Onboarding & discovery: first contact, guided tour, daily brief (2026-08-15)
 
 Driven by a product call that the bottleneck is no longer capability but
 **discovery**: the failure mode when new people try the Secretary isn't "it

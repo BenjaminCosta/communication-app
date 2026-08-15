@@ -293,6 +293,24 @@ const ADJACENT_PHRASE: Partial<Record<SecretaryModule, string>> = {
 /** At most one hint every few days — often enough to teach, rare enough not to nag. */
 export const CAPABILITY_NUDGE_INTERVAL_MS = 3 * 24 * 60 * 60 * 1_000
 
+/**
+ * Tools that already answer across several areas at once, and what they cover.
+ *
+ * Rate limiting alone was not enough to stop the hint reading as boilerplate.
+ * The cross-module dossier and the daily brief each report as a *single*
+ * module (`svc`, `me`) while actually having just covered reports, outlooks,
+ * clocking and Communications — so a naive "which modules went unused?" check
+ * cheerfully offered to go check the very things the answer had already
+ * covered. Expanding coverage before diffing is what makes the hint teach
+ * something genuinely new instead of repeating the answer back.
+ */
+const MODULE_COVERS: Partial<Record<SecretaryModule, SecretaryModule[]>> = {
+  svc: ["reports", "outlooks", "clocking", "messages", "applications", "questCoral", "directory"],
+  // The daily brief spans everything the person is connected to, including
+  // their own Applications record — so nothing adjacent is left to teach.
+  me: ["reports", "outlooks", "clocking", "messages", "questCoral", "applications", "directory"],
+}
+
 const MAX_NUDGED_CAPABILITIES = 3
 
 export interface CapabilityNudge {
@@ -315,13 +333,15 @@ export function buildCapabilityNudge(input: {
   nowMs: number
   /** True when the turn was about a specific record, which is what makes an adjacent capability meaningful. */
   answeredAboutEntity: boolean
+  /** The introduction already lists capabilities, so never teach on the same turn. */
+  introducedThisTurn?: boolean
 }): CapabilityNudge | null {
-  if (!input.answeredAboutEntity) return null
+  if (!input.answeredAboutEntity || input.introducedThisTurn) return null
 
   const lastNudge = input.state?.lastCapabilityNudgeAtMs ?? 0
   if (lastNudge && input.nowMs - lastNudge < CAPABILITY_NUDGE_INTERVAL_MS) return null
 
-  const used = new Set(input.usedModules)
+  const used = new Set(input.usedModules.flatMap((module) => [module, ...(MODULE_COVERS[module] ?? [])]))
   const enabled = new Set(input.enabledModules)
   const candidates = (Object.keys(ADJACENT_PHRASE) as SecretaryModule[]).filter(
     (module) => enabled.has(module) && !used.has(module),
