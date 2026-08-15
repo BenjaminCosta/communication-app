@@ -98,29 +98,46 @@ export const QUEST_CORAL_AI_LIMITS = {
  * orchestrator (Directory, Quest Coral, Applications, ByeByeDPR reports,
  * clocking, Outlooks). Kept independent from `DIRECTORY_AI_LIMITS` so the
  * two tool-calling assistants have separate budgets, even though Directory's
- * own tool set is reused inside this one. Deliberately conservative:
- * `maxToolRounds` and `providerTimeoutMs` assume a Vercel Hobby-plan function
- * duration ceiling, not a generous compute budget.
+ * own tool set is reused inside this one. `maxToolRounds` and
+ * `providerTimeoutMs` still respect the Vercel Hobby-plan `maxDuration = 60`
+ * ceiling on the webhook route (`app/api/whatsapp/webhook/route.ts`), but are
+ * no longer the most conservative values that fit — see the 2026-08-14 note
+ * below for why they were loosened.
  */
 export const WHATSAPP_SECRETARY_AI_LIMITS = {
-  /** Tool-loop budget: bounded rounds and bounded records per call. */
-  maxToolRounds: 3,
-  maxRecordsPerTool: 12,
+  /** Tool-loop budget: bounded rounds and bounded records per call.
+   * 4 (not 3, as of 2026-08-14): a genuinely multi-hop question (e.g. person
+   * -> their jobs -> recent reports -> related project) can need one more
+   * round than 3 allowed; tool-bearing rounds always run at
+   * `reasoning_effort: "none"`, so this is cheap/fast to extend. */
+  maxToolRounds: 4,
+  /** 15 (not 12, as of 2026-08-14): a modest bump so a single tool call is
+   * less likely to be the truncation point on a broad question. */
+  maxRecordsPerTool: 15,
   /** Total records handed to the model across every tool call in one question.
-   * 40 (not the old 24): a single rich cross-module question can legitimately
-   * touch 4-6 modules in one turn, and a shared 24-record budget across that
-   * was starving later tool calls silently. Still a hard bound, not unlimited. */
-  maxTotalRecords: 40,
+   * 60 (not 40, as of 2026-08-14): real production usage has stayed well
+   * under budget on tokens/cost, so this was raised again to reduce silent
+   * truncation on rich multi-module questions — still a hard bound, not
+   * unlimited. */
+  maxTotalRecords: 60,
   /** Directory's note sub-budget for `directory_searchRelevantNotes`, matching Directory's own defaults. */
   maxNotesPerTool: 5,
   maxNoteChars: 400,
-  /** Upper bound on completion tokens → keeps answers to ~150–250 words. */
+  /** Upper bound on completion tokens → keeps answers to ~150–250 words.
+   * Already generous relative to the 700-character WhatsApp reply cap
+   * (`MAX_REPLY_CHARACTERS` in `orchestrator.ts`), which is a UX choice
+   * (scannable WhatsApp replies), not a cost cut — left unchanged. */
   maxAnswerTokens: 500,
   /** Per-user rolling application limits. Enforced transactionally server-side. */
   askRequestsPerWindow: 30,
   requestWindowMs: 10 * 60 * 1000,
-  /** Upstream provider timeout (ms) for a single request. */
-  providerTimeoutMs: 30_000,
+  /** Upstream provider timeout (ms) for a single request. 45s (not 30s, as of
+   * 2026-08-14): gives more headroom now that the final round runs at
+   * `reasoning_effort: "medium"` instead of "low", while staying well under
+   * the 60s Vercel function ceiling even with tool-round overhead on top —
+   * live-tested latencies for "medium"/"high" stayed in the 1.5-7s range per
+   * call, so this remains a comfortable margin, not a tight fit. */
+  providerTimeoutMs: 45_000,
 } as const
 
 /**

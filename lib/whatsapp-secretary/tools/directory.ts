@@ -7,6 +7,7 @@ import { mapIndexDoc, type DirectoryIndexRecord } from "@/lib/ai/server/director
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { tokenize } from "@/lib/directory-core"
 import type { DirectoryType } from "@/lib/directory"
+import { deriveNameFromEmail } from "@/lib/store"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 
 /**
@@ -271,7 +272,7 @@ function createActiveUsersTool(fetchActive: () => Promise<ActiveUserSummary[]>):
   return {
     name: "directory_getActiveUsers",
     module: "directory",
-    description: `Lists SVC users currently active in the app right now — had the app open in the last ${ACTIVE_USER_WINDOW_SECONDS} seconds, the same "active now" presence signal the app itself shows. Use this for "who's active/online right now" questions. This is NOT a login/registration list and NOT clock-in status (use a clocking tool for who's clocked in) — it only reflects this exact moment, with no history.`,
+    description: `Lists SVC users currently active in the app right now — had the app open in the last ${ACTIVE_USER_WINDOW_SECONDS} seconds, the same "active now" presence signal the app itself shows. Use this for "who's active/online right now" questions. This is NOT a login/registration list (use directory_listRegisteredUsers for "who's registered"/"what users exist") and NOT clock-in status (use a clocking tool for who's clocked in) — it only reflects this exact moment, with no history.`,
     parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
     schema: z.object({}),
     async run(_args, budget): Promise<SecretaryToolResult> {
@@ -285,12 +286,60 @@ function createActiveUsersTool(fetchActive: () => Promise<ActiveUserSummary[]>):
   }
 }
 
+/**
+ * Every registered SVC app user (`/users`), not filtered by presence at all
+ * — answers "what users are registered/exist in the app" as its own
+ * question, distinct from `directory_getActiveUsers`'s live 90-second
+ * signal. Deliberately does NOT `orderBy("name")`: `app/page.tsx`'s own
+ * client-side mapping falls back to `deriveNameFromEmail()` for a user with
+ * no stored `name` field (`data.name || deriveNameFromEmail(...)`), which
+ * means some `/users` docs may genuinely have no `name` field at all — an
+ * `orderBy` on a field some documents don't have would silently drop them
+ * from the results. Reuses that exact same fallback here instead, so every
+ * registered user is included and named the same way the app itself shows.
+ */
+const MAX_REGISTERED_USERS_RETURNED = 60
+
+async function fetchAllRegisteredUsers(): Promise<ActiveUserSummary[]> {
+  const { getFirestore } = await import("firebase-admin/firestore")
+  const db = getFirestore(await getFirebaseAdminApp())
+  const snapshot = await db.collection("users").limit(MAX_REGISTERED_USERS_RETURNED).get()
+  return snapshot.docs.map((doc) => {
+    const data = doc.data() as Record<string, unknown>
+    const email = typeof data.email === "string" ? data.email.trim() : ""
+    const storedName = typeof data.name === "string" ? data.name.trim() : ""
+    const name = storedName || (email ? deriveNameFromEmail(email) : "")
+    const role = typeof data.role === "string" ? data.role.trim() : ""
+    return { name: name || "Unnamed user", role: role || null }
+  })
+}
+
+function createRegisteredUsersTool(fetchAll: () => Promise<ActiveUserSummary[]>): SecretaryTool<Record<string, never>> {
+  return {
+    name: "directory_listRegisteredUsers",
+    module: "directory",
+    description:
+      "Lists every SVC user registered in the app (has an account), regardless of whether they're currently active. Use this for \"what users are there\"/\"who's registered\"/\"all users\" questions. This is NOT who's online right now (use directory_getActiveUsers for that) and NOT the broader Directory contact list (which also includes external, non-app-user contacts) — this is specifically registered app accounts.",
+    parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
+    schema: z.object({}),
+    async run(_args, budget): Promise<SecretaryToolResult> {
+      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const users = await fetchAll()
+      const limited = users.slice(0, Math.max(0, Math.min(users.length, budget.remainingRecords)))
+      budget.remainingRecords -= limited.length
+      if (limited.length === 0) return { summary: "No registered SVC users were retrieved.", empty: true }
+      return { summary: `${limited.length} registered SVC user(s).`, data: { users: limited } }
+    },
+  }
+}
+
 export function createDirectoryTools(
   deps: {
     provider?: DirectoryDataProvider
     contactDetailsProvider?: DirectoryContactDetailsProvider
     keywordSearchProvider?: DirectoryKeywordSearchProvider
     activeUsersProvider?: () => Promise<ActiveUserSummary[]>
+    registeredUsersProvider?: () => Promise<ActiveUserSummary[]>
   } = {},
 ): SecretaryTool[] {
   const baseProvider = deps.provider ?? createServerDirectoryProvider()
@@ -298,6 +347,7 @@ export function createDirectoryTools(
   const provider = createHybridDirectoryProvider(baseProvider, keywordSearch)
   const getContactDetails = deps.contactDetailsProvider ?? createServerContactDetailsProvider()
   const fetchActive = deps.activeUsersProvider ?? fetchActiveUsers
+  const fetchAllRegistered = deps.registeredUsersProvider ?? fetchAllRegisteredUsers
 
   const directoryTools = DIRECTORY_TOOLS.map(
     (tool: DirectoryTool<never>): SecretaryTool => ({
@@ -323,5 +373,5 @@ export function createDirectoryTools(
     }),
   )
 
-  return [...directoryTools, createActiveUsersTool(fetchActive)]
+  return [...directoryTools, createActiveUsersTool(fetchActive), createRegisteredUsersTool(fetchAllRegistered)]
 }

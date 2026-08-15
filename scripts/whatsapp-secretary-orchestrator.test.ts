@@ -149,14 +149,35 @@ test("dispatches a simulated tool round to the correct fake tool and returns val
   assert.equal(reply, "done")
 })
 
-test("truncates an overlong answer to 700 characters", async () => {
+test("truncates an overlong answer to roughly 700 characters, at a word boundary", async () => {
+  const access = resolveWhatsAppAccessPolicy(null)
+  // Realistic prose (unlike a single repeated character), so the word-boundary
+  // trim in truncateReply() has real spaces to cut back to.
+  const longAnswer = "This is a detailed SVC answer sentence. ".repeat(40)
+  const reply = await answerWhatsAppSecretaryQuestion(
+    { recentMessages: [{ role: "user", content: "hi" }], senderIdentity: null, accessPolicy: access, companyKnowledge: [] },
+    { runConversation: fakeRunConversation(longAnswer) as never, toolFactories: fakeFactories, usageGuard: noopGuard },
+  )
+  assert.ok(reply.length <= 701, `expected a bounded reply, got ${reply.length} characters`)
+  assert.ok(reply.endsWith("…"), "expected the truncation ellipsis")
+  // The real test: the text before the ellipsis must be a clean prefix of
+  // the original answer, cut exactly at a word boundary — the character
+  // immediately following that prefix in the original text must be
+  // whitespace, never a mid-word cut like "sente" from "sentence".
+  const withoutEllipsis = reply.slice(0, -1)
+  assert.ok(longAnswer.startsWith(withoutEllipsis), "the truncated text must be an exact prefix of the original answer")
+  assert.match(longAnswer[withoutEllipsis.length] ?? " ", /\s/, "the original text right after the cut point must be whitespace")
+})
+
+test("still bounds a pathological no-space answer, even though there's no word boundary to cut back to", async () => {
   const access = resolveWhatsAppAccessPolicy(null)
   const longAnswer = "a".repeat(1500)
   const reply = await answerWhatsAppSecretaryQuestion(
     { recentMessages: [{ role: "user", content: "hi" }], senderIdentity: null, accessPolicy: access, companyKnowledge: [] },
     { runConversation: fakeRunConversation(longAnswer) as never, toolFactories: fakeFactories, usageGuard: noopGuard },
   )
-  assert.equal(reply.length, 700)
+  assert.ok(reply.length <= 701)
+  assert.ok(reply.endsWith("…"))
 })
 
 test("returns the AiError's user-safe message instead of throwing, and fails the guard lease", async () => {

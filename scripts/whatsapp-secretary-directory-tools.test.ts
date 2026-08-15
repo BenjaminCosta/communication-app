@@ -309,3 +309,55 @@ test("directory_getActiveUsers caps returned users by the shared budget's remain
   assert.equal(data.users.length, 2)
   assert.equal(sharedBudget.remainingRecords, 0)
 })
+
+// --- directory_listRegisteredUsers (2026-08-14): "who's registered" is a
+// different question from "who's active right now" ---
+
+test("directory_listRegisteredUsers is registered alongside the rest of the Directory stack", () => {
+  const tools = createDirectoryTools({ provider: createFixtureProvider(), registeredUsersProvider: async () => [] })
+  assert.ok(tools.some((tool) => tool.name === "directory_listRegisteredUsers"))
+})
+
+test("directory_listRegisteredUsers returns every user the injected provider reports, independent of presence", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    registeredUsersProvider: async () => [
+      { name: "Jordan Blake", role: "Superintendent" },
+      { name: "Inactive Ivan", role: null },
+    ],
+  })
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  assert.ok(listRegisteredUsers)
+
+  const result = await listRegisteredUsers.run({}, budget())
+  assert.equal(result.empty, undefined)
+  const data = result.data as { users: Array<{ name: string; role: string | null }> }
+  assert.deepEqual(data.users, [
+    { name: "Jordan Blake", role: "Superintendent" },
+    { name: "Inactive Ivan", role: null },
+  ])
+})
+
+test("directory_listRegisteredUsers reports no one registered rather than guessing", async () => {
+  const tools = createDirectoryTools({ provider: createFixtureProvider(), registeredUsersProvider: async () => [] })
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  assert.ok(listRegisteredUsers)
+
+  const result = await listRegisteredUsers.run({}, budget())
+  assert.equal(result.empty, true)
+})
+
+test("directory_listRegisteredUsers respects the shared budget and never calls the provider when it's exhausted", async () => {
+  const tools = createDirectoryTools({
+    provider: createFixtureProvider(),
+    registeredUsersProvider: async () => {
+      throw new Error("must not be called when the budget is exhausted")
+    },
+  })
+  const listRegisteredUsers = tools.find((tool) => tool.name === "directory_listRegisteredUsers")
+  assert.ok(listRegisteredUsers)
+
+  const exhausted: SecretaryToolBudget = { maxRecordsPerTool: 12, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 0 }
+  const result = await listRegisteredUsers.run({}, exhausted)
+  assert.equal(result.empty, true)
+})

@@ -51,6 +51,21 @@ import {
 
 const MAX_REPLY_CHARACTERS = 700
 
+/**
+ * A raw `.slice(0, MAX_REPLY_CHARACTERS)` can cut a word in half mid-sentence
+ * (found live-testing a reasoning-effort change: a real answer ended
+ * "...still marked work-in-progress/product directio"). Trims back to the
+ * last whitespace within the limit instead, so a truncated reply always ends
+ * on a real word boundary, with an ellipsis to signal it was cut.
+ */
+function truncateReply(value: string, max: number): string {
+  if (value.length <= max) return value
+  const cut = value.slice(0, max)
+  const lastSpace = cut.lastIndexOf(" ")
+  const boundary = lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut
+  return `${boundary.trimEnd()}…`
+}
+
 const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
   directory: createDirectoryTools,
   questCoral: createQuestCoralTools,
@@ -198,10 +213,22 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
         schema: WHATSAPP_SECRETARY_RESULT_SCHEMA,
         maxToolRounds: WHATSAPP_SECRETARY_AI_LIMITS.maxToolRounds,
         maxOutputTokens: WHATSAPP_SECRETARY_AI_LIMITS.maxAnswerTokens,
-        // "low" over the old "minimal": one conservative step up in reasoning
-        // quality (better intent understanding, tool selection, and relative-date
-        // math) while staying well short of "medium"/"high" for Hobby-plan latency.
-        reasoningEffort: config.askModel.startsWith("gpt-5") ? "low" : undefined,
+        // "medium" over the old "low" (2026-08-14): only the final, tool-less
+        // round ever uses this — every tool-bearing round is forced to "none"
+        // regardless (see runToolConversation) — so the latency/cost impact is
+        // bounded to one call, not multiplied by maxToolRounds. Verified live
+        // against real gpt-5.6-terra across several realistic questions before
+        // this change: "medium" and "high" both stayed in the same 1.5-7s
+        // range as "low" (no meaningful latency cliff for this model), with
+        // "medium" showing modestly more careful synthesis on multi-source
+        // questions and no quality regression anywhere. Real token cost here
+        // has been low relative to budget, so this trades a small, bounded
+        // cost increase for better answers — explicit user call, not a
+        // default assumption. Stopped short of "high": the same live test
+        // showed no further quality gain over "medium" for this workload, so
+        // it would be pure cost with no observed benefit; revisit if a
+        // genuinely harder question class shows up.
+        reasoningEffort: config.askModel.startsWith("gpt-5") ? "medium" : undefined,
         verbosity: config.askModel.startsWith("gpt-5") ? "low" : undefined,
         onToolCalls: (calls) => dispatchToolCalls(tools, calls, budget, toolExecutions),
       },
@@ -221,7 +248,7 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
       recordCount: WHATSAPP_SECRETARY_AI_LIMITS.maxTotalRecords - budget.remainingRecords,
     })
     return createWhatsAppSecretaryPresentation({
-      answer: parsed.data.answer.trim().slice(0, MAX_REPLY_CHARACTERS),
+      answer: truncateReply(parsed.data.answer.trim(), MAX_REPLY_CHARACTERS),
       question: current.content,
       executions: toolExecutions,
     })

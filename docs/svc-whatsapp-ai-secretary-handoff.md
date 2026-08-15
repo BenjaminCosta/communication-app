@@ -4,6 +4,86 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## `directory_listRegisteredUsers` (2026-08-14, later still)
+
+Real bug from a pasted WhatsApp transcript: "What users are on the svc apps
+read me all" answered with only who's *active right now* (1 person), and
+when corrected ("Not only active, all registered users") the Secretary could
+correctly *explain* the distinction but had no tool to actually answer it —
+`directory_getActiveUsers` was the only presence-related tool that existed.
+
+Added `directory_listRegisteredUsers` right next to it in
+`lib/whatsapp-secretary/tools/directory.ts`: every `/users` doc, no
+`lastSeen` filter at all. One real correctness trap avoided: it deliberately
+does **not** `orderBy("name")` — `app/page.tsx`'s own client-side mapping
+falls back to `deriveNameFromEmail()` when a user has no stored `name` field
+(`data.name || deriveNameFromEmail(...)`), which means some `/users` docs
+likely have no `name` field at all, and a Firestore `orderBy` on a field a
+document doesn't have silently drops that document from the results. Reused
+the exact same `deriveNameFromEmail()` fallback (already exported from
+`lib/store.ts`) instead, so every registered user is included and named
+consistently with what the app itself shows.
+
+Verified live against the exact phrasing from the transcript (`"What users
+are on the svc apps read me all"` then `"Not only active, all registered
+users"`) — now correctly resolves to the full registered list both times,
+and even the first ambiguous phrasing picks the more complete registered-
+user answer given "read me all" implies wanting everyone, not just who's
+online. `pnpm verify:fast` green.
+
+## Reasoning effort + budget tuning (2026-08-14, later still)
+
+User asked to revisit the conservative cost/latency decisions made earlier
+the same day, explicitly keeping `gpt-5.6-terra` as the model but willing to
+spend more for better answers, since real usage has stayed well under token
+budget. Changes, all in `lib/whatsapp-secretary/orchestrator.ts` and
+`lib/ai/config-public.ts`:
+
+- **`reasoningEffort: "low"` → `"medium"`**. Only the final, tool-less round
+  ever uses this — every tool-bearing round is unconditionally forced to
+  `"none"` (the `gpt-5.6-terra`-on-`/v1/chat/completions` constraint from the
+  earlier reasoning_effort incident this same day). So the cost/latency
+  impact is bounded to exactly one call per question, not multiplied by
+  `maxToolRounds`. Verified live before changing anything: ran the same 2-3
+  realistic questions at `low`/`medium`/`high` through the real orchestrator
+  (fixture tools, real OpenAI calls) — latency stayed in the same ~1.5-7s
+  range across all three (no cliff), `medium` showed modestly more careful
+  synthesis with zero regressions, and `high` showed no further quality gain
+  over `medium` for this workload — so `medium` was chosen over `high` on
+  the actual evidence, not just conservatism. Re-verify if a harder question
+  class shows up later.
+- **`maxToolRounds`: 3 → 4**, **`maxRecordsPerTool`: 12 → 15**,
+  **`maxTotalRecords`: 40 → 60** — modest bumps, cheap since tool rounds run
+  at `reasoning_effort: "none"`; reduces silent truncation on rich
+  multi-module questions.
+- **`providerTimeoutMs`: 30s → 45s** — more headroom for the `medium`-effort
+  final round, still comfortably under the Vercel Hobby-plan `maxDuration =
+  60` ceiling on `app/api/whatsapp/webhook/route.ts` even with tool-round
+  overhead on top (confirmed via a real end-to-end multi-round question:
+  5.9s total).
+- **Left unchanged, deliberately**: `maxAnswerTokens` (500 — already
+  generous relative to the 700-char WhatsApp reply cap, not a binding
+  constraint) and `verbosity: "low"` (a WhatsApp-terseness UX choice, not a
+  cost cut — GPT-5-family `verbosity` controls output length/style, separate
+  from `reasoning_effort`). `askRequestsPerWindow`/`requestWindowMs` (the
+  per-user rate limit) also untouched — that's abuse prevention, not a
+  quality/cost lever, and nothing indicated it was being hit.
+
+**Real bug found and fixed along the way, unrelated to the tuning itself**:
+the final WhatsApp reply's 700-character cap used a raw `.slice()`, which
+could (and, in this same live testing, did) cut a word in half mid-sentence
+("...still marked work-in-progress/product directio"). Replaced with
+`truncateReply()` in `orchestrator.ts` — trims back to the last whitespace
+within the limit before adding the truncation ellipsis, falling back to a
+hard cut only for the pathological case of no whitespace at all.
+
+Verified: `pnpm verify:fast` green throughout (two `orchestrator.test.ts`
+assertions updated for the new truncation behavior — one was asserting the
+literal `.length === 700` of the old raw-slice bug, replaced with a
+word-boundary-aware check plus a new pathological-no-space case).
+
+Implementation only, not pushed/deployed as of this writing.
+
 ## List-all tools, tag search, and richer Applications details (2026-08-14, later still)
 
 Driven by another real-usage transcript review. Three additions, all
