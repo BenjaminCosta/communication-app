@@ -7,14 +7,16 @@ import {
   isWhatsAppDailyReportDraftConfirmation,
 } from "@/lib/whatsapp-daily-report-drafts"
 import { resolvePendingWrite } from "@/lib/whatsapp-secretary/pending-writes"
-import { buildToolRegistry, enabledSecretaryModules, type SecretaryToolContext } from "@/lib/whatsapp-secretary/tool-registry"
+import { buildToolRegistry, enabledSecretaryModules, type SecretaryModule, type SecretaryToolContext } from "@/lib/whatsapp-secretary/tool-registry"
 import { createEntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
 import { DEFAULT_TOOL_FACTORIES } from "@/lib/whatsapp-secretary/orchestrator"
 import { resolveWhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
-import { addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
+import { addCapabilityHint, addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
+import { buildGuidedTourReply, isShowMeAroundRequest } from "@/lib/whatsapp-secretary/guided-tour"
+import { buildCapabilityNudge } from "@/lib/whatsapp-secretary/onboarding"
 import {
   buildCapabilitySignature,
   buildPrefixIntroduction,
@@ -22,6 +24,7 @@ import {
   decideIntroduction,
   type WhatsAppOnboardingState,
 } from "@/lib/whatsapp-secretary/onboarding"
+import { getSelfContextSnapshot as loadSelfContext } from "@/lib/whatsapp-secretary/self-context"
 import { getSelfContextSnapshot, selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
@@ -242,6 +245,17 @@ async function resolveLegacyDraftCommand(input: {
   return action ? { kind: `legacy-${action.kind}`, reply: action.reply } : null
 }
 
+
+/** Maps this turn's tool names back to their modules, for the capability nudge. */
+function modulesUsed(retrievals: Array<{ toolName: string }>): SecretaryModule[] {
+  const modules = new Set<SecretaryModule>()
+  for (const { toolName } of retrievals) {
+    const prefix = toolName.split("_", 1)[0]
+    if (prefix) modules.add(prefix as SecretaryModule)
+  }
+  return [...modules]
+}
+
 /** Avoids repeated model calls when Meta retries delivery of the same inbound message. */
 async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Promise<WhatsAppOutgoingReply> {
   const now = Date.now()
@@ -279,6 +293,21 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           isFirstInteraction: conversation.isFirstInteraction,
           message: message.text,
         })
+        // "Show me around" is answered deterministically, before the model:
+        // the tour's whole value is that its rows are runnable, and a
+        // paraphrased list of rows is not.
+        if (senderIdentity && isShowMeAroundRequest(message.text)) {
+          const snapshot = await loadSelfContext(selfContextActorFromIdentity(senderIdentity))
+          const tour = buildGuidedTourReply(snapshot, enabledSecretaryModules(accessPolicy))
+          const priorOnboarding = introduction.onboarding ?? conversation.onboarding
+          reply = await storeWhatsAppAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            reply: introduction.apply(tour),
+            ...(priorOnboarding ? { onboarding: { ...priorOnboarding, guideCompletedAtMs: Date.now() } } : {}),
+          })
+        } else {
+
         // A pending write is resolved BEFORE the model runs and entirely
         // outside it: an exact-phrase confirmation must never depend on the
         // model agreeing that the sender meant yes.
@@ -330,14 +359,29 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             priorRetrievals: conversation.retrievals,
           })
           const { pendingWrite, memory, ...outgoing } = generatedReply
+          // Progressive discovery: one adjacent capability, taught only right
+          // after a real answer about a specific record, and rate-limited so it
+          // stays a hint rather than chrome.
+          const nudge = buildCapabilityNudge({
+            usedModules: modulesUsed(memory?.retrievals ?? []),
+            enabledModules: enabledSecretaryModules(accessPolicy),
+            state: conversation.onboarding,
+            nowMs: Date.now(),
+            answeredAboutEntity: !pendingWrite && (memory?.resolvedEntities.length ?? 0) > 0,
+          })
+          const nudgedOnboarding = nudge
+            ? { ...(introduction.onboarding ?? conversation.onboarding ?? { lastIntroAtMs: 0, capabilitySignature: "" }), lastCapabilityNudgeAtMs: Date.now() }
+            : introduction.onboarding
+
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: introduction.apply(outgoing),
-            ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
+            reply: nudge ? addCapabilityHint(introduction.apply(outgoing), nudge.line) : introduction.apply(outgoing),
+            ...(nudgedOnboarding ? { onboarding: nudgedOnboarding } : {}),
             ...(pendingWrite ? { pendingWrite } : {}),
             ...(memory ? { resolvedEntities: memory.resolvedEntities, retrievals: memory.retrievals } : {}),
           })
+        }
         }
       } finally {
         await feedback.stop()

@@ -67,6 +67,9 @@ function richProvider(): SelfContextProvider {
     async findOwnApplication() {
       return null
     },
+    async getRecentJobActivity() {
+      return []
+    },
   }
 }
 
@@ -92,6 +95,9 @@ function bareProvider(): SelfContextProvider {
     },
     async findOwnApplication() {
       return null
+    },
+    async getRecentJobActivity() {
+      return []
     },
   }
 }
@@ -178,14 +184,20 @@ test('first contact: a recognized employee is introduced with who they are and w
   const snapshot = await getSelfContextSnapshot(selfContextActorFromIdentity(supervisor), { provider: richProvider(), today: TODAY, nowMs: NOW })
   const shown = decision as Extract<typeof decision, { show: true }>
   const reply = addSecretaryIntroduction({ text: "unused greeting answer" }, {
-    standalone: buildStandaloneIntroduction(snapshot, shown),
+    standalone: buildStandaloneIntroduction(snapshot, shown, enabledSecretaryModules(access)),
     prefix: buildPrefixIntroduction(snapshot, shown),
     message: "Hi",
   })
 
-  assert.match(reply.text, /Hi Ben — I'm the SVC AI Secretary\./)
+  assert.match(reply.text, /Hey Ben — I recognize you in SVC\./)
   assert.match(reply.text, /I know you as Ben Acosta, Site Supervisor at SVC\./)
-  assert.match(reply.text, /North Ridge/)
+  // Personalization on the card is recognition + real linked counts + role
+  // focus. Specific record names deliberately live in the *answer* to a
+  // starter (the brief), not in the card — naming a job here would spend the
+  // card's short attention span on data the next message shows properly.
+  assert.match(reply.text, /You're connected to 1 job/)
+  assert.match(reply.text, /A few good ways to start:/)
+  assert.match(reply.text, /What should I know today\?/)
   assert.doesNotMatch(reply.text, /unused greeting answer/)
   clearSelfContextSnapshotCache()
 })

@@ -63,6 +63,8 @@ const MAX_PROJECTS = 5
 const MAX_REPORTS = 4
 const MAX_OUTLOOK_JOBS = 4
 const MAX_RECENT_MESSAGES = 8
+/** The brief fans out per job, so this cap bounds its whole cost. */
+const MAX_BRIEF_JOBS = 4
 /** Bounded "scan every project" cap — mirrors `tools/quest-coral.ts`. */
 const MAX_PROJECT_SCAN = 200
 const SNAPSHOT_CACHE_TTL_MS = 60_000
@@ -136,6 +138,26 @@ export interface SelfMessageActivity {
   latestAt: string | null
 }
 
+/**
+ * Recent activity on ONE job the person is linked to.
+ *
+ * The snapshot already knew *which* jobs someone is on; a "what should I know
+ * today?" brief needs the other half — what actually moved on them lately.
+ * Every field is a fact with a date attached, so the brief can say "North
+ * Ridge had a Daily Report yesterday" instead of the far weaker "you are on
+ * North Ridge".
+ */
+export interface SelfJobActivity {
+  jobName: string
+  latestReportAt: string | null
+  latestReportBy: string | null
+  outlookActiveToday: boolean
+  outlookWindowEnd: string | null
+  latestOperationalAt: string | null
+  latestOperationalText: string | null
+  workersOnSiteNow: number
+}
+
 export interface SelfApplication {
   candidateName: string
   jobName: string
@@ -173,6 +195,8 @@ export interface SelfContextProvider {
   getOutlooksForJobs(jobs: SelfJobRef[], onDate: string): Promise<SelfOutlook[]>
   getVisibleMessageActivity(userId: string): Promise<SelfMessageActivity | null>
   findOwnApplication(input: { email: string | null; phone: string | null }): Promise<SelfApplication | null>
+  /** Recent movement on the person's own jobs — powers the daily brief. */
+  getRecentJobActivity(jobs: SelfJobRef[], onDate: string): Promise<SelfJobActivity[]>
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -356,6 +380,82 @@ export function createServerSelfContextProvider(
       // activity, which is all the snapshot claims.
       const latestAt = toIso((snapshot.docs[0].data() as RecordValue).timestamp)
       return { visibleRecentCount: snapshot.size, latestAt }
+    },
+
+    async getRecentJobActivity(jobs, onDate) {
+      const { getFirestore } = await import("firebase-admin/firestore")
+      const db = getFirestore(await getFirebaseAdminApp())
+      const { AUTOMATIC_MESSAGE_SOURCE_MODULES } = await import("@/lib/store")
+      const targets = jobs.slice(0, MAX_BRIEF_JOBS)
+
+      return Promise.all(
+        targets.map(async (job): Promise<SelfJobActivity> => {
+          // Each read is the narrowest form an existing module tool already
+          // performs — newest-one for a single id — on an already-deployed
+          // index. No new index, and a broken one degrades that field only.
+          const linkedJobId = job.contextId
+            ? (await db.collection("jobs").where("directoryContextId", "==", job.contextId).select("name").limit(1).get()).docs[0]?.id ?? null
+            : null
+
+          const [reportSnap, outlookSnap, messageSnap, clockSnap] = await Promise.all([
+            linkedJobId
+              ? safely(
+                  () =>
+                    db
+                      .collection("reports")
+                      .where("jobId", "==", linkedJobId)
+                      .where("type", "==", "daily_report")
+                      .orderBy("createdAt", "desc")
+                      .select("createdAt", "authorId")
+                      .limit(1)
+                      .get(),
+                  null,
+                )
+              : Promise.resolve(null),
+            job.contextId
+              ? safely(() => db.collection("contexts").doc(job.contextId as string).collection("outlooks").orderBy("windowStart", "desc").limit(1).get(), null)
+              : Promise.resolve(null),
+            job.contextId
+              ? safely(
+                  () =>
+                    db
+                      .collection("messages")
+                      .where("contextIds", "array-contains", job.contextId as string)
+                      .where("sourceModule", "in", AUTOMATIC_MESSAGE_SOURCE_MODULES)
+                      .orderBy("timestamp", "desc")
+                      .limit(1)
+                      .get(),
+                  null,
+                )
+              : Promise.resolve(null),
+            linkedJobId
+              ? safely(() => db.collection("clockRecords").where("jobId", "==", linkedJobId).where("status", "==", "active").count().get(), null)
+              : Promise.resolve(null),
+          ])
+
+          const reportDoc = reportSnap?.docs[0]
+          const authorId = asString((reportDoc?.data() as RecordValue | undefined)?.authorId)
+          const authorName = authorId
+            ? asString(((await safely(() => db.collection("users").doc(authorId).get(), null))?.data() as RecordValue | undefined)?.name) || null
+            : null
+
+          const outlookData = outlookSnap?.docs[0]?.data() as RecordValue | undefined
+          const windowStart = asString(outlookData?.windowStart)
+          const windowEnd = asString(outlookData?.windowEnd)
+          const messageData = messageSnap?.docs[0]?.data() as RecordValue | undefined
+
+          return {
+            jobName: job.name,
+            latestReportAt: reportDoc ? toIso((reportDoc.data() as RecordValue).createdAt) : null,
+            latestReportBy: authorName,
+            outlookActiveToday: Boolean(windowStart && windowEnd && onDate >= windowStart && onDate <= windowEnd),
+            outlookWindowEnd: windowEnd || null,
+            latestOperationalAt: messageData ? toIso(messageData.timestamp ?? messageData.createdAt) : null,
+            latestOperationalText: messageData ? (asString(messageData.text) || asString(messageData.content)).slice(0, 160) || null : null,
+            workersOnSiteNow: clockSnap ? clockSnap.data().count : 0,
+          }
+        }),
+      )
     },
 
     async findOwnApplication({ email, phone }) {

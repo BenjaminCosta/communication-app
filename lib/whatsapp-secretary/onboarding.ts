@@ -1,5 +1,6 @@
 import type { SecretaryModule } from "@/lib/whatsapp-secretary/tool-registry"
 import type { SelfContextSnapshot } from "@/lib/whatsapp-secretary/self-context"
+import { buildCapabilityProfile, capabilityFocusLine } from "@/lib/whatsapp-secretary/capability-profiles"
 import { buildPersonalizedExamples } from "@/lib/whatsapp-secretary/tools/me"
 
 /**
@@ -42,6 +43,14 @@ export const INTRO_REFRESH_INTERVAL_MS = 45 * 24 * 60 * 60 * 1_000
 export interface WhatsAppOnboardingState {
   lastIntroAtMs: number
   capabilitySignature: string
+  /** First time this sender was ever seen. Purely additive — old documents simply lack it. */
+  firstSeenAtMs?: number
+  /** Set once the sender has actually been walked through the guided tour. */
+  guideCompletedAtMs?: number
+  /** What the tour/intro told them to focus on, so a later nudge doesn't repeat it. */
+  suggestedCapabilities?: SecretaryModule[]
+  /** Rate-limits progressive discovery, so capability hints stay occasional. */
+  lastCapabilityNudgeAtMs?: number
 }
 
 export type IntroductionReason = "first-contact" | "capabilities-changed" | "refresher"
@@ -135,6 +144,15 @@ function recognitionLine(snapshot: SelfContextSnapshot): string {
   return `I know you as ${name} — no role on file yet.`
 }
 
+/** "— connected to 3 jobs and 2 projects", or "" when nothing is linked. Folded into the recognition line. */
+function linkedCountFragment(snapshot: SelfContextSnapshot): string {
+  const parts = [
+    snapshot.jobs.length > 0 ? `${snapshot.jobs.length} job${snapshot.jobs.length === 1 ? "" : "s"}` : "",
+    snapshot.projects.length > 0 ? `${snapshot.projects.length} Quest Coral project${snapshot.projects.length === 1 ? "" : "s"}` : "",
+  ].filter(Boolean)
+  return parts.length > 0 ? `You're connected to ${parts.join(" and ")}.` : ""
+}
+
 /** One line naming only the sections that genuinely have data. Returns "" when there is nothing true to say. */
 function coverageLine(snapshot: SelfContextSnapshot): string {
   const parts: string[] = []
@@ -158,30 +176,80 @@ function newCapabilityLine(newModules: SecretaryModule[]): string {
   return `New since we last spoke: I can now read ${listed.length > 1 ? `${listed.slice(0, -1).join(", ")} and ${listed.at(-1)}` : listed[0]}.`
 }
 
-const MAX_STANDALONE_EXAMPLES = 3
+const MAX_STANDALONE_EXAMPLES = 4
+
+/**
+ * The four openers that turn a greeting into a first real answer.
+ *
+ * A capability list is not an onboarding — the failure mode this is built
+ * against is someone trying two vague questions, getting two shrugs, and never
+ * finding out what the Secretary is for. These are ordered so the first one is
+ * the strongest possible demonstration: a question that makes it go read live
+ * data across several modules and come back with something the person did not
+ * already know.
+ *
+ * Each is dropped when the live snapshot cannot back it, so nobody is invited
+ * to ask about "my jobs" when no job is linked to them.
+ */
+function starterQuestions(snapshot: SelfContextSnapshot): string[] {
+  const hasWork = snapshot.jobs.length > 0 || snapshot.projects.length > 0
+  return [
+    ...(hasWork || snapshot.clock ? ["What should I know today?"] : []),
+    ...(snapshot.jobs.length > 0 ? ["What's happening on my jobs?"] : []),
+    ...(snapshot.projects.length > 0 && snapshot.jobs.length === 0 ? ["What's the status of my projects?"] : []),
+    "What can you do for me?",
+    "Show me how SVC works.",
+  ]
+}
 
 /**
  * The full introduction, sent on its own when the sender's message was just a
- * greeting or a "what can you do" — there is no separate answer to attach it
- * to, so this IS the answer.
+ * greeting — there is no separate answer to attach it to, so this IS the
+ * answer, and it has about twenty seconds to be worth reading.
+ *
+ * Structure, in priority order: recognition (proof it is really connected to
+ * SVC), breadth (what it can reach *for them*), a focus line when their role is
+ * known, then openers. The "you don't need commands" line matters more than it
+ * looks — people assume a bot needs exact syntax, and the entity refs plus
+ * cross-turn memory underneath make follow-ups genuinely work.
  */
-export function buildStandaloneIntroduction(snapshot: SelfContextSnapshot, decision: Extract<IntroductionDecision, { show: true }>): string {
-  const examples = buildPersonalizedExamples(snapshot).slice(0, MAX_STANDALONE_EXAMPLES)
+export function buildStandaloneIntroduction(
+  snapshot: SelfContextSnapshot,
+  decision: Extract<IntroductionDecision, { show: true }>,
+  enabledModules: SecretaryModule[] = [],
+): string {
+  const profile = buildCapabilityProfile(snapshot, enabledModules)
   const opening =
     decision.reason === "first-contact"
-      ? `Hi ${firstName(snapshot.identity.name)} — I'm the SVC AI Secretary.`
-      : `Hi ${firstName(snapshot.identity.name)} — quick catch-up on what I can do for you.`
+      ? `Hey ${firstName(snapshot.identity.name)} — I recognize you in SVC.`
+      : `Hey ${firstName(snapshot.identity.name)} — quick catch-up on what I can do for you.`
+
+  // Scope + focus in ONE line. A live eval showed the earlier version listing
+  // the same four capabilities three times over — a generic breadth line, then
+  // a role focus line, then a coverage line — which reads as padding exactly
+  // where the card has the least attention to spend.
+  const focus = capabilityFocusLine(profile, snapshot)
+  const breadth = focus
+    ? `I can search SVC company knowledge and live operational data. ${focus}`
+    : profile.phrases.length > 0
+      ? `I can search SVC company knowledge and live operational data — ${profile.phrases.slice(0, 4).join(", ")} and more.`
+      : ""
+
+  const examples = starterQuestions(snapshot).slice(0, MAX_STANDALONE_EXAMPLES)
 
   return [
     opening,
-    recognitionLine(snapshot),
+    // Coverage is folded into recognition so the card states each fact once.
+    [recognitionLine(snapshot), linkedCountFragment(snapshot)].filter(Boolean).join(" "),
     ...(decision.reason === "capabilities-changed" ? [newCapabilityLine(decision.newModules)] : []),
-    coverageLine(snapshot),
-    "Ask me anything in plain English — follow-ups work, and I'll say so when something isn't on file.",
-    ...(examples.length > 0 ? ["Try:", ...examples.map((example) => `• ${example}`)] : []),
+    breadth,
+    ...(examples.length > 0 ? ["", "A few good ways to start:", ...examples.map((example) => `• ${example}`)] : []),
+    "",
+    "No commands or exact names needed — just ask normally, and follow-ups work (\u201cwhat about yesterday?\u201d).",
   ]
-    .filter(Boolean)
+    .filter((line) => line !== undefined && line !== null)
     .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
 }
 
 /**
@@ -195,7 +263,73 @@ export function buildPrefixIntroduction(snapshot: SelfContextSnapshot, decision:
   }
   const opening =
     decision.reason === "first-contact"
-      ? `Hi ${firstName(snapshot.identity.name)} — I'm the SVC AI Secretary. ${recognitionLine(snapshot)}`
+      ? `Hey ${firstName(snapshot.identity.name)} — I recognize you in SVC. ${recognitionLine(snapshot)}`
       : `Hi ${firstName(snapshot.identity.name)} — ${recognitionLine(snapshot).replace(/^I know you as/, "still have you as")}`
   return `${opening} Ask “what can you do?” any time.`
+}
+
+
+// ── Progressive discovery ────────────────────────────────────────────────
+
+/**
+ * Capabilities worth mentioning *right after* a question about a job, keyed by
+ * what the turn did NOT already use.
+ *
+ * Teaching twenty features up front does not work — people retain the one or
+ * two they needed that day. Teaching one adjacent capability at the exact
+ * moment it would have applied does, because the person has the context
+ * loaded. That is the whole design here: never a menu, never more than one
+ * line, and only after a real answer.
+ */
+const ADJACENT_PHRASE: Partial<Record<SecretaryModule, string>> = {
+  reports: "its recent Daily Reports",
+  outlooks: "its 3-Week Outlook",
+  clocking: "who's clocked in",
+  messages: "its Communications activity",
+  questCoral: "related Quest Coral projects",
+  applications: "candidates linked to it",
+}
+
+/** At most one hint every few days — often enough to teach, rare enough not to nag. */
+export const CAPABILITY_NUDGE_INTERVAL_MS = 3 * 24 * 60 * 60 * 1_000
+
+const MAX_NUDGED_CAPABILITIES = 3
+
+export interface CapabilityNudge {
+  line: string
+  modules: SecretaryModule[]
+}
+
+/**
+ * Decides whether to teach one adjacent capability after an answer.
+ *
+ * Requires all of: the turn actually answered something entity-shaped, at
+ * least one *unused* adjacent capability the sender can really reach, and
+ * enough time since the last hint. Anything else returns null — a hint that
+ * fires on every turn stops being a hint and becomes chrome.
+ */
+export function buildCapabilityNudge(input: {
+  usedModules: SecretaryModule[]
+  enabledModules: SecretaryModule[]
+  state: WhatsAppOnboardingState | null
+  nowMs: number
+  /** True when the turn was about a specific record, which is what makes an adjacent capability meaningful. */
+  answeredAboutEntity: boolean
+}): CapabilityNudge | null {
+  if (!input.answeredAboutEntity) return null
+
+  const lastNudge = input.state?.lastCapabilityNudgeAtMs ?? 0
+  if (lastNudge && input.nowMs - lastNudge < CAPABILITY_NUDGE_INTERVAL_MS) return null
+
+  const used = new Set(input.usedModules)
+  const enabled = new Set(input.enabledModules)
+  const candidates = (Object.keys(ADJACENT_PHRASE) as SecretaryModule[]).filter(
+    (module) => enabled.has(module) && !used.has(module),
+  )
+  if (candidates.length === 0) return null
+
+  const modules = candidates.slice(0, MAX_NUDGED_CAPABILITIES)
+  const phrases = modules.map((module) => ADJACENT_PHRASE[module] as string)
+  const joined = phrases.length > 1 ? `${phrases.slice(0, -1).join(", ")} or ${phrases.at(-1)}` : phrases[0]
+  return { line: `I can also check ${joined} — just ask.`, modules }
 }

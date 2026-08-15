@@ -49,6 +49,26 @@ export type WhatsAppMediaAttachment = {
   caption?: string
 }
 
+/**
+ * Appends one short progressive-discovery hint to an answer.
+ *
+ * Kept in the presentation layer, and appended *after* the model's reply rather
+ * than asked of the model, for the same reason every other contract line is
+ * deterministic here: a hint that drifts into "I can also do X" for an X the
+ * sender cannot reach would be worse than no hint. Skipped when the reply is
+ * already at the length cap, so teaching never costs the answer.
+ */
+export function addCapabilityHint(reply: WhatsAppOutgoingReply, hint: string): WhatsAppOutgoingReply {
+  if (!hint || reply.presentation?.kind === "list") return reply
+  const text = `${reply.text}\n\n${hint}`
+  if (text.length > MAX_CTA_BODY_CHARACTERS) return reply
+  return {
+    ...reply,
+    text,
+    ...(reply.presentation ? { presentation: { ...reply.presentation, body: text } } : {}),
+  }
+}
+
 /** The persisted assistant text plus the optional native WhatsApp rendering. */
 export type WhatsAppOutgoingReply = {
   text: string
@@ -297,9 +317,26 @@ export function createWhatsAppSecretaryPresentation(input: {
  * phrased instead of replaying a fixed card.
  */
 export function isDiscoveryMessage(value: string): boolean {
-  const text = value.trim()
-  if (/^(?:hi|hello|hey|hola|help|start|menu|good morning|good afternoon|good evening)[!.?\s]*$/i.test(text)) return true
-  return /^(?:what can you do|what do you do|how can you help|what are you|who are you|how do i use (?:this|you)|what can i ask)[^?]*\??$/i.test(text)
+  return isGreetingOnly(value) || isCapabilityQuestion(value)
+}
+
+/** A bare hello — no request to preserve, so an introduction can stand in for the answer. */
+export function isGreetingOnly(value: string): boolean {
+  return /^(?:hi|hello|hey|hola|help|start|menu|good morning|good afternoon|good evening)[!.?\s]*$/i.test(value.trim())
+}
+
+/**
+ * The "what can you do?" family, in the many ways people actually ask it.
+ *
+ * Outside an introduction turn these are answered by the model through
+ * `me_getSecretaryGuide`, so the answer is built from the person's real records
+ * and adapts to the phrasing — rather than replaying one fixed card, which is
+ * exactly the generic feature list this whole effort exists to avoid.
+ */
+export function isCapabilityQuestion(value: string): boolean {
+  return /^(?:what can you do(?: for me)?|what do you do|how can you help(?: me)?|what are you|who are you|how do i use (?:this|you)|how should i use you|what can i ask(?: you)?(?: about.*)?|give me (?:some )?examples|what are you good (?:at|for))[^?]*\??$/i.test(
+    value.trim(),
+  )
 }
 
 /**

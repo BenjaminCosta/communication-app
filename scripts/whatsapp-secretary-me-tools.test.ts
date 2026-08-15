@@ -43,6 +43,9 @@ function provider(overrides: Partial<SelfContextProvider> = {}): SelfContextProv
     async findOwnApplication() {
       return null
     },
+    async getRecentJobActivity() {
+      return []
+    },
     ...overrides,
   }
 }
@@ -70,6 +73,9 @@ function emptyProvider(): SelfContextProvider {
     async findOwnApplication() {
       return null
     },
+    async getRecentJobActivity() {
+      return []
+    },
   }
 }
 
@@ -90,7 +96,7 @@ function tool(name: string, deps: Parameters<typeof tools>[0] = {}) {
 
 test("Me tools are namespaced and take no arguments at all", () => {
   const names = tools().map((entry) => entry.name)
-  assert.deepEqual(names, ["me_getMyProfile", "me_getMySvcContext", "me_getSecretaryGuide"])
+  assert.deepEqual(names, ["me_getMyProfile", "me_getMySvcContext", "me_getDailyBrief", "me_getSecretaryGuide"])
   assert.ok(tools().every((entry) => entry.module === "me"))
   // No argument means no way for the model to point any of these at someone else.
   assert.ok(tools().every((entry) => Object.keys((entry.parameters as { properties: Record<string, unknown> }).properties).length === 0))
@@ -159,12 +165,22 @@ test("me_getMySvcContext respects the shared retrieval budget", async () => {
 test("me_getSecretaryGuide describes only the modules this sender's policy actually enabled", async () => {
   const narrow = await tool("me_getSecretaryGuide", { enabledModules: ["directory", "knowledge", "me"] }).run({}, budget())
   const capabilities = (narrow.data as { capabilities: string[] }).capabilities
-  assert.equal(capabilities.length, 3)
+  // `me` is dropped from the ordered profile — it describes the guide itself,
+  // not something to suggest asking about.
+  assert.equal(capabilities.length, 2)
   assert.ok(capabilities.some((line) => line.startsWith("SVC Directory")))
   assert.ok(!capabilities.some((line) => line.includes("Quest Coral —")), "a module that is off must not be advertised")
 
   const wide = await tool("me_getSecretaryGuide").run({}, budget())
-  assert.equal((wide.data as { capabilities: string[] }).capabilities.length, 9)
+  assert.equal((wide.data as { capabilities: string[] }).capabilities.length, 8)
+})
+
+test("me_getSecretaryGuide leads with what fits this person's role", async () => {
+  const result = await tool("me_getSecretaryGuide").run({}, budget())
+  const data = result.data as { capabilities: string[]; focus: string }
+  // A Site Supervisor should see field work first, not the catalog's own order.
+  assert.match(data.capabilities[0], /Daily Reports/)
+  assert.match(data.focus, /For Site Supervisor work/)
 })
 
 test("me_getSecretaryGuide ships a real usage tutorial, including the exact draft command", async () => {

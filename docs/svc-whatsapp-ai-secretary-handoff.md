@@ -4,7 +4,73 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Writes as tools + cross-turn memory (2026-08-15, latest)
+## Onboarding & discovery: first contact, guided tour, daily brief (2026-08-15, latest)
+
+Driven by a product call that the bottleneck is no longer capability but
+**discovery**: the failure mode when new people try the Secretary isn't "it
+can't do that", it's trying two vague questions, getting two shrugs, and never
+finding the value. Target: a first "ah, this is good" inside 20–30 seconds.
+
+**Capability profiles** (`lib/whatsapp-secretary/capability-profiles.ts`) — the
+Secretary already knows who it's talking to, so a Site Supervisor and a
+recruiter no longer get the same first three examples. Two rules keep it
+honest, and they're why this is data + pure functions with no model
+involvement: a role only ever **reorders** capabilities (the profile is
+intersected with the modules access really enabled, so a role string can never
+surface something unreachable), and an unrecognized or missing role falls
+through to **what is actually on file** — real linked jobs, projects,
+application records — never to a guess.
+
+**`me_getDailyBrief`** — the "what should I know today?" answer, and the
+strongest single demonstration in the product. Per linked job it reports the
+latest Daily Report and who filed it, whether an Outlook is running, the most
+recent automatic Communications post, and how many people are clocked in right
+now, plus the person's own open clock, draft reports and project next steps.
+Needed one new snapshot source (`getRecentJobActivity`); every query is the
+narrowest form an existing module tool already performs, on an already-deployed
+index, capped at 4 jobs, each field degrading independently.
+
+**First contact reworked** to recognition → linked counts → scope + role focus
+→ four runnable starters → "no commands needed". A live eval caught the first
+version listing the same four capabilities three times over (generic breadth,
+then role focus, then coverage) — padding exactly where the card has least
+attention to spend. Now each fact is stated once. Specific record names live in
+the *answer* to a starter, not on the card.
+
+**Guided tour** (`lib/whatsapp-secretary/guided-tour.ts`) — "show me around"
+gets four framings ("find information, understand what's happening, learn how
+SVC works, point you to the right place to act") plus a **native list whose
+rows are runnable questions**. Choosing one flows back through the existing
+`Selected: …` path into the real orchestrator, so the tour's last act is a
+genuine answer about the person's own work rather than more explaining. Rows
+are dropped when the snapshot can't back them, so nobody is offered a stop that
+returns empty.
+
+**Progressive discovery** — after a real answer about a specific record, at
+most one short line naming adjacent capabilities the turn didn't use ("I can
+also check its 3-Week Outlook — just ask"). Rate-limited to once every three
+days, never on a disambiguation list, and skipped entirely if it would push the
+reply past the send cap. Teaching one capability at the moment it would have
+applied beats teaching twenty up front.
+
+**Dynamic capability questions** — `isCapabilityQuestion` now covers the many
+real phrasings ("what can you do for me", "what can I ask you about my work",
+"how should I use you", "give me some examples"). Outside an introduction turn
+these go to the model through `me_getSecretaryGuide`, so the answer is built
+from real records and adapts to the phrasing instead of replaying a fixed card.
+
+**Onboarding state** gained `firstSeenAtMs`, `guideCompletedAtMs`,
+`suggestedCapabilities` and `lastCapabilityNudgeAtMs` — purely additive, so
+existing documents keep working with no migration.
+
+**Verified live against the full demo script**: greeting → personalized card;
+"what should I know today?" → `me_getDailyBrief` returning a real three-job
+brief; "tell me more about that job" → `svc_getEntityDossier`, resolved from
+the carried ref with no re-lookup; "create a daily report draft for it" →
+preview + CONFIRM DRAFT contract. Four messages demonstrating identity,
+cross-module intelligence, memory and action. Tests 300 → 311.
+
+## Writes as tools + cross-turn memory (2026-08-15)
 
 Steps 6 and 7 of the architecture review — the last two — implemented in their
 own pass, as sequenced.

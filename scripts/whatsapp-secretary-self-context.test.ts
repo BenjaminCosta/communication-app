@@ -67,6 +67,9 @@ function richProvider(overrides: Partial<SelfContextProvider> = {}): SelfContext
     async findOwnApplication() {
       return null
     },
+    async getRecentJobActivity() {
+      return []
+    },
     ...overrides,
   }
 }
@@ -94,6 +97,9 @@ function emptyProvider(overrides: Partial<SelfContextProvider> = {}): SelfContex
     },
     async findOwnApplication() {
       return null
+    },
+    async getRecentJobActivity() {
+      return []
     },
     ...overrides,
   }
@@ -218,6 +224,9 @@ test("an outlook window that does not cover today is retained but not marked act
 
 test("surfaces the sender's own Applications record only when their contact details match one", async () => {
   const provider = richProvider({
+    async getRecentJobActivity() {
+      return []
+    },
     async findOwnApplication(input) {
       assert.equal(input.email, "ben@svc.example")
       return { candidateName: "Ben Acosta", jobName: "North Ridge", status: "submitted", updatedAt: "2026-08-01T00:00:00.000Z" }

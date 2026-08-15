@@ -6,7 +6,10 @@ import {
   type SelfContextActor,
   type SelfContextProvider,
   type SelfContextSnapshot,
+  type SelfJobActivity,
 } from "@/lib/whatsapp-secretary/self-context"
+import { buildCapabilityProfile, capabilityFocusLine } from "@/lib/whatsapp-secretary/capability-profiles"
+import { createServerSelfContextProvider } from "@/lib/whatsapp-secretary/self-context"
 
 /**
  * "Me" tools — the Secretary's self-awareness about the person it is talking
@@ -130,6 +133,17 @@ export function createMeTools(
   },
 ): SecretaryTool[] {
   const loadSnapshot = () => getSelfContextSnapshot(deps.actor, { provider: deps.provider, today: deps.today })
+  const today = deps.today ?? new Date().toISOString().slice(0, 10)
+  const loadJobActivity = async (snapshot: SelfContextSnapshot): Promise<SelfJobActivity[]> => {
+    const provider = deps.provider ?? createServerSelfContextProvider()
+    try {
+      return await provider.getRecentJobActivity(snapshot.jobs, today)
+    } catch {
+      // A brief that loses its activity section is still useful; one that
+      // throws loses the whole answer.
+      return []
+    }
+  }
 
   const getMyProfile: SecretaryTool<Record<string, never>> = {
     name: "me_getMyProfile",
@@ -195,11 +209,15 @@ export function createMeTools(
       if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
       const snapshot = await loadSnapshot()
       budget.remainingRecords -= 1
-      const capabilities = deps.enabledModules.map((module) => MODULE_CAPABILITIES[module]).filter(Boolean)
+      // Ordered by what this person is most likely to need, so the answer
+      // opens with what's relevant to them instead of the catalog's order.
+      const profile = buildCapabilityProfile(snapshot, deps.enabledModules)
+      const capabilities = profile.modules.map((module) => MODULE_CAPABILITIES[module]).filter(Boolean)
       return {
-        summary: `${capabilities.length} capability area(s) available to ${snapshot.identity.name}, with example questions drawn from their own SVC records.`,
+        summary: `${capabilities.length} capability area(s) available to ${snapshot.identity.name}, ordered by what fits their work, with example questions drawn from their own SVC records.`,
         data: {
           capabilities,
+          focus: capabilityFocusLine(profile, snapshot),
           howToUse: USAGE_TUTORIAL,
           exampleQuestions: buildPersonalizedExamples(snapshot),
           personalContext: {
@@ -214,5 +232,43 @@ export function createMeTools(
     },
   }
 
-  return [getMyProfile, getMySvcContext, getSecretaryGuide]
+  const getDailyBrief: SecretaryTool<Record<string, never>> = {
+    name: "me_getDailyBrief",
+    module: "me",
+    description:
+      "What actually moved recently across the things this person is connected to: per linked job, the latest Daily Report and who filed it, whether a 3-Week Outlook is running, the most recent automatic Communications post, and how many people are clocked in right now — plus their own open clock, draft reports and Quest Coral next steps. Call this for \"what should I know today\", \"anything I should know\", \"catch me up\", \"what's new\", \"brief me\". Lead with what changed most recently and name the job it changed on. Sections with no dates in them genuinely had no recent activity — say that plainly rather than padding the brief.",
+    parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
+    schema: z.object({}),
+    async run(_args, budget): Promise<SecretaryToolResult> {
+      if (budget.remainingRecords <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+      const snapshot = await loadSnapshot()
+
+      const activity = snapshot.jobs.length > 0 ? await loadJobActivity(snapshot) : []
+      const openItems = [
+        ...(snapshot.clock ? [`clocked in at ${snapshot.clock.jobName}`] : []),
+        ...snapshot.reports.filter((report) => report.status === "draft").map((report) => `an unsubmitted Daily Report draft for ${report.jobName}`),
+        ...snapshot.projects.filter((project) => project.nextStep).map((project) => `next step on ${project.name}: ${project.nextStep}`),
+      ]
+
+      const movedCount = activity.filter(
+        (job) => job.latestReportAt || job.latestOperationalAt || job.outlookActiveToday || job.workersOnSiteNow > 0,
+      ).length
+      budget.remainingRecords -= Math.max(1, Math.min(activity.length + openItems.length, budget.maxRecordsPerTool))
+
+      if (activity.length === 0 && openItems.length === 0) {
+        return {
+          summary: `Nothing has moved recently on anything linked to ${snapshot.identity.name}, and they have no open items.`,
+          data: { jobs: [], openItems: [], gaps: snapshot.gaps },
+          empty: true,
+        }
+      }
+
+      return {
+        summary: `${snapshot.identity.name} is connected to ${snapshot.jobs.length} job(s); ${movedCount} had recent activity. ${openItems.length} open item(s).`,
+        data: { jobs: activity, openItems, gaps: snapshot.gaps },
+      }
+    },
+  }
+
+  return [getMyProfile, getMySvcContext, getDailyBrief, getSecretaryGuide]
 }

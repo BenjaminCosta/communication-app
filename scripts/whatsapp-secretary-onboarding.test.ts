@@ -129,13 +129,21 @@ test("the signature is derived from the real access policy's enabled modules", (
 
 // --- What the introduction says -----------------------------------------
 
-test("the standalone card recognizes the person and offers only real example questions", () => {
-  const card = buildStandaloneIntroduction(snapshot(), { show: true, reason: "first-contact", newModules: [] })
-  assert.match(card, /^Hi Ben — I'm the SVC AI Secretary\./)
+test("the standalone card recognizes the person, states breadth, and offers runnable starters", () => {
+  const card = buildStandaloneIntroduction(snapshot(), { show: true, reason: "first-contact", newModules: [] }, [
+    "directory", "reports", "outlooks", "clocking", "messages", "knowledge", "svc",
+  ])
+  assert.match(card, /^Hey Ben — I recognize you in SVC\./)
   assert.match(card, /I know you as Ben Acosta, Site Supervisor at SVC\./)
-  assert.match(card, /North Ridge/)
-  assert.match(card, /Cool Breeze Rollout/)
-  assert.match(card, /Try:/)
+  // Breadth: it must show it reaches live operational data, not just say hello.
+  assert.match(card, /live operational data/)
+  // A recognized role reorders what it leads with.
+  assert.match(card, /For Site Supervisor work, you'll probably use me most for/)
+  assert.match(card, /A few good ways to start:/)
+  assert.match(card, /What should I know today\?/)
+  // The "you don't need commands" line is load-bearing: people assume syntax.
+  assert.match(card, /No commands or exact names needed/)
+  assert.match(card, /follow-ups work/)
 })
 
 test("the standalone card admits a missing role instead of inventing a title", () => {
@@ -154,8 +162,10 @@ test("the standalone card claims no coverage at all for a sender with nothing on
   )
   assert.doesNotMatch(card, /I can see/)
   assert.doesNotMatch(card, /North Ridge|Cool Breeze/)
+  // With nothing linked, it must not invite them to ask about "my jobs".
+  assert.doesNotMatch(card, /What's happening on my jobs\?/)
   // It still teaches how to use the Secretary — that part is always true.
-  assert.match(card, /plain English/)
+  assert.match(card, /No commands or exact names needed/)
 })
 
 test("a capability-change card leads with what is newly available", () => {
