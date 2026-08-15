@@ -108,7 +108,10 @@ function extractContactDetails(data: RecordValue): DirectoryContactDetails {
   return { phone: phone || null, email: email || null }
 }
 
-function createServerContactDetailsProvider(): DirectoryContactDetailsProvider {
+/** Exported so the "My SVC context" snapshot (`lib/whatsapp-secretary/self-context.ts`)
+ * reads the sender's own phone/email through the exact same bounded `/contacts`
+ * projection, instead of re-deriving the masterData-first precedence. */
+export function createServerContactDetailsProvider(): DirectoryContactDetailsProvider {
   return async (sourceIds) => {
     const result = new Map<string, DirectoryContactDetails>()
     if (sourceIds.length === 0) return result

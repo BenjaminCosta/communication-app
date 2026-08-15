@@ -20,8 +20,11 @@ import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
  * is gated by `companyKnowledgeScope`, not one of the per-module `canRead*`
  * flags, since it is not module-specific data. `"messages"` is the
  * Communications read layer (`lib/whatsapp-secretary/tools/messages.ts`) —
- * see {@link ALLOWED_MESSAGES_TOOL_NAMES} for why it's still name-guarded. */
-export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge" | "messages"
+ * see {@link ALLOWED_MESSAGES_TOOL_NAMES} for why it's still name-guarded.
+ * `"me"` is the sender's own SVC context
+ * (`lib/whatsapp-secretary/tools/me.ts`) — personalization over already-
+ * permitted reads, never a wider scope. */
+export type SecretaryModule = "directory" | "questCoral" | "applications" | "reports" | "clocking" | "outlooks" | "knowledge" | "messages" | "me"
 
 /**
  * Bounded tool output. `data` is a compact, module-specific JSON shape (e.g. a
@@ -102,16 +105,16 @@ export function assertOnlyAllowedMessagesTools(tools: SecretaryTool[]): void {
 export type SecretaryToolFactory = () => SecretaryTool[]
 
 /**
- * Aggregates every module's tool factory into one registry, filtered by the
- * caller's access policy. Public/unrecognized senders get an empty list. A
- * future module is one new factory added to this array — nothing else about
- * the orchestrator changes.
+ * The modules one access policy actually turns on, in a stable order.
+ *
+ * Exported because the capability guide (`me_getSecretaryGuide`) must describe
+ * the sender's *real* capabilities, not a hand-maintained prose list that can
+ * drift from the registry. Both it and {@link buildToolRegistry} derive from
+ * this one function, so a new module can never be advertised without being
+ * registered, or registered without being advertised.
  */
-export function buildToolRegistry(
-  accessPolicy: WhatsAppAccessPolicy,
-  factories: Partial<Record<SecretaryModule, SecretaryToolFactory>>,
-): Map<string, SecretaryTool> {
-  const enabled: SecretaryModule[] = [
+export function enabledSecretaryModules(accessPolicy: WhatsAppAccessPolicy): SecretaryModule[] {
+  return [
     ...(accessPolicy.canReadDirectory ? (["directory"] as const) : []),
     ...(accessPolicy.canReadQuestCoral ? (["questCoral"] as const) : []),
     ...(accessPolicy.canReadApplications ? (["applications"] as const) : []),
@@ -124,7 +127,21 @@ export function buildToolRegistry(
     // loop at all — see `companyKnowledgeScope`'s doc comment. Deeper,
     // searchable knowledge access is an internal-only capability.
     ...(accessPolicy.companyKnowledgeScope === "internal" ? (["knowledge"] as const) : []),
+    ...(accessPolicy.canReadOwnContext ? (["me"] as const) : []),
   ]
+}
+
+/**
+ * Aggregates every module's tool factory into one registry, filtered by the
+ * caller's access policy. Public/unrecognized senders get an empty list. A
+ * future module is one new factory added to this array — nothing else about
+ * the orchestrator changes.
+ */
+export function buildToolRegistry(
+  accessPolicy: WhatsAppAccessPolicy,
+  factories: Partial<Record<SecretaryModule, SecretaryToolFactory>>,
+): Map<string, SecretaryTool> {
+  const enabled = enabledSecretaryModules(accessPolicy)
 
   const tools: SecretaryTool[] = []
   for (const module of enabled) {

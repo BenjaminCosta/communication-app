@@ -2,6 +2,7 @@ import type { Firestore } from "firebase-admin/firestore"
 import { createHash } from "node:crypto"
 import type { WhatsAppSecretaryConversationMessage } from "@/lib/whatsapp-secretary/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
+import type { WhatsAppOnboardingState } from "@/lib/whatsapp-secretary/onboarding"
 import type { WhatsAppOutgoingReply, WhatsAppReplyPresentation } from "@/lib/whatsapp-response-ux"
 
 const CONVERSATIONS_COLLECTION = "whatsappConversations"
@@ -23,6 +24,15 @@ export type PreparedWhatsAppConversation = {
   recentMessages: WhatsAppSecretaryConversationMessage[]
   existingReply: WhatsAppOutgoingReply | null
   isFirstInteraction: boolean
+  /**
+   * When this sender was last introduced to the Secretary's capabilities, and
+   * what those capabilities were at the time. `null` means never — which
+   * `decideIntroduction` distinguishes from "returning sender who predates
+   * this tracking" using {@link PreparedWhatsAppConversation.isFirstInteraction}.
+   * Stored on the same conversation document (not a new collection) because
+   * its lifetime, id, and privacy posture are identical to the transcript's.
+   */
+  onboarding: WhatsAppOnboardingState | null
 }
 
 async function getAdminDb(): Promise<Firestore> {
@@ -103,6 +113,15 @@ function limitRecentMessages(messages: StoredConversationMessage[]): StoredConve
   return messages.slice(-MAX_RECENT_MESSAGES)
 }
 
+function readOnboardingState(value: unknown): WhatsAppOnboardingState | null {
+  const state = asRecord(value)
+  if (!state) return null
+  const lastIntroAtMs = typeof state.lastIntroAtMs === "number" && Number.isFinite(state.lastIntroAtMs) ? state.lastIntroAtMs : null
+  const capabilitySignature = typeof state.capabilitySignature === "string" ? state.capabilitySignature.slice(0, 400) : ""
+  if (lastIntroAtMs === null || !capabilitySignature) return null
+  return { lastIntroAtMs, capabilitySignature }
+}
+
 function conversationDocumentId(senderPhoneNumber: string): string {
   // Keep the phone number out of the Firestore document path while retaining one conversation per sender.
   return createHash("sha256").update(senderPhoneNumber).digest("hex")
@@ -128,6 +147,7 @@ export async function prepareWhatsAppConversation(input: {
   return db.runTransaction<PreparedWhatsAppConversation>(async (transaction) => {
     const snapshot = await transaction.get(conversationRef)
     const recentMessages = readRecentMessages(snapshot.data()?.recentMessages)
+    const onboarding = readOnboardingState(snapshot.data()?.onboarding)
     const existingReply = recentMessages.find(
       (message) => message.role === "assistant" && message.replyToMessageId === input.messageId,
     )
@@ -137,6 +157,7 @@ export async function prepareWhatsAppConversation(input: {
         recentMessages: toModelMessages(recentMessages),
         existingReply: toOutgoingReply(existingReply),
         isFirstInteraction: recentMessages.every((message) => message.id === input.messageId),
+        onboarding,
       }
     }
 
@@ -168,15 +189,23 @@ export async function prepareWhatsAppConversation(input: {
       recentMessages: toModelMessages(updatedMessages),
       existingReply: null,
       isFirstInteraction: recentMessages.length === 0 || recentMessages.every((message) => message.id === input.messageId),
+      onboarding,
     }
   })
 }
 
-/** Stores the generated reply, retaining only the latest six exchanges per sender. */
+/**
+ * Stores the generated reply, retaining only the latest six exchanges per
+ * sender. `onboarding` is written in the same transaction as the reply it was
+ * computed for, so a sender can never be marked "already introduced" for a
+ * reply that failed to persist — and a Meta retry that finds the reply already
+ * stored short-circuits before touching it, so the intro is not re-armed.
+ */
 export async function storeWhatsAppAssistantReply(input: {
   senderPhoneNumber: string
   replyToMessageId: string
   reply: WhatsAppOutgoingReply
+  onboarding?: WhatsAppOnboardingState
 }): Promise<WhatsAppOutgoingReply> {
   const db = await getAdminDb()
   const conversationRef = db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(input.senderPhoneNumber))
@@ -209,6 +238,7 @@ export async function storeWhatsAppAssistantReply(input: {
       {
         recentMessages: updatedMessages,
         updatedAtMs: Date.now(),
+        ...(input.onboarding ? { onboarding: input.onboarding } : {}),
       },
       { merge: true },
     )

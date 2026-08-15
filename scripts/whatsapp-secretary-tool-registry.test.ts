@@ -4,6 +4,7 @@ import { z } from "zod"
 import {
   assertOnlyAllowedMessagesTools,
   buildToolRegistry,
+  enabledSecretaryModules,
   runSecretaryTool,
   toolSpecs,
   type SecretaryModule,
@@ -53,6 +54,32 @@ test("internal access aggregates every enabled module's tools", () => {
     [...tools.keys()].sort(),
     ["applications_fakeSearch", "directory_fakeSearch", "questCoral_fakeSearch"].sort(),
   )
+})
+
+test("the me module is gated by canReadOwnContext, like every other per-module flag", () => {
+  const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  assert.ok(enabledSecretaryModules(access).includes("me"))
+
+  const meFactories = { ...fakeFactories, me: () => [fakeTool("me_fakeContext", "me", 1)] }
+  assert.ok(buildToolRegistry(access, meFactories).has("me_fakeContext"))
+  assert.ok(!buildToolRegistry({ ...access, canReadOwnContext: false }, meFactories).has("me_fakeContext"))
+  assert.ok(!buildToolRegistry(resolveWhatsAppAccessPolicy(null), meFactories).has("me_fakeContext"))
+})
+
+test("the advertised module list and the registered module list are the same list", () => {
+  // `me_getSecretaryGuide` describes capabilities from `enabledSecretaryModules`,
+  // so a module can never be advertised without being registered.
+  const access = resolveWhatsAppAccessPolicy(identifiedIdentity)
+  const advertised = enabledSecretaryModules(access)
+  const factories = Object.fromEntries(
+    advertised.map((module) => [
+      module,
+      // The messages module's names are allowlisted by the guard, so its stand-in must use a real one.
+      () => [fakeTool(module === "messages" ? "messages_searchOperationalHistory" : `${module}_fake`, module, 1)],
+    ]),
+  )
+  const registered = new Set([...buildToolRegistry(access, factories).values()].map((tool) => tool.module))
+  assert.deepEqual([...registered].sort(), [...advertised].sort())
 })
 
 test("toolSpecs produces OpenAI-shaped function specs", () => {

@@ -5,7 +5,18 @@ import { handleWhatsAppDailyReportDraftAction } from "@/lib/whatsapp-daily-repor
 import { resolveWhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
-import { addFirstInteractionWelcome, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
+import { addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
+import {
+  buildCapabilitySignature,
+  buildPrefixIntroduction,
+  buildStandaloneIntroduction,
+  decideIntroduction,
+  type WhatsAppOnboardingState,
+} from "@/lib/whatsapp-secretary/onboarding"
+import { getSelfContextSnapshot, selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
+import { enabledSecretaryModules } from "@/lib/whatsapp-secretary/tool-registry"
+import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
+import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 export const runtime = "nodejs"
@@ -88,6 +99,66 @@ async function startWhatsAppProcessingFeedback(message: IncomingWhatsAppMessage)
   }
 }
 
+type ResolvedIntroduction = {
+  /** Composes the personalized introduction onto an already-generated reply. */
+  apply(reply: WhatsAppOutgoingReply): WhatsAppOutgoingReply
+  /** Present only when an introduction was actually shown, so it is recorded exactly once. */
+  onboarding?: WhatsAppOnboardingState
+}
+
+const NO_INTRODUCTION: ResolvedIntroduction = { apply: (reply) => reply }
+
+/**
+ * Decides whether this turn should introduce the Secretary, and builds the
+ * personalized copy if so.
+ *
+ * Runs outside the model entirely: the introduction is deterministic text
+ * assembled from the live self-context snapshot, so it can never invent a
+ * role, job, or project — and a snapshot failure degrades to no introduction
+ * rather than to a wrong one. Only recognized senders are ever introduced;
+ * public/unrecognized numbers keep the existing public-knowledge behavior
+ * untouched.
+ */
+async function resolveSecretaryIntroduction(input: {
+  identity: WhatsAppSenderIdentity | null
+  accessPolicy: WhatsAppAccessPolicy
+  onboarding: WhatsAppOnboardingState | null
+  isFirstInteraction: boolean
+  message: string
+}): Promise<ResolvedIntroduction> {
+  if (!input.identity) return NO_INTRODUCTION
+
+  const signature = buildCapabilitySignature({
+    level: input.accessPolicy.level,
+    modules: enabledSecretaryModules(input.accessPolicy),
+    role: input.identity.role ?? null,
+    hasLinkedAccount: Boolean(input.identity.userId),
+  })
+  const decision = decideIntroduction({
+    state: input.onboarding,
+    signature,
+    nowMs: Date.now(),
+    hasConversationHistory: !input.isFirstInteraction,
+  })
+  if (!decision.show) return NO_INTRODUCTION
+
+  try {
+    const snapshot = await getSelfContextSnapshot(selfContextActorFromIdentity(input.identity))
+    const standalone = buildStandaloneIntroduction(snapshot, decision)
+    const prefix = buildPrefixIntroduction(snapshot, decision)
+    console.info("Introducing the SVC AI Secretary", { reason: decision.reason, newModuleCount: decision.newModules.length })
+    return {
+      apply: (reply) => addSecretaryIntroduction(reply, { standalone, prefix, message: input.message }),
+      onboarding: { lastIntroAtMs: Date.now(), capabilitySignature: signature },
+    }
+  } catch {
+    // A personalized introduction that can't be grounded is simply skipped —
+    // the normal answer still goes out, and the next turn tries again.
+    console.warn("Unable to build the personalized SVC AI Secretary introduction.")
+    return NO_INTRODUCTION
+  }
+}
+
 /** Avoids repeated model calls when Meta retries delivery of the same inbound message. */
 async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Promise<WhatsAppOutgoingReply> {
   const now = Date.now()
@@ -115,6 +186,16 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           hasRole: Boolean(senderIdentity?.role),
           linkedToUser: Boolean(senderIdentity?.userId),
         })
+        const accessPolicy = resolveWhatsAppAccessPolicy(senderIdentity)
+        // Resolved once per turn, before either branch, so the Daily Report
+        // draft flow and the AI answer introduce identically.
+        const introduction = await resolveSecretaryIntroduction({
+          identity: senderIdentity,
+          accessPolicy,
+          onboarding: conversation.onboarding,
+          isFirstInteraction: conversation.isFirstInteraction,
+          message: message.text,
+        })
         const dailyReportDraftAction = await handleWhatsAppDailyReportDraftAction({
           senderPhoneNumber: message.senderPhoneNumber,
           messageId: message.messageId,
@@ -127,16 +208,13 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             actorIdentified: senderIdentity !== null,
           })
           const draftReply: WhatsAppOutgoingReply = { text: dailyReportDraftAction.reply }
-          const withWelcome = conversation.isFirstInteraction && senderIdentity
-            ? addFirstInteractionWelcome(draftReply, { name: senderIdentity.name, message: message.text })
-            : draftReply
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: withWelcome,
+            reply: introduction.apply(draftReply),
+            ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
           })
         } else {
-          const accessPolicy = resolveWhatsAppAccessPolicy(senderIdentity)
           const companyKnowledge = await findRelevantCompanyKnowledge(
             conversation.recentMessages,
             accessPolicy.companyKnowledgeScope,
@@ -151,13 +229,11 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             accessPolicy,
             companyKnowledge,
           })
-          const withWelcome = conversation.isFirstInteraction && senderIdentity
-            ? addFirstInteractionWelcome(generatedReply, { name: senderIdentity.name, message: message.text })
-            : generatedReply
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: withWelcome,
+            reply: introduction.apply(generatedReply),
+            ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
           })
         }
       } finally {

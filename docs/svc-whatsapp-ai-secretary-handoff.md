@@ -4,6 +4,138 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## Self-awareness, onboarding, and personalized discovery (2026-08-14, latest)
+
+The Secretary could already answer almost anything about SVC, but nothing
+about *the person asking*. It resolved an identity on every turn and then
+threw it away: the system prompt literally told it to "never reveal it back",
+the only onboarding was one fixed greeting on the first-ever message, and
+"what can you do?" produced a generic feature list identical for everyone.
+This closes that gap without touching the access model.
+
+### `me` module — "My SVC Context"
+
+`lib/whatsapp-secretary/self-context.ts` builds one bounded snapshot of what
+SVC genuinely knows about the resolved sender, and
+`lib/whatsapp-secretary/tools/me.ts` exposes it as three tools:
+
+- **`me_getMyProfile`** — who they're recognized as, their own contact
+  details, the companies/jobs linked to them in Directory, and an explicit
+  `gaps` list.
+- **`me_getMySvcContext`** — their whole current situation at once: linked
+  jobs/companies, Quest Coral projects (owned or involved), their own recent
+  Daily Reports including drafts, whether they're clocked in right now, the
+  Outlooks running on their jobs, how much recent Communications activity they
+  can see, and their own Applications record if their contact details match
+  one.
+- **`me_getSecretaryGuide`** — what the Secretary can do *for this person*,
+  how to use it, and example questions built from their real records.
+
+**This is personalization, not a new permissions model.** Every read is
+either about the sender's own record, already open to any identified internal
+sender through an existing tool, or — for Communications — scoped server-side
+to the exact `visibleToUserIds array-contains <own uid>` ACL
+`messages_searchMyCommunications` already enforces. New policy flag
+`canReadOwnContext` follows the existing `canRead*` shape. Like `messages`,
+the module is registered per-request with the **server-resolved actor closed
+over**, and its tools take **zero arguments** — there is deliberately no
+`personName` parameter anywhere in the file, so the model has no way to point
+any of it at someone else.
+
+**No new Firestore index.** Reports reuse the deployed `(authorId, status,
+createdAt DESC)`; Communications reuses `(visibleToUserIds CONTAINS, timestamp
+DESC)`; Applications matching is single-field equality on `general.email`/
+`general.phone`. Clocking deliberately reports only the *currently open* clock
+(`userId == uid AND status == "active"`, the equality-only shape
+`getActiveClock()` already uses in production) rather than clock history —
+history would need a `(userId, clockInAt DESC)` composite index that does not
+exist, and returning an arbitrary unordered slice labelled "recent" would be
+worse than not answering. Quest Coral membership lives in a `people[]` array
+of objects Firestore can't query, so it filters one bounded
+`orderBy(updatedAt).limit(200)` page in memory — the same tradeoff
+`tools/quest-coral.ts` already makes on that confirmed-small collection.
+
+**Two anti-invention rules are structural, not prompt-only**: every source is
+fetched in its own try/catch and degrades to empty/`null` (one broken read
+never blanks the snapshot, and never becomes a made-up value), and absence is
+reported *explicitly* as a `gaps` array ("No role/title is on file for them").
+`buildPersonalizedExamples` has no branch that can name a job, project, or
+company the snapshot didn't return — a person with nothing on file falls
+through to capability-level examples with placeholders.
+
+### Onboarding that doesn't repeat itself
+
+`lib/whatsapp-secretary/onboarding.ts` replaces the one-shot greeting with
+three deliberate triggers, keyed off a **capability signature** —
+`v{version}|{level}|{sorted enabled modules}|role=…|account=linked|unlinked` —
+persisted as `onboarding: { lastIntroAtMs, capabilitySignature }` on the
+existing `/whatsappConversations/{sha256(phone)}` document (same lifetime, id
+and privacy posture as the transcript; no new collection):
+
+- **first-contact** — no intro ever recorded and no conversation history.
+- **capabilities-changed** — the signature moved. Because the signature
+  carries its own module list, the refresher can *name exactly what is new*
+  ("I can now read Communications") instead of vaguely re-pitching. Bumping
+  `SECRETARY_CAPABILITY_VERSION` is the one lever that re-surfaces
+  capabilities across the whole user base.
+- **refresher** — nothing changed, but 45 days have passed. An existing
+  conversation with no recorded intro (everyone who predates this tracking)
+  also lands here, so returning users aren't greeted as brand new.
+
+Everything else gets no introduction at all. The state is written in the
+*same transaction* as the reply it was computed for, so a sender can never be
+marked "already introduced" for a reply that failed to persist, and a Meta
+retry short-circuits before re-arming it.
+
+The introduction copy is built **outside the model**, deterministically, from
+the live snapshot — so it cannot invent a role or a job, and a snapshot
+failure degrades to no introduction rather than a wrong one. A bare greeting
+or a "what can you do?" on an intro turn gets the full card *instead of* the
+model's answer; a substantive first request keeps its answer with one short
+line of context above it.
+
+Later "what can you do?" turns are answered by the model through
+`me_getSecretaryGuide`, so they adapt to the phrasing instead of replaying a
+fixed card.
+
+**Prompt changes** (`prompt.ts`): the "never reveal it back" instruction is
+gone — recognition is the point now — but replaced with a stricter anchor:
+the identity line is a *starting point only*, and anything specific about the
+person (role, jobs, projects, what to check) must come from a `me_*` tool
+result. Explicit routing rules were added for "what do you know about me",
+"what jobs am I on", "what should I check today", "what can you do", "what
+can I ask you about my work", each with its own do-not-invent clause.
+
+**Real bug fixed along the way**: `lib/whatsapp-response-ux.ts` clamped every
+outgoing body with a helper that collapsed `\s+` into single spaces — so the
+short bullet lists the system prompt has always asked for were silently
+flattened into one run-on paragraph in WhatsApp. Split into `clamp()` (still
+single-line, for native list row titles/descriptions, where WhatsApp allows no
+line breaks) and `clampBody()` (preserves newlines, normalizes blank-line
+runs).
+
+**Verified two ways.** `pnpm verify:fast` and `pnpm build` green;
+`pnpm test:whatsapp-secretary` grew from 205 to 254 tests across four new
+files (`whatsapp-secretary-self-context`, `-me-tools`, `-onboarding`,
+`-personalization-scenarios`) plus additive registry/response-UX coverage.
+Then a **live pass against the real `gpt-5.6-terra`** (fixture self-context
+provider, no Firestore/Storage/WhatsApp touched) confirmed the model actually
+routes correctly — every question hit exactly the intended tool, in 2.5-4.1s:
+
+| Question | Tool called | Result |
+| --- | --- | --- |
+| "what can you do?" | `me_getSecretaryGuide` | Named her real jobs (North Ridge, LDS Outdoor Pavilions) and project (Cool Breeze Rollout), not a generic list |
+| "what do you know about me?" | `me_getMyProfile` | Role, company, location, both jobs with relationship labels; "no profile gaps on file" |
+| "what should I check today?" | `me_getMySvcContext` | Led with the open clock, then the draft report, then the active Outlooks |
+| "what jobs am I involved with?" | `me_getMySvcContext` | Both jobs; correctly said "no relationship label is on file" for the second |
+| "what can I ask you about my work?" | `me_getSecretaryGuide` | Examples built from her own records |
+| empty-profile: "what's my role?" | `me_getMyProfile` | "Your role/title isn't on file… no linked app account" — no invention |
+| empty-profile: "how can you help me?" | `me_getSecretaryGuide` | Capability-level examples only, zero invented records |
+
+First-contact card renders at 417 characters.
+
+Implementation + tests only — not pushed or deployed as of this writing.
+
 ## `directory_listRegisteredUsers` (2026-08-14, later still)
 
 Real bug from a pasted WhatsApp transcript: "What users are on the svc apps
@@ -699,6 +831,18 @@ since there is no deterministic mock-mode eval for a 6-module orchestrator
 19. Ask about someone who does not exist in Directory (should say so plainly, never invent a person).
 20. "Can you read my WhatsApp messages with [someone]?" (should say plainly it has no Messages access, never attempt a workaround).
 
+**Personalization / onboarding** (2026-08-14 — these need a *fresh* sender to
+see the first-contact path; the sandbox number has already been introduced, so
+clear its `onboarding` field on `/whatsappConversations/{sha256(phone)}` first,
+or use a second recognized number)
+21. Send just "Hi" as the very first message (should get the personalized card: recognized name/role, what it can see, 3 example questions naming real jobs/projects).
+22. Send a real question as the very first message instead (should get the answer, with one short context line above it — not a tutorial).
+23. Send several more ordinary questions (should get **no** introduction on any of them).
+24. "What do you know about me?" (name, role, jobs, companies — and an explicit statement of anything not on file).
+25. "What should I check today?" (open clock / draft reports / active Outlooks first, then the rest).
+26. "What can you do?" and "What can I ask you about my work?" (must name that person's real jobs/projects, never a generic feature list).
+27. From a recognized number with a thin/empty SVC record (e.g. a contact with no linked app account): "what's my role?" (must say it isn't on file, and must not invent one).
+
 ## Current outcome
 
 The SVC AI Secretary is live on the official **Meta WhatsApp Cloud API test
@@ -793,7 +937,8 @@ service or backend.
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
 | Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over two files as one pool: `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` (product/module) and `SVC_Company_Mission_Operating_Framework_Knowledge.md` (company/mission, added 2026-08-14; chunk ids prefixed `mission-`). A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
-| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge,messages}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. `messages` is the Communications read layer (2026-08-14) — see above; unlike every other module it is further actor-scoped for its human-message tool. |
+| Self-context / onboarding | `lib/whatsapp-secretary/self-context.ts`, `tools/me.ts`, `onboarding.ts` | One bounded "what SVC knows about the sender" snapshot (index-free or on already-deployed indexes), the three zero-argument `me_*` tools built on it, and the capability-signature-driven introduction. Personalization over already-permitted reads — no new scope. |
+| Internal read tools | `lib/whatsapp-secretary/tools/{directory,quest-coral,applications,reports,clocking,outlooks,knowledge,messages,me}.ts` | Bounded, read-only, model-invoked tools with real date-range/cursor pagination where the module supports it; never send whole collections to a model. `knowledge` is stable Company Knowledge, not live SVC data — gated by `companyKnowledgeScope`, not a `canRead*` flag. `messages` is the Communications read layer (2026-08-14) — see above; unlike every other module it is further actor-scoped for its human-message tool. |
 | Usage guard | `lib/whatsapp-secretary/usage-guard.ts` | Per-identified-sender rolling rate limit over `whatsappSecretaryAiUsage` (mirrors `directoryAiUsage`). |
 | First write action | `lib/whatsapp-daily-report-drafts.ts` | Preview / confirm / cancel flow, using the established ByeByeDPR `/reports` document shape. Unchanged by the read-orchestrator work. |
 
@@ -1017,6 +1162,11 @@ combination, in one turn:
   active jobs right now" tool.
 - **3-Week Outlooks:** per-job outlook reads (tasks, dates, status) plus a
   cross-job "active outlooks today" tool.
+- **My SVC context (`me_*`):** who the sender is recognized as, their own
+  linked jobs/companies/projects/reports/clock/Outlooks/Applications record,
+  and a capability guide with example questions built from those same real
+  records. Zero-argument tools, actor resolved server-side — see the
+  "Self-awareness, onboarding, and personalized discovery" section above.
 
 No WhatsApp capability has access to `/messages` or may write to Messages —
 enforced structurally in `lib/whatsapp-secretary/tool-registry.ts`, not just

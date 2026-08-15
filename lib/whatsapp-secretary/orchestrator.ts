@@ -11,6 +11,7 @@ import type { WhatsAppSecretaryConversationMessage } from "@/lib/whatsapp-secret
 import { buildWhatsAppSecretarySystemPrompt, WHATSAPP_SECRETARY_RESULT_SCHEMA } from "@/lib/whatsapp-secretary/prompt"
 import {
   buildToolRegistry,
+  enabledSecretaryModules,
   runSecretaryTool,
   toolSpecs,
   type SecretaryModule,
@@ -31,6 +32,8 @@ import { createClockingTools } from "@/lib/whatsapp-secretary/tools/clocking"
 import { createOutlooksTools } from "@/lib/whatsapp-secretary/tools/outlooks"
 import { createKnowledgeTools } from "@/lib/whatsapp-secretary/tools/knowledge"
 import { createMessagesTools } from "@/lib/whatsapp-secretary/tools/messages"
+import { createMeTools } from "@/lib/whatsapp-secretary/tools/me"
+import { selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import {
   createWhatsAppSecretaryPresentation,
   type WhatsAppOutgoingReply,
@@ -75,6 +78,10 @@ const DEFAULT_TOOL_FACTORIES: Record<SecretaryModule, SecretaryToolFactory> = {
   outlooks: createOutlooksTools,
   knowledge: createKnowledgeTools,
   messages: createMessagesTools,
+  // `me` has no identity-free default: without a server-resolved actor there
+  // is no "me" to read. The per-request override below supplies one, and the
+  // registry only ever enables this module for an identified sender.
+  me: () => [],
 }
 
 export interface WhatsAppSecretaryAnswerInput {
@@ -153,13 +160,23 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
   }
   const history = messages.slice(0, -1)
 
-  // The messages module needs to know *who is asking* (to scope the human-
-  // message tool to their own visibleToUserIds) — every other module's
-  // factory takes no arguments, so this one default is overridden per-request
-  // here instead of widening SecretaryToolFactory's signature for everyone.
+  // Two modules need to know *who is asking*: `messages` (to scope the
+  // human-message tool to their own visibleToUserIds) and `me` (whose entire
+  // subject is the sender). Every other module's factory takes no arguments,
+  // so these two defaults are overridden per-request here instead of widening
+  // SecretaryToolFactory's signature for everyone. In both cases the actor
+  // comes from the server-resolved access policy/identity, never from model
+  // input — there is no tool argument that could point either at someone else.
   const factories: Partial<Record<SecretaryModule, SecretaryToolFactory>> = {
     ...DEFAULT_TOOL_FACTORIES,
     messages: () => createMessagesTools({ actorUserId: input.accessPolicy.actorUserId }),
+    me: () =>
+      input.senderIdentity
+        ? createMeTools({
+            actor: selfContextActorFromIdentity(input.senderIdentity),
+            enabledModules: enabledSecretaryModules(input.accessPolicy),
+          })
+        : [],
     ...deps.toolFactories,
   }
   const tools = buildToolRegistry(input.accessPolicy, factories)

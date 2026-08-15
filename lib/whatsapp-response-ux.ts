@@ -80,8 +80,26 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+/** Single-line clamp — for native list row titles/descriptions, where WhatsApp allows no line breaks at all. */
 function clamp(value: string, max: number): string {
   const trimmed = value.replace(/\s+/g, " ").trim()
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
+/**
+ * Body clamp that keeps line structure. The single-line {@link clamp} was
+ * previously used for message bodies too, which silently collapsed every
+ * newline into a space — so the short bullet lists the system prompt asks for
+ * (and the personalized introduction card) rendered as one run-on paragraph in
+ * WhatsApp. Runs of blank lines are still normalized so a stray model newline
+ * can't pad the reply.
+ */
+function clampBody(value: string, max: number): string {
+  const trimmed = value
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[^\S\n]*\n[^\S\n]*/g, "\n")
+    .trim()
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
 
@@ -256,7 +274,7 @@ export function createWhatsAppSecretaryPresentation(input: {
   }
 
   const cta = directCtaFromExecutions(input.executions) ?? continuationCta(input.question)
-  const text = clamp(input.answer, MAX_CTA_BODY_CHARACTERS)
+  const text = clampBody(input.answer, MAX_CTA_BODY_CHARACTERS)
   const attachments = attachmentsFromExecutions(input.executions, input.question)
   return {
     text,
@@ -265,24 +283,49 @@ export function createWhatsAppSecretaryPresentation(input: {
   }
 }
 
-function firstName(name: string): string {
-  return name.trim().split(/\s+/, 1)[0] || "there"
+/**
+ * A message with no request in it — a bare greeting, or a question about the
+ * assistant itself. On an introduction turn these get the full, deterministic
+ * personalized card *instead of* the model's answer: there is no real request
+ * to preserve, and the card is guaranteed grounded in the live snapshot.
+ *
+ * Outside an introduction turn this classification is not used at all — a
+ * later "what can you do?" is answered by the model through
+ * `me_getSecretaryGuide`, so it adapts to how the question was actually
+ * phrased instead of replaying a fixed card.
+ */
+export function isDiscoveryMessage(value: string): boolean {
+  const text = value.trim()
+  if (/^(?:hi|hello|hey|hola|help|start|menu|good morning|good afternoon|good evening)[!.?\s]*$/i.test(text)) return true
+  return /^(?:what can you do|what do you do|how can you help|what are you|who are you|how do i use (?:this|you)|what can i ask)[^?]*\??$/i.test(text)
 }
 
-function isDiscoveryMessage(value: string): boolean {
-  return /^(?:hi|hello|hey|help|start|what can you do|how can you help)[!.?\s]*$/i.test(value.trim())
-}
+/**
+ * Attaches the Secretary's personalized introduction to an outgoing reply.
+ *
+ * The introduction text itself is built by
+ * `lib/whatsapp-secretary/onboarding.ts` from the live self-context snapshot;
+ * this function only decides how it composes with the answer that was already
+ * generated, and keeps the native presentation body in sync with the final
+ * text. Never shown to public/unrecognized senders — the caller gates on a
+ * resolved identity.
+ */
+export function addSecretaryIntroduction(
+  reply: WhatsAppOutgoingReply,
+  input: { standalone: string; prefix: string; message: string },
+): WhatsAppOutgoingReply {
+  const text = clampBody(
+    isDiscoveryMessage(input.message) ? input.standalone : `${input.prefix}\n\n${reply.text}`,
+    MAX_CTA_BODY_CHARACTERS,
+  )
 
-/** First-contact greeting for a resolved SVC employee; never shown to public senders. */
-export function addFirstInteractionWelcome(reply: WhatsAppOutgoingReply, input: { name: string; message: string }): WhatsAppOutgoingReply {
-  const greeting = `Hi ${firstName(input.name)} — I’m the SVC AI Secretary.`
-  const discovery = "You can ask about people, jobs, projects, applications, reports, or how to use SVC. Try “Who manages North Ridge?” or “What needs review?”"
-  const prefix = isDiscoveryMessage(input.message) ? `${greeting}\n${discovery}` : greeting
-  const text = isDiscoveryMessage(input.message) ? prefix : `${prefix}\n\n${reply.text}`
-
-  if (!reply.presentation) return { text }
-  if (reply.presentation.kind === "list") {
-    return { text, presentation: { ...reply.presentation, body: text } }
+  // A disambiguation list is a question, not an answer — replacing it with the
+  // intro card would strand the user, so the list survives and only its body
+  // gains the prefix.
+  if (!reply.presentation) return { text, ...(reply.attachments ? { attachments: reply.attachments } : {}) }
+  return {
+    text,
+    presentation: { ...reply.presentation, body: text },
+    ...(reply.attachments ? { attachments: reply.attachments } : {}),
   }
-  return { text, presentation: { ...reply.presentation, body: text } }
 }

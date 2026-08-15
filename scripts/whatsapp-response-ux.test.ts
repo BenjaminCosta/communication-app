@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { addFirstInteractionWelcome, createWhatsAppSecretaryPresentation } from "../lib/whatsapp-response-ux"
+import { addSecretaryIntroduction, isDiscoveryMessage, createWhatsAppSecretaryPresentation } from "../lib/whatsapp-response-ux"
 
 test("uses a native list only for multiple explicit Directory search matches", () => {
   const reply = createWhatsAppSecretaryPresentation({
@@ -86,19 +86,54 @@ test("offers the correct module CTA for a supported continuation request", () =>
   assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.url : "", "https://communication-svc.vercel.app/?module=applications")
 })
 
-test("welcomes a first-time employee without adding a tutorial to a substantive answer", () => {
-  const reply = addFirstInteractionWelcome(
+const introductionCopy = {
+  standalone: "Hi Ben — I'm the SVC AI Secretary.\nI know you as Ben Acosta, Site Supervisor.\nTry:\n• What's happening on North Ridge?",
+  prefix: "Hi Ben — I'm the SVC AI Secretary. I know you as Ben Acosta, Site Supervisor. Ask “what can you do?” any time.",
+}
+
+test("prefixes the introduction to a substantive answer instead of replacing it", () => {
+  const reply = addSecretaryIntroduction(
     { text: "Maya Lin is the project owner." },
-    { name: "Ben Acosta", message: "Who owns Customer Onboarding Redesign?" },
+    { ...introductionCopy, message: "Who owns Customer Onboarding Redesign?" },
   )
-  assert.equal(reply.text, "Hi Ben — I’m the SVC AI Secretary.\n\nMaya Lin is the project owner.")
+  assert.equal(reply.text, `${introductionCopy.prefix}\n\nMaya Lin is the project owner.`)
 })
 
-test("uses a short discovery greeting for a first hello", () => {
-  const reply = addFirstInteractionWelcome({ text: "unused" }, { name: "Ben Acosta", message: "Hello" })
-  assert.match(reply.text, /^Hi Ben — I’m the SVC AI Secretary\./)
-  assert.match(reply.text, /Who manages North Ridge/)
+test("replaces the answer with the full introduction card for a bare greeting", () => {
+  const reply = addSecretaryIntroduction({ text: "unused" }, { ...introductionCopy, message: "Hello" })
+  assert.match(reply.text, /^Hi Ben — I'm the SVC AI Secretary\./)
+  assert.match(reply.text, /What's happening on North Ridge\?/)
   assert.doesNotMatch(reply.text, /unused/)
+})
+
+test("treats a capability question as discovery, but an ordinary request as a real question", () => {
+  assert.equal(isDiscoveryMessage("what can you do?"), true)
+  assert.equal(isDiscoveryMessage("How can you help me"), true)
+  assert.equal(isDiscoveryMessage("Hey"), true)
+  assert.equal(isDiscoveryMessage("What can you tell me about North Ridge?"), false)
+  assert.equal(isDiscoveryMessage("Who owns Customer Onboarding Redesign?"), false)
+})
+
+test("keeps the introduction card's line breaks so WhatsApp renders the example bullets", () => {
+  const reply = addSecretaryIntroduction({ text: "unused" }, { ...introductionCopy, message: "hi" })
+  assert.ok(reply.text.includes("\n• What's happening on North Ridge?"))
+})
+
+test("keeps a disambiguation list intact and only re-bodies it with the introduction", () => {
+  const listReply = {
+    text: "I found 2 possible people. Select the right one to continue.",
+    presentation: {
+      kind: "list" as const,
+      body: "I found 2 possible people. Select the right one to continue.",
+      buttonText: "Select one",
+      sectionTitle: "Matches",
+      rows: [{ id: "svc-choice-1", title: "Alex Rivera" }],
+    },
+  }
+  const reply = addSecretaryIntroduction(listReply, { ...introductionCopy, message: "Who is Alex?" })
+  assert.equal(reply.presentation?.kind, "list")
+  assert.equal(reply.presentation?.body, reply.text)
+  assert.match(reply.text, /Select the right one to continue/)
 })
 
 // --- Attachments (2026-08-14): only attached when the question actually asks

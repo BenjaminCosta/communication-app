@@ -33,6 +33,16 @@ export type WhatsAppAccessPolicy = {
    * gets this flag but that tool returns nothing for them (see
    * `lib/whatsapp-secretary/tools/messages.ts`). */
   canReadMessages: boolean
+  /**
+   * Gates the "my SVC context" module (`lib/whatsapp-secretary/tools/me.ts`) —
+   * personalization only. It exposes nothing a recognized sender couldn't
+   * already read through the other modules; it narrows those same reads down
+   * to the server-resolved sender, whose identity the model never supplies.
+   * True for any identified sender, including one with no linked app account
+   * (their Directory-side context still resolves; the account-keyed sections
+   * come back empty and explicitly flagged).
+   */
+  canReadOwnContext: boolean
   /** Requires an identified, linked Firebase user because ByeByeDPR drafts are author-scoped. */
   canCreateDailyReportDraft: boolean
   /** Server-side authorization context. Never pass these IDs to a model. */
@@ -54,6 +64,7 @@ export function resolveWhatsAppAccessPolicy(identity: WhatsAppSenderIdentity | n
       canReadClocking: false,
       canReadOutlooks: false,
       canReadMessages: false,
+      canReadOwnContext: false,
       canCreateDailyReportDraft: false,
     }
   }
@@ -69,6 +80,7 @@ export function resolveWhatsAppAccessPolicy(identity: WhatsAppSenderIdentity | n
     canReadClocking: true,
     canReadOutlooks: true,
     canReadMessages: true,
+    canReadOwnContext: true,
     canCreateDailyReportDraft: Boolean(identity.userId),
     ...(identity.userId ? { actorUserId: identity.userId } : {}),
     actorPersonId: identity.personId,
