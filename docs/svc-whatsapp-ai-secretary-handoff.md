@@ -134,7 +134,22 @@ routes correctly — every question hit exactly the intended tool, in 2.5-4.1s:
 
 First-contact card renders at 417 characters.
 
-Implementation + tests only — not pushed or deployed as of this writing.
+**Pushed and deployed to production the same day**, on explicit user
+go-ahead. Committed as `967122e` and pushed straight to `main` via `git push
+origin HEAD:main` — deliberately without switching the checkout, since the
+shared working tree was sitting on the other Codex session's branch
+(`codex/applications-comms-completion`, which happened to be exactly at
+`main`); `git fetch origin main:main` then caught the local ref up. Deployed
+`dpl_A61GnLXtgqocAvixj67WU29BNcZh`, and `vercel inspect` confirmed
+`communication-svc.vercel.app` actually resolves to that build rather than a
+stale one. Smoke tests: root 200, module deep link 200, webhook GET 403 both
+with no verify token and with a wrong one, webhook POST with no
+`x-hub-signature-256` 401.
+
+**Still needs the live WhatsApp pass** — checklist items 21-27 below. Note
+item 21's caveat: the sandbox number has already been introduced by now, so
+its `onboarding` field must be cleared (or a second recognized number used) to
+exercise the first-contact path at all.
 
 ## `directory_listRegisteredUsers` (2026-08-14, later still)
 
