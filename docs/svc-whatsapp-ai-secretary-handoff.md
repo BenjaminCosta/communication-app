@@ -70,6 +70,25 @@ the carried ref with no re-lookup; "create a daily report draft for it" →
 preview + CONFIRM DRAFT contract. Four messages demonstrating identity,
 cross-module intelligence, memory and action. Tests 300 → 311.
 
+**Deployed to production 2026-08-15** — `faeef08` pushed to `main` (again via
+`git push origin HEAD:main`, without switching the shared checkout), deploy
+`dpl_35QXxNogomay9AYj11PnHfyM1KjP`, alias re-verified with `vercel inspect`.
+Smoke: root 200, module deep link 200, webhook GET 403 (no token and wrong
+token), POST 401 (unsigned and bad signature).
+
+⚠️ **Before demoing, check the data, not the code.** The brief is only as good
+as Directory's relations: a person's jobs come from `directoryRelations`, and
+the per-job report/clock columns additionally need that Directory job linked to
+its ByeByeDPR job via `directoryContextId`. Ask the demo account "what do you
+know about me?" first — if it lists their jobs, the brief will work; if it says
+no jobs are linked, that is a data fix in Directory, not a code problem. (It
+will say so honestly rather than invent, which is correct but not the demo you
+want.)
+
+⚠️ Seeing the **first-contact card** requires a sender with no recorded
+introduction — clear `onboarding` on `/whatsappConversations/{sha256(phone)}`
+for the demo number, or use one that has never messaged the Secretary.
+
 ## Writes as tools + cross-turn memory (2026-08-15)
 
 Steps 6 and 7 of the architecture review — the last two — implemented in their
