@@ -55,6 +55,25 @@ appends only when the preview hasn't already stated it.
 
 Tests 276 → 299. **Final catalog: 24 tools** (23 reads + 1 write).
 
+**Pushed and deployed to production 2026-08-15**, on explicit user go-ahead,
+together with the catalog consolidation below. `cf5e371` (and `51bbae7`) pushed
+straight to `main` via `git push origin HEAD:main` — again without switching the
+checkout, since the shared worktree sits on the other Codex session's branch.
+Deployed `dpl_4oBir32S3vHjTs8DWs7Gvi6TYwkK`; `vercel inspect` confirmed
+`communication-svc.vercel.app` resolves to that build. Smoke tests: root 200,
+module deep link 200, webhook GET 403 with no token and with a wrong one,
+webhook POST 401 both unsigned and with a bad `x-hub-signature-256`.
+
+⚠️ **Still needs one live check that no offline or fixture test can cover**: an
+end-to-end `CONFIRM DRAFT` against real Firestore. Everything below the model
+boundary was verified with a spy store, and the store transaction itself is
+unchanged code — but the new path that reaches it (preview → envelope persisted
+on the conversation document → exact-phrase match → `commit`) has never run
+against production data. Send a real draft request from the sandbox number,
+confirm it, then verify exactly one new `whatsapp-draft-*` report exists with
+`status: "draft"`. Confirm a second time and verify it reports "already created"
+without creating another.
+
 ## Catalog consolidation: 37 → 23 tools (2026-08-14)
 
 Steps 1–5 of the architecture review below, implemented. **Steps 6 (write
