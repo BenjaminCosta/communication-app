@@ -4,6 +4,42 @@ _Last updated: 2026-08-14. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
+## Tool/orchestrator architecture review (2026-08-14, latest — plan, no code changed)
+
+A full review of the Secretary **as an AI orchestrator with tools**, against
+the question of whether it can keep growing into a much more capable company
+AI. Written up separately, because it is a multi-session plan rather than a
+changelog entry:
+**[svc-whatsapp-secretary-tool-architecture-review.md](./svc-whatsapp-secretary-tool-architecture-review.md)**.
+
+Headline: the loop and the access model are right and should not be
+regressed; the **tool catalog** is the ceiling. There are **37 tools** exposed
+to an identified internal sender today, grown one-tool-per-question-shape,
+which is _modules × shapes_ — the review proposes **22 with more capability**
+(optional filters/cursors where split tools had fixed slices).
+
+Two findings are live correctness risks rather than scaling concerns, and are
+worth knowing before touching this code:
+
+- **Entity resolution is duplicated six times with two different reranking
+  implementations**, and each tool re-resolves `jobName` independently — so a
+  cross-module question can silently blend two different jobs into one answer.
+- **The shared record budget truncates with no marker**: `SecretaryToolResult`
+  has no `truncated`/`totalMatched`, so the standing "never say something is
+  missing just because it wasn't in a bounded result" guardrail is currently
+  impossible for the model to actually honor.
+
+Recommended order of work, each step unblocking the next: entity resolver +
+`refs` → a generic `svc_getEntityDossier` (the non-`me` form of
+`me_getMySvcContext`) → Directory 13 → 5 → `truncated`/`totalMatched` →
+search consolidation in Quest Coral/Applications/Reports → a write framework
+(`kind: "read" | "write"` with `preview`/`commit` on the tool contract) →
+memory that persists tool results, not just transcript text.
+
+Explicitly rejected in the review: an LLM router in front of the tool loop,
+per-module sub-agents, embeddings for Company Knowledge, and any change to the
+`presentation` channel.
+
 ## Self-awareness, onboarding, and personalized discovery (2026-08-14, latest)
 
 The Secretary could already answer almost anything about SVC, but nothing
@@ -1301,6 +1337,14 @@ the existing unambiguous confirmation contract.
   service-account values, or personal phone numbers.
 - New internal capabilities must enforce authorization in the data/tool path,
   not only in an AI system prompt.
+- **Before adding a tool, check whether an existing one should gain an
+  optional parameter instead.** The catalog is already at 37 and the review
+  above found several tools that are one function with a different constant
+  baked in. A new entry in the model's menu is a real cost: selection accuracy
+  degrades silently, never with an error. If a new tool's description would
+  need to spend most of its length explaining that it is *not* its sibling,
+  that is the signal it should be a parameter. See
+  [the architecture review](./svc-whatsapp-secretary-tool-architecture-review.md).
 - Use narrow Firestore queries and concise model context. Do not ship whole
   collections or raw internal data to OpenAI.
 - For any new write action, retain preview + explicit confirmation + server-side
@@ -1308,6 +1352,7 @@ the existing unambiguous confirmation contract.
 
 ## Related documentation
 
+- [Tool/orchestrator architecture review](./svc-whatsapp-secretary-tool-architecture-review.md) — 2026-08-14 assessment of the tool catalog and the 37 → 22 consolidation plan. Read this before adding a new tool.
 - [SVC AI Secretary Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — the Company Knowledge source `lib/knowledge-pack.ts` parses and retrieves from.
 - [ByeByeDPR product context](./svc-bye-bye-dpr-product-context.md)
 - [ByeByeDPR module context](./svc-bye-bye-dpr-module.md)

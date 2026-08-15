@@ -1,0 +1,273 @@
+# SVC AI Secretary — tool/orchestrator architecture review
+
+_Reviewed 2026-08-14 against `lib/whatsapp-secretary/` at commit `7a04dfc`._
+_Scope: orchestrator, tool registry, all nine module tool files, Knowledge,
+Live Data, memory, access control, and tool-calling structure._
+_**No code was changed by this review.** It is a plan, not a changelog._
+
+Published reference copy (same content, better formatted for scanning):
+<https://claude.ai/code/artifact/1d6c6a83-8459-4dd4-8713-48233c1323e8>
+
+## Verdict
+
+The orchestrator loop is the right shape and the access model is genuinely
+well built. What does not scale is the **tool catalog**: growth has been one
+tool per question shape, which is _modules × shapes_, and it degrades
+**silently** — a wrong tool choice produces a plausible but wrong answer, not
+an error.
+
+- **Tools exposed to an identified internal sender today: 37.**
+- **Proposed after consolidation: 22**, with *more* capability (optional
+  filters, cursors and drill-down where split tools had fixed slices).
+
+Current per-module counts: Directory 13, Quest Coral 5, Applications 4,
+Reports 4, Clocking 2, Outlooks 2, Knowledge 2, Messages 2, Me 3.
+
+## What is already right — do not regress these
+
+1. **Permissions by non-registration.** `buildToolRegistry(accessPolicy,
+   factories)` means a tool the sender may not use is *never advertised to the
+   model*, so there is no prompt-level "please don't" to jailbreak. Plus
+   `assertOnlyAllowedMessagesTools` as defense in depth.
+2. **Actor closed over server-side.** `messages` and `me` take the requesting
+   sender from the resolved access policy, never from model input, via a
+   per-request factory override in `orchestrator.ts`. The `me_*` tools take
+   zero arguments at all, so there is structurally no way to point them at
+   another person.
+3. **Zod validation of model output** in every tool, with `runSecretaryTool`
+   returning a *structured error* for unknown names/bad arguments rather than
+   throwing — the model can recover mid-turn.
+4. **The `presentation` channel.** Stripped from the tool JSON sent to OpenAI
+   (`dispatchToolCalls`), so deep links, CTAs and file attachments stay
+   deterministic because the model never holds a URL. Load-bearing for safety.
+5. **Provider seams per module** (`ReportsToolsProvider`,
+   `MessagesToolsProvider`, `SelfContextProvider`, `DirectoryDataProvider`, …)
+   — what makes 254 offline tests possible with no Firestore.
+6. **Deterministic-first.** All retrieval and business logic is code; AI does
+   orchestration and final synthesis only.
+
+## Findings
+
+### F1 — Several tools are one function with a different constant (consolidate)
+
+- `directory_searchPeople`/`searchCompanies`/`searchJobs` are literally
+  `searchTool(name, scope, label)` called three times
+  (`features/directory/ai/server/tools/definitions.ts`). That is a `type`
+  parameter, not three tools.
+- `findSharedContacts`/`findSharedJobs` — same, one `type` parameter.
+- `questCoral_listAllProjects` vs `questCoral_searchProjects`, and
+  `applications_listAllApplications` vs `applications_searchCandidates` — one
+  optional `query` apart.
+- `reports_getRecentDailyReports` vs `reports_searchDailyReportsForJob` — the
+  same query, one with a job filter.
+
+**The relationship trio hides a real latent bug.** `getCompanyRelationships`/
+`getJobRelationships`/`getPersonRelationships` are `relationshipTool(name,
+label, pick)` three times, but the entity type is **already encoded in the
+`directoryId`** (`person__abc`). The model is being asked to choose a tool
+from information the argument already carries — and calling
+`getPersonRelationships` with a company id returns whatever `pick` pulls off
+the wrong relation shape, with no error.
+
+### F2 — Entity resolution is duplicated six times and can disagree (correctness)
+
+Six independent implementations of "name → entity":
+
+| Site | Mechanism |
+| --- | --- |
+| `tools/job-fanout.ts` | `resolveJobByNameViaDirectory` |
+| `tools/outlooks.ts`, `tools/messages.ts` | bare `directoryProvider.findByName` |
+| `tools/quest-coral.ts` | `createHybridQuestCoralProvider` (in-memory rerank) |
+| `tools/applications.ts` | `createHybridApplicationsProvider` (in-memory rerank) |
+| `tools/reports.ts` | `resolveAuthorIdByName` |
+| `tools/messages.ts` | `resolveTag` |
+
+…using **two different reranking implementations** (`rerankKeywordMatches` in
+`tools/directory.ts` vs `rerankByTokenScore` in `tools/keyword-match.ts`).
+
+Every tool takes `jobName: string` and resolves again on every call. A
+cross-module question about one job therefore resolves the same name three
+times (three extra Firestore round-trips) **and the three resolvers can land
+on different jobs**, silently blending two records into one answer.
+
+### F3 — The shared budget truncates silently and the model is never told (correctness)
+
+`SecretaryToolResult` is `{summary, data?, presentation?, empty?}` — there is
+no `truncated` and no `totalMatched`. `takeRecords` clips to
+`min(maxRecordsPerTool, remainingRecords)` with no marker.
+
+So the standing prompt guardrail — *"never say something is missing just
+because it wasn't in a bounded result"* — is **impossible for the model to
+honor**: it cannot distinguish "this is everything" from "this is what fit in
+the budget". And because `dispatchToolCalls` runs a round's calls under
+`Promise.all`, the decrement order across parallel calls is nondeterministic,
+so *which* tool gets starved varies per run.
+
+### F4 — There is no generic cross-module dossier (missing capability)
+
+"What's going on with North Ridge?" today means five tool calls (outlook +
+reports + clocking + operational messages + applications), each re-resolving
+the name, inside `maxToolRounds: 4` and `maxTotalRecords: 60`.
+
+`me_getMySvcContext` already proves the pattern works — one call,
+cross-module, bounded per section, with an explicit `gaps` list — but **it
+only exists for "me"**. The generic form is the single highest-leverage
+addition available.
+
+### F5 — Descriptions carry disambiguation that should be structural (scaling)
+
+`directory_getActiveUsers`'s description spends most of its length explaining
+that it is *not* `directory_listRegisteredUsers` and *not* clock-in status.
+`clocking_getClockHistoryForJob` points at `getMostActiveJobs`;
+`outlooks_getOutlookForJob` points at `listActiveOutlooks`.
+
+When a description exists mainly to distinguish itself from a sibling, the two
+should be one tool with a parameter. This works at 37 tools and becomes an N²
+disambiguation problem at 70.
+
+### F6 — Write actions have no framework (architecture)
+
+`handleWhatsAppDailyReportDraftAction` runs **before** the orchestrator in
+`app/api/whatsapp/webhook/route.ts`, matches exact commands by regex, and sits
+entirely outside the tool system. Its safety properties (preview → explicit
+`CONFIRM DRAFT` → transactional idempotency) are correct and must be kept.
+
+But it is not a *pattern*: each new write is another branch in the webhook,
+another command string, another bespoke state document — and the model cannot
+compose a write with a read.
+
+### F7 — Memory is transcript-only (architecture)
+
+`lib/whatsapp-conversation-memory.ts` keeps 12 messages at 2,000 characters.
+**Tool results are never persisted** — only the final assistant text — so a
+follow-up cannot reuse the prior turn's structured data and must re-call tools
+and re-spend budget. `nextCursor` values live only in the model's context
+window; once the 12-message window rolls, pagination state is gone. No
+cross-session recall and no durable per-user facts.
+
+### F8 — Hard round ceiling with no feedback (scaling)
+
+`runToolConversation` loops `round <= maxToolRounds` and withholds tools on the
+final round, so the model gets 4 tool-bearing rounds plus 1 forced answer. A
+genuine drill-down chain (search → details → relationships → reports →
+synthesize) consumes all of it, and when it runs out the model answers from
+partial data with **no signal that it was cut short**.
+
+### F9 — Smaller friction worth queuing
+
+- `directory_getEntityDetails` requires a raw `directoryId` obtainable only
+  from a prior search result, so every detail lookup costs two rounds. A
+  `{name, type}` overload would halve that.
+- `SecretaryToolBudget.maxNotesPerTool`/`maxNoteChars` are Directory-specific
+  fields living in the *shared* budget type — a leaked abstraction that will
+  look odd at the twelfth module.
+- `logWhatsAppSecretaryAi` records tool names and counts but no durations; as
+  the catalog grows you will want to know the p95 tool.
+- The 700-character reply cap truncates (`truncateReply`) rather than
+  summarizing or offering a "reply MORE" affordance.
+
+## Proposed consolidation: 37 → 22
+
+| Module | Now | After | Shape |
+| --- | ---: | ---: | --- |
+| Directory | 13 | **5** | `search({query, type?})` · `getEntity({ref, include:[details,relationships,notes]})` · `findConnection({from, to, mode})` · `searchNotes` · `listUsers({presence})` |
+| Quest Coral | 5 | **3** | `searchProjects({query?, status?})` absorbs list-all · `getProject({ref, include:[context,updates]})` · `listActivity` |
+| Applications | 4 | **2** | `search({query?, status?, jobRef?, since?, until?})` absorbs three · `getReviewQueue` (a genuine aggregate, stays) |
+| Reports | 4 | **2** | `search({jobRef?, authorRef?, status?, since?, until?, cursor})` absorbs three · `getCoverageGaps` |
+| Outlooks | 2 | **1** | `get({jobRef?})` — omitting `jobRef` *is* the cross-job listing |
+| Clocking | 2 | 2 | History and activity ranking are genuinely different questions |
+| Messages | 2 | 2 | **Deliberately untouched** — see note below |
+| Knowledge | 2 | 2 | Search-then-drill is already the right shape |
+| Me | 3 | **2** | `getMyContext({include})` · `getSecretaryGuide` |
+| Cross-module | 0 | **+1** | `svc_getEntityDossier({ref, sections?, since?})` |
+| **Total** | **37** | **22** | −40% entries, wider filters |
+
+**Why Messages is the deliberate exception**: the split between
+`messages_searchOperationalHistory` and `messages_searchMyCommunications` *is*
+the privacy model. Collapsing them behind a `scope` parameter would invite the
+model to believe the scope is something it can widen. Two tools is the feature
+here, not the debt.
+
+## Target architecture, in layers
+
+**Layer 0 — a shared entity resolver.** One service:
+`resolve(query, {type})` → `{status: "found" | "ambiguous" | "not-found",
+entity: {ref, name, type, sourceIds: {directoryId, byeByeDprJobId, contextId,
+questCoralProjectId}}, candidates}`, cached per request. Modules stop
+resolving on their own; ambiguity is handled once, with the native WhatsApp
+list UX that already exists. Fixes F2 and unblocks everything below.
+
+**Layer 1 — consolidate the catalog** per the table above, module by module.
+
+**Layer 2 — extend the result contract.** Add `truncated` and `totalMatched`
+so bounded slices are machine-visible rather than a prompt rule (fixes F3);
+standardize `nextCursor` (currently ad-hoc per tool); return
+`refs: EntityRef[]` so the model passes resolved handles to the next tool
+instead of re-resolving by name.
+
+**Layer 3 — writes as tools.** Extend `SecretaryTool` with
+`kind: "read" | "write"` plus `preview(args)` and `commit(args,
+idempotencyKey)`. The orchestrator only ever calls `preview`; commit stays on
+the deterministic confirmation path. Same guarantees as the Daily Report flow,
+now reusable and composable with reads.
+
+**Layer 4 — memory worth the name.** Persist tool executions (names, compact
+results, cursors) beside the transcript so follow-ups reuse instead of
+re-fetching. Add a durable per-user fact store, written deterministically,
+never by the model.
+
+**Layer 5 — specialized AI only where it earns it.** Transcription (already
+present), semantic note retrieval (the `searchNotesSemantic` seam exists in
+`DirectoryDataProvider` and is deliberately unimplemented), long-document
+summarization — always as a **tool returning data**, never as a sub-agent that
+chooses tools.
+
+## Order of work
+
+Each step unblocks the next; this is a real sequence, not a priority list.
+
+1. **Entity resolver + `refs` in tool results** — fixes a live correctness
+   risk and is a prerequisite for the rest.
+2. **`svc_getEntityDossier`** — largest cross-module accuracy/latency win; the
+   pattern is already proven by `me_getMySvcContext`.
+3. **Directory 13 → 5** — largest catalog win, zero capability loss, and it
+   removes the wrong-type relationship bug in F1.
+4. **`truncated` / `totalMatched`** — makes the bounded-slice guardrail
+   verifiable instead of aspirational.
+5. **Search consolidation in Quest Coral, Applications, Reports** — mechanical
+   once 1 and 4 are in place.
+6. **Write framework** — worth doing only after reads are consolidated, so
+   writes inherit a clean contract.
+7. **Memory upgrade** — the thing that eventually blocks "much more capable
+   company AI".
+
+## What not to do
+
+- **Do not put an LLM router/classifier in front of the tool loop.** Extra
+  latency and another failure mode; at ~20 tools the model selects well on its
+  own. Tiering the catalog (a small always-on core plus a
+  `svc_discoverTools({topic})` meta-tool) is the escape hatch if consolidation
+  ever stops being enough — not a first move.
+- **Do not split the Secretary into per-module sub-agents.** That trades a
+  solved routing problem for AI-to-AI chains, and cross-module questions get
+  worse, not better. The Secretary stays the single orchestrator.
+- **Do not move Company Knowledge to embeddings.** The corpus is small and a
+  WhatsApp reply must stay fast; lexical scoring is the correct call, as
+  already documented in the knowledge-pack section of the handoff.
+- **Do not touch the `presentation` channel.** It is what keeps every URL,
+  deep link and attachment out of model context.
+
+## Main risk when executing this
+
+Renaming tools invalidates prompt references and tests, and a merged tool with
+a less sharp description can **regress selection accuracy** — which fails
+silently. Move one module at a time, and gate each on the live-eval harness
+(real model + fixture providers) that already exists in this repo, the same
+approach that confirmed all seven personalization phrasings routed to the
+intended tool on 2026-08-14.
+
+## Related documentation
+
+- [WhatsApp AI Secretary handoff](./svc-whatsapp-ai-secretary-handoff.md) — the operational handoff this review evaluates.
+- [SVC AI Secretary Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — §13 describes the Secretary's own capabilities.
+- [SVC project context for AI agents](./svc-project-context-for-ai-agents.md)
