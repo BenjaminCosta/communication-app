@@ -1,8 +1,95 @@
 # SVC AI Secretary — WhatsApp handoff
 
-_Last updated: 2026-08-14. This is the operational handoff for continuing the
+_Last updated: 2026-08-16. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
+
+## Identity model rebuild: /users as source of truth, Directory as fallback (2026-08-16, latest)
+
+Reported from real use: a real registered user (linked SVC account, correct
+`linkedUserId`) was not recognized over WhatsApp at all. Root cause: the old
+resolver pooled every `/contacts` doc matching a phone number into one flat
+list and returned `null` the moment it found more than one distinct identity
+— so a single stray duplicate contact (an old vcf import, a mislabeled entry)
+could silently block a perfectly legitimate linked account. This section
+documents the fix as shipped, in commit `914263a`.
+
+**New two-tier resolver** (`lib/whatsapp-svc-identity.ts`,
+`classifyWhatsAppIdentityMatches` / `resolveWhatsAppSenderIdentityDetailed`):
+
+1. **Explicit tier** (strongest source of truth) — `/users.phoneNormalized`
+   (new: the account holder's own registered phone), `/users.whatsappPhoneNormalized`,
+   or `/contacts.whatsappPhoneNormalized` (an admin- or self-linked WhatsApp
+   number).
+2. **Fallback tier** — `/contacts.phoneNormalized` (general, imported,
+   unverified Directory data) — consulted ONLY when the explicit tier found
+   nothing at all.
+
+Within each tier, resolution is over a UNIQUE REAL IDENTITY, not a document
+count: one `linkedUserId` wins over any number of unlinked duplicate
+contacts sharing the same number; two *different* linked accounts, or two+
+unlinked contacts with none to break the tie, both stay genuinely
+`"ambiguous"` — now a distinct status from `"not_found"` (previously both
+collapsed to `null`).
+
+**Self-healing**: a fallback-tier resolution to a linked user with no
+`/users.phone` yet triggers `backfillUserPhoneFromInboundWhatsApp()`, writing
+it immediately (`phoneSource: "whatsapp-self-heal"`) so that user's *next*
+message resolves via the explicit tier without depending on Directory
+hygiene at all.
+
+**Genuine ambiguity now gets a clarifying question, not silent public
+fallback** (`lib/whatsapp-identity-claim.ts`, new): "I found more than one
+SVC profile... What's your SVC email address?", matched against
+`/users.emailNormalized`; an unambiguous match links the number
+(`whatsappPhoneNormalized`) going forward. **This is identity CLAIMING, not
+cryptographic verification** — no OTP, deliberately, per explicit request
+for this stage of a small internal rollout. If the WhatsApp Secretary is
+ever exposed to a wider or higher-risk audience, this needs a real
+verification step before a claim is allowed to grant internal access. State
+persisted as `pendingIdentityClaim` on the conversation doc, same
+lifetime/reset convention as `pendingWrite` (24h TTL).
+
+**Shared phone normalization** (`lib/phone-normalization.ts`, new) — one
+`normalizePhoneDigits()`/`phoneLookupCandidates()` pair now used by the
+identity resolver, Directory contact edits, the imported-contact editor, and
+the admin link script (previously four independently-maintained
+implementations).
+
+**`/users` gained `phone`/`phoneNormalized`/`phoneSource`**: required at
+registration (`components/register-screen.tsx`), self-serve editable in
+Profile settings (`components/profile-screen.tsx`), or backfilled —
+`phoneSource` tracks provenance (`registration` | `self-reported` |
+`directory-linked-contact` | `directory-email-match` | `whatsapp-self-heal`),
+audit-only, never gates authorization.
+
+**Backfill tooling** (dry-run by default, `CONFIRM_PHONE_BACKFILL=true` to
+write): `scripts/backfill-user-phone-from-linked-contacts.ts` — Phase 1
+backfills from a linked contact's phone; Phase 2 (for users with NO linked
+contact at all) matches by email against Directory and, on an unambiguous
+match, also repairs the contact's `linkedUserId`. Either phase skips
+(never guesses) on any disagreement. `scripts/audit-whatsapp-identity-conflicts.ts`
+(read-only, reuses the exact resolver function) reports every phone number
+that still can't resolve to a unique identity — re-run anytime via
+`pnpm audit:whatsapp-identity`.
+
+**Run against production 2026-08-16, on explicit go-ahead**: backfill dry-run
+found 7 users eligible with certainty (6 via linked contact, 1 via email
+match), 0 conflicts → applied for real. Post-backfill audit: 64 phone
+numbers now shared by 2+ docs (was 62 — `/users.phoneNormalized` now
+participates too), 4 auto-resolved (was 2), still exactly 60 genuinely
+ambiguous (pre-existing Directory duplicate-contact hygiene, unaffected by
+the backfill — zero new conflicts introduced). Committed `914263a`, pushed
+straight to `main`, deployed `dpl_7XMRoGQ8rCuMKcXfkAQYDHn8oArM`. 350 tests in
+`test:whatsapp-secretary` (up from 311).
+
+**Not done**: the ambiguous-identity claim conversational flow was verified
+by 8 unit tests plus code review, but not against a real live-WhatsApp
+number in a genuinely ambiguous state — worth a real end-to-end run before
+considering it fully proven under production conditions. The remaining 60
+ambiguous phone numbers are a Directory data-hygiene backlog, not a code
+gap. Self-serve WhatsApp number verification via a real OTP challenge is
+still open if this ever needs to be more secure than identity claiming.
 
 ## Fix: the capability hint was ending every single reply (2026-08-15, latest)
 
@@ -1233,7 +1320,7 @@ service or backend.
 | Meta webhook | `app/api/whatsapp/webhook/route.ts` | GET verification, POST signature validation, WABA / Phone Number ID filtering, and dispatch. |
 | Cloud API sender | `lib/whatsapp-cloud-api.ts` | Sends text plus native WhatsApp lists/CTA URL buttons via Graph API `v26.0`; sandbox recipient override is optional. |
 | Conversation memory | `lib/whatsapp-conversation-memory.ts` | Keeps 12 recent messages per hashed sender and makes Meta delivery retries safe across Vercel instances. |
-| Identity | `lib/whatsapp-svc-identity.ts` | Exact phone normalization and safe lookup across `/contacts` and `/users`; ambiguous or missing matches return `null`. |
+| Identity | `lib/whatsapp-svc-identity.ts`, `lib/whatsapp-identity-claim.ts`, `lib/phone-normalization.ts` | Two-tier resolution (2026-08-16): explicit (`/users.phoneNormalized`/`whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`) tried first, `/contacts.phoneNormalized` fallback only if explicit is empty; resolves a unique real identity per tier (one linked account beats any number of unlinked duplicates). Missing → `null`/public. Genuinely ambiguous (2+ real identities) → an "ask for your SVC email" claim flow, not silent public fallback — see the 2026-08-16 section above. |
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
@@ -1248,9 +1335,15 @@ service or backend.
 The access policy is enforced in the backend/tool layer, not merely in the AI
 prompt.
 
-- An unknown or ambiguous WhatsApp number receives only public company
-  knowledge. It cannot query Directory, people, companies, jobs, contexts,
-  Quest Coral, Applications, Reports, or other internal data.
+- An unknown WhatsApp number (no identity match at all) receives only public
+  company knowledge. It cannot query Directory, people, companies, jobs,
+  contexts, Quest Coral, Applications, Reports, or other internal data.
+- A GENUINELY AMBIGUOUS number (2+ real SVC identities could own it) is
+  NOT treated as unknown: the Secretary asks for the sender's SVC email and,
+  on an exact single match, links the number and grants internal access from
+  then on. This is identity *claiming* (a bare-text email reply), not
+  cryptographic verification — see the 2026-08-16 section above before
+  changing this or widening who it applies to.
 - A uniquely recognized SVC person receives the internal read-only scope.
 - The Daily Report write action is stricter: it requires a recognized person
   **and** a linked Firebase `userId`, because a ByeByeDPR report must have a
@@ -1483,13 +1576,17 @@ pnpm typecheck
 pnpm build
 ```
 
-The focused suite has 87 passing tests. It covers strict Daily Report command
-recognition and idempotency, authorization boundaries, the tool registry,
-native list/CTA payloads, native selection parsing, concise response
-presentation, first-contact welcome behavior, per-module entity resolution
-(including both keyword fallbacks and the Directory-first job resolver), and
-the new cross-job Reports tool. See "Read layer strengthening" above for the
-manual WhatsApp checklist to run against the live number after deploy.
+The focused suite has 350 passing tests (up from an original 87). It covers
+strict Daily Report command recognition and idempotency, authorization
+boundaries, the tool registry, native list/CTA payloads, native selection
+parsing, concise response presentation, first-contact welcome behavior,
+per-module entity resolution (including both keyword fallbacks and the
+Directory-first job resolver), cross-job tools, phone normalization, the
+two-tier identity resolver's unique-real-identity logic (including Joe
+Haddad's exact duplicate-contact scenario), and the identity-claim flow. See
+"Read layer strengthening" above for the manual WhatsApp checklist to run
+against the live number after deploy, and the 2026-08-16 section for what
+still needs a real live-WhatsApp run (the ambiguous-identity claim flow).
 
 Useful development commands:
 
@@ -1576,9 +1673,14 @@ the existing unambiguous confirmation contract.
   Twilio, Make, Zapier, or a separate bot backend.
 - Do not buy, register, migrate, or configure the final SVC phone number until
   the user explicitly starts the production-number phase.
-- Do not add templates, billing work, campaigns, Firebase live writes beyond
-  the approved Daily Report draft action, or Messages access without explicit
-  approval.
+- Do not add templates, billing work, campaigns, or Messages access without
+  explicit approval. Firebase live writes from the webhook, beyond the
+  approved Daily Report draft action, are now also approved and shipped
+  (2026-08-16): `backfillUserPhoneFromInboundWhatsApp()` (self-heal
+  `/users.phone`) and the identity-claim flow's `linkWhatsAppNumberToUser()`
+  (`/users.whatsappPhoneNormalized`) — both narrow, idempotent, and
+  documented in the 2026-08-16 section above. Any FURTHER live write beyond
+  these three still needs explicit approval before shipping.
 - Keep all prompts, entity extraction, commands, logs intended for product use,
   and user-facing responses in English.
 - Preserve the current webhook callback URL and Meta sandbox configuration when
