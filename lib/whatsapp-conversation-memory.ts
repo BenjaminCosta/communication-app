@@ -4,6 +4,7 @@ import type { WhatsAppSecretaryConversationMessage } from "@/lib/whatsapp-secret
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import type { WhatsAppOnboardingState } from "@/lib/whatsapp-secretary/onboarding"
 import type { PendingWriteEnvelope } from "@/lib/whatsapp-secretary/pending-writes"
+import type { PendingIdentityClaim } from "@/lib/whatsapp-identity-claim"
 import type { ResolvedEntity } from "@/lib/whatsapp-secretary/entity-resolver"
 import type { WhatsAppOutgoingReply, WhatsAppReplyPresentation } from "@/lib/whatsapp-response-ux"
 
@@ -41,6 +42,13 @@ export type PreparedWhatsAppConversation = {
    * before the model runs, by `lib/whatsapp-secretary/pending-writes.ts`.
    */
   pendingWrite: PendingWriteEnvelope | null
+  /**
+   * An outstanding "what's your SVC email" prompt for a genuinely ambiguous
+   * sender, awaiting a reply to resolve and link their number — see
+   * `lib/whatsapp-identity-claim.ts`. Same lifetime/reset convention as
+   * `pendingWrite`.
+   */
+  pendingIdentityClaim: PendingIdentityClaim | null
   /**
    * Entities resolved on previous turns, re-seeded into this turn's resolver.
    *
@@ -194,6 +202,17 @@ function readPendingWrite(value: unknown): PendingWriteEnvelope | null {
   return { toolName, args: envelope.args ?? {}, summary, confirmPhrase, cancelPhrase, requestMessageId, createdAtMs }
 }
 
+function readPendingIdentityClaim(value: unknown): PendingIdentityClaim | null {
+  const claim = asRecord(value)
+  if (!claim) return null
+  const askedAtMs = typeof claim.askedAtMs === "number" && Number.isFinite(claim.askedAtMs) ? claim.askedAtMs : 0
+  if (!askedAtMs) return null
+  return { askedAtMs }
+}
+
+/** Test seam: the write/read round trip is where a dropped field silently disables a rate limit. */
+export const readPendingIdentityClaimForTests = readPendingIdentityClaim
+
 function readResolvedEntities(value: unknown): ResolvedEntity[] {
   if (!Array.isArray(value)) return []
   return value
@@ -254,6 +273,7 @@ export async function prepareWhatsAppConversation(input: {
     const recentMessages = readRecentMessages(snapshot.data()?.recentMessages)
     const onboarding = readOnboardingState(snapshot.data()?.onboarding)
     const pendingWrite = readPendingWrite(snapshot.data()?.pendingWrite)
+    const pendingIdentityClaim = readPendingIdentityClaim(snapshot.data()?.pendingIdentityClaim)
     const resolvedEntities = readResolvedEntities(snapshot.data()?.resolvedEntities)
     const retrievals = readRetrievals(snapshot.data()?.retrievals)
     const existingReply = recentMessages.find(
@@ -267,6 +287,7 @@ export async function prepareWhatsAppConversation(input: {
         isFirstInteraction: recentMessages.every((message) => message.id === input.messageId),
         onboarding,
         pendingWrite,
+        pendingIdentityClaim,
         resolvedEntities,
         retrievals,
       }
@@ -302,6 +323,7 @@ export async function prepareWhatsAppConversation(input: {
       isFirstInteraction: recentMessages.length === 0 || recentMessages.every((message) => message.id === input.messageId),
       onboarding,
       pendingWrite,
+      pendingIdentityClaim,
       resolvedEntities,
       retrievals,
     }
@@ -322,6 +344,8 @@ export async function storeWhatsAppAssistantReply(input: {
   onboarding?: WhatsAppOnboardingState
   /** `null` explicitly clears a pending preview (confirmed, cancelled or expired). */
   pendingWrite?: PendingWriteEnvelope | null
+  /** `null` explicitly clears a pending identity claim (linked, declined, or superseded). */
+  pendingIdentityClaim?: PendingIdentityClaim | null
   resolvedEntities?: ResolvedEntity[]
   retrievals?: ConversationRetrieval[]
 }): Promise<WhatsAppOutgoingReply> {
@@ -358,6 +382,7 @@ export async function storeWhatsAppAssistantReply(input: {
         updatedAtMs: Date.now(),
         ...(input.onboarding ? { onboarding: input.onboarding } : {}),
         ...(input.pendingWrite !== undefined ? { pendingWrite: input.pendingWrite } : {}),
+        ...(input.pendingIdentityClaim !== undefined ? { pendingIdentityClaim: input.pendingIdentityClaim } : {}),
         ...(input.resolvedEntities ? { resolvedEntities: input.resolvedEntities.slice(-MAX_PERSISTED_ENTITIES) } : {}),
         ...(input.retrievals ? { retrievals: input.retrievals.slice(-MAX_PERSISTED_RETRIEVALS) } : {}),
       },

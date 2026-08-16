@@ -2,7 +2,20 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createEntityResolver, type EntityLookups, type ResolvedEntity } from "../lib/whatsapp-secretary/entity-resolver"
 import { buildWhatsAppSecretarySystemPrompt } from "../lib/whatsapp-secretary/prompt"
+import { readPendingIdentityClaimForTests } from "../lib/whatsapp-conversation-memory"
 import { directoryRecord, fixtureLookups } from "./secretary-test-resolver"
+
+// Standing lesson from the onboarding-state rate-limit bug: a field added to a
+// persisted conversation-doc type but never read back is write-only — the
+// value is stored, the next read silently drops it, and whatever depended on
+// it (here, "don't re-ask the same question every turn") never actually
+// takes effect. Every persisted field needs this round-trip check.
+test("pendingIdentityClaim round-trips through its reader", () => {
+  assert.deepEqual(readPendingIdentityClaimForTests({ askedAtMs: 12345 }), { askedAtMs: 12345 })
+  assert.equal(readPendingIdentityClaimForTests(null), null)
+  assert.equal(readPendingIdentityClaimForTests({}), null)
+  assert.equal(readPendingIdentityClaimForTests({ askedAtMs: "not-a-number" }), null)
+})
 
 /**
  * Cross-turn continuity. Tool results were previously never persisted — only

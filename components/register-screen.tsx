@@ -4,9 +4,10 @@ import { useState } from "react"
 import Image from "next/image"
 import { Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isLikelyPhone } from "@/lib/directory-core"
 
 interface RegisterScreenProps {
-  onRegister: (name: string, email: string, password: string) => Promise<void>
+  onRegister: (name: string, email: string, password: string, phone: string) => Promise<void>
   onGoogleSignIn: () => Promise<void>
   onGoLogin: () => void
 }
@@ -18,6 +19,7 @@ function isValidEmail(value: string) {
 export function RegisterScreen({ onRegister, onGoogleSignIn, onGoLogin }: RegisterScreenProps) {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -28,11 +30,13 @@ export function RegisterScreen({ onRegister, onGoogleSignIn, onGoLogin }: Regist
   const [error, setError] = useState<string | null>(null)
 
   const validEmail = isValidEmail(email)
+  const validPhone = isLikelyPhone(phone)
   const passwordOk = password.length >= 6
   const passwordsMatch = password === confirmPassword
-  const canSubmit = name.trim().length >= 2 && validEmail && passwordOk && passwordsMatch
+  const canSubmit = name.trim().length >= 2 && validEmail && validPhone && passwordOk && passwordsMatch
 
   const showEmailError = touched && email.length > 0 && !validEmail
+  const showPhoneError = touched && phone.length > 0 && !validPhone
   const showPasswordError = touched && password.length > 0 && !passwordOk
   const showMismatch = touched && confirmPassword.length > 0 && !passwordsMatch
 
@@ -42,7 +46,7 @@ export function RegisterScreen({ onRegister, onGoogleSignIn, onGoLogin }: Regist
     setLoading(true)
     setError(null)
     try {
-      await onRegister(name.trim(), email.trim(), password)
+      await onRegister(name.trim(), email.trim(), password, phone.trim())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Registration failed"
       setError(friendlyAuthError(msg))
@@ -145,6 +149,32 @@ export function RegisterScreen({ onRegister, onGoogleSignIn, onGoLogin }: Regist
           {showEmailError && (
             <p className="text-[11px] text-destructive/80 px-1 font-mono -mt-1 animate-fade-in">
               Enter a valid email — needs an @
+            </p>
+          )}
+
+          {/* Phone */}
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider font-mono px-1 mt-1">
+            Phone
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            placeholder="(555) 123-4567"
+            autoComplete="tel"
+            inputMode="tel"
+            className={cn(
+              "bg-white/5 border rounded-xl px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/40 outline-none transition-all duration-200",
+              showPhoneError
+                ? "border-destructive/50 focus:border-destructive/60 bg-destructive/5"
+                : "border-white/10 focus:border-primary/50 focus:bg-white/[0.07]"
+            )}
+          />
+          {showPhoneError && (
+            <p className="text-[11px] text-destructive/80 px-1 font-mono -mt-1 animate-fade-in">
+              Enter a valid phone number
             </p>
           )}
 

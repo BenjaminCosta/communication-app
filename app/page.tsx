@@ -34,6 +34,8 @@ import { loadEntityCatalog, type DirectorySearchIndex } from "@/lib/directory-se
 import { appContextsFromCatalog, importedContactsFromCatalog } from "@/lib/entity-catalog-adapters"
 import { registerFCMToken, onForegroundMessage, type NotificationPreference } from "@/lib/fcm"
 import { createLoadMetric, createSnapshotMetric, recordFirebaseMetricError } from "@/lib/firebase-dev-metrics"
+import { normalizePhoneDigits } from "@/lib/phone-normalization"
+import { isLikelyPhone } from "@/lib/directory-core"
 import { useMessageFeed } from "@/features/communications/messages/use-message-feed"
 // image-upload loaded lazily in handleSend (only when uploading images)
 import dynamic from "next/dynamic"
@@ -568,6 +570,9 @@ export default function Home() {
           color: data.color ?? getUserAvatarColor(d.id),
           lastSeen: data.lastSeen instanceof Timestamp ? data.lastSeen.toDate() : null,
           isAdmin: data.isAdmin === true,
+          phone: data.phone ?? undefined,
+          phoneNormalized: data.phoneNormalized ?? undefined,
+          phoneSource: data.phoneSource ?? undefined,
         } as Contact
       })
       setContacts(all.filter((u) => u.id !== firebaseUser.uid))
@@ -834,15 +839,25 @@ export default function Home() {
     // onAuthStateChanged will persist /users and handle navigation
   }, [])
 
-  const handleRegister = useCallback(async (name: string, email: string, password: string) => {
+  const handleRegister = useCallback(async (name: string, email: string, password: string, phone: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     const uid = cred.user.uid
     const initials = deriveInitials(name)
     const color = getUserAvatarColor(uid)
     const emailNormalized = normalizeEmail(email)
-    const userDoc: Contact = { id: uid, name, email: emailNormalized, emailNormalized, initials, color }
+    const trimmedPhone = phone.trim()
+    const userDoc: Contact = {
+      id: uid,
+      name,
+      email: emailNormalized,
+      emailNormalized,
+      initials,
+      color,
+      ...(trimmedPhone ? { phone: trimmedPhone, phoneNormalized: normalizePhoneDigits(trimmedPhone) } : {}),
+    }
     await setDoc(doc(db, "users", uid), {
       ...userDoc,
+      ...(trimmedPhone ? { phoneSource: "registration" } : {}),
       emailVerified: cred.user.emailVerified === true,
       authProviderIds: cred.user.providerData.map((provider) => provider.providerId),
     })
@@ -1444,8 +1459,8 @@ export default function Home() {
       }
       if ("phone" in updates) {
         fields.phone = updates.phone?.trim() ? updates.phone.trim() : deleteField()
-        const phoneNormalized = updates.phone?.replace(/\D/g, "")
-        fields.phoneNormalized = phoneNormalized ? (phoneNormalized.length === 11 && phoneNormalized.startsWith("1") ? phoneNormalized.slice(1) : phoneNormalized) : deleteField()
+        const trimmedPhone = updates.phone?.trim()
+        fields.phoneNormalized = trimmedPhone ? normalizePhoneDigits(trimmedPhone) : deleteField()
       }
       await updateDoc(doc(db, "contacts", contactId), fields)
       setGlobalImportedContacts((current) => current.map((contact) => contact.id === contactId
@@ -1458,6 +1473,30 @@ export default function Home() {
         : contact))
     },
     []
+  )
+
+  const handleUpdateMyPhone = useCallback(
+    async (phone: string | null): Promise<boolean> => {
+      if (!firebaseUser) return false
+      const trimmed = phone?.trim()
+      if (trimmed && !isLikelyPhone(trimmed)) {
+        showToast("Enter a valid phone number", undefined, 2500)
+        return false
+      }
+      await updateDoc(doc(db, "users", firebaseUser.uid), {
+        phone: trimmed || deleteField(),
+        phoneNormalized: trimmed ? normalizePhoneDigits(trimmed) : deleteField(),
+        phoneSource: trimmed ? "self-reported" : deleteField(),
+        updatedAt: serverTimestamp(),
+      })
+      // The /users onSnapshot listener will pick this up too, but updating
+      // currentUser immediately avoids a UI flash while it round-trips.
+      setCurrentUser((current) => current
+        ? { ...current, phone: trimmed || undefined, phoneNormalized: trimmed ? normalizePhoneDigits(trimmed) : undefined }
+        : current)
+      return true
+    },
+    [firebaseUser, showToast]
   )
 
   // ── Navigation helpers ────────────────────────────────────────────────
@@ -1717,6 +1756,7 @@ export default function Home() {
   const userEmail = firebaseUser?.email ?? ""
   const userInitials = currentUser?.initials ?? ""
   const userColor = currentUser?.color ?? getUserAvatarColor(firebaseUser?.uid ?? "")
+  const userPhone = currentUser?.phone ?? ""
 
   const selectedMessage = messages.find((m) => m.id === selectedMessageId) || null
   const activeUsers = useMemo(() => {
@@ -1835,6 +1875,8 @@ export default function Home() {
           userEmail={userEmail}
           userInitials={userInitials}
           userColor={userColor}
+          userPhone={userPhone}
+          onUpdatePhone={handleUpdateMyPhone}
           projectCount={projects.length}
           messageCount={messages.length}
           onBack={goToStream}

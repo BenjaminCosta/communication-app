@@ -11,7 +11,8 @@ import { buildToolRegistry, enabledSecretaryModules, type SecretaryModule, type 
 import { createEntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
 import { DEFAULT_TOOL_FACTORIES } from "@/lib/whatsapp-secretary/orchestrator"
-import { resolveWhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
+import { backfillUserPhoneFromInboundWhatsApp, resolveWhatsAppSenderIdentityDetailed } from "@/lib/whatsapp-svc-identity"
+import { createFirestoreIdentityClaimProvider, resolveIdentityClaim } from "@/lib/whatsapp-identity-claim"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
 import { addCapabilityHint, addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
@@ -277,12 +278,50 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
     } else {
       const feedback = await startWhatsAppProcessingFeedback(message)
       try {
-        const senderIdentity = await resolveWhatsAppSenderIdentity(message.senderPhoneNumber)
+        const identityResult = await resolveWhatsAppSenderIdentityDetailed(message.senderPhoneNumber)
         console.info("Resolved WhatsApp sender identity", {
-          identified: senderIdentity !== null,
-          hasRole: Boolean(senderIdentity?.role),
-          linkedToUser: Boolean(senderIdentity?.userId),
+          status: identityResult.status,
+          hasRole: identityResult.status === "resolved" && Boolean(identityResult.identity.role),
+          linkedToUser: identityResult.status === "resolved" && Boolean(identityResult.identity.userId),
+          resolvedVia: identityResult.status === "resolved" ? identityResult.identity.resolvedVia : undefined,
         })
+
+        // A GENUINE ambiguity (2+ real SVC identities could own this number)
+        // gets a clarifying question instead of silently falling back to
+        // public — see lib/whatsapp-identity-claim.ts. A plain "not found"
+        // does not: that goes straight to the normal public flow below, same
+        // as always.
+        if (identityResult.status === "ambiguous") {
+          const claimOutcome = await resolveIdentityClaim({
+            text: message.text,
+            pendingClaim: conversation.pendingIdentityClaim,
+            senderPhoneNumber: message.senderPhoneNumber,
+            provider: createFirestoreIdentityClaimProvider(),
+          })
+          if (claimOutcome.kind === "linked") {
+            console.info("WhatsApp identity claim linked a number to an SVC account", { userId: claimOutcome.identity.userId })
+          }
+          reply = await storeWhatsAppAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            reply: { text: claimOutcome.reply },
+            // "linked" clears it (resolved); "asked"/"not-matched" (re)store it.
+            pendingIdentityClaim: claimOutcome.kind === "linked" ? null : claimOutcome.pendingClaim,
+          })
+        } else {
+        const senderIdentity = identityResult.status === "resolved" ? identityResult.identity : null
+        // Self-healing: a fallback-tier resolution just proved this number
+        // belongs to exactly one registered user. Recording it directly on
+        // /users moves future messages onto the strongest (explicit) tier
+        // without depending on Directory contact hygiene — see
+        // backfillUserPhoneFromInboundWhatsApp's own doc comment.
+        if (senderIdentity?.resolvedVia === "fallback" && senderIdentity.userId) {
+          await backfillUserPhoneFromInboundWhatsApp(senderIdentity.userId, message.senderPhoneNumber)
+        }
+        // A stale claim prompt (data changed since it was asked, e.g. an
+        // admin cleaned up the duplicate contacts) should not linger once
+        // resolution stops being ambiguous.
+        const clearedPendingIdentityClaim = conversation.pendingIdentityClaim ? { pendingIdentityClaim: null as null } : {}
         const accessPolicy = resolveWhatsAppAccessPolicy(senderIdentity)
         // Resolved once per turn, before either branch, so the Daily Report
         // draft flow and the AI answer introduce identically.
@@ -305,6 +344,7 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             replyToMessageId: message.messageId,
             reply: introduction.apply(tour),
             ...(priorOnboarding ? { onboarding: { ...priorOnboarding, guideCompletedAtMs: Date.now() } } : {}),
+            ...clearedPendingIdentityClaim,
           })
         } else {
 
@@ -338,6 +378,7 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
             // Always clears: confirmed, cancelled and expired all end the preview.
             pendingWrite: null,
+            ...clearedPendingIdentityClaim,
           })
         } else {
           const companyKnowledge = await findRelevantCompanyKnowledge(
@@ -386,7 +427,9 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             ...(nudgedOnboarding ? { onboarding: nudgedOnboarding } : {}),
             ...(pendingWrite ? { pendingWrite } : {}),
             ...(memory ? { resolvedEntities: memory.resolvedEntities, retrievals: memory.retrievals } : {}),
+            ...clearedPendingIdentityClaim,
           })
+        }
         }
         }
       } finally {

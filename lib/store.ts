@@ -98,6 +98,15 @@ export interface Contact {
   color: string
   lastSeen?: Date | null
   isAdmin?: boolean
+  /** Self-reported at signup or in Profile settings. Not the same as
+   * `whatsappPhoneNormalized` (an explicit WhatsApp link) — see
+   * `lib/whatsapp-svc-identity.ts`. */
+  phone?: string
+  phoneNormalized?: string
+  /** Provenance of `phone`, for audits — never gates authorization.
+   * "registration" | "self-reported" | "directory-linked-contact" |
+   * "directory-email-match" | "whatsapp-self-heal" */
+  phoneSource?: string
 }
 
 export type ImportedContactSource = "google" | "manual" | "vcf" | "database"

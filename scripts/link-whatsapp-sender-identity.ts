@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { FieldValue, getFirestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { whatsappPhoneLookupCandidates } from "@/lib/whatsapp-svc-identity"
+import { phoneLookupCandidates } from "@/lib/phone-normalization"
 
 const CONFIRMATION = "true"
 
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   }
 
   const email = normalizedEmail(requiredEnvironment("SVC_IDENTITY_USER_EMAIL"))
-  const phoneCandidates = whatsappPhoneLookupCandidates(requiredEnvironment("SVC_WHATSAPP_PHONE"))
+  const phoneCandidates = phoneLookupCandidates(requiredEnvironment("SVC_WHATSAPP_PHONE"))
   if (phoneCandidates.length === 0) throw new Error("SVC_WHATSAPP_PHONE is not a valid phone number.")
 
   const db = getFirestore(await getFirebaseAdminApp())
@@ -54,14 +54,22 @@ async function main(): Promise<void> {
   }
 
   const userDocument = userSnapshot.docs[0]
-  const [userPhoneSnapshot, contactPhoneSnapshot, contactWhatsAppSnapshot, allContacts] = await Promise.all([
+  const [userWhatsAppSnapshot, userPhoneSnapshot, contactPhoneSnapshot, contactWhatsAppSnapshot, allContacts] = await Promise.all([
     db.collection("users").where("whatsappPhoneNormalized", "in", phoneCandidates).get(),
+    // Also guard against a number already claimed as someone ELSE's own
+    // registered profile phone (`/users.phoneNormalized`) — that field is
+    // now part of the explicit/trusted resolution tier too, so linking a
+    // WhatsApp number that collides with it would create exactly the kind
+    // of trusted-tier ambiguity the resolver is designed to refuse.
+    db.collection("users").where("phoneNormalized", "in", phoneCandidates).get(),
     db.collection("contacts").where("phoneNormalized", "in", phoneCandidates).get(),
     db.collection("contacts").where("whatsappPhoneNormalized", "in", phoneCandidates).get(),
     db.collection("contacts").select("phone", "phoneNormalized", "whatsappPhoneNormalized", "phones", "masterData.phones", "masterData.primaryPhone").get(),
   ])
 
-  const conflictingUserIds = userPhoneSnapshot.docs.map((document) => document.id).filter((id) => id !== userDocument.id)
+  const conflictingUserIds = [...userWhatsAppSnapshot.docs, ...userPhoneSnapshot.docs]
+    .map((document) => document.id)
+    .filter((id) => id !== userDocument.id)
   const candidateSet = new Set(phoneCandidates)
   const conflictingContactIds = new Set(
     [

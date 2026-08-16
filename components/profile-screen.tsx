@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Phone, Bell, Check, X, Pencil, ChevronRight, Activity, Download, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { usePwaInstall } from "@/components/use-pwa-install"
 
@@ -10,6 +10,12 @@ interface ProfileScreenProps {
   userEmail: string
   userInitials: string
   userColor: string
+  /** Self-reported profile phone (not a verified WhatsApp link). Empty string when unset. */
+  userPhone: string
+  /** Returns whether the update was accepted — the editor stays open on `false`
+   * (e.g. failed validation) so the user can correct their input instead of
+   * losing it behind a silently-reverted row. */
+  onUpdatePhone: (phone: string | null) => Promise<boolean>
   projectCount: number
   messageCount: number
   onBack: () => void
@@ -21,9 +27,42 @@ interface ProfileScreenProps {
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, userPhone, onUpdatePhone, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [phoneValue, setPhoneValue] = useState(userPhone)
+  const [savingPhone, setSavingPhone] = useState(false)
   const { openInstall, status: pwaInstallStatus } = usePwaInstall()
+
+  const startEditPhone = () => {
+    setPhoneValue(userPhone)
+    setEditingPhone(true)
+  }
+
+  const cancelEditPhone = () => {
+    setEditingPhone(false)
+    setPhoneValue(userPhone)
+  }
+
+  const savePhone = async () => {
+    if (savingPhone) return
+    setSavingPhone(true)
+    try {
+      const succeeded = await onUpdatePhone(phoneValue.trim() || null)
+      if (succeeded) setEditingPhone(false)
+    } finally {
+      setSavingPhone(false)
+    }
+  }
+
+  const clearPhone = async () => {
+    setSavingPhone(true)
+    try {
+      await onUpdatePhone(null)
+    } finally {
+      setSavingPhone(false)
+    }
+  }
   return (
     <div className={`flex-1 min-h-0 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
@@ -70,6 +109,57 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
 
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
+        {/* Phone — self-reported, used (with an eventual explicit WhatsApp
+            link) to recognize this account over WhatsApp. */}
+        {editingPhone ? (
+          <div className="flex items-center gap-2 px-4 py-3.5">
+            <Phone className="w-4 h-4 shrink-0 text-muted-foreground" />
+            <input
+              type="tel"
+              value={phoneValue}
+              onChange={(e) => setPhoneValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") savePhone()
+                if (e.key === "Escape") cancelEditPhone()
+              }}
+              placeholder="Add phone number"
+              autoFocus
+              className="flex-1 bg-white/5 border border-white/15 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-primary/40 transition-colors"
+            />
+            <button
+              onClick={savePhone}
+              disabled={savingPhone}
+              className="w-7 h-7 rounded-md bg-primary/15 border border-primary/25 flex items-center justify-center active:scale-95 transition-all disabled:opacity-40"
+            >
+              <Check className="w-3.5 h-3.5 text-primary" />
+            </button>
+            <button
+              onClick={cancelEditPhone}
+              className="w-7 h-7 rounded-md bg-white/5 border border-white/15 flex items-center justify-center active:scale-95 transition-all"
+            >
+              <X className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        ) : (
+          <button onClick={startEditPhone} className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
+            <span className="text-muted-foreground"><Phone className="w-4 h-4" /></span>
+            <span className="flex-1 text-sm font-medium">
+              {userPhone || <span className="text-muted-foreground">Add phone number</span>}
+            </span>
+            {userPhone ? (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); clearPhone() }}
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors"
+              >
+                <X className="w-3 h-3 text-muted-foreground/40" />
+              </span>
+            ) : (
+              <Pencil className="w-3.5 h-3.5 text-muted-foreground/40" />
+            )}
+          </button>
+        )}
         {pwaInstallStatus !== "checking" && pwaInstallStatus !== "installed" && (
           <SettingsRow icon={<Download className="w-4 h-4" />} label="Install app" onClick={openInstall} />
         )}

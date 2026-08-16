@@ -35,6 +35,7 @@ import {
   type CoreContextField,
   type DirectoryType,
 } from "@/lib/directory-core"
+import { normalizePhoneDigits } from "@/lib/phone-normalization"
 
 export class DirectoryWriteError extends Error {}
 
@@ -51,11 +52,6 @@ export class DirectoryWriteError extends Error {}
 // source itself changes — which is the intended precedence.
 
 export type DirectoryEditInput = Record<string, string>
-
-function phoneDigits(value: string): string {
-  const digits = value.replace(/\D/g, "")
-  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
-}
 
 export async function applyDirectoryEdits(
   sourceCollection: "contacts" | "contexts",
@@ -87,11 +83,11 @@ export async function applyDirectoryEdits(
         const v = val("phone")
         if (v && !isLikelyPhone(v)) throw new DirectoryWriteError("Enter a valid phone number.")
         const others = (Array.isArray(master.phones) ? master.phones.map(String) : [])
-          .filter((p) => phoneDigits(p) !== (v ? phoneDigits(v) : ""))
+          .filter((p) => normalizePhoneDigits(p) !== (v ? normalizePhoneDigits(v) : ""))
         master.phones = v ? [v, ...others] : others
         master.primaryPhone = v || null
         patch.phone = v
-        patch.phoneNormalized = v ? phoneDigits(v) : null
+        patch.phoneNormalized = v ? normalizePhoneDigits(v) : null
       }
       if (has("email")) {
         const v = val("email")
