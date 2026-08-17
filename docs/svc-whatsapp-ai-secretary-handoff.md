@@ -4,7 +4,40 @@ _Last updated: 2026-08-16. This is the operational handoff for continuing the
 WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Identity model rebuild: /users as source of truth, Directory as fallback (2026-08-16, latest)
+## Profile UI: "SVC Secretary AI" card replaces the plain phone field (2026-08-16, latest)
+
+Ben asked for the phone-number entry point in the app's own Profile screen
+(not WhatsApp) to stop looking like a generic "Phone" settings row and
+instead read as what it actually is: the on-ramp to the WhatsApp Secretary.
+
+`components/profile-screen.tsx`'s standalone `SVC Secretary AI` card
+(replacing the plain phone row from the same day's identity-model work)
+has, top to bottom: a short intro line, a **"Message the Secretary"** button
+that opens `https://wa.me/{NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER}` in a new
+tab, and the same inline-edit phone field as before — now captioned "So the
+Secretary recognizes you" instead of a bare label, and its placeholder/entry
+UX unchanged (still returns `Promise<boolean>` so an invalid entry keeps the
+editor open). No new component, no new state — same card, same styling
+tokens (`bg-card`, `border-white/10`, `text-primary`) as the rest of Profile,
+deliberately not reskinned in WhatsApp's own green branding.
+
+**New env var, deliberately public**: `NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER`
+(digits only, `19083897201` — see the identifiers table below for the
+human-readable number). Unlike every other `WHATSAPP_*` var, this one is
+NOT a credential — it's the number people are meant to message — so it's
+safe, and required, to ship in the client bundle. Added to `.env.local`
+(gitignored — this repo's `.env.example` is itself gitignored too, so
+neither ever reaches git; this doc is the only place the actual number is
+recorded) and to Vercel production via `vercel env add ... production`.
+The CTA button hides itself if the var is ever unset, rather than linking to
+a broken `wa.me/undefined`.
+
+Live-verified in the Firebase emulator (same throwaway-Playwright-driver
+approach as the identity-model work): the card renders, the `wa.me` link
+resolves to the correct href, and the phone edit/save flow still works
+unchanged inside the new container.
+
+## Identity model rebuild: /users as source of truth, Directory as fallback (2026-08-16)
 
 Reported from real use: a real registered user (linked SVC account, correct
 `linkedUserId`) was not recognized over WhatsApp at all. Root cause: the old
@@ -1276,6 +1309,7 @@ Non-secret identifiers currently in use:
 | --- | --- |
 | WhatsApp Phone Number ID | `1165212860018618` |
 | WhatsApp Business Account ID | `1569708631228451` |
+| WhatsApp Secretary sandbox number (dialable, for `wa.me` links) | `+1 (908) 389-7201` |
 
 ### Vercel environment
 
@@ -1290,6 +1324,7 @@ are secrets and must be managed in Vercel rather than committed to this repo.
 | `WHATSAPP_WABA_ID` | Filters inbound webhook events to SVC’s WABA. |
 | `WHATSAPP_APP_SECRET` | Validates `x-hub-signature-256` on every inbound POST. |
 | `WHATSAPP_TEST_RECIPIENT` | Sandbox-only recipient override; remove it before production-number routing. |
+| `NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER` | (2026-08-16) The Secretary's own dialable number, digits only (`19083897201`) — powers the "Message the Secretary" `wa.me` link in Profile (`components/profile-screen.tsx`). Unlike every other row in this table, this one is INTENTIONALLY public/client-facing — it's the number people are meant to message, not a credential — so it's safe (and required) to be visible in the browser bundle. |
 | `OPENAI_API_KEY` | Used by the Secretary and existing ByeByeDPR transcription/structuring services. |
 | `WHATSAPP_AI_MODEL` | Optional Secretary chat-model override; default is `gpt-5-mini`. |
 | `BYEBYEDPR_AI_MODE` | `live` enables live parsing/transcription when `OPENAI_API_KEY` is available. |
