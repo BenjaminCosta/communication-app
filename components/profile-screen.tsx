@@ -1,73 +1,30 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Phone, Bell, Check, X, Pencil, ChevronRight, Activity, Download, HelpCircle, Bot, MessageCircle } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { usePwaInstall } from "@/components/use-pwa-install"
-
-// Client-facing by design — see .env.example. Undefined only if the env var
-// genuinely isn't configured in this environment; the CTA hides itself then
-// rather than linking to "https://wa.me/undefined".
-const WHATSAPP_SECRETARY_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER
 
 interface ProfileScreenProps {
   userName: string
   userEmail: string
   userInitials: string
   userColor: string
-  /** Self-reported profile phone (not a verified WhatsApp link). Empty string when unset. */
-  userPhone: string
-  /** Returns whether the update was accepted — the editor stays open on `false`
-   * (e.g. failed validation) so the user can correct their input instead of
-   * losing it behind a silently-reverted row. */
-  onUpdatePhone: (phone: string | null) => Promise<boolean>
   projectCount: number
   messageCount: number
   onBack: () => void
   onSignOut: () => void
   onNotifications: () => void
+  onSecretaryAi: () => void
   isAdmin?: boolean
   onAdmin?: () => void
   onHelp?: () => void
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, userColor, userPhone, onUpdatePhone, projectCount, messageCount, onBack, onSignOut, onNotifications, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onSecretaryAi, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
-  const [editingPhone, setEditingPhone] = useState(false)
-  const [phoneValue, setPhoneValue] = useState(userPhone)
-  const [savingPhone, setSavingPhone] = useState(false)
   const { openInstall, status: pwaInstallStatus } = usePwaInstall()
-
-  const startEditPhone = () => {
-    setPhoneValue(userPhone)
-    setEditingPhone(true)
-  }
-
-  const cancelEditPhone = () => {
-    setEditingPhone(false)
-    setPhoneValue(userPhone)
-  }
-
-  const savePhone = async () => {
-    if (savingPhone) return
-    setSavingPhone(true)
-    try {
-      const succeeded = await onUpdatePhone(phoneValue.trim() || null)
-      if (succeeded) setEditingPhone(false)
-    } finally {
-      setSavingPhone(false)
-    }
-  }
-
-  const clearPhone = async () => {
-    setSavingPhone(true)
-    try {
-      await onUpdatePhone(null)
-    } finally {
-      setSavingPhone(false)
-    }
-  }
   return (
     <div className={`flex-1 min-h-0 flex flex-col stream-glass-screen ${className ?? "animate-fade-in"}`}>
       {/* Header */}
@@ -112,98 +69,12 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, us
         <StatCell label="Joined" value="—" />
       </div>
 
-      {/* SVC Secretary AI — WhatsApp assistant entry point + the phone
-          number that lets it recognize this account. */}
-      <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden animate-fade-up delay-250 mb-6">
-        <div className="px-4 pt-4 pb-3 flex items-start gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0">
-            <Bot className="w-4 h-4 text-primary" />
-          </div>
-          <div className="min-w-0 pt-0.5">
-            <h3 className="text-sm font-bold leading-tight">SVC Secretary AI</h3>
-            <p className="text-xs text-muted-foreground leading-snug mt-0.5">
-              Chat on WhatsApp for quick answers about jobs, reports, Directory and more.
-            </p>
-          </div>
-        </div>
-
-        {WHATSAPP_SECRETARY_NUMBER && (
-          <div className="px-4 pb-4">
-            <a
-              href={`https://wa.me/${WHATSAPP_SECRETARY_NUMBER}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-primary/15 border border-primary/25 text-primary text-sm font-semibold active:scale-95 hover:bg-primary/20 transition-all duration-150"
-            >
-              <MessageCircle className="w-4 h-4" />
-              Message the Secretary
-            </a>
-          </div>
-        )}
-
-        <div className="border-t border-white/10">
-          {editingPhone ? (
-            <div className="flex items-center gap-2 px-4 py-3.5">
-              <Phone className="w-4 h-4 shrink-0 text-muted-foreground" />
-              <input
-                type="tel"
-                value={phoneValue}
-                onChange={(e) => setPhoneValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") savePhone()
-                  if (e.key === "Escape") cancelEditPhone()
-                }}
-                placeholder="Your number"
-                autoFocus
-                className="flex-1 bg-white/5 border border-white/15 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-primary/40 transition-colors"
-              />
-              <button
-                onClick={savePhone}
-                disabled={savingPhone}
-                className="w-7 h-7 rounded-md bg-primary/15 border border-primary/25 flex items-center justify-center active:scale-95 transition-all disabled:opacity-40"
-              >
-                <Check className="w-3.5 h-3.5 text-primary" />
-              </button>
-              <button
-                onClick={cancelEditPhone}
-                className="w-7 h-7 rounded-md bg-white/5 border border-white/15 flex items-center justify-center active:scale-95 transition-all"
-              >
-                <X className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
-            </div>
-          ) : (
-            <button onClick={startEditPhone} className="flex items-center gap-3 px-4 py-3.5 w-full text-left active:bg-white/5 transition-colors duration-150">
-              <span className="text-muted-foreground"><Phone className="w-4 h-4" /></span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-medium">
-                  {userPhone || <span className="text-muted-foreground">Add your number</span>}
-                </span>
-                <span className="block text-[11px] text-muted-foreground/60 mt-0.5">
-                  So the Secretary recognizes you
-                </span>
-              </span>
-              {userPhone ? (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); clearPhone() }}
-                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors shrink-0"
-                >
-                  <X className="w-3 h-3 text-muted-foreground/40" />
-                </span>
-              ) : (
-                <Pencil className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* Settings rows */}
       <div className="mx-6 rounded-2xl bg-card border border-white/10 overflow-hidden flex flex-col divide-y divide-white/10 animate-fade-up delay-250">
         {pwaInstallStatus !== "checking" && pwaInstallStatus !== "installed" && (
           <SettingsRow icon={<Download className="w-4 h-4" />} label="Install app" onClick={openInstall} />
         )}
+        <SettingsRow icon={<Bot className="w-4 h-4" />} label="SVC Secretary AI" onClick={onSecretaryAi} />
         <SettingsRow icon={<Bell className="w-4 h-4" />} label="Notifications" onClick={onNotifications} />
         <SettingsRow icon={<HelpCircle className="w-4 h-4" />} label="How it works" onClick={onHelp} />
         {isAdmin && onAdmin && (

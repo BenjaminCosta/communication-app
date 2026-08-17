@@ -67,6 +67,7 @@ const ContextDetailScreen = dynamic(() => import("@/components/context-detail-sc
 const DirectoryScreen = dynamic(() => import("@/components/directory/directory-screen").then((m) => ({ default: m.DirectoryScreen })), { ssr: false })
 const DirectoryProfileScreen = dynamic(() => import("@/components/directory/directory-profile-screen").then((m) => ({ default: m.DirectoryProfileScreen })), { ssr: false })
 const HelpScreen = dynamic(() => import("@/components/help-screen").then((m) => ({ default: m.HelpScreen })), { ssr: false })
+const SecretaryAiScreen = dynamic(() => import("@/components/secretary-ai-screen").then((m) => ({ default: m.SecretaryAiScreen })), { ssr: false })
 const ApplicationsListScreen = dynamic(() => import("@/components/applications/dashboard/applications-list-screen").then((m) => ({ default: m.ApplicationsListScreen })), { ssr: false })
 const ApplicationDetailScreen = dynamic(() => import("@/components/applications/dashboard/application-detail-screen").then((m) => ({ default: m.ApplicationDetailScreen })), { ssr: false })
 const CandidateFlowScreen = dynamic(() => import("@/components/applications/candidate/candidate-flow-screen").then((m) => ({ default: m.CandidateFlowScreen })), { ssr: false })
@@ -127,6 +128,7 @@ type Screen =
   | "application-detail"
   | "apply"
   | "help"
+  | "secretary-ai"
   | "quest-coral"
   | "quest-coral-detail"
   | "bye-bye-dpr"
@@ -146,6 +148,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   people: 4,
   admin: 4,
   help: 4,
+  "secretary-ai": 4,
   "project-detail": 5,
   contexts: 4,
   "context-detail": 5,
@@ -1545,6 +1548,7 @@ export default function Home() {
   }, [navigateTo])
   const goToAdmin = useCallback(() => navigateTo("admin"), [navigateTo])
   const goToHelp = useCallback(() => navigateTo("help"), [navigateTo])
+  const goToSecretaryAi = useCallback(() => navigateTo("secretary-ai"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -1875,16 +1879,24 @@ export default function Home() {
           userEmail={userEmail}
           userInitials={userInitials}
           userColor={userColor}
-          userPhone={userPhone}
-          onUpdatePhone={handleUpdateMyPhone}
           projectCount={projects.length}
           messageCount={messages.length}
           onBack={goToStream}
           onSignOut={handleSignOut}
           onNotifications={goToNotificationsFromProfile}
+          onSecretaryAi={goToSecretaryAi}
           isAdmin={currentUser?.isAdmin === true}
           onAdmin={goToAdmin}
           onHelp={goToHelp}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "secretary-ai" && (
+        <SecretaryAiScreen
+          className={entranceClass}
+          onBack={goToProfile}
+          userPhone={userPhone}
+          onUpdatePhone={handleUpdateMyPhone}
         />
       )}
 
