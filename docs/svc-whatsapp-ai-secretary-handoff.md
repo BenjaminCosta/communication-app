@@ -123,16 +123,58 @@ one-time code mailed to the SVC address for `"unrecognized"` claims, and a
 per-sender attempt limit. Same open item the 2026-08-16 section already
 flagged, now more urgent.
 
+### 6. Duplicate copies of one person stopped counting as a conflict
+
+Running the read-only prod audit after the tier fix left **59** unresolvable
+numbers — and **34 of them were one employee duplicated across import
+sources**: the same normalized name on an `op_person_*` (operational import),
+a `usr_*` (master import) and/or a hand-added contact, all with
+`linkedUserId: null`. The resolver was telling real people it had "found more
+than one SVC profile" about *them*.
+
+`collapseDuplicatePersonRecords()` now folds unlinked candidates that all
+normalize to the same name (case/accents/punctuation only — deliberately
+strict) into one, picking the survivor deterministically (a record carrying a
+role first, then lowest id) so a number always resolves to the same personId.
+Only unlinked candidates: two different registered accounts stay a genuine
+conflict, because merging those would pick an arbitrary uid to act as.
+
+**Prod result: 59 → 25 ambiguous numbers, with no data written at all.** The
+remaining 25 need human judgment and are correctly left alone — genuinely
+different people sharing a phone ("Robert Hayes" / "Mary Kay Demartini", a
+shared landline), nicknames ("Charlie Santoro" / "CHARLES SANTORE"), typos
+("Greme Cooper" / "graeme cooper") and partial names ("Heber" / "Heber
+Venegas"). Those people can now self-enroll over WhatsApp instead of waiting
+for cleanup.
+
+`pnpm backfill:user-phone:dry` was also re-run: 0 eligible, nothing left to
+backfill (8 users have a phone, 2 have no derivable one — they can now just
+message Courtney and reply with their SVC email).
+
+### 7. Public → internal is reflected in the Center
+
+`reconcileIdentitySnapshot()` (`lib/courtney-roberts-center/identity.ts`):
+public → internal always applies, so a claimed or admin-linked thread stops
+saying "Unknown sender" immediately — including for the message that
+identified them, since the webhook records inbound messages *after*
+enrollment. Internal → public never applies: resolution fails closed, and one
+Firestore blip would otherwise rewrite a known thread back to "Unknown
+sender" while leaving the old `resolvedUserId` behind as a merge leftover.
+`identitySnapshotWriteFields()` writes every identity key explicitly (null
+when unset) for the same reason — the summary is a `{merge: true}` write, so
+an omitted key silently preserves the previous person's id.
+
 ### Verification
 
-`pnpm verify` green: 388 tests in `test:whatsapp-secretary` (up from 369),
+`pnpm verify` green: 402 tests in `test:whatsapp-secretary` (up from 369),
 typecheck, functions build, production build. New coverage includes the exact
 loop scenario as a regression test ("a deliberate WhatsApp link resolves a
 number that two registered profile phones would otherwise leave ambiguous").
 
 **Not done**: no live-WhatsApp run yet — same gap the 2026-08-16 claim flow
-had. The 60 genuinely ambiguous prod numbers should shrink once affected
-people claim; re-run `pnpm audit:whatsapp-identity` (read-only) to measure.
+had. The remaining 25 ambiguous numbers are a Directory data-hygiene backlog
+needing human judgment, not a code gap; re-run `pnpm audit:whatsapp-identity`
+(read-only) to measure.
 
 ## Profile UI: "Courtney Roberts" card replaces the plain phone field (2026-08-16)
 

@@ -370,3 +370,81 @@ test("a private linked contact is not adopted, matching the resolver's own exclu
     original,
   )
 })
+
+// ── Duplicate copies of ONE person are not competing claims ────────────────
+// From the 2026-08-18 production audit: 34 of 59 unresolvable numbers were a
+// single employee duplicated across import sources, so the resolver was
+// telling real people it had "found more than one SVC profile" about them.
+
+test("unlinked duplicates of the same person collapse into one identity", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    contactsByPhone: [
+      contactDoc("op_person_op-e729058a", "Juan Silva", {}),
+      contactDoc("sqVYQ2NOeEqzasnT2GQI", "Juan Silva", {}),
+      contactDoc("usr_62382bd9972dc7a36b", "Juan Silva", {}),
+    ],
+  }
+
+  const result = classifyWhatsAppIdentityMatches(matches)
+  assert.equal(result.status, "resolved")
+  assert.equal(result.status === "resolved" && result.identity.name, "Juan Silva")
+})
+
+test("casing, accents and punctuation differences still count as the same person", () => {
+  for (const [a, b] of [
+    ["GREG PIO", "Greg Pio"],
+    ["Philip Tobey Jr.", "philip tobey jr"],
+    ["Víctor Morel", "Victor Morel"],
+  ] as const) {
+    const result = classifyWhatsAppIdentityMatches({
+      ...emptyMatches(),
+      contactsByPhone: [contactDoc("a", a, {}), contactDoc("b", b, {})],
+    })
+    assert.equal(result.status, "resolved", `${a} / ${b}`)
+  }
+})
+
+test("a nickname, a typo or two genuinely different people stay ambiguous — never guessed at", () => {
+  for (const [a, b] of [
+    ["Charlie Santoro", "CHARLES SANTORE"],
+    ["Greme Cooper", "graeme cooper"],
+    ["Claudia D", "Christinia O'connel"],
+    ["Robert Hayes", "Mary Kay Demartini"],
+    ["ROBERT DE POORTERE", "Robert DePoortere"],
+    ["Heber", "Heber Venegas"],
+  ] as const) {
+    const result = classifyWhatsAppIdentityMatches({
+      ...emptyMatches(),
+      contactsByPhone: [contactDoc("a", a, {}), contactDoc("b", b, {})],
+    })
+    assert.equal(result.status, "ambiguous", `${a} / ${b}`)
+  }
+})
+
+test("the collapsed survivor is deterministic: a record carrying a role wins, then the lowest id", () => {
+  const withRole = classifyWhatsAppIdentityMatches({
+    ...emptyMatches(),
+    contactsByPhone: [contactDoc("zzz", "Douglas Shaw", { role: "Foreman" }), contactDoc("aaa", "Douglas Shaw", {})],
+  })
+  assert.equal(withRole.status === "resolved" && withRole.identity.personId, "zzz")
+  assert.equal(withRole.status === "resolved" && withRole.identity.role, "Foreman")
+
+  const noRole = classifyWhatsAppIdentityMatches({
+    ...emptyMatches(),
+    contactsByPhone: [contactDoc("zzz", "Douglas Shaw", {}), contactDoc("aaa", "Douglas Shaw", {})],
+  })
+  assert.equal(noRole.status === "resolved" && noRole.identity.personId, "aaa")
+})
+
+test("two DIFFERENT registered accounts are never collapsed, even sharing a name", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    contactsByPhone: [
+      contactDoc("contact-a", "Juan Silva", { linkedUserId: "user-a" }),
+      contactDoc("contact-b", "Juan Silva", { linkedUserId: "user-b" }),
+    ],
+  }
+
+  assert.deepEqual(classifyWhatsAppIdentityMatches(matches), { status: "ambiguous" })
+})

@@ -175,6 +175,55 @@ type TierResult =
   | { status: "ambiguous"; matchCount: number }
 
 /**
+ * Comparison form for deciding whether two unlinked contact records are the
+ * same person. Deliberately strict — case, accents, punctuation and spacing
+ * only. It must never merge "Charlie Santoro" with "CHARLES SANTORE", or
+ * "Greme Cooper" with "graeme cooper": those are a nickname and a typo, and
+ * guessing at them is exactly the kind of inference this resolver refuses to
+ * make.
+ */
+function personNameKey(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+/**
+ * Collapses unlinked contact records that are plainly the SAME person.
+ *
+ * A production audit (2026-08-18) found 59 phone numbers the resolver could
+ * not settle, and 34 of them were one person duplicated across contact
+ * records — the same normalized name on an operational-import doc
+ * (`op_person_*`), a master-import doc (`usr_*`) and/or a hand-added one, all
+ * with `linkedUserId: null`. Treating those as competing claims meant real
+ * employees were told "I found more than one SVC profile" about themselves.
+ *
+ * Only applied to UNLINKED candidates, and only when EVERY one of them
+ * normalizes to the same name. Two different registered accounts sharing a
+ * number stay a genuine conflict — merging those would pick an arbitrary uid
+ * to act as, which is a much stronger claim than picking which of several
+ * copies of one Directory record to anchor to.
+ *
+ * The survivor is chosen deterministically (a record carrying a role first,
+ * then lowest id) so the same number always resolves to the same personId
+ * and the Center/self-context stay stable across turns.
+ */
+function collapseDuplicatePersonRecords(unlinked: IdentityCandidate[]): IdentityCandidate[] {
+  if (unlinked.length < 2) return unlinked
+  if (new Set(unlinked.map((candidate) => personNameKey(candidate.identity.name))).size !== 1) return unlinked
+
+  const survivor = [...unlinked].sort((a, b) => {
+    if (Boolean(a.identity.role) !== Boolean(b.identity.role)) return a.identity.role ? -1 : 1
+    return a.identity.personId.localeCompare(b.identity.personId)
+  })[0]
+  console.info("Collapsed duplicate Directory contact records for one person", { copies: unlinked.length })
+  return [survivor]
+}
+
+/**
  * Resolves one trust tier to a UNIQUE REAL IDENTITY, not a document count.
  *
  * A registered account (`userId` set, whether from a `/users` doc directly
@@ -184,8 +233,10 @@ type TierResult =
  * accumulates (a second vcf import, a mislabeled entry, ...), not competing
  * claims to the identity. Two or more DIFFERENT registered accounts sharing
  * one phone number is a genuine, unresolvable conflict and stays ambiguous —
- * as does two or more unlinked contacts with no registered account among
- * them to break the tie.
+ * as does two or more unlinked contacts naming DIFFERENT people with no
+ * registered account among them to break the tie. Unlinked duplicates of the
+ * SAME person are collapsed first; see
+ * {@link collapseDuplicatePersonRecords}.
  */
 function resolveTier(matches: IdentityCandidate[]): TierResult {
   if (matches.length === 0) return { status: "empty" }
@@ -195,7 +246,7 @@ function resolveTier(matches: IdentityCandidate[]): TierResult {
   if (linked.length === 1) return { status: "resolved", candidate: linked[0] }
   if (linked.length > 1) return { status: "ambiguous", matchCount: linked.length }
 
-  const unlinked = merged.filter((m) => !m.identity.userId)
+  const unlinked = collapseDuplicatePersonRecords(merged.filter((m) => !m.identity.userId))
   if (unlinked.length === 1) return { status: "resolved", candidate: unlinked[0] }
   return { status: "ambiguous", matchCount: unlinked.length }
 }
