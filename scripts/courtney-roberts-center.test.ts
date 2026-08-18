@@ -70,6 +70,7 @@ test("toConversationSummaryForTests: defaults a malformed/legacy doc rather than
   assert.equal(summary?.phoneHash, "abc123")
   assert.equal(summary?.phoneNumber, "")
   assert.equal(summary?.messageCount, 0)
+  assert.equal(summary?.aiPaused, false)
 })
 
 test("toConversationSummaryForTests: reads a well-formed internal conversation doc", () => {
@@ -103,12 +104,30 @@ test("toConversationSummaryForTests: reads a well-formed internal conversation d
     lastMessageRole: "assistant",
     createdAtMs: 500,
     updatedAtMs: 1000,
+    aiPaused: false,
   })
 })
 
 test("toConversationSummaryForTests: returns null for a non-object doc", () => {
   assert.equal(toConversationSummaryForTests("abc123", null), null)
   assert.equal(toConversationSummaryForTests("abc123", "not an object"), null)
+})
+
+test("toConversationSummaryForTests: reads a paused conversation, including who paused it", () => {
+  const summary = toConversationSummaryForTests("abc123", {
+    aiPaused: true,
+    aiPausedAtMs: 5000,
+    aiPausedByName: "Ben Acosta",
+  })
+  assert.equal(summary?.aiPaused, true)
+  assert.equal(summary?.aiPausedAtMs, 5000)
+  assert.equal(summary?.aiPausedByName, "Ben Acosta")
+})
+
+test("toConversationSummaryForTests: a non-true aiPaused value reads as not paused, and omits the paused-by fields", () => {
+  const summary = toConversationSummaryForTests("abc123", { aiPaused: "true", aiPausedByName: "Ben Acosta" })
+  assert.equal(summary?.aiPaused, false)
+  assert.equal("aiPausedByName" in (summary ?? {}), false)
 })
 
 test("toMessageForTests: requires role, text and createdAtMs", () => {
@@ -148,6 +167,34 @@ test("toMessageForTests: drops an attachment entry with no recognizable kind", (
     attachments: [{ kind: "video" }],
   })
   assert.deepEqual(message, { id: "assistant:wamid.2", role: "assistant", text: "ok", createdAtMs: 3 })
+})
+
+test("toMessageForTests: a human-sent reply carries who sent it", () => {
+  const message = toMessageForTests("human:abc", {
+    role: "assistant",
+    text: "Thanks, on it.",
+    createdAtMs: 4,
+    sentBy: "human",
+    sentByName: "Ben Acosta",
+  })
+  assert.deepEqual(message, {
+    id: "human:abc",
+    role: "assistant",
+    text: "Thanks, on it.",
+    createdAtMs: 4,
+    sentBy: "human",
+    sentByName: "Ben Acosta",
+  })
+})
+
+test("toMessageForTests: an ordinary AI reply carries no sentBy at all, the long-standing default", () => {
+  const message = toMessageForTests("assistant:wamid.3", { role: "assistant", text: "Here you go.", createdAtMs: 5 })
+  assert.equal("sentBy" in (message ?? {}), false)
+})
+
+test("toMessageForTests: sentBy on a user message is ignored — only assistant messages can be human-sent", () => {
+  const message = toMessageForTests("m1", { role: "user", text: "hi", createdAtMs: 1, sentBy: "human" })
+  assert.equal("sentBy" in (message ?? {}), false)
 })
 
 // ── Admin manual identity linking ──────────────────────────────────────────

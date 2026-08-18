@@ -1,12 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, Check, Copy, Link2, Loader2, Lock, MessageCircleOff, Paperclip } from "lucide-react"
+import { ArrowLeft, Check, Copy, Link2, Loader2, Lock, MessageCircleOff, Pause, Paperclip, Play, Send } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import {
   fetchCourtneyRobertsCenterThread,
   linkCourtneyRobertsCenterConversation,
+  sendCourtneyRobertsCenterManualReply,
+  resumeCourtneyRobertsCenterAi,
   type CourtneyRobertsCenterLinkResult,
   CourtneyRobertsCenterClientError,
 } from "@/lib/courtney-roberts-center/client"
@@ -84,6 +86,10 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
   // Survives the identityStatus flip that would otherwise unmount the banner
   // the instant it succeeds, taking the outcome with it.
   const [linkOutcome, setLinkOutcome] = useState<LinkOutcome | null>(null)
+  const [composeText, setComposeText] = useState("")
+  const [isSending, setIsSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [isResuming, setIsResuming] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -91,6 +97,8 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
     setErrorStatus(null)
     setErrorMessage(null)
     setCopied(false)
+    setComposeText("")
+    setSendError(null)
     fetchCourtneyRobertsCenterThread(conversationId, { limit: THREAD_PAGE_SIZE })
       .then((page) => {
         if (!cancelled) setData({ conversation: page.conversation, messages: page.messages })
@@ -114,6 +122,46 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
     copyToClipboard(buildConversationTranscript(data.conversation, data.messages))
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
+  }
+
+  const handleSend = () => {
+    const text = composeText.trim()
+    if (!text || isSending) return
+    setIsSending(true)
+    setSendError(null)
+    const clientMessageId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    sendCourtneyRobertsCenterManualReply(conversationId, text, clientMessageId)
+      .then((message) => {
+        setComposeText("")
+        setData((current) =>
+          current
+            ? {
+                conversation: { ...current.conversation, aiPaused: true, aiPausedByName: message.sentByName },
+                messages: [...current.messages, message],
+              }
+            : current,
+        )
+      })
+      .catch((err: unknown) => {
+        setSendError(err instanceof CourtneyRobertsCenterClientError ? err.message : "Unable to send this message.")
+      })
+      .finally(() => setIsSending(false))
+  }
+
+  const handleResume = () => {
+    if (isResuming) return
+    setIsResuming(true)
+    resumeCourtneyRobertsCenterAi(conversationId)
+      .then(() => {
+        setData((current) =>
+          current ? { conversation: { ...current.conversation, aiPaused: false, aiPausedByName: undefined }, messages: current.messages } : current,
+        )
+      })
+      .catch((err: unknown) => {
+        setSendError(err instanceof CourtneyRobertsCenterClientError ? err.message : "Unable to resume AI.")
+      })
+      .finally(() => setIsResuming(false))
   }
 
   return (
@@ -176,6 +224,25 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
         />
       )}
 
+      {conversation?.aiPaused && (
+        <div className="shrink-0 border-b border-white/10 bg-amber-500/8">
+          <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-2.5 flex items-center gap-2">
+            <Pause className="w-3.5 h-3.5 text-amber-400 shrink-0" strokeWidth={2.5} />
+            <span className="text-[11px] text-amber-200/80 flex-1">
+              Courtney is paused{conversation.aiPausedByName ? ` — ${conversation.aiPausedByName} is replying manually` : " — a human is replying manually"}
+            </span>
+            <button
+              onClick={handleResume}
+              disabled={isResuming}
+              className="px-3 py-1 rounded-full text-[11px] font-semibold border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 disabled:opacity-40 active:scale-95 transition-all duration-150 shrink-0 flex items-center gap-1.5"
+            >
+              {isResuming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" strokeWidth={2.5} />}
+              Resume AI
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-4">
           {isDenied ? (
@@ -195,6 +262,47 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
           )}
         </div>
       </div>
+
+      {data && (
+        <div className="glass-compose shrink-0 px-4 md:px-6 pt-2" style={{ paddingBottom: "max(20px, env(safe-area-inset-bottom, 0px))" }}>
+          {sendError && (
+            <div className="max-w-2xl mx-auto mb-2 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+              {sendError}
+            </div>
+          )}
+          <div className="max-w-2xl mx-auto flex items-end gap-2">
+            <textarea
+              value={composeText}
+              onChange={(event) => setComposeText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  handleSend()
+                }
+              }}
+              rows={1}
+              placeholder="Reply as Courtney…"
+              className="glass-compose-pill min-h-[38px] max-h-[132px] flex-1 resize-none overflow-y-auto rounded-full border px-4 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground/60 focus:border-emerald-500/40 scrollbar-hide transition-colors duration-150"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!composeText.trim() || isSending}
+              aria-label="Send"
+              className={cn(
+                "mb-0.5 w-9 h-9 rounded-full flex items-center justify-center border transition-all duration-150 shrink-0",
+                composeText.trim() && !isSending
+                  ? "border-emerald-500/30 bg-emerald-500 text-white active:scale-95"
+                  : "bg-white/5 border-white/10 text-muted-foreground",
+              )}
+            >
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="max-w-2xl mx-auto mt-1.5 text-[10px] text-muted-foreground/40 px-1">
+            Sending pauses Courtney for this conversation.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -309,7 +417,11 @@ function MessageBubble({ message }: { message: CourtneyRobertsCenterMessage }) {
           isAssistant ? "bg-emerald-500/16 border border-emerald-500/25 text-emerald-50" : "bg-white/6 border border-white/10 text-foreground",
         )}
       >
-        {isAssistant && <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400/80 mb-0.5">Courtney</p>}
+        {isAssistant && (
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400/80 mb-0.5">
+            {message.sentBy === "human" ? (message.sentByName ?? "Admin") : "Courtney"}
+          </p>
+        )}
         <p className="whitespace-pre-wrap break-words">{message.text}</p>
         {message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-col gap-1 mt-2">

@@ -24,6 +24,7 @@ import {
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
 import {
+  isCourtneyRobertsCenterAiPaused,
   recordCourtneyRobertsCenterAssistantReply,
   recordCourtneyRobertsCenterInboundMessage,
 } from "@/lib/courtney-roberts-center/history-store"
@@ -71,7 +72,9 @@ type CachedReply = {
 }
 
 const cachedReplies = new Map<string, CachedReply>()
-const pendingReplies = new Map<string, Promise<WhatsAppOutgoingReply>>()
+// `null` means "AI is paused for this conversation — a human is handling it,
+// deliberately no automatic reply was generated or sent."
+const pendingReplies = new Map<string, Promise<WhatsAppOutgoingReply | null>>()
 
 type WhatsAppProcessingFeedback = {
   stop(): Promise<void>
@@ -394,8 +397,8 @@ function modulesUsed(retrievals: Array<{ toolName: string }>): SecretaryModule[]
   return [...modules]
 }
 
-/** Avoids repeated model calls when Meta retries delivery of the same inbound message. */
-async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Promise<WhatsAppOutgoingReply> {
+/** Avoids repeated model calls when Meta retries delivery of the same inbound message. `null` means AI is paused for this conversation — nothing should be sent. */
+async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Promise<WhatsAppOutgoingReply | null> {
   const now = Date.now()
   const cachedReply = cachedReplies.get(message.messageId)
   if (cachedReply && cachedReply.expiresAt > now) {
@@ -409,7 +412,7 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
 
   pruneCachedReplies(now)
   const replyPromise = prepareWhatsAppConversation(message).then(async (conversation) => {
-    let reply: WhatsAppOutgoingReply
+    let reply: WhatsAppOutgoingReply | null
     if (conversation.existingReply !== null) {
       reply = conversation.existingReply
     } else {
@@ -449,7 +452,18 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           identity: durableIdentity,
         })
 
-        if (enrollment.kind === "blocked") {
+        // A human has taken over this conversation from Courtney Roberts
+        // Center — checked after identity/enrollment resolve (so the inbound
+        // message above is still correctly attributed) but before anything
+        // that would generate or send a reply, so a paused conversation gets
+        // no automatic response of any kind: no enrollment prompt, no write
+        // confirmation, no AI answer. The admin is expected to handle it.
+        const aiPaused = await isCourtneyRobertsCenterAiPaused(message.senderPhoneNumber)
+
+        if (aiPaused) {
+          console.info("Courtney Roberts Center: AI is paused for this conversation (human takeover) — skipping the automatic reply.")
+          reply = null
+        } else if (enrollment.kind === "blocked") {
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
@@ -631,7 +645,10 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
       }
     }
 
-    cachedReplies.set(message.messageId, { reply, expiresAt: Date.now() + REPLY_CACHE_TTL_MS })
+    // A `null` (paused) reply is deliberately never cached — a retry should
+    // re-check the live pause state rather than freeze in whatever it was
+    // when the first delivery attempt landed.
+    if (reply) cachedReplies.set(message.messageId, { reply, expiresAt: Date.now() + REPLY_CACHE_TTL_MS })
     return reply
   })
     .finally(() => {
@@ -800,6 +817,10 @@ export async function POST(request: Request): Promise<Response> {
       })
 
       const reply = await getReplyForIncomingMessage(message)
+      if (!reply) {
+        console.info("Skipped the automatic WhatsApp reply — a human has taken over this conversation.")
+        continue
+      }
       console.info("Generated Courtney Roberts reply", {
         replyLength: reply.text.length,
         presentation: reply.presentation?.kind ?? "text",

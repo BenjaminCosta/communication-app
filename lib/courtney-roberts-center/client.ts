@@ -128,3 +128,42 @@ export async function setCourtneyRobertsCenterAccessUser(uid: string, hasAccess:
   const { user } = (await response.json()) as { user: CourtneyRobertsCenterAccessUser }
   return user
 }
+
+export type CourtneyRobertsCenterManualReplyResult = {
+  id: string
+  role: "assistant"
+  text: string
+  createdAtMs: number
+  sentBy: "human"
+  sentByName: string
+}
+
+/**
+ * Sends one manual WhatsApp message as Courtney Roberts — pauses the AI for
+ * this conversation. `clientMessageId` should be freshly generated per call
+ * (e.g. `crypto.randomUUID()`) so a retry after a network error is a safe
+ * no-op instead of a second WhatsApp message.
+ */
+export async function sendCourtneyRobertsCenterManualReply(
+  conversationId: string,
+  text: string,
+  clientMessageId: string,
+): Promise<CourtneyRobertsCenterManualReplyResult> {
+  const response = await fetch(`/api/courtney-roberts-center/conversations/${encodeURIComponent(conversationId)}/reply`, {
+    method: "POST",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ text, clientMessageId }),
+  })
+  if (!response.ok) await readError(response, "Unable to send this message.")
+  const { message } = (await response.json()) as { message: CourtneyRobertsCenterManualReplyResult }
+  return message
+}
+
+/** Resumes automatic AI replies for this conversation. */
+export async function resumeCourtneyRobertsCenterAi(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/courtney-roberts-center/conversations/${encodeURIComponent(conversationId)}/resume`, {
+    method: "POST",
+    headers: { Authorization: await authHeader() },
+  })
+  if (!response.ok) await readError(response, "Unable to resume AI for this conversation.")
+}

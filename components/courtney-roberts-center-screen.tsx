@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, MessageCircleOff, Lock, UserRound } from "lucide-react"
+import { Search, MessageCircleOff, Lock, Pause, UserRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { ModuleSwitcher, type SvcModule } from "@/components/module-switcher"
@@ -222,6 +222,12 @@ function ConversationRow({
           >
             {conversation.identityStatus === "internal" ? "Internal" : "Public"}
           </span>
+          {conversation.aiPaused && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border border-amber-500/40 text-amber-400 bg-amber-500/10 shrink-0">
+              <Pause className="w-2.5 h-2.5" strokeWidth={3} />
+              Paused
+            </span>
+          )}
           {conversation.phoneNumber && (
             <span className="text-[10px] text-muted-foreground/50 font-mono truncate">+{conversation.phoneNumber}</span>
           )}

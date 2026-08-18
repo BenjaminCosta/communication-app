@@ -41,6 +41,10 @@ async function appendMessage(input: {
   text: string
   identity: WhatsAppSenderIdentity | null
   extra?: Record<string, unknown>
+  /** Merged into the conversation-level doc write, in the same transaction
+   * as the message — e.g. flipping `aiPaused` atomically with the human
+   * reply that caused it. */
+  conversationExtra?: Record<string, unknown>
 }): Promise<void> {
   const db = await getAdminDb()
   const conversationId = hashWhatsAppPhoneNumber(input.senderPhoneNumber)
@@ -82,10 +86,24 @@ async function appendMessage(input: {
         lastMessageRole: input.role,
         updatedAtMs: now,
         ...(conversationSnap.exists ? {} : { createdAtMs: now }),
+        ...(input.conversationExtra ?? {}),
       },
       { merge: true },
     )
   })
+}
+
+/**
+ * Whether a human has taken over this conversation — checked by the webhook
+ * before it would otherwise generate and send an automatic AI reply. A
+ * missing conversation doc (never recorded, or Firestore hiccup) reads as
+ * "not paused", the existing default behavior.
+ */
+export async function isCourtneyRobertsCenterAiPaused(senderPhoneNumber: string): Promise<boolean> {
+  const db = await getAdminDb()
+  const conversationId = hashWhatsAppPhoneNumber(senderPhoneNumber)
+  const snapshot = await db.collection(CRC_CONVERSATIONS_COLLECTION).doc(conversationId).get()
+  return snapshot.data()?.aiPaused === true
 }
 
 /**
@@ -147,4 +165,49 @@ export async function recordCourtneyRobertsCenterAssistantReply(input: {
   } catch {
     console.error("Unable to record durable Courtney Roberts Center history for a Courtney Roberts reply.")
   }
+}
+
+/**
+ * Records one human admin reply and flips `aiPaused` on in the same
+ * transaction — the takeover and the message that caused it land together,
+ * so the Center can never show a paused conversation whose most recent
+ * message doesn't explain why.
+ *
+ * Deliberately **not** best-effort like the two recorders above: those guard
+ * a webhook whose real job is the auto-reply, where a durable-history
+ * failure must never block it. Here the durable record *is* the point — the
+ * caller (`lib/courtney-roberts-center/manual-reply.ts`) already sent the
+ * WhatsApp message by the time this runs, so a failure here is surfaced to
+ * the admin rather than silently dropped.
+ */
+export async function recordCourtneyRobertsCenterHumanReply(input: {
+  senderPhoneNumber: string
+  clientMessageId: string
+  text: string
+  identity: WhatsAppSenderIdentity | null
+  sentByName: string
+}): Promise<void> {
+  await appendMessage({
+    senderPhoneNumber: input.senderPhoneNumber,
+    messageDocId: `human:${input.clientMessageId}`,
+    role: "assistant",
+    text: input.text,
+    identity: input.identity,
+    extra: { sentBy: "human", sentByName: input.sentByName },
+    conversationExtra: {
+      aiPaused: true,
+      aiPausedAtMs: Date.now(),
+      aiPausedByName: input.sentByName,
+    },
+  })
+}
+
+/** Clears the human takeover — the webhook resumes generating automatic replies for this conversation. */
+export async function resumeCourtneyRobertsCenterAi(senderPhoneNumber: string): Promise<void> {
+  const db = await getAdminDb()
+  const conversationId = hashWhatsAppPhoneNumber(senderPhoneNumber)
+  await db
+    .collection(CRC_CONVERSATIONS_COLLECTION)
+    .doc(conversationId)
+    .set({ aiPaused: false, aiPausedAtMs: null, aiPausedByName: null, updatedAtMs: Date.now() }, { merge: true })
 }

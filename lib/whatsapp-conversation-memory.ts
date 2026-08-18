@@ -421,6 +421,41 @@ export async function storeWhatsAppAssistantReply(input: {
   })
 }
 
+/**
+ * Appends a human admin's manual reply to the Secretary's own rolling
+ * context, as an ordinary assistant turn — so if AI is resumed later, the
+ * model sees what was actually said while a human was handling the
+ * conversation instead of picking back up mid-conversation blind to it.
+ * Deliberately narrow next to {@link storeWhatsAppAssistantReply}: no
+ * onboarding/pendingWrite/entity bookkeeping, because a human reply carries
+ * none of that Secretary-turn state — it is just one more line of dialogue.
+ */
+export async function appendManualAssistantMessage(input: {
+  senderPhoneNumber: string
+  messageId: string
+  text: string
+}): Promise<void> {
+  const db = await getAdminDb()
+  const conversationRef = db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(input.senderPhoneNumber))
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(conversationRef)
+    const recentMessages = readRecentMessages(snapshot.data()?.recentMessages)
+    if (recentMessages.some((message) => message.id === input.messageId)) return
+
+    const updatedMessages = limitRecentMessages([
+      ...recentMessages,
+      {
+        id: input.messageId,
+        role: "assistant",
+        content: input.text.slice(0, MAX_STORED_MESSAGE_CHARACTERS),
+        createdAtMs: Date.now(),
+      },
+    ])
+
+    transaction.set(conversationRef, { recentMessages: updatedMessages, updatedAtMs: Date.now() }, { merge: true })
+  })
+}
 
 /**
  * Reads only what the recognition confirmation needs to decide whether it may

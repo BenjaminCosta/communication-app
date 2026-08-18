@@ -44,6 +44,16 @@ function toConversationSummary(id: string, data: unknown): CourtneyRobertsCenter
     lastMessageRole: record.lastMessageRole === "assistant" ? "assistant" : "user",
     createdAtMs: typeof record.createdAtMs === "number" ? record.createdAtMs : lastMessageAtMs,
     updatedAtMs: typeof record.updatedAtMs === "number" ? record.updatedAtMs : lastMessageAtMs,
+    // The paused-by fields only ever mean anything alongside aiPaused itself
+    // — surfacing them for an unpaused conversation (e.g. stale leftovers on
+    // a malformed doc) would show a "paused by X" label that isn't true.
+    ...(record.aiPaused === true
+      ? {
+          aiPaused: true as const,
+          ...(typeof record.aiPausedAtMs === "number" ? { aiPausedAtMs: record.aiPausedAtMs } : {}),
+          ...(typeof record.aiPausedByName === "string" && record.aiPausedByName ? { aiPausedByName: record.aiPausedByName } : {}),
+        }
+      : { aiPaused: false as const }),
   }
 }
 
@@ -76,6 +86,14 @@ function toMessage(id: string, data: unknown): CourtneyRobertsCenterMessage | nu
     createdAtMs,
     ...(record.presentationKind === "list" || record.presentationKind === "cta_url" ? { presentationKind: record.presentationKind } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
+    // Only an assistant-role message can be human-sent — a "user" message
+    // carrying this field would be a malformed/legacy doc, not a real state.
+    ...(role === "assistant" && record.sentBy === "human"
+      ? {
+          sentBy: "human" as const,
+          ...(typeof record.sentByName === "string" && record.sentByName ? { sentByName: record.sentByName } : {}),
+        }
+      : {}),
   }
 }
 

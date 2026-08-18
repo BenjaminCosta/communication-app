@@ -4,11 +4,12 @@
  * Deliberately separate from `lib/whatsapp-conversation-memory.ts`, which
  * exists only to feed the Secretary's own bounded model context (last 12
  * messages, trimmed/rewritten as onboarding and write-preview state change).
- * This module is an append-only record of every inbound message and every
- * Secretary reply, kept independent of that rolling window so a full
- * transcript survives regardless of what the model-facing memory trims. No
- * UI reads this yet — these are the types the future admin screen and its
- * read API are built against.
+ * This module is an append-only record of every inbound message, every
+ * Secretary (AI) reply, and every human admin reply, kept independent of
+ * that rolling window so a full transcript survives regardless of what the
+ * model-facing memory trims. Also carries the human-takeover state
+ * (`aiPaused`) that pauses the AI for a conversation — see
+ * `lib/courtney-roberts-center/manual-reply.ts`.
  */
 
 export type CourtneyRobertsCenterIdentityStatus = "internal" | "public"
@@ -30,6 +31,12 @@ export type CourtneyRobertsCenterMessage = {
   /** Native WhatsApp presentation used for an assistant reply, if any. */
   presentationKind?: "list" | "cta_url"
   attachments?: CourtneyRobertsCenterAttachmentMetadata[]
+  /** Who actually sent an assistant-role message. Absent on every "user"
+   * message and on assistant messages recorded before this field existed —
+   * both cases read as "ai", the long-standing default behavior. */
+  sentBy?: "ai" | "human"
+  /** Only present when `sentBy === "human"` — the admin who sent it. */
+  sentByName?: string
 }
 
 export type CourtneyRobertsCenterConversationSummary = {
@@ -50,4 +57,10 @@ export type CourtneyRobertsCenterConversationSummary = {
   lastMessageRole: CourtneyRobertsCenterMessageRole
   createdAtMs: number
   updatedAtMs: number
+  /** A human has taken over this conversation — the webhook skips the
+   * automatic AI reply entirely while this is true. See
+   * `lib/courtney-roberts-center/manual-reply.ts`. */
+  aiPaused: boolean
+  aiPausedAtMs?: number
+  aiPausedByName?: string
 }
