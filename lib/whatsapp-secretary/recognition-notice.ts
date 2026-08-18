@@ -9,6 +9,7 @@ import {
   markRecognitionNoticePending,
   markRecognitionNoticeSent,
 } from "@/lib/whatsapp-conversation-memory"
+import { recordCourtneyRobertsCenterAssistantReply } from "@/lib/courtney-roberts-center/history-store"
 
 /**
  * The one-time "got you — I recognize you now" confirmation.
@@ -32,6 +33,15 @@ import {
  * is pushed — no template, no workaround — and the confirmation waits for the
  * sender's next message instead.
  */
+
+/**
+ * Stands in for the inbound message id a reply would normally carry, so the
+ * pushed confirmation lands in the Courtney Roberts Center transcript under a
+ * deterministic document id. Nothing is replying to anything here — this
+ * message is the whole point of the turn — and a fixed id makes a retry a
+ * no-op instead of a duplicate, exactly like every other recorded message.
+ */
+export const RECOGNITION_NOTICE_MESSAGE_ID = "recognition-notice"
 
 /** Meta's free-form reply window, measured from the sender's last inbound message. */
 export const CUSTOMER_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1_000
@@ -228,6 +238,16 @@ export async function deliverRecognitionNotice(input: {
     return { status: "deferred", reason: "send-failed" }
   }
 
+  // The Center is meant to hold every message Courtney sends; one that only
+  // ever existed in the recipient's phone would make the transcript an admin
+  // reads quietly wrong. Best-effort inside the recorder itself, so it cannot
+  // undo a message that has already gone out.
+  await recordCourtneyRobertsCenterAssistantReply({
+    senderPhoneNumber: input.senderPhoneNumber,
+    replyToMessageId: RECOGNITION_NOTICE_MESSAGE_ID,
+    identity: input.identity,
+    reply: { text },
+  })
   await markRecognitionNoticeSent({ senderPhoneNumber: input.senderPhoneNumber, capabilitySignature, nowMs })
   console.info("Sent a one-time WhatsApp recognition confirmation", { hasLinkedAccount: Boolean(input.identity.userId) })
   return { status: "sent", text }

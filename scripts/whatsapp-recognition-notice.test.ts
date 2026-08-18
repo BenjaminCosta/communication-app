@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   CUSTOMER_SERVICE_WINDOW_MS,
+  RECOGNITION_NOTICE_MESSAGE_ID,
   buildRecognitionNotice,
   isWithinCustomerServiceWindow,
   looksLikeUsername,
@@ -85,4 +86,11 @@ test("a Directory-only person with no SVC account is still recognized and greete
 
   assert.match(text, /^Hey Flavia — got you\./)
   assert.match(capabilitySignature, /account=unlinked/)
+})
+
+test("the pushed confirmation has a fixed transcript id, so a retry cannot duplicate it", () => {
+  // The Center stores assistant messages as `assistant:{replyToMessageId}`.
+  // A timestamp or random id here would let one retried push become two
+  // messages in the transcript and two in `messageCount`.
+  assert.equal(RECOGNITION_NOTICE_MESSAGE_ID, "recognition-notice")
 })
