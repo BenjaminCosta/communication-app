@@ -371,6 +371,10 @@ export default function Home() {
     () => catalogIndex?.byType.company.map((entry) => ({ id: entry.sourceId, name: entry.name })) ?? [],
     [catalogIndex],
   )
+  const directoryPeople = useMemo(
+    () => catalogIndex?.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })) ?? [],
+    [catalogIndex],
+  )
 
   const recentUserMessages = useMemo(
     () => messages.filter((m) => m.senderId === firebaseUser?.uid).slice(-20).reverse(),
@@ -2089,6 +2093,7 @@ export default function Home() {
                 onBack={handleDirectoryDetailBack}
                 onOpenEntity={goToDirectoryDetail}
                 companies={directoryCompanies}
+                people={directoryPeople}
               />
             )}
           </div>

@@ -55,6 +55,11 @@ export interface DirectoryInvolvedPerson {
   name: string
 }
 
+export interface DirectoryCompanyReference {
+  id: string | null
+  name: string
+}
+
 export interface CreateDirectoryEntityInput {
   type: NewDirectoryEntityType
   name: string
@@ -188,6 +193,73 @@ export async function createDirectoryEntity(
   })
 
   return { directoryId: directoryId(input.type, ref.id), type: input.type, name }
+}
+
+/** Link a contact to an existing Company context, or retain a typed company name. */
+export async function setContactCompanyContext(
+  contactId: string,
+  company: DirectoryCompanyReference,
+): Promise<void> {
+  const ref = doc(db, "contacts", contactId)
+  const name = cleanValue(company.name) ?? ""
+  const contextId = name ? cleanValue(company.id ?? "") : null
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This contact no longer exists.")
+    const master: Record<string, unknown> = { ...(snap.data().masterData ?? {}) }
+    master.companyName = name
+    master.companyContextId = contextId
+    master.companyMatchConfidence = name ? 1 : 0
+    tx.update(ref, {
+      company: name,
+      masterData: master,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
+/**
+ * Update the actual context connections used by Directory and Communications.
+ * The transaction preserves unrelated fields while replacing only the named
+ * company reference and/or the selected People involved collection.
+ */
+export async function updateDirectoryContextConnections(
+  contextId: string,
+  input: {
+    company?: DirectoryCompanyReference
+    involvedPeople?: DirectoryInvolvedPerson[]
+  },
+): Promise<void> {
+  const ref = doc(db, "contexts", contextId)
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This context no longer exists.")
+    const data = snap.data()
+    const patch: Record<string, unknown> = { updatedAt: serverTimestamp() }
+
+    if (input.company !== undefined) {
+      const companyName = cleanValue(input.company.name) ?? ""
+      const companyContextId = companyName ? cleanValue(input.company.id ?? "") : null
+      const master: Record<string, unknown> = { ...(data.masterData ?? {}) }
+      master.companyName = companyName
+      master.companyContextId = companyContextId
+      patch.masterData = master
+    }
+
+    if (input.involvedPeople !== undefined) {
+      const involvedPeople = normalizedInvolvedPeople(input.involvedPeople)
+      const fields: CoreContextField[] = Array.isArray(data.fields) ? [...data.fields] : []
+      const withoutPeople = fields.filter((field) => (field.label ?? "").toLowerCase() !== "people involved")
+      if (involvedPeople.length > 0) {
+        withoutPeople.push({ label: "People involved", value: involvedPeople.map((person) => person.name).join(", ") })
+      }
+      patch.fields = withoutPeople
+      patch.involvedContactIds = involvedPeople.map((person) => person.id)
+      patch.involvedPeople = involvedPeople
+    }
+
+    tx.update(ref, patch as unknown as UpdateData<Record<string, unknown>>)
+  })
 }
 
 // ── Public Overview field edits ─────────────────────────────────────────────

@@ -371,7 +371,7 @@ export function ApplicationsListScreen({
       <button
         type="button"
         onClick={() => setInviteOpen(true)}
-        className="applications-primary-button applications-tap absolute bottom-5 right-4 z-10 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-[0_10px_24px_rgba(37,99,235,0.30)]"
+        className="applications-primary-button applications-tap absolute bottom-[calc(var(--sab)+2rem)] right-4 z-10 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-[0_10px_24px_rgba(37,99,235,0.30)]"
         aria-label="Create a secure application link"
       >
         <Link2 className="h-6 w-6" strokeWidth={2.2} />

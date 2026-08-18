@@ -55,6 +55,7 @@ interface DirectoryProfileScreenProps {
   onBack: () => void
   onOpenEntity: (directoryId: string) => void
   companies?: Array<{ id: string; name: string }>
+  people?: Array<{ id: string; name: string }>
   className?: string
 }
 
@@ -65,6 +66,7 @@ export function DirectoryProfileScreen({
   onBack,
   onOpenEntity,
   companies = [],
+  people = [],
   className,
 }: DirectoryProfileScreenProps) {
   const [vm, setVm] = useState<DirectoryProfileViewModel | null>(null)
@@ -390,6 +392,8 @@ export function DirectoryProfileScreen({
       {showEdit && vm && (
         <DirectoryEditSheet
           vm={vm}
+          companies={companies}
+          people={people}
           onClose={() => setShowEdit(false)}
           onSaved={() => { setShowEdit(false); setReloadKey((k) => k + 1); setNotice("Changes saved.") }}
         />
