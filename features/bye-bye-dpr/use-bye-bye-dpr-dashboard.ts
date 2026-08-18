@@ -91,10 +91,19 @@ export function useByeByeDprDashboard(uid: string, enabled: boolean) {
     }
   }, [])
 
+  // Deferred until `enabled` (the module was actually entered) — deliberately
+  // NOT keyed on `uid` too, matching useApplicationsDashboard/
+  // useQuestCoralDashboard's boot effects: `uid` only ever transitions empty
+  // -> real-value once per session, but keeping it in the deps array meant
+  // any transient reference change in the Firebase `User` object (e.g. a
+  // silent token refresh re-emitting the auth callback) re-ran this effect
+  // and reset `bootPhase` to "loading" — showing the full boot screen again
+  // on every module switch, not just genuine first entry, since `enabled`
+  // alone doesn't change on switch (it's sticky true forever).
   useEffect(() => {
     if (enabled && uid) void loadInitialData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, uid])
+  }, [enabled])
 
   /** Reached from ChangeJobScreen's confirm — picking a job there is what actually starts the clock. */
   const clockInToJob = useCallback(async (jobId: string) => {
