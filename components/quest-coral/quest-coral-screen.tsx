@@ -184,6 +184,34 @@ const ProjectCard = memo(function ProjectCard({
   )
 })
 
+/** Mirrors ProjectCard's shape (ring + title/description + avatar row + two detail rows) so the loading state doesn't jump when real cards swap in. */
+function ProjectCardSkeleton() {
+  return (
+    <article className="quest-coral-card flex w-full flex-col gap-3 rounded-[1.45rem] p-3.5" aria-hidden="true">
+      <div className="flex items-start gap-3">
+        <div className="h-[74px] w-[74px] shrink-0 animate-pulse rounded-full bg-[var(--coral-surface-2)]" />
+        <div className="min-w-0 flex-1 pt-1">
+          <div className="h-3.5 w-2/3 animate-pulse rounded bg-[var(--coral-surface-2)]" />
+          <div className="mt-2 h-3 w-full animate-pulse rounded bg-[var(--coral-surface-2)]" />
+          <div className="mt-2 flex -space-x-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-7 w-7 animate-pulse rounded-full bg-[var(--coral-surface-2)] ring-2 ring-[var(--coral-surface)]" />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="divide-y divide-[var(--coral-border)] border-t border-[var(--coral-border)]">
+        <div className="flex h-10 items-center py-2.5">
+          <div className="h-3 w-24 animate-pulse rounded bg-[var(--coral-surface-2)]" />
+        </div>
+        <div className="flex h-10 items-center py-2.5">
+          <div className="h-3 w-32 animate-pulse rounded bg-[var(--coral-surface-2)]" />
+        </div>
+      </div>
+    </article>
+  )
+}
+
 export function QuestCoralScreen({
   dashboard,
   contacts,
@@ -196,7 +224,7 @@ export function QuestCoralScreen({
   onSwitchToByeByeDpr,
   onCourtneyRobertsCenter,
 }: QuestCoralScreenProps) {
-  const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, patchProject, unreadCountFor } = dashboard
+  const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, patchProject, unreadCountFor, isLoading } = dashboard
   const [showAbout, setShowAbout] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [statusSheetOpen, setStatusSheetOpen] = useState(false)
@@ -475,18 +503,26 @@ export function QuestCoralScreen({
           </div>
 
           <div className="mt-4 flex flex-col gap-2.5">
-            {visibleProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                unreadCount={unreadCountFor(project.id)}
-                onOpen={onOpenProject}
-                onMore={openProjectMenu}
-              />
-            ))}
+            {isLoading ? (
+              <>
+                <ProjectCardSkeleton />
+                <ProjectCardSkeleton />
+                <ProjectCardSkeleton />
+              </>
+            ) : (
+              visibleProjects.map((project) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  unreadCount={unreadCountFor(project.id)}
+                  onOpen={onOpenProject}
+                  onMore={openProjectMenu}
+                />
+              ))
+            )}
           </div>
 
-          {visibleProjects.length === 0 && (
+          {!isLoading && visibleProjects.length === 0 && (
             <QcCard className="mt-4 flex flex-col items-center px-6 py-10 text-center" flat>
               <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--coral-surface-2)]">
                 <Search className="h-5 w-5 text-[var(--coral-text-muted)]" strokeWidth={2} />

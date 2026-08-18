@@ -266,7 +266,25 @@ const ActivityFilterTabs = memo(function ActivityFilterTabs({ value, onChange }:
   )
 })
 
+/** Mirrors ActivityRow's shape (icon chip + avatar/name/date row + two text lines) so activity doesn't jump when real rows swap in. */
+function ActivityRowSkeleton() {
+  return (
+    <article className="flex gap-2.5 px-4 py-3.5 first:pt-1" aria-hidden="true">
+      <span className="mt-0.5 h-9 w-9 shrink-0 animate-pulse rounded-xl bg-[var(--coral-surface-2)]" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-[var(--coral-surface-2)]" />
+          <div className="h-3 w-28 animate-pulse rounded bg-[var(--coral-surface-2)]" />
+        </div>
+        <div className="ml-9 mt-2 h-3 w-full animate-pulse rounded bg-[var(--coral-surface-2)]" />
+        <div className="ml-9 mt-1.5 h-3 w-3/4 animate-pulse rounded bg-[var(--coral-surface-2)]" />
+      </div>
+    </article>
+  )
+}
+
 const ActivityEntries = memo(function ActivityEntries({
+  loaded,
   updates,
   feedbackReplies,
   emptyLabel,
@@ -274,6 +292,7 @@ const ActivityEntries = memo(function ActivityEntries({
   onAction,
   secondaryAction,
 }: {
+  loaded: boolean
   updates: ProjectUpdate[]
   feedbackReplies: FeedbackReply[]
   emptyLabel: string
@@ -281,6 +300,16 @@ const ActivityEntries = memo(function ActivityEntries({
   onAction: () => void
   secondaryAction?: { label: string; onClick: () => void }
 }) {
+  if (!loaded) {
+    return (
+      <>
+        <ActivityRowSkeleton />
+        <ActivityRowSkeleton />
+        <ActivityRowSkeleton />
+      </>
+    )
+  }
+
   if (updates.length === 0) {
     return (
       <div className="flex flex-col items-center px-4 py-8 text-center">
@@ -673,6 +702,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
               </div>
               <div className="mt-3 divide-y divide-[var(--coral-border)] border-t border-[var(--coral-border)]">
                 <ActivityEntries
+                  loaded={activityLoaded}
                   updates={visibleUpdates}
                   feedbackReplies={feedbackReplies}
                   emptyLabel={activityEmptyLabel}
@@ -917,6 +947,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
             </div>
             <div className="mt-3 divide-y divide-[var(--coral-border)] border-t border-[var(--coral-border)]">
               <ActivityEntries
+                loaded={activityLoaded}
                 updates={latestUpdates}
                 feedbackReplies={feedbackReplies}
                 emptyLabel={activityEmptyLabel}

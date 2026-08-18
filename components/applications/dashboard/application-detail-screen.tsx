@@ -189,6 +189,7 @@ export function ApplicationDetailScreen({
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRetryingTranscription, setIsRetryingTranscription] = useState(false)
   const [videoDownloadUrl, setVideoDownloadUrl] = useState(application.video.downloadUrl)
+  const [videoUrlResolving, setVideoUrlResolving] = useState(false)
   const [documentDownloadUrls, setDocumentDownloadUrls] = useState<Record<string, string>>({})
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
   const [fileActionError, setFileActionError] = useState<string | null>(null)
@@ -227,11 +228,15 @@ export function ApplicationDetailScreen({
     if (application.video.downloadUrl || !application.video.storagePath) return () => {
       cancelled = true
     }
+    setVideoUrlResolving(true)
     getApplicationDownloadUrl(application.video.storagePath)
       .then((url) => {
         if (!cancelled) setVideoDownloadUrl(url)
       })
       .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setVideoUrlResolving(false)
+      })
     return () => {
       cancelled = true
     }
@@ -928,6 +933,14 @@ export function ApplicationDetailScreen({
                   >
                     {downloadingFile === "video" ? "Downloading…" : "Download"}
                   </AppsButton>
+                </div>
+              </>
+            ) : videoUrlResolving ? (
+              <>
+                <div className="aspect-video w-full animate-pulse rounded-2xl bg-[var(--apps-surface-2)]" />
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  <div className="h-11 animate-pulse rounded-xl bg-[var(--apps-surface-2)]" />
+                  <div className="h-11 animate-pulse rounded-xl bg-[var(--apps-surface-2)]" />
                 </div>
               </>
             ) : (

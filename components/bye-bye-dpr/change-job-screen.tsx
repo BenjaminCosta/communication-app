@@ -118,6 +118,20 @@ function JobRow({
   )
 }
 
+/** Mirrors JobRow's shape so Directory search results don't jump in size once real rows swap in; `size="sm"` matches AddFirstJobCard's smaller icon chip. */
+function JobRowSkeleton({ size = "md" }: { size?: "sm" | "md" }) {
+  const iconClass = size === "sm" ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl"
+  return (
+    <div className="flex w-full items-center gap-3 py-3.5" aria-hidden="true">
+      <span className={cn("shrink-0 animate-pulse bg-[var(--bd-purple-soft)]", iconClass)} />
+      <span className="min-w-0 flex-1">
+        <span className="block h-3.5 w-2/5 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+        <span className="mt-1.5 block h-3 w-3/5 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+      </span>
+    </div>
+  )
+}
+
 /**
  * First job for the whole app: search-then-confirm against real SVC
  * Directory job contexts, so a worker's first "Add Job Site" doesn't create
@@ -217,9 +231,10 @@ function AddFirstJobCard({ onCreated }: { onCreated: (job: Job) => void }) {
             />
             {searchError && <p className="text-[0.8125rem] text-[#DC5A5A]">{searchError}</p>}
             {searching && (
-              <p className="flex items-center gap-1.5 text-[0.8125rem] text-[var(--bd-text-muted)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> Searching Directory...
-              </p>
+              <div className="divide-y divide-[var(--bd-border)] rounded-xl border border-[var(--bd-border)] px-3">
+                <JobRowSkeleton size="sm" />
+                <JobRowSkeleton size="sm" />
+              </div>
             )}
             {!searching && results.length > 0 && (
               <div className="divide-y divide-[var(--bd-border)] rounded-xl border border-[var(--bd-border)]">
@@ -599,9 +614,11 @@ export function ChangeJobScreen({ jobs, recentJobs, currentJobId, busy = false, 
               {trimmedQuery.length >= 2 ? (
                 <>
                   {dirSearching && (
-                    <p className="flex items-center gap-1.5 px-1 py-2 text-[0.8125rem] text-[var(--bd-text-muted)]">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> Searching Directory...
-                    </p>
+                    <div className="divide-y divide-[var(--bd-border)]">
+                      <JobRowSkeleton />
+                      <JobRowSkeleton />
+                      <JobRowSkeleton />
+                    </div>
                   )}
                   {dirSearchError && <p className="px-1 py-1 text-[0.8125rem] text-[#DC5A5A]">{dirSearchError}</p>}
                   {!dirSearching && dirResults.length > 0 && (
