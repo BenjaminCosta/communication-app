@@ -143,7 +143,7 @@ export function DirectoryCreateSheet({
   }
 
   return (
-    <div className="directory-glass-screen animate-slide-in-right absolute inset-0 z-30 flex h-full min-h-0 w-full flex-col overflow-hidden">
+    <div className="directory-glass-screen !fixed inset-0 z-40 flex min-h-0 w-full flex-col overflow-hidden animate-slide-in-right">
       <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4">
         <button
           type="button"
