@@ -365,7 +365,7 @@ export function DirectoryScreen({
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="absolute bottom-[calc(var(--sab)+2rem)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full bg-[linear-gradient(180deg,#D99A57_0%,#B96F2D_100%)] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(137,78,26,0.30),0_8px_20px_rgba(185,111,45,0.24)] transition-transform active:scale-[0.97]"
+          className="absolute bottom-[max(calc(var(--sab)+2rem),24dvh)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full bg-[linear-gradient(180deg,#D99A57_0%,#B96F2D_100%)] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(137,78,26,0.30),0_8px_20px_rgba(185,111,45,0.24)] transition-transform active:scale-[0.97]"
           aria-label="Create a new Directory record"
         >
           <Plus className="h-4.5 w-4.5" strokeWidth={2.4} />
