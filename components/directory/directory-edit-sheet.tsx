@@ -1,8 +1,9 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
+import { loadDirectorySearch } from "@/lib/directory-search"
 import { cn } from "@/lib/utils"
 import {
   getEditableFields,
@@ -19,6 +20,7 @@ import {
 
 interface DirectoryEditSheetProps {
   vm: DirectoryProfileViewModel
+  userId: string
   companies: Array<{ id: string; name: string }>
   people: Array<{ id: string; name: string }>
   onClose: () => void
@@ -60,7 +62,40 @@ function samePeople(left: DirectoryInvolvedPerson[], right: DirectoryInvolvedPer
   return left.length === right.length && left.every((person, index) => person.id === right[index]?.id)
 }
 
-export function DirectoryEditSheet({ vm, companies, people, onClose, onSaved }: DirectoryEditSheetProps) {
+export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onSaved }: DirectoryEditSheetProps) {
+  // The profile can open before the app-level Directory catalog is ready. Load
+  // the same index used by + New so the relationship selectors never start
+  // with an empty, non-searchable list.
+  const [availableCompanies, setAvailableCompanies] = useState(companies)
+  const [availablePeople, setAvailablePeople] = useState(people)
+  const [isSelectorIndexLoading, setIsSelectorIndexLoading] = useState(
+    companies.length === 0 || people.length === 0,
+  )
+
+  useEffect(() => {
+    let active = true
+    const applyIndex = (index: Awaited<ReturnType<typeof loadDirectorySearch>>) => {
+      if (!active) return
+      setAvailableCompanies(index.byType.company.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setAvailablePeople(index.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setIsSelectorIndexLoading(false)
+    }
+
+    setAvailableCompanies(companies)
+    setAvailablePeople(people)
+    if (companies.length > 0 && people.length > 0) {
+      setIsSelectorIndexLoading(false)
+      return () => { active = false }
+    }
+
+    setIsSelectorIndexLoading(true)
+    loadDirectorySearch(userId, { onCache: applyIndex })
+      .then(applyIndex)
+      .catch(() => { if (active) setIsSelectorIndexLoading(false) })
+
+    return () => { active = false }
+  }, [companies, people, userId])
+
   const initial = useMemo(() => {
     const fields = getEditableFields(vm)
     const values: Record<string, string> = {}
@@ -200,7 +235,8 @@ export function DirectoryEditSheet({ vm, companies, people, onClose, onSaved }: 
 
             {allowsCompanySelection && (
               <CompanySelector
-                companies={companies}
+                companies={availableCompanies}
+                isLoading={isSelectorIndexLoading}
                 value={companyName}
                 selectedId={selectedCompanyId}
                 onChange={setCompany}
@@ -209,7 +245,8 @@ export function DirectoryEditSheet({ vm, companies, people, onClose, onSaved }: 
 
             {allowsPeopleSelection && (
               <PeopleSelector
-                people={people}
+                people={availablePeople}
+                isLoading={isSelectorIndexLoading}
                 selectedPeople={involvedPeople}
                 onAdd={addPerson}
                 onRemove={(id) => setInvolvedPeople((current) => current.filter((person) => person.id !== id))}
@@ -227,11 +264,13 @@ export function DirectoryEditSheet({ vm, companies, people, onClose, onSaved }: 
 
 function CompanySelector({
   companies,
+  isLoading,
   value,
   selectedId,
   onChange,
 }: {
   companies: Array<{ id: string; name: string }>
+  isLoading: boolean
   value: string
   selectedId: string | null
   onChange: (name: string, id: string | null) => void
@@ -275,7 +314,9 @@ function CompanySelector({
             <span className="text-xs font-semibold text-[var(--directory-title)]">{company.id === selectedId ? "Selected" : "Select"}</span>
           </button>
         )) : (
-          <p className="px-3 py-3 text-xs text-muted-foreground/50">No companies match.</p>
+          <p className="px-3 py-3 text-xs text-muted-foreground/50">
+            {isLoading ? "Loading Directory companies…" : "No companies match."}
+          </p>
         )}
       </div>
     </fieldset>
@@ -284,11 +325,13 @@ function CompanySelector({
 
 function PeopleSelector({
   people,
+  isLoading,
   selectedPeople,
   onAdd,
   onRemove,
 }: {
   people: Array<{ id: string; name: string }>
+  isLoading: boolean
   selectedPeople: DirectoryInvolvedPerson[]
   onAdd: (person: DirectoryInvolvedPerson) => void
   onRemove: (id: string) => void
@@ -341,7 +384,9 @@ function PeopleSelector({
             <span className="text-xs font-semibold text-[var(--directory-title)]">Add</span>
           </button>
         )) : (
-          <p className="px-3 py-3 text-xs text-muted-foreground/50">No additional contacts match.</p>
+          <p className="px-3 py-3 text-xs text-muted-foreground/50">
+            {isLoading ? "Loading Directory contacts…" : "No additional contacts match."}
+          </p>
         )}
       </div>
     </fieldset>

@@ -392,6 +392,7 @@ export function DirectoryProfileScreen({
       {showEdit && vm && (
         <DirectoryEditSheet
           vm={vm}
+          userId={userId}
           companies={companies}
           people={people}
           onClose={() => setShowEdit(false)}
