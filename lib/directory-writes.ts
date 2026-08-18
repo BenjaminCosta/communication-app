@@ -17,6 +17,8 @@
  */
 
 import {
+  addDoc,
+  collection,
   doc,
   updateDoc,
   runTransaction,
@@ -28,6 +30,7 @@ import {
 import { db } from "@/lib/firebase"
 import {
   cleanValue,
+  directoryId,
   isLikelyEmail,
   isLikelyPhone,
   isLikelyUrl,
@@ -38,6 +41,154 @@ import {
 import { normalizePhoneDigits } from "@/lib/phone-normalization"
 
 export class DirectoryWriteError extends Error {}
+
+// ── Directory creation ──────────────────────────────────────────────────
+//
+// Contacts are the source of truth for people, while Companies and Jobs are
+// Communications contexts.  Do not create /directoryIndex documents here:
+// its Cloud Function projection is deliberately client read-only.
+
+export type NewDirectoryEntityType = "person" | "company" | "job"
+
+export interface DirectoryInvolvedPerson {
+  id: string
+  name: string
+}
+
+export interface CreateDirectoryEntityInput {
+  type: NewDirectoryEntityType
+  name: string
+  role?: string
+  companyName?: string
+  companyContextId?: string | null
+  involvedPeople?: DirectoryInvolvedPerson[]
+  email?: string
+  phone?: string
+  address?: string
+  website?: string
+  description?: string
+  status?: string
+  location?: string
+}
+
+export interface CreatedDirectoryEntity {
+  directoryId: string
+  type: NewDirectoryEntityType
+  name: string
+}
+
+function normalizedInvolvedPeople(people: DirectoryInvolvedPerson[] | undefined): DirectoryInvolvedPerson[] {
+  const seen = new Set<string>()
+  const normalized: DirectoryInvolvedPerson[] = []
+  for (const person of people ?? []) {
+    const id = cleanValue(person.id)
+    const name = cleanValue(person.name)
+    if (!id || !name || seen.has(id)) continue
+    seen.add(id)
+    normalized.push({ id, name })
+    if (normalized.length === 50) break
+  }
+  return normalized
+}
+
+/**
+ * Create a source record that Directory's existing sync functions will index.
+ * People belong in /contacts; Companies and Jobs belong in /contexts so they
+ * immediately work as Communications context tags as well.
+ */
+export async function createDirectoryEntity(
+  userId: string,
+  input: CreateDirectoryEntityInput,
+): Promise<CreatedDirectoryEntity> {
+  const name = cleanValue(input.name)
+  if (!name) throw new DirectoryWriteError("Name cannot be empty.")
+
+  const role = cleanValue(input.role ?? "")
+  const companyName = cleanValue(input.companyName ?? "")
+  const companyContextId = cleanValue(input.companyContextId ?? "")
+  const email = cleanValue(input.email ?? "")
+  const phone = cleanValue(input.phone ?? "")
+  const address = cleanValue(input.address ?? "")
+  const website = cleanValue(input.website ?? "")
+  const description = cleanValue(input.description ?? "")
+  const status = cleanValue(input.status ?? "")
+  const location = cleanValue(input.location ?? "")
+
+  if (email && !isLikelyEmail(email)) throw new DirectoryWriteError("Enter a valid email address.")
+  if (phone && !isLikelyPhone(phone)) throw new DirectoryWriteError("Enter a valid phone number.")
+  if (website && !isLikelyUrl(website)) throw new DirectoryWriteError("Enter a valid website URL.")
+
+  if (input.type === "person") {
+    const ref = await addDoc(collection(db, "contacts"), {
+      ownerUserId: userId,
+      name,
+      role: role ?? "",
+      company: companyName ?? "",
+      email: email ?? "",
+      emailNormalized: email?.toLowerCase() ?? "",
+      phone: phone ?? "",
+      phoneNormalized: phone ? normalizePhoneDigits(phone) : "",
+      emails: email ? [{ label: "email", value: email, normalized: email.toLowerCase(), isPrimary: true }] : [],
+      phones: phone ? [{ label: "phone", value: phone, normalized: normalizePhoneDigits(phone), isPrimary: true }] : [],
+      addresses: address ? [{ label: "address", formatted: address }] : [],
+      urls: website ? [{ label: "website", value: website }] : [],
+      tags: [],
+      source: "directory",
+      visibility: "global",
+      masterData: {
+        displayName: name,
+        roleName: role ?? "",
+        companyName: companyName ?? "",
+        companyMatchConfidence: companyName ? 1 : 0,
+        emails: email ? [email] : [],
+        phones: phone ? [phone] : [],
+        address: address ?? "",
+        notes: description ?? "",
+      },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    return { directoryId: directoryId("person", ref.id), type: "person", name }
+  }
+
+  const involvedPeople = normalizedInvolvedPeople(input.involvedPeople)
+  const peopleNames = involvedPeople.map((person) => person.name)
+  const fields: CoreContextField[] = peopleNames.length
+    ? [{ label: "People involved", value: peopleNames.join(", ") }]
+    : []
+
+  const masterData = input.type === "company"
+    ? {
+        displayName: name,
+        phone: phone ?? "",
+        address: address ?? "",
+        website: website ?? "",
+        description: description ?? "",
+      }
+    : {
+        canonicalName: name,
+        companyName: companyName ?? "",
+        companyContextId: companyContextId ?? "",
+        status: status ?? "",
+        location: location ?? "",
+        address: address ?? "",
+      }
+
+  const ref = await addDoc(collection(db, "contexts"), {
+    name,
+    description: description ?? "",
+    directoryType: input.type,
+    createdBy: userId,
+    fields,
+    involvedContactIds: involvedPeople.map((person) => person.id),
+    involvedPeople,
+    masterData,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+
+  return { directoryId: directoryId(input.type, ref.id), type: input.type, name }
+}
 
 // ── Public Overview field edits ─────────────────────────────────────────────
 // Human edits are authoritative, so they are written into `masterData` — the

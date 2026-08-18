@@ -505,7 +505,7 @@ export function normalizeJobContext(ctx: CoreContext): DirectoryJob {
     estimatedStartDate: cleanValue(master?.estimatedStartDate) ?? getFieldValue(fields, "Estimated Start Date"),
     confirmedStartDate: cleanValue(master?.confirmedStartDate) ?? getFieldValue(fields, "Confirmed Start Date"),
     durationWeeks: master?.durationWeeks != null ? String(master.durationWeeks) : getFieldValue(fields, "Duration in Weeks"),
-    relatedContacts: getFieldValue(fields, "Related Contacts"),
+    relatedContacts: getFieldValue(fields, "People involved") ?? getFieldValue(fields, "Related Contacts"),
     sourceSheet: ctx.sourceSheet ?? null,
     sourceRecordId: ctx.sourceRecordId ?? null,
     fields,

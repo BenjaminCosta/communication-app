@@ -92,7 +92,7 @@ function buildAskTextParts(source) {
         fieldValue(fields, "Description");
     const extras = [
         str(master.operationalNotes) || str(operational.operationalNotes) || fieldValue(fields, "Operational Notes"),
-        fieldValue(fields, "Related Contacts"),
+        fieldValue(fields, "People involved") || fieldValue(fields, "Related Contacts"),
     ];
     const parts = [];
     const seen = new Set();

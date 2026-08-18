@@ -398,6 +398,7 @@ export function buildCompanyProfileViewModel(
   const websiteRaw = firstStr(master.website, fieldValue(fields, "Website"))
   const website = websiteRaw && isLikelyUrl(websiteRaw) ? websiteRaw : null
   const description = firstStr(master.description, source.description, fieldValue(fields, "Description"))
+  const peopleInvolved = firstStr(fieldValue(fields, "People involved"), fieldValue(fields, "Related Contacts"))
   const aliases = uniqueBy(strArray(master.aliases), (v) => v.toLowerCase())
   const location = firstStr(index.location, address)
 
@@ -405,6 +406,7 @@ export function buildCompanyProfileViewModel(
   if (validPhone) overview.push({ label: "Phone", value: validPhone, kind: "phone", href: `tel:${validPhone.replace(/[^\d+]/g, "")}` })
   if (address) overview.push({ label: "Address", value: address, kind: "address", href: mapsHref(address) })
   if (website) overview.push({ label: "Website", value: website, kind: "url", href: normalizedUrl(website) })
+  if (peopleInvolved) overview.push({ label: "People involved", value: peopleInvolved, kind: "text" })
   if (description) overview.push({ label: "Description", value: description, kind: "multiline" })
 
   const actions: ProfileAction[] = []
@@ -487,6 +489,7 @@ export function buildJobProfileViewModel(
   const operationalNotes = firstStr(master.operationalNotes, fieldValue(fields, "Operational Notes"))
   const projectManagerName = firstStr(master.projectManagerName, fieldValue(fields, "Project Manager"))
   const projectLeadName = firstStr(master.projectLeadName, fieldValue(fields, "Project Lead"))
+  const peopleInvolved = firstStr(fieldValue(fields, "People involved"), fieldValue(fields, "Related Contacts"))
   const isLegacyOrArchived = bool(master.isLegacyOrArchived) === true
 
   const jobRate = buildJobRate(master, fields)
@@ -502,6 +505,7 @@ export function buildJobProfileViewModel(
   if (confirmedStartDate) overview.push({ label: "Confirmed start", value: confirmedStartDate, kind: "date" })
   if (durationWeeks) overview.push({ label: "Duration", value: `${durationWeeks} weeks`, kind: "text" })
   if (reportCadence) overview.push({ label: "Report cadence", value: reportCadence, kind: "text" })
+  if (peopleInvolved) overview.push({ label: "People involved", value: peopleInvolved, kind: "text" })
   if (driveFolderUrl) overview.push({ label: "Drive folder", value: "Open folder", kind: "url", href: driveFolderUrl })
   if (options.canViewSensitive && jobRate) overview.push({ label: "Job rate", value: jobRate, kind: "text" })
   if (operationalNotes) overview.push({ label: "Operational notes", value: operationalNotes, kind: "multiline" })

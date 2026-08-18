@@ -229,6 +229,33 @@ test("projects a safe master job-company relation into the Directory index", () 
   assert.equal(entry.quality.hasCompany, true)
 })
 
+test("projects created company and job contexts with their involved contacts", () => {
+  const company = buildContextIndexEntry({
+    id: "company-context-id",
+    name: "Acme Construction",
+    directoryType: "company",
+    fields: [{ label: "People involved", value: "Courtney Roberts" }],
+    masterData: { displayName: "Acme Construction" },
+  })
+  const job = buildContextIndexEntry({
+    id: "job-context-id",
+    name: "Downtown renovation",
+    directoryType: "job",
+    fields: [{ label: "People involved", value: "Courtney Roberts" }],
+    masterData: {
+      canonicalName: "Downtown renovation",
+      companyName: "Acme Construction",
+      companyContextId: "company-context-id",
+    },
+  })
+
+  assert.equal(company.type, "company")
+  assert.match(company.searchText, /courtney roberts/)
+  assert.equal(job.type, "job")
+  assert.equal(job.companyEntityId, "company__company-context-id")
+  assert.match(job.searchText, /courtney roberts/)
+})
+
 test("accepts a complete Directory index, shard set, and manifest", () => {
   const entries = [
     buildContactIndexEntry({ id: "person-a", name: "Person A" }),

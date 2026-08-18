@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { Star } from "lucide-react"
+import { Plus, Star } from "lucide-react"
+import { DirectoryCreateSheet } from "@/components/directory/directory-create-sheet"
 import { DirectoryAskScreen } from "@/components/directory/ask/directory-ask-screen"
 import { DirectoryFavoritesScreen } from "@/components/directory/directory-favorites-screen"
 import { DirectoryHome } from "@/components/directory/directory-home"
@@ -17,12 +18,14 @@ import type { DirectoryListItem, DirectoryScope } from "@/lib/directory-config"
 import {
   directoryItemsForIds,
   directoryListItemFromDoc,
+  clearDirectorySearchCache,
   getDirectoryTitleSuggestions,
   loadDirectorySearch,
   paginateDirectoryItems,
   searchDirectory,
   type DirectorySearchIndex,
 } from "@/lib/directory-search"
+import type { CreatedDirectoryEntity } from "@/lib/directory-writes"
 
 interface DirectoryScreenProps {
   userId: string
@@ -66,6 +69,8 @@ export function DirectoryScreen({
   } = useDirectoryUserState()
   const [showFavorites, setShowFavorites] = useState(false)
   const [showAsk, setShowAsk] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [createNotice, setCreateNotice] = useState("")
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const [debouncedDraftQuery, setDebouncedDraftQuery] = useState("")
@@ -121,6 +126,11 @@ export function DirectoryScreen({
 
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [submittedQuery, scope])
   useEffect(() => { setHomeVisibleCount(PAGE_SIZE) }, [scope])
+  useEffect(() => {
+    if (!createNotice) return
+    const timer = window.setTimeout(() => setCreateNotice(""), 5_000)
+    return () => window.clearTimeout(timer)
+  }, [createNotice])
 
   const allResults = useMemo(
     () => searchIndex ? searchDirectory(searchIndex, submittedQuery, scope) : [],
@@ -233,6 +243,29 @@ export function DirectoryScreen({
     onOpenDetail(directoryId)
   }, [onOpenDetail])
 
+  const handleCreated = useCallback((entity: CreatedDirectoryEntity) => {
+    setShowCreate(false)
+    setScope(entity.type)
+    setDraftQuery("")
+    setSubmittedQuery("")
+    setCreateNotice(`${entity.name} was created. Directory is updating now.`)
+    void clearDirectorySearchCache(userId).catch(() => {})
+    // The source write reaches the Directory projection through its existing
+    // Cloud Function. Refresh once the trigger has had a moment, then retry in
+    // case that first read races the projection.
+    window.setTimeout(() => setRetryKey((key) => key + 1), 1_200)
+    window.setTimeout(() => setRetryKey((key) => key + 1), 3_800)
+  }, [userId])
+
+  const companies = useMemo(
+    () => searchIndex?.byType.company.map((item) => ({ sourceId: item.sourceId, name: item.name })) ?? [],
+    [searchIndex],
+  )
+  const people = useMemo(
+    () => searchIndex?.byType.person.map((item) => ({ sourceId: item.sourceId, name: item.name })) ?? [],
+    [searchIndex],
+  )
+
   return (
     <div className={cn("directory-glass-screen flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
       <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
@@ -328,6 +361,22 @@ export function DirectoryScreen({
         )}
       </main>
 
+      {!hasSubmitted && !showFavorites && !showAsk && !showCreate && (
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="absolute bottom-[calc(var(--sab)+1rem)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full bg-[linear-gradient(180deg,#D99A57_0%,#B96F2D_100%)] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(137,78,26,0.30),0_8px_20px_rgba(185,111,45,0.24)] transition-transform active:scale-[0.97]"
+          aria-label="Create a new Directory record"
+        >
+          <Plus className="h-4.5 w-4.5" strokeWidth={2.4} />
+          New
+        </button>
+      )}
+      {createNotice && (
+        <p className="pointer-events-none absolute bottom-[calc(var(--sab)+4.9rem)] left-1/2 z-10 w-[min(calc(100%-2rem),28rem)] -translate-x-1/2 rounded-xl border border-[var(--directory-title)]/20 bg-[#101720]/95 px-3 py-2 text-center text-xs leading-5 text-foreground/80 shadow-lg backdrop-blur-md" role="status">
+          {createNotice}
+        </p>
+      )}
       {(searchIndex?.stale || isRefreshing) && (
         <div className="pointer-events-none absolute bottom-[calc(var(--sab)+0.75rem)] left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-[#101720]/90 px-3 py-1 text-[10px] text-muted-foreground backdrop-blur-md">
           {isRefreshing ? "Updating Directory" : "Showing saved Directory data"}
@@ -356,6 +405,15 @@ export function DirectoryScreen({
             onBack={() => setShowAsk(false)}
           />
         </div>
+      )}
+      {showCreate && (
+        <DirectoryCreateSheet
+          userId={userId}
+          companies={companies}
+          people={people}
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
+        />
       )}
     </div>
   )
