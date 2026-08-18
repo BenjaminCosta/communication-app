@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, MessageCircleOff, Lock } from "lucide-react"
+import { Search, MessageCircleOff, Lock, UserRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { ModuleSwitcher, type SvcModule } from "@/components/module-switcher"
@@ -10,6 +10,7 @@ import type { CourtneyRobertsCenterConversationSummary } from "@/lib/courtney-ro
 
 interface CourtneyRobertsCenterScreenProps {
   onSelectConversation: (conversationId: string) => void
+  onManageAccess: () => void
   onSwitchToStream: () => void
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
@@ -45,6 +46,7 @@ function formatTimestamp(ms: number): string {
 
 export function CourtneyRobertsCenterScreen({
   onSelectConversation,
+  onManageAccess,
   onSwitchToStream,
   onSwitchToDirectory,
   onSwitchToApplications,
@@ -93,7 +95,7 @@ export function CourtneyRobertsCenterScreen({
     <div className={cn("flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
       {/* Header — same ModuleSwitcher-based topbar every other module uses, not a back arrow: this is a peer module now, reached from the switcher itself. */}
       <div className="glass-panel shrink-0 border-b border-white/10 animate-slide-down">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center justify-between">
           <ModuleSwitcher
             activeModule={"courtney-roberts-center" as SvcModule}
             showCourtneyRobertsCenter
@@ -105,6 +107,13 @@ export function CourtneyRobertsCenterScreen({
               if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
             }}
           />
+          <button
+            onClick={onManageAccess}
+            aria-label="Manage access"
+            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150 shrink-0"
+          >
+            <UserRound className="w-4 h-4 text-muted-foreground" />
+          </button>
         </div>
       </div>
 

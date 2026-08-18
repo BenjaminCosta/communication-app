@@ -76,6 +76,7 @@ const QuestCoralProjectDetailScreen = dynamic(() => import("@/components/quest-c
 const ByeByeDprScreen = dynamic(() => import("@/components/bye-bye-dpr/byebye-dpr-screen").then((m) => ({ default: m.ByeByeDprScreen })), { ssr: false })
 const CourtneyRobertsCenterScreen = dynamic(() => import("@/components/courtney-roberts-center-screen").then((m) => ({ default: m.CourtneyRobertsCenterScreen })), { ssr: false })
 const CourtneyRobertsCenterThreadScreen = dynamic(() => import("@/components/courtney-roberts-center-thread-screen").then((m) => ({ default: m.CourtneyRobertsCenterThreadScreen })), { ssr: false })
+const CourtneyRobertsCenterAccessScreen = dynamic(() => import("@/components/courtney-roberts-center-access-screen").then((m) => ({ default: m.CourtneyRobertsCenterAccessScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -136,6 +137,7 @@ type Screen =
   | "bye-bye-dpr"
   | "courtney-roberts-center"
   | "courtney-roberts-center-thread"
+  | "courtney-roberts-center-access"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -167,6 +169,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "bye-bye-dpr": 1,
   "courtney-roberts-center": 4,
   "courtney-roberts-center-thread": 5,
+  "courtney-roberts-center-access": 5,
 }
 
 // Remembers which module the user was last in,
@@ -1565,6 +1568,7 @@ export default function Home() {
     setSelectedCourtneyRobertsCenterConversationId(conversationId)
     navigateTo("courtney-roberts-center-thread")
   }, [navigateTo])
+  const goToCourtneyRobertsCenterAccess = useCallback(() => navigateTo("courtney-roberts-center-access"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -1935,10 +1939,11 @@ export default function Home() {
         />
       )}
 
-      {!showScreenSkeleton && activeScreen === "courtney-roberts-center" && currentUser?.isAdmin && (
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center" && (
         <CourtneyRobertsCenterScreen
           className={entranceClass}
           onSelectConversation={goToCourtneyRobertsCenterThread}
+          onManageAccess={goToCourtneyRobertsCenterAccess}
           onSwitchToStream={goToStream}
           onSwitchToDirectory={goToDirectoryFromStream}
           onSwitchToApplications={goToApplications}
@@ -1947,10 +1952,17 @@ export default function Home() {
         />
       )}
 
-      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-thread" && currentUser?.isAdmin && selectedCourtneyRobertsCenterConversationId && (
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-thread" && selectedCourtneyRobertsCenterConversationId && (
         <CourtneyRobertsCenterThreadScreen
           className={entranceClass}
           conversationId={selectedCourtneyRobertsCenterConversationId}
+          onBack={() => navigateTo("courtney-roberts-center")}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-access" && (
+        <CourtneyRobertsCenterAccessScreen
+          className={entranceClass}
           onBack={() => navigateTo("courtney-roberts-center")}
         />
       )}
@@ -2082,7 +2094,7 @@ export default function Home() {
               onSwitchToApplications={goToApplications}
               onSwitchToQuestCoral={goToQuestCoral}
               onSwitchToByeByeDpr={goToByeByeDpr}
-              onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
+              onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
             />
             {activeScreen === "directory-detail" && selectedDirectoryId && (
               <DirectoryProfileScreen
@@ -2123,7 +2135,7 @@ export default function Home() {
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToQuestCoral={goToQuestCoral}
             onSwitchToByeByeDpr={goToByeByeDpr}
-            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
+            onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
             onPreviewCandidateFlow={handlePreviewCandidateFlow}
           />
           {activeScreen === "application-detail" && selectedApplication && (
@@ -2166,7 +2178,7 @@ export default function Home() {
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToApplications={goToApplications}
             onSwitchToByeByeDpr={goToByeByeDpr}
-            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
+            onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
           />
           {activeScreen === "quest-coral-detail" && selectedQuestCoralProject && selectedQuestCoralCoverage && (
             <QuestCoralProjectDetailScreen
@@ -2198,7 +2210,7 @@ export default function Home() {
           onSwitchToDirectory={goToDirectoryFromStream}
           onSwitchToApplications={goToApplications}
           onSwitchToQuestCoral={goToQuestCoral}
-          onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
+          onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
         />
       )}
 
@@ -2268,7 +2280,7 @@ export default function Home() {
             onApplications={goToApplications}
             onQuestCoral={goToQuestCoral}
             onByeByeDpr={goToByeByeDpr}
-            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
+            onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

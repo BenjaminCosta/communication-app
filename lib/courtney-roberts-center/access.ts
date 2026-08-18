@@ -1,35 +1,23 @@
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 
+/** The Firestore field on `/users/{uid}` this module gates on. Deliberately
+ * separate from the general `isAdmin` flag the app's own Admin screen uses —
+ * that flag can grow over time for unrelated app-administration reasons,
+ * and WhatsApp conversation transcripts are a distinct, more sensitive
+ * concern with its own admin list, managed from inside this module (see
+ * `admin-management.ts`) rather than a static env var. */
+export const COURTNEY_ROBERTS_CENTER_ACCESS_FIELD = "courtneyRobertsCenterAccess"
+
 /**
- * A dedicated allowlist, separate from the general `/users.isAdmin` flag the
- * app's own Admin screen already uses. That flag can grow over time for
- * unrelated app-administration reasons; WhatsApp conversation transcripts are
- * more sensitive, so this module gates on an explicit, independently
- * configured email list instead — fails closed (nobody is approved) until
- * `COURTNEY_ROBERTS_CENTER_ADMIN_EMAILS` is set.
+ * Looks up whether this uid currently has access, straight from Firestore —
+ * the single source of truth both this gate and the manage-access screen
+ * read from, so they can never drift out of sync with each other.
  */
-export function parseAdminEmails(raw: string | undefined): Set<string> {
-  return new Set(
-    (raw ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  )
-}
-
-/** Test seam: exercises the parsing/matching logic without depending on process.env. */
-export const parseCourtneyRobertsCenterAdminEmailsForTests = parseAdminEmails
-
-export function isApprovedCourtneyRobertsCenterAdminEmail(email: string | null | undefined, allowlist: Set<string>): boolean {
-  if (!email) return false
-  return allowlist.has(email.trim().toLowerCase())
-}
-
-/** Test seam for {@link isApprovedCourtneyRobertsCenterAdminEmail}. */
-export const isApprovedCourtneyRobertsCenterAdminEmailForTests = isApprovedCourtneyRobertsCenterAdminEmail
-
-export function isApprovedCourtneyRobertsCenterAdmin(email: string | null | undefined): boolean {
-  return isApprovedCourtneyRobertsCenterAdminEmail(email, parseAdminEmails(process.env.COURTNEY_ROBERTS_CENTER_ADMIN_EMAILS))
+export async function hasCourtneyRobertsCenterAccess(uid: string): Promise<boolean> {
+  const { getFirestore } = await import("firebase-admin/firestore")
+  const db = getFirestore(await getFirebaseAdminApp())
+  const snapshot = await db.collection("users").doc(uid).get()
+  return snapshot.data()?.[COURTNEY_ROBERTS_CENTER_ACCESS_FIELD] === true
 }
 
 export class CourtneyRobertsCenterAccessError extends Error {
@@ -51,11 +39,15 @@ function extractBearer(request: Request): string {
 export type CourtneyRobertsCenterAdmin = { uid: string; email: string }
 
 /**
- * Verifies the caller's Firebase ID token and checks it against the approved
- * admin allowlist. Always cryptographically verifies — no dev/mock fallback,
- * matching `verifyStaffRequest()`/`verifyByeByeDprUserRequest()`'s
+ * Verifies the caller's Firebase ID token and checks their access against
+ * Firestore. Always cryptographically verifies the token — no dev/mock
+ * fallback, matching `verifyStaffRequest()`/`verifyByeByeDprUserRequest()`'s
  * fail-closed posture, appropriate here since this module reads real WhatsApp
- * conversation content rather than gating an AI feature.
+ * conversation content rather than gating an AI feature. What's deliberately
+ * *not* as strict as it could be: authorization is a single boolean any
+ * current admin can grant to anyone from inside the module (see
+ * `admin-management.ts`) — prioritized to stay simple and genuinely
+ * self-service over a tiered permission model.
  */
 export async function requireCourtneyRobertsCenterAdmin(request: Request): Promise<CourtneyRobertsCenterAdmin> {
   const token = extractBearer(request)
@@ -68,11 +60,10 @@ export async function requireCourtneyRobertsCenterAdmin(request: Request): Promi
     throw new CourtneyRobertsCenterAccessError(401, "Your session expired. Please sign in again.")
   }
 
-  const email = decoded.email ?? null
-  if (!isApprovedCourtneyRobertsCenterAdmin(email)) {
+  if (!(await hasCourtneyRobertsCenterAccess(decoded.uid))) {
     throw new CourtneyRobertsCenterAccessError(403, "You are not approved to view Courtney Roberts Center.")
   }
-  return { uid: decoded.uid, email: email as string }
+  return { uid: decoded.uid, email: decoded.email ?? "" }
 }
 
 export function toCourtneyRobertsCenterAccessErrorResponse(error: unknown): Response {

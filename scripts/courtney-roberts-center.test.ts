@@ -2,11 +2,8 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createHash } from "node:crypto"
 import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity, identitySnapshotWriteFields, reconcileIdentitySnapshot } from "../lib/courtney-roberts-center/identity"
-import {
-  isApprovedCourtneyRobertsCenterAdminEmailForTests,
-  parseCourtneyRobertsCenterAdminEmailsForTests,
-} from "../lib/courtney-roberts-center/access"
 import { toConversationSummaryForTests, toMessageForTests } from "../lib/courtney-roberts-center/read-api"
+import { toCourtneyRobertsCenterAccessUserForTests } from "../lib/courtney-roberts-center/admin-management"
 import { CourtneyRobertsCenterLinkError, normalizeLinkEmail } from "../lib/courtney-roberts-center/link-identity"
 import type { WhatsAppSenderIdentity } from "../lib/whatsapp-svc-identity"
 
@@ -47,20 +44,22 @@ test("identitySnapshotFromSenderIdentity: resolved sender with no linked account
   assert.equal(snapshot.resolvedVia, "fallback")
 })
 
-test("admin allowlist: case- and whitespace-insensitive match", () => {
-  const allowlist = parseCourtneyRobertsCenterAdminEmailsForTests(" Ben@Example.com , j@supervisioncompany.com")
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests("ben@example.com", allowlist), true)
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests("  J@SUPERVISIONCOMPANY.COM  ", allowlist), true)
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests("someone-else@example.com", allowlist), false)
+test("toCourtneyRobertsCenterAccessUserForTests: reads the access field and falls back to email for a missing name", () => {
+  assert.deepEqual(toCourtneyRobertsCenterAccessUserForTests("uid-1", { email: "j@supervisioncompany.com", courtneyRobertsCenterAccess: true }), {
+    uid: "uid-1",
+    name: "j@supervisioncompany.com",
+    email: "j@supervisioncompany.com",
+    hasAccess: true,
+  })
 })
 
-test("admin allowlist: fails closed with no configured emails or no email on the token", () => {
-  const empty = parseCourtneyRobertsCenterAdminEmailsForTests(undefined)
-  assert.equal(empty.size, 0)
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests("anyone@example.com", empty), false)
-  const allowlist = parseCourtneyRobertsCenterAdminEmailsForTests("ben@example.com")
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests(null, allowlist), false)
-  assert.equal(isApprovedCourtneyRobertsCenterAdminEmailForTests(undefined, allowlist), false)
+test("toCourtneyRobertsCenterAccessUserForTests: no access field or a non-true value both mean no access", () => {
+  assert.equal(toCourtneyRobertsCenterAccessUserForTests("uid-1", { name: "Ben" }).hasAccess, false)
+  assert.equal(toCourtneyRobertsCenterAccessUserForTests("uid-1", { name: "Ben", courtneyRobertsCenterAccess: "true" }).hasAccess, false)
+})
+
+test("toCourtneyRobertsCenterAccessUserForTests: a doc with neither name nor email still gets a displayable label", () => {
+  assert.equal(toCourtneyRobertsCenterAccessUserForTests("uid-1", {}).name, "Unknown")
 })
 
 test("toConversationSummaryForTests: defaults a malformed/legacy doc rather than throwing", () => {

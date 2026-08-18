@@ -101,3 +101,30 @@ export async function linkCourtneyRobertsCenterConversation(
   if (!response.ok) await readError(response, "Unable to link this conversation.")
   return (await response.json()) as CourtneyRobertsCenterLinkResult
 }
+
+export type CourtneyRobertsCenterAccessUser = {
+  uid: string
+  name: string
+  email: string
+  hasAccess: boolean
+}
+
+/** Every registered app user and whether they currently have access — for the manage-access screen. */
+export async function fetchCourtneyRobertsCenterAccessUsers(): Promise<CourtneyRobertsCenterAccessUser[]> {
+  const { users } = await getJson<{ users: CourtneyRobertsCenterAccessUser[] }>(
+    "/api/courtney-roberts-center/admins",
+    "Unable to load users.",
+  )
+  return users
+}
+
+export async function setCourtneyRobertsCenterAccessUser(uid: string, hasAccess: boolean): Promise<CourtneyRobertsCenterAccessUser> {
+  const response = await fetch(`/api/courtney-roberts-center/admins/${encodeURIComponent(uid)}`, {
+    method: "PATCH",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ hasAccess }),
+  })
+  if (!response.ok) await readError(response, "Unable to update access.")
+  const { user } = (await response.json()) as { user: CourtneyRobertsCenterAccessUser }
+  return user
+}
