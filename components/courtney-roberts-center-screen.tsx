@@ -1,15 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Search, MessageCircleOff, Lock } from "lucide-react"
+import { Search, MessageCircleOff, Lock } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
+import { ModuleSwitcher, type SvcModule } from "@/components/module-switcher"
 import { fetchCourtneyRobertsCenterConversations, CourtneyRobertsCenterClientError } from "@/lib/courtney-roberts-center/client"
 import type { CourtneyRobertsCenterConversationSummary } from "@/lib/courtney-roberts-center/types"
 
 interface CourtneyRobertsCenterScreenProps {
-  onBack: () => void
   onSelectConversation: (conversationId: string) => void
+  onSwitchToStream: () => void
+  onSwitchToDirectory: () => void
+  onSwitchToApplications: () => void
+  onSwitchToQuestCoral: () => void
+  onSwitchToByeByeDpr: () => void
   className?: string
 }
 
@@ -38,7 +43,15 @@ function formatTimestamp(ms: number): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
-export function CourtneyRobertsCenterScreen({ onBack, onSelectConversation, className }: CourtneyRobertsCenterScreenProps) {
+export function CourtneyRobertsCenterScreen({
+  onSelectConversation,
+  onSwitchToStream,
+  onSwitchToDirectory,
+  onSwitchToApplications,
+  onSwitchToQuestCoral,
+  onSwitchToByeByeDpr,
+  className,
+}: CourtneyRobertsCenterScreenProps) {
   const [conversations, setConversations] = useState<CourtneyRobertsCenterConversationSummary[] | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -78,16 +91,20 @@ export function CourtneyRobertsCenterScreen({ onBack, onSelectConversation, clas
 
   return (
     <div className={cn("flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
-      {/* Header */}
-      <div className="shrink-0 border-b border-white/10 animate-slide-down">
-        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150"
-          >
-            <ArrowLeft className="w-4 h-4 text-muted-foreground" />
-          </button>
-          <h1 className="text-base font-bold tracking-tight">Courtney Roberts Center</h1>
+      {/* Header — same ModuleSwitcher-based topbar every other module uses, not a back arrow: this is a peer module now, reached from the switcher itself. */}
+      <div className="glass-panel shrink-0 border-b border-white/10 animate-slide-down">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center">
+          <ModuleSwitcher
+            activeModule={"courtney-roberts-center" as SvcModule}
+            showCourtneyRobertsCenter
+            onSelect={(module) => {
+              if (module === "communications") onSwitchToStream()
+              if (module === "directory") onSwitchToDirectory()
+              if (module === "applications") onSwitchToApplications()
+              if (module === "quest-coral") onSwitchToQuestCoral()
+              if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
+            }}
+          />
         </div>
       </div>
 

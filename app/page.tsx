@@ -1935,8 +1935,12 @@ export default function Home() {
       {!showScreenSkeleton && activeScreen === "courtney-roberts-center" && currentUser?.isAdmin && (
         <CourtneyRobertsCenterScreen
           className={entranceClass}
-          onBack={goToProfile}
           onSelectConversation={goToCourtneyRobertsCenterThread}
+          onSwitchToStream={goToStream}
+          onSwitchToDirectory={goToDirectoryFromStream}
+          onSwitchToApplications={goToApplications}
+          onSwitchToQuestCoral={goToQuestCoral}
+          onSwitchToByeByeDpr={goToByeByeDpr}
         />
       )}
 
