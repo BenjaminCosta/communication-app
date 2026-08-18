@@ -221,8 +221,8 @@ export function buildStandaloneIntroduction(
   const profile = buildCapabilityProfile(snapshot, enabledModules)
   const opening =
     decision.reason === "first-contact"
-      ? `Hey ${firstName(snapshot.identity.name)} — I recognize you in SVC.`
-      : `Hey ${firstName(snapshot.identity.name)} — quick catch-up on what I can do for you.`
+      ? `Hey ${firstName(snapshot.identity.name)} — I'm Courtney Roberts, your SVC assistant. I recognize you in SVC.`
+      : `Hey ${firstName(snapshot.identity.name)} — Courtney Roberts here. Quick catch-up on what I can do for you.`
 
   // Scope + focus in ONE line. A live eval showed the earlier version listing
   // the same four capabilities three times over — a generic breadth line, then
@@ -263,8 +263,8 @@ export function buildPrefixIntroduction(snapshot: SelfContextSnapshot, decision:
   }
   const opening =
     decision.reason === "first-contact"
-      ? `Hey ${firstName(snapshot.identity.name)} — I recognize you in SVC. ${recognitionLine(snapshot)}`
-      : `Hi ${firstName(snapshot.identity.name)} — ${recognitionLine(snapshot).replace(/^I know you as/, "still have you as")}`
+      ? `Hey ${firstName(snapshot.identity.name)} — I'm Courtney Roberts, your SVC assistant. I recognize you in SVC. ${recognitionLine(snapshot)}`
+      : `Hi ${firstName(snapshot.identity.name)} — Courtney Roberts here. ${recognitionLine(snapshot).replace(/^I know you as/, "I still have you as")}`
   return `${opening} Ask “what can you do?” any time.`
 }
 

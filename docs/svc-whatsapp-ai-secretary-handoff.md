@@ -1,21 +1,21 @@
-# SVC AI Secretary — WhatsApp handoff
+# Courtney Roberts — WhatsApp handoff
 
-_Last updated: 2026-08-16. This is the operational handoff for continuing the
-WhatsApp AI Secretary work. Treat the current code, Vercel configuration, and
+_Last updated: 2026-08-17. This is the operational handoff for continuing the
+Courtney Roberts work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Profile UI: "SVC Secretary AI" card replaces the plain phone field (2026-08-16, latest)
+## Profile UI: "Courtney Roberts" card replaces the plain phone field (2026-08-16, latest)
 
 Ben asked for the phone-number entry point in the app's own Profile screen
 (not WhatsApp) to stop looking like a generic "Phone" settings row and
-instead read as what it actually is: the on-ramp to the WhatsApp Secretary.
+instead read as what it actually is: the on-ramp to Courtney Roberts.
 
-`components/profile-screen.tsx`'s standalone `SVC Secretary AI` card
+`components/profile-screen.tsx`'s standalone `Courtney Roberts` card
 (replacing the plain phone row from the same day's identity-model work)
-has, top to bottom: a short intro line, a **"Message the Secretary"** button
+has, top to bottom: a short intro line, a **"Message Courtney"** button
 that opens `https://wa.me/{NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER}` in a new
 tab, and the same inline-edit phone field as before — now captioned "So the
-Secretary recognizes you" instead of a bare label, and its placeholder/entry
+Courtney recognizes you" instead of a bare label, and its placeholder/entry
 UX unchanged (still returns `Promise<boolean>` so an invalid entry keeps the
 editor open). No new component, no new state — same card, same styling
 tokens (`bg-card`, `border-white/10`, `text-primary`) as the rest of Profile,
@@ -77,7 +77,7 @@ SVC profile... What's your SVC email address?", matched against
 `/users.emailNormalized`; an unambiguous match links the number
 (`whatsappPhoneNormalized`) going forward. **This is identity CLAIMING, not
 cryptographic verification** — no OTP, deliberately, per explicit request
-for this stage of a small internal rollout. If the WhatsApp Secretary is
+for this stage of a small internal rollout. If Courtney Roberts is
 ever exposed to a wider or higher-risk audience, this needs a real
 verification step before a claim is allowed to grant internal access. State
 persisted as `pendingIdentityClaim` on the conversation doc, same
@@ -165,12 +165,12 @@ Tests 311 → 314.
 ## Onboarding & discovery: first contact, guided tour, daily brief (2026-08-15)
 
 Driven by a product call that the bottleneck is no longer capability but
-**discovery**: the failure mode when new people try the Secretary isn't "it
+**discovery**: the failure mode when new people try Courtney isn't "it
 can't do that", it's trying two vague questions, getting two shrugs, and never
 finding the value. Target: a first "ah, this is good" inside 20–30 seconds.
 
 **Capability profiles** (`lib/whatsapp-secretary/capability-profiles.ts`) — the
-Secretary already knows who it's talking to, so a Site Supervisor and a
+Courtney Roberts already knows who it's talking to, so a Site Supervisor and a
 recruiter no longer get the same first three examples. Two rules keep it
 honest, and they're why this is data + pure functions with no model
 involvement: a role only ever **reorders** capabilities (the profile is
@@ -245,7 +245,7 @@ want.)
 
 ⚠️ Seeing the **first-contact card** requires a sender with no recorded
 introduction — clear `onboarding` on `/whatsappConversations/{sha256(phone)}`
-for the demo number, or use one that has never messaged the Secretary.
+for the demo number, or use one that has never messaged Courtney.
 
 ## Writes as tools + cross-turn memory (2026-08-15)
 
@@ -312,7 +312,7 @@ end-to-end `CONFIRM DRAFT` against real Firestore. Everything below the model
 boundary was verified with a spy store, and the store transaction itself is
 unchanged code — but the new path that reaches it (preview → envelope persisted
 on the conversation document → exact-phrase match → `commit`) has never run
-against production data. Send a real draft request from the sandbox number,
+against production data. Send a real draft request from the registered number,
 confirm it, then verify exactly one new `whatsapp-draft-*` report exists with
 `status: "draft"`. Confirm a second time and verify it reports "already created"
 without creating another.
@@ -376,7 +376,7 @@ fixture lookups — a per-module stub would test the opposite of what matters.
 
 ## Tool/orchestrator architecture review (2026-08-14 — the plan behind the above)
 
-A full review of the Secretary **as an AI orchestrator with tools**, against
+A full review of Courtney **as an AI orchestrator with tools**, against
 the question of whether it can keep growing into a much more capable company
 AI. Written up separately, because it is a multi-session plan rather than a
 changelog entry:
@@ -412,7 +412,7 @@ per-module sub-agents, embeddings for Company Knowledge, and any change to the
 
 ## Self-awareness, onboarding, and personalized discovery (2026-08-14, latest)
 
-The Secretary could already answer almost anything about SVC, but nothing
+Courtney Roberts could already answer almost anything about SVC, but nothing
 about *the person asking*. It resolved an identity on every turn and then
 threw it away: the system prompt literally told it to "never reveal it back",
 the only onboarding was one fixed greeting on the first-ever message, and
@@ -434,7 +434,7 @@ SVC genuinely knows about the resolved sender, and
   Outlooks running on their jobs, how much recent Communications activity they
   can see, and their own Applications record if their contact details match
   one.
-- **`me_getSecretaryGuide`** — what the Secretary can do *for this person*,
+- **`me_getSecretaryGuide`** — what Courtney can do *for this person*,
   how to use it, and example questions built from their real records.
 
 **This is personalization, not a new permissions model.** Every read is
@@ -553,7 +553,7 @@ with no verify token and with a wrong one, webhook POST with no
 `x-hub-signature-256` 401.
 
 **Still needs the live WhatsApp pass** — checklist items 21-27 below. Note
-item 21's caveat: the sandbox number has already been introduced by now, so
+item 21's caveat: the live number may already have been introduced by now, so
 its `onboarding` field must be cleared (or a second recognized number used) to
 exercise the first-contact path at all.
 
@@ -561,7 +561,7 @@ exercise the first-contact path at all.
 
 Real bug from a pasted WhatsApp transcript: "What users are on the svc apps
 read me all" answered with only who's *active right now* (1 person), and
-when corrected ("Not only active, all registered users") the Secretary could
+when corrected ("Not only active, all registered users") Courtney could
 correctly *explain* the distinction but had no tool to actually answer it —
 `directory_getActiveUsers` was the only presence-related tool that existed.
 
@@ -908,7 +908,7 @@ further. Separately, a full audit pass produced
 `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` (repo root) — a much larger,
 code-verified, CONFIRMED/PRODUCT DIRECTION/NEEDS VERIFICATION-labeled
 knowledge document covering every module in depth. This change makes that
-document the Secretary's actual knowledge source, retrieved properly instead
+document the Courtney's actual knowledge source, retrieved properly instead
 of either dumped whole into every prompt or left unused.
 
 **What changed:**
@@ -979,7 +979,7 @@ module name doesn't match the Messages/comms guard, and no knowledge chunk
 can grant a tool that isn't already registered); the uncommitted Outlook→
 Communications auto-broadcast work identified in the knowledge audit was not
 touched — the knowledge pack itself documents it as unshipped WIP (§8), and
-the Secretary now retrieves that exact section verbatim when relevant, so it
+Courtney now retrieves that exact section verbatim when relevant, so it
 will correctly tell a user the auto-broadcast isn't shipped rather than
 guessing either way.
 
@@ -1010,7 +1010,7 @@ checklist below after deploying.
 
 ## Read orchestrator upgrade (2026-08-12, same day)
 
-The reading side of the Secretary was rebuilt from a fixed-slice, single-shot
+The reading side of Courtney was rebuilt from a fixed-slice, single-shot
 design into a real cross-module tool-calling orchestrator. **Implemented and
 verified locally (typecheck, production `pnpm build`, and the full offline
 test suite are all green); not yet deployed to Vercel** — deploying is a
@@ -1023,7 +1023,7 @@ separate, explicit step.
 without a token → 403 as expected); the real end-to-end WhatsApp manual test
 pass below is still outstanding.
 
-**Same-day follow-up fix**: the Secretary was declining to share a Directory
+**Same-day follow-up fix**: Courtney was declining to share a Directory
 person's phone/email even to identified internal senders ("I can't show
 phone numbers"). The shared `DirectoryAskRecord` shape (used by the web app's
 own "Ask SVC Directory") deliberately has no phone/email field, which is the
@@ -1037,7 +1037,7 @@ explicitly tells the model to share them — internal ids, storage links, and
 raw report text stay hidden as before. Two new offline tests cover both the
 enrichment and the "no linked contact → no fabricated fields" path.
 
-**Directory search upgrade, same day**: user asked for the Secretary to be
+**Directory search upgrade, same day**: user asked for Courtney to be
 "excellently good" at finding/filtering Directory info and to use ALL the
 data Directory has, with the best architecture. Two real gaps addressed in
 `lib/whatsapp-secretary/tools/directory.ts`:
@@ -1149,7 +1149,7 @@ Messages/Communications exclusion.
    concrete ranges itself before calling a tool, and to cite the actual date
    a tool result carries when it's relevant ("based on the latest Quest Coral
    update from Aug 12") instead of answering atemporally.
-2. **Stronger model, one conservative reasoning step up.** The Secretary now
+2. **Stronger model, one conservative reasoning step up.** Courtney Roberts now
    uses `gpt-5.6-terra` (its own isolated `DEFAULT_WHATSAPP_SECRETARY_MODEL`
    in `lib/ai/config.ts` — Directory's and Quest Coral's own `DEFAULT_ASK_MODEL`
    are untouched) with `reasoningEffort: "low"` (up from `"minimal"`, still
@@ -1208,7 +1208,7 @@ checklist" below for the live-number verification pass to run after deploy.
 
 ### Manual WhatsApp test checklist
 
-Run these against the live sandbox number after deploying this change, from
+Run these against the live registered number after deploying this change, from
 an identified internal sender. Record the actual reply next to each — this
 is what "ask it anything about SVC" verification looks like in practice,
 since there is no deterministic mock-mode eval for a 6-module orchestrator
@@ -1253,7 +1253,7 @@ since there is no deterministic mock-mode eval for a 6-module orchestrator
 20. "Can you read my WhatsApp messages with [someone]?" (should say plainly it has no Messages access, never attempt a workaround).
 
 **Personalization / onboarding** (2026-08-14 — these need a *fresh* sender to
-see the first-contact path; the sandbox number has already been introduced, so
+see the first-contact path; the live number may already have been introduced, so
 clear its `onboarding` field on `/whatsappConversations/{sha256(phone)}` first,
 or use a second recognized number)
 21. Send just "Hi" as the very first message (should get the personalized card: recognized name/role, what it can see, 3 example questions naming real jobs/projects).
@@ -1266,9 +1266,8 @@ or use a second recognized number)
 
 ## Current outcome
 
-The SVC AI Secretary is live on the official **Meta WhatsApp Cloud API test
-number**. It is a testing/sandbox setup only: no production number was bought,
-migrated, or registered.
+Courtney Roberts is live through the direct **Meta WhatsApp Cloud API**
+integration using SVC's registered U.S. number.
 
 The live route is:
 
@@ -1276,8 +1275,8 @@ The live route is:
 https://communication-svc.vercel.app/api/whatsapp/webhook
 ```
 
-The current flow supports an identified SVC user sending text to the Meta test
-number, receiving an AI Secretary reply, reading limited internal data when
+The current flow supports an identified SVC user sending text to the registered
+number, receiving a Courtney Roberts reply, reading limited internal data when
 authorized, and creating a **ByeByeDPR Daily Report draft** only after explicit
 confirmation. The user interface and all user-facing replies are in English.
 
@@ -1291,25 +1290,18 @@ an SVC module deep link → 200, and webhook `GET` without verification data →
 
 ### Meta / WhatsApp Cloud API
 
-- A Meta Developer App for **SVC AI Secretary** exists and has the WhatsApp
+- A Meta Developer App for **Courtney Roberts** exists and has the WhatsApp
   product configured.
-- The official Meta-provided test phone number is being used. It is not an SVC
-  production number.
-- The personal WhatsApp test recipient was added in Meta so the test number can
-  exchange messages with it.
+- An SVC-managed U.S. phone number is registered and connected in WhatsApp
+  Manager.
 - The Meta callback is the live webhook URL above, and the WhatsApp Business
   Account is subscribed to the `messages` webhook field.
 - The access token was replaced with a Meta Business **System User** token with
   the minimal WhatsApp Cloud API permissions required by the server. Do not
   paste that token into source, docs, commits, chat, or browser URLs.
 
-Non-secret identifiers currently in use:
-
-| Item | Value |
-| --- | --- |
-| WhatsApp Phone Number ID | `1165212860018618` |
-| WhatsApp Business Account ID | `1569708631228451` |
-| WhatsApp Secretary sandbox number (dialable, for `wa.me` links) | `+1 (908) 389-7201` |
+Production identifiers are held in Vercel environment variables and WhatsApp
+Manager. Do not copy dynamic IDs into this handoff.
 
 ### Vercel environment
 
@@ -1320,13 +1312,13 @@ are secrets and must be managed in Vercel rather than committed to this repo.
 | --- | --- |
 | `WHATSAPP_VERIFY_TOKEN` | Meta callback verification; must match the dashboard value. |
 | `WHATSAPP_ACCESS_TOKEN` | Long-lived System User token used for Graph API calls. |
-| `WHATSAPP_PHONE_NUMBER_ID` | Current Meta test-phone ID. |
+| `WHATSAPP_PHONE_NUMBER_ID` | Registered production phone-number ID used for Graph API sends and webhook filtering. |
 | `WHATSAPP_WABA_ID` | Filters inbound webhook events to SVC’s WABA. |
 | `WHATSAPP_APP_SECRET` | Validates `x-hub-signature-256` on every inbound POST. |
-| `WHATSAPP_TEST_RECIPIENT` | Sandbox-only recipient override; remove it before production-number routing. |
-| `NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER` | (2026-08-16) The Secretary's own dialable number, digits only (`19083897201`) — powers the "Message the Secretary" `wa.me` link in Profile (`components/profile-screen.tsx`). Unlike every other row in this table, this one is INTENTIONALLY public/client-facing — it's the number people are meant to message, not a credential — so it's safe (and required) to be visible in the browser bundle. |
-| `OPENAI_API_KEY` | Used by the Secretary and existing ByeByeDPR transcription/structuring services. |
-| `WHATSAPP_AI_MODEL` | Optional Secretary chat-model override; default is `gpt-5-mini`. |
+| `WHATSAPP_TEST_RECIPIENT` | Removed from Production; production replies go to the real inbound sender. |
+| `NEXT_PUBLIC_WHATSAPP_SECRETARY_NUMBER` | Courtney Roberts' public dialable number, digits only; powers the "Message Courtney" `wa.me` link in Profile. It is intentionally client-facing. |
+| `OPENAI_API_KEY` | Used by Courtney Roberts and existing ByeByeDPR transcription/structuring services. |
+| `WHATSAPP_AI_MODEL` | Optional Courtney Roberts chat-model override; default is `gpt-5.6-terra`. |
 | `BYEBYEDPR_AI_MODE` | `live` enables live parsing/transcription when `OPENAI_API_KEY` is available. |
 | `BYEBYEDPR_AI_TRANSCRIBE_MODEL` | Optional override; default is `gpt-4o-mini-transcribe`. |
 | `BYEBYEDPR_AI_PARSE_MODEL` | Optional structured Daily Report parsing-model override. |
@@ -1338,7 +1330,7 @@ account contents. `service-account.json` is local-only and must remain ignored.
 ## Runtime architecture
 
 ```text
-Meta test number
+Meta registered U.S. number
   -> signed WhatsApp webhook POST
   -> Next.js route on Vercel
   -> per-sender conversation transaction in Firestore
@@ -1357,7 +1349,7 @@ service or backend.
 | Conversation memory | `lib/whatsapp-conversation-memory.ts` | Keeps 12 recent messages per hashed sender and makes Meta delivery retries safe across Vercel instances. |
 | Identity | `lib/whatsapp-svc-identity.ts`, `lib/whatsapp-identity-claim.ts`, `lib/phone-normalization.ts` | Two-tier resolution (2026-08-16): explicit (`/users.phoneNormalized`/`whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`) tried first, `/contacts.phoneNormalized` fallback only if explicit is empty; resolves a unique real identity per tier (one linked account beats any number of unlinked duplicates). Missing → `null`/public. Genuinely ambiguous (2+ real identities) → an "ask for your SVC email" claim flow, not silent public fallback — see the 2026-08-16 section above. |
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
-| Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5-mini` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
+| Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5.6-terra` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
 | Company knowledge | `lib/knowledge-pack.ts` (parsing/scoring), `lib/company-knowledge.ts` (prefetch) | Scored retrieval over two files as one pool: `SVC_AI_Secretary_Canonical_Knowledge_Pack.md` (product/module) and `SVC_Company_Mission_Operating_Framework_Knowledge.md` (company/mission, added 2026-08-14; chunk ids prefixed `mission-`). A small prefetch (3 chunks) is folded into the system prompt outside the tool loop; `knowledge_search`/`knowledge_getSection` (below) let the model go deeper. |
 | Self-context / onboarding | `lib/whatsapp-secretary/self-context.ts`, `tools/me.ts`, `onboarding.ts` | One bounded "what SVC knows about the sender" snapshot (index-free or on already-deployed indexes), the three zero-argument `me_*` tools built on it, and the capability-signature-driven introduction. Personalization over already-permitted reads — no new scope. |
@@ -1374,7 +1366,7 @@ prompt.
   company knowledge. It cannot query Directory, people, companies, jobs,
   contexts, Quest Coral, Applications, Reports, or other internal data.
 - A GENUINELY AMBIGUOUS number (2+ real SVC identities could own it) is
-  NOT treated as unknown: the Secretary asks for the sender's SVC email and,
+  NOT treated as unknown: Courtney asks for the sender's SVC email and,
   on an exact single match, links the number and grants internal access from
   then on. This is identity *claiming* (a bare-text email reply), not
   cryptographic verification — see the 2026-08-16 section above before
@@ -1420,7 +1412,7 @@ described below.
 For a new inbound text message that needs processing, the webhook now calls the
 official Cloud API `messages` endpoint with `status: "read"`, the inbound
 `message_id`, and `typing_indicator: { type: "text" }`. The sender therefore
-gets Meta’s native read receipt and typing state before the Secretary performs
+gets Meta’s native read receipt and typing state before Courtney performs
 identity resolution, retrieval, or generation.
 
 The response UX is deliberately independent of retrieval, permissions, company
@@ -1460,7 +1452,7 @@ permission, or write action.
   `questCoral`, `application`, and `module`) after normal Firebase sign-in.
   These URLs only choose navigation state; they never bypass Firebase auth or
   Firestore rules.
-- If a resolved SVC user has no prior conversation history, the Secretary
+- If a resolved SVC user has no prior conversation history, Courtney
   adds a concise English greeting using their resolved first name. A simple
   first “Hello” gets a short set of examples; a substantive first request gets
   the greeting plus the direct answer, not a tutorial.
@@ -1488,7 +1480,7 @@ Focused coverage lives in `scripts/whatsapp-response-ux.test.ts`,
 The native payloads and fallback are covered in automated tests. A manual
 WhatsApp-client check remains useful after any future Meta account/client UI
 change: send an internal question that has multiple matches, choose one list
-row, and confirm the Secretary follows the selection and a relevant CTA opens
+row, and confirm Courtney follows the selection and a relevant CTA opens
 the authenticated SVC route.
 
 ## ByeByeDPR Daily Report draft action
@@ -1603,7 +1595,7 @@ by prompt instruction.
 
 ## Testing and verification completed
 
-The following pass for the current WhatsApp Secretary implementation:
+The following pass for the current Courtney Roberts implementation:
 
 ```bash
 pnpm test:whatsapp-secretary
@@ -1740,7 +1732,7 @@ the existing unambiguous confirmation contract.
 ## Related documentation
 
 - [Tool/orchestrator architecture review](./svc-whatsapp-secretary-tool-architecture-review.md) — 2026-08-14 assessment of the tool catalog and the 37 → 22 consolidation plan. Read this before adding a new tool.
-- [SVC AI Secretary Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — the Company Knowledge source `lib/knowledge-pack.ts` parses and retrieves from.
+- [Courtney Roberts Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — the Company Knowledge source `lib/knowledge-pack.ts` parses and retrieves from.
 - [ByeByeDPR product context](./svc-bye-bye-dpr-product-context.md)
 - [ByeByeDPR module context](./svc-bye-bye-dpr-module.md)
 - [SVC project context for AI agents](./svc-project-context-for-ai-agents.md)

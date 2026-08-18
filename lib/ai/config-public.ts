@@ -94,7 +94,7 @@ export const QUEST_CORAL_AI_LIMITS = {
 } as const
 
 /**
- * Client-safe limits for the WhatsApp SVC AI Secretary's cross-module
+ * Client-safe limits for Courtney Roberts' cross-module
  * orchestrator (Directory, Quest Coral, Applications, ByeByeDPR reports,
  * clocking, Outlooks). Kept independent from `DIRECTORY_AI_LIMITS` so the
  * two tool-calling assistants have separate budgets, even though Directory's

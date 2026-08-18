@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Creates or refreshes the verified product context for the existing
- * Quest Coral "AI Secretary" project.
+ * Quest Coral Courtney Roberts project.
  *
  * Conservative production behavior:
  * - dry-run by default;
  * - requires a service account for exactly svc-comms;
- * - checks the fixed project id and expected project name;
- * - fills the project description only when it is blank;
+ * - checks the fixed project id and expected legacy/current project name;
+ * - rebrands only the known legacy project name and description;
  * - creates or refreshes only this script's own context record;
  * - refuses to overwrite a human/foreign Project Context.
  *
@@ -16,7 +16,7 @@
  *   GOOGLE_APPLICATION_CREDENTIALS=./service-account.json \
  *   node scripts/seed-ai-secretary-quest-coral-context.mjs
  *
- *   DRY_RUN=false CONFIRM_PROD_AI_SECRETARY_CONTEXT=true \
+ *   DRY_RUN=false CONFIRM_PROD_COURTNEY_ROBERTS_CONTEXT=true \
  *   EXPECTED_FIREBASE_PROJECT=svc-comms \
  *   GOOGLE_APPLICATION_CREDENTIALS=./service-account.json \
  *   node scripts/seed-ai-secretary-quest-coral-context.mjs
@@ -31,10 +31,12 @@ import { fileURLToPath } from "node:url"
 
 const EXPECTED_FIREBASE_PROJECT = "svc-comms"
 const AI_SECRETARY_PROJECT_ID = "NCQHiXNSt0yWYDuWGjCQ"
-const AI_SECRETARY_PROJECT_NAME = "AI Secretary"
+const LEGACY_PROJECT_NAME = "AI Secretary"
+const COURTNEY_ROBERTS_PROJECT_NAME = "Courtney Roberts"
 const CONTEXT_SEED_KEY = "svc-product-context:ai-secretary"
 const SOURCE_FILE = "docs/svc-ai-secretary-product-context.md"
-const PROJECT_DESCRIPTION = "SVC's WhatsApp AI Secretary: one authorized conversational entry point for company knowledge and live operational information."
+const PROJECT_DESCRIPTION = "Courtney Roberts: SVC's authorized conversational entry point for company knowledge and live operational information."
+const LEGACY_PROJECT_DESCRIPTION = "SVC's WhatsApp AI Secretary: one authorized conversational entry point for company knowledge and live operational information."
 const CONTEXT_MAX_CHARS = 12_000
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = join(SCRIPT_DIR, "..")
@@ -75,8 +77,8 @@ function validateProductionAccess() {
   if (serviceAccount.project_id !== EXPECTED_FIREBASE_PROJECT) {
     fail(`Service account project_id must be ${EXPECTED_FIREBASE_PROJECT}.`)
   }
-  if (!DRY_RUN && process.env.CONFIRM_PROD_AI_SECRETARY_CONTEXT !== "true") {
-    fail("Refusing a production write without CONFIRM_PROD_AI_SECRETARY_CONTEXT=true.")
+  if (!DRY_RUN && process.env.CONFIRM_PROD_COURTNEY_ROBERTS_CONTEXT !== "true" && process.env.CONFIRM_PROD_AI_SECRETARY_CONTEXT !== "true") {
+    fail("Refusing a production write without CONFIRM_PROD_COURTNEY_ROBERTS_CONTEXT=true.")
   }
   return serviceAccount
 }
@@ -103,14 +105,14 @@ function buildContext() {
   const markdown = [
     "## Context record",
     "",
-    `- **Name:** ${AI_SECRETARY_PROJECT_NAME}`,
+    `- **Name:** ${COURTNEY_ROBERTS_PROJECT_NAME}`,
     `- **Description:** ${PROJECT_DESCRIPTION}`,
     "- **Purpose:** Give SVC one trustworthy WhatsApp entry point for questions across company knowledge and authorized live operational data.",
     "- **Current channel:** Meta WhatsApp Cloud API test/sandbox number; no dedicated SVC production number yet.",
     "- **Meta Phone Number ID:** 1165212860018618 (configuration identifier, not a user-facing telephone number).",
     "- **Display phone number:** Not retained in this repository; confirm it in Meta before publishing it as a staff contact number.",
     `- **Context date:** ${sourceDate}`,
-    `- **Context source:** ${SOURCE_FILE} and the Secretary operational handoff.`,
+    `- **Context source:** ${SOURCE_FILE} and the Courtney Roberts operational handoff.`,
     "",
     sourceMarkdown,
   ].join("\n")
@@ -118,6 +120,15 @@ function buildContext() {
     fail(`Project Context is ${markdown.length} characters; limit is ${CONTEXT_MAX_CHARS}.`)
   }
   return { markdown, sourceDate, contentHash: hash(markdown) }
+}
+
+function isExpectedProjectName(name) {
+  return name === LEGACY_PROJECT_NAME || name === COURTNEY_ROBERTS_PROJECT_NAME
+}
+
+function shouldUpdateDescription(description) {
+  const current = typeof description === "string" ? description.trim() : ""
+  return !current || current === LEGACY_PROJECT_DESCRIPTION || current === PROJECT_DESCRIPTION
 }
 
 async function main() {
@@ -131,18 +142,18 @@ async function main() {
   const [projectSnapshot, contextSnapshot] = await Promise.all([projectRef.get(), contextRef.get()])
   if (!projectSnapshot.exists) fail(`Missing Quest Coral project ${AI_SECRETARY_PROJECT_ID}.`)
   const project = projectSnapshot.data() ?? {}
-  if (project.name !== AI_SECRETARY_PROJECT_NAME) {
-    fail(`Project ${AI_SECRETARY_PROJECT_ID} is “${project.name ?? "(unnamed)"}”, not “${AI_SECRETARY_PROJECT_NAME}”.`)
+  if (!isExpectedProjectName(project.name)) {
+    fail(`Project ${AI_SECRETARY_PROJECT_ID} is “${project.name ?? "(unnamed)"}”, not the expected Courtney Roberts project.`)
   }
   const existingContext = contextSnapshot.data() ?? null
   if (existingContext && existingContext.seedKey !== CONTEXT_SEED_KEY) {
-    fail("The AI Secretary Project Context is human-authored or owned by another seed; no overwrite was made.")
+    fail("The Courtney Roberts Project Context is human-authored or owned by another seed; no overwrite was made.")
   }
 
-  const descriptionAction = typeof project.description !== "string" || !project.description.trim()
-    ? "fill-blank"
-    : project.description === PROJECT_DESCRIPTION ? "unchanged"
-      : "preserve-existing"
+  const nameAction = project.name === COURTNEY_ROBERTS_PROJECT_NAME ? "unchanged" : "rename"
+  const descriptionAction = shouldUpdateDescription(project.description)
+    ? project.description === PROJECT_DESCRIPTION ? "unchanged" : "update-brand"
+    : "preserve-existing"
   const contextAction = !existingContext
     ? "create"
     : existingContext.contentHash === context.contentHash ? "unchanged" : "update"
@@ -150,7 +161,7 @@ async function main() {
   console.log(JSON.stringify({
     target: `PRODUCTION (${EXPECTED_FIREBASE_PROJECT})`,
     mode: DRY_RUN ? "dry-run" : "write",
-    project: { id: AI_SECRETARY_PROJECT_ID, name: AI_SECRETARY_PROJECT_NAME, description: descriptionAction },
+    project: { id: AI_SECRETARY_PROJECT_ID, name: COURTNEY_ROBERTS_PROJECT_NAME, nameAction, description: descriptionAction },
     projectContext: { action: contextAction, sourceFile: SOURCE_FILE, sourceDate: context.sourceDate, chars: context.markdown.length },
   }, null, 2))
   if (DRY_RUN) return
@@ -158,16 +169,23 @@ async function main() {
   const now = Timestamp.now()
   await db.runTransaction(async (transaction) => {
     const [freshProject, freshContext] = await Promise.all([transaction.get(projectRef), transaction.get(contextRef)])
-    if (!freshProject.exists || freshProject.data()?.name !== AI_SECRETARY_PROJECT_NAME) {
-      throw new Error("The verified AI Secretary project changed before the write could complete.")
+    if (!freshProject.exists || !isExpectedProjectName(freshProject.data()?.name)) {
+      throw new Error("The verified Courtney Roberts project changed before the write could complete.")
     }
     const freshProjectData = freshProject.data() ?? {}
     const freshContextData = freshContext.data() ?? null
     if (freshContextData && freshContextData.seedKey !== CONTEXT_SEED_KEY) {
       throw new Error("The Project Context became human-authored or foreign before the write; refusing to overwrite it.")
     }
-    if (typeof freshProjectData.description !== "string" || !freshProjectData.description.trim()) {
-      transaction.update(projectRef, { description: PROJECT_DESCRIPTION, updatedAt: now })
+    const projectUpdate = { updatedAt: now }
+    if (freshProjectData.name !== COURTNEY_ROBERTS_PROJECT_NAME) {
+      projectUpdate.name = COURTNEY_ROBERTS_PROJECT_NAME
+    }
+    if (shouldUpdateDescription(freshProjectData.description) && freshProjectData.description !== PROJECT_DESCRIPTION) {
+      projectUpdate.description = PROJECT_DESCRIPTION
+    }
+    if (Object.keys(projectUpdate).length > 1) {
+      transaction.update(projectRef, projectUpdate)
     }
     const payload = {
       projectId: AI_SECRETARY_PROJECT_ID,
@@ -194,7 +212,7 @@ async function main() {
   const verifiedProjectData = verifiedProject.data() ?? {}
   const verifiedContextData = verifiedContext.data() ?? {}
   const verified = verifiedProject.exists
-    && verifiedProjectData.name === AI_SECRETARY_PROJECT_NAME
+    && verifiedProjectData.name === COURTNEY_ROBERTS_PROJECT_NAME
     && typeof verifiedProjectData.description === "string"
     && verifiedProjectData.description.trim().length > 0
     && verifiedContext.exists

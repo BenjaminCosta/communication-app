@@ -1,10 +1,10 @@
-# SVC AI Secretary — Product Context
+# Courtney Roberts — Product Context
 
-Updated: 2026-08-15
+Updated: 2026-08-17
 
 ## Problem it solves
 
-SVC information is spread across people and jobs, active projects, hiring, field reports, time records, Outlooks, and team communications. An employee should not need to know which application owns an answer before they can ask for it. The AI Secretary gives the team one conversational starting point on WhatsApp.
+SVC information is spread across people and jobs, active projects, hiring, field reports, time records, Outlooks, and team communications. An employee should not need to know which application owns an answer before they can ask for it. Courtney Roberts gives the team one conversational starting point on WhatsApp.
 
 ## Question it answers
 
@@ -21,7 +21,7 @@ It can answer questions about the company, a person, a company, a job, project p
 
 ## How it works
 
-The Secretary is a WhatsApp conversational layer for SVC. A message is matched to an SVC identity using an exact phone-number match. The result determines what it can safely access:
+Courtney Roberts is SVC's WhatsApp conversational layer. A message is matched to an SVC identity using an exact phone-number match. The result determines what Courtney can safely access:
 
 - An **unknown or ambiguous sender** receives only a small, curated public company introduction.
 - A **uniquely identified SVC person** can ask read-only questions across the authorized SVC modules.
@@ -33,11 +33,11 @@ The assistant retrieves small, relevant pieces of real data instead of receiving
 
 ### 1. First contact and discovery
 
-A recognized user receives a short introduction that explains what the Secretary can actually do for them and offers useful starter questions. It adapts to the user’s available access and linked SVC records without guessing a role or job.
+A recognized user receives a short introduction that explains what Courtney Roberts can actually do for them and offers useful starter questions. It adapts to the user’s available access and linked SVC records without guessing a role or job.
 
 ### 2. Ask a cross-SVC question
 
-The user sends a normal WhatsApp message such as “What should I check today?”, “What is happening with this project?”, or “Who works with this company?” The Secretary identifies the relevant source, retrieves a bounded answer, and replies in WhatsApp.
+The user sends a normal WhatsApp message such as “What should I check today?”, “What is happening with this project?”, or “Who works with this company?” Courtney identifies the relevant source, retrieves a bounded answer, and replies in WhatsApp.
 
 ### 3. Personal SVC context
 
@@ -45,15 +45,15 @@ The user can ask what SVC knows about them, their projects, linked jobs and comp
 
 ### 4. Daily brief and guided tour
 
-The Secretary can summarize the user’s most relevant work signals for the day and can guide them through common ways to find information or take the next step.
+Courtney can summarize the user’s most relevant work signals for the day and can guide them through common ways to find information or take the next step.
 
 ### 5. Daily Report draft
 
-For an authorized linked user, the Secretary can prepare a Daily Report draft after it understands the job and report details. It previews the result first. Only an exact explicit confirmation creates the draft; it never submits a final report on the user’s behalf.
+For an authorized linked user, Courtney can prepare a Daily Report draft after it understands the job and report details. She previews the result first. Only an exact explicit confirmation creates the draft; she never submits a final report on the user’s behalf.
 
 ### 6. Requested files and photos
 
-When the user explicitly asks for an available report, Outlook PDF, or Communications image/file, the Secretary can send it as a native WhatsApp attachment rather than a plain link.
+When the user explicitly asks for an available report, Outlook PDF, or Communications image/file, Courtney can send it as a native WhatsApp attachment rather than a plain link.
 
 ## Current functionality
 
@@ -70,17 +70,17 @@ When the user explicitly asks for an available report, Outlook PDF, or Communica
 
 - **Read before write:** the product prioritizes finding, understanding, explaining, and routing before expanding automation.
 - **Identity and access are enforced by the server:** phone recognition alone never grants broad access, and unknown/ambiguous senders stay public.
-- **No invented answers:** the Secretary uses grounded knowledge and bounded live-data retrieval; missing information is stated plainly.
+- **No invented answers:** Courtney uses grounded knowledge and bounded live-data retrieval; missing information is stated plainly.
 - **One deliberate write flow:** Daily Report creation is preview-first, uses an exact confirmation, stays a draft, and is safe to retry without duplicates.
 - **Personalization without overreach:** a user’s self-context is about that user and does not broaden access to other people’s private information.
-- **Human message privacy is preserved:** the Secretary can only return human Communications messages already visible to the identified sender in the app.
+- **Human message privacy is preserved:** Courtney can only return human Communications messages already visible to the identified sender in the app.
 
 ## Current service channel
 
-- **Channel:** WhatsApp through the official Meta Cloud API test/sandbox number.
-- **Production-number status:** no dedicated SVC production number has been purchased, migrated, or registered yet.
-- **Meta Phone Number ID:** `1165212860018618`. This is a configuration identifier, **not** a user-facing phone number.
-- **Display phone number:** not retained in the repository or product documentation. It must be confirmed from Meta before it is presented as the public SVC AI Secretary contact number.
+- **Channel:** WhatsApp through the direct Meta Cloud API integration.
+- **Production-number status:** a dedicated U.S. number is registered and connected to Courtney Roberts.
+- **Meta configuration:** production identifiers and credentials are kept in server-side Vercel environment variables, never in this context document.
+- **Display phone number:** managed in WhatsApp Manager; only publish it where SVC explicitly intends it to be a customer contact channel.
 
 ## How it connects to other modules
 
@@ -96,25 +96,22 @@ When the user explicitly asks for an available report, Outlook PDF, or Communica
 
 ### Current status
 
-The Secretary is live as an internal pilot on the official Meta test/sandbox channel. It is deployed inside the SVC application and supports the current read-first experience, personalized discovery, and the guarded Daily Report draft flow.
+Courtney Roberts is live through the direct Meta Cloud API integration. She is deployed inside the SVC application and supports the current read-first experience, personalized discovery, and the guarded Daily Report draft flow.
 
 ### Open items
 
-- Confirm and record the user-facing Meta sandbox display number if it needs to be shared internally.
 - Complete a real production end-to-end Daily Report draft confirmation and verify that exactly one draft is created and a repeated confirmation does not duplicate it.
-- Decide when to move from the Meta test number to a dedicated SVC production number.
 - Continue testing real conversations, especially ambiguous identities, unavailable information, and multi-step follow-ups.
 
 ### Risks
 
-- A Meta test/sandbox number is not a stable production support channel.
 - Answers are only as complete as the linked Directory, project, report, and user data.
 - A person without an exact unambiguous identity match must receive a limited public answer, even if they are an SVC employee in practice.
 - The product must preserve the distinction between reading information and taking action; expanding write capabilities needs the same preview and confirmation safeguards.
 
 ## Questions the AI can answer about this module
 
-- What is the SVC AI Secretary and who should use it?
+- What is Courtney Roberts and who should use it?
 - What can I ask it from WhatsApp?
 - Why did it not recognize a sender or why is an answer limited?
 - What can it read from Directory, Quest Coral, Applications, ByeByeDPR, Clocking, Outlooks, or Communications?

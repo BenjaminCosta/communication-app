@@ -1,15 +1,15 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Política de privacidad | SVC AI Secretary",
-  description: "Política de privacidad de SVC AI Secretary.",
+  title: "Política de privacidad | Courtney Roberts",
+  description: "Política de privacidad de Courtney Roberts.",
 }
 
 export default function PrivacyPolicyPage() {
   return (
     <main className="h-full overflow-y-auto bg-background px-5 py-10 sm:px-8">
       <article className="mx-auto w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl shadow-black/20 sm:p-10">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-primary">SVC AI Secretary</p>
+        <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-primary">Courtney Roberts</p>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Política de privacidad</h1>
         <p className="mt-3 text-sm text-muted-foreground">Última actualización: 11 de agosto de 2026</p>
 
@@ -17,7 +17,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-lg font-semibold text-foreground">Información que recibimos</h2>
             <p className="mt-2">
-              SVC AI Secretary recibe el número de teléfono de WhatsApp y los mensajes que una persona envía voluntariamente al servicio.
+              Courtney Roberts recibe el número de teléfono de WhatsApp y los mensajes que una persona envía voluntariamente al servicio.
             </p>
           </section>
 

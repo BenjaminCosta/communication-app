@@ -65,7 +65,7 @@ export function SecretaryAiScreen({ onBack, userPhone, onUpdatePhone, className 
           >
             <ArrowLeft className="w-4 h-4 text-muted-foreground" />
           </button>
-          <h1 className="text-base font-bold tracking-tight">SVC Secretary AI</h1>
+          <h1 className="text-base font-bold tracking-tight">Courtney Roberts</h1>
         </div>
       </div>
 
@@ -78,7 +78,7 @@ export function SecretaryAiScreen({ onBack, userPhone, onUpdatePhone, className 
               <Bot className="w-6 h-6 text-primary" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed px-4">
-              Chat with the SVC Secretary on WhatsApp for quick answers about jobs, reports, Directory, and more.
+              Chat with Courtney Roberts on WhatsApp for quick answers about jobs, reports, Directory, and more.
             </p>
           </div>
 
@@ -90,7 +90,7 @@ export function SecretaryAiScreen({ onBack, userPhone, onUpdatePhone, className 
               className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-primary/15 border border-primary/25 text-primary text-sm font-semibold active:scale-[0.98] hover:bg-primary/20 transition-all duration-150"
             >
               <MessageCircle className="w-4 h-4" />
-              Message the Secretary
+              Message Courtney
             </a>
           )}
 
@@ -137,7 +137,7 @@ export function SecretaryAiScreen({ onBack, userPhone, onUpdatePhone, className 
                       {userPhone || <span className="text-muted-foreground">Add your number</span>}
                     </span>
                     <span className="block text-[11px] text-muted-foreground/60 mt-0.5">
-                      So the Secretary recognizes you
+                      So Courtney recognizes you
                     </span>
                   </span>
                   {userPhone ? (

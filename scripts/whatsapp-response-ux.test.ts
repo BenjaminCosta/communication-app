@@ -109,8 +109,8 @@ test("offers the correct module CTA for a supported continuation request", () =>
 })
 
 const introductionCopy = {
-  standalone: "Hi Ben — I'm the SVC AI Secretary.\nI know you as Ben Acosta, Site Supervisor.\nTry:\n• What's happening on North Ridge?",
-  prefix: "Hi Ben — I'm the SVC AI Secretary. I know you as Ben Acosta, Site Supervisor. Ask “what can you do?” any time.",
+  standalone: "Hi Ben — I'm Courtney Roberts, your SVC assistant.\nI know you as Ben Acosta, Site Supervisor.\nTry:\n• What's happening on North Ridge?",
+  prefix: "Hi Ben — I'm Courtney Roberts, your SVC assistant. I know you as Ben Acosta, Site Supervisor. Ask “what can you do?” any time.",
 }
 
 test("prefixes the introduction to a substantive answer instead of replacing it", () => {
@@ -123,7 +123,7 @@ test("prefixes the introduction to a substantive answer instead of replacing it"
 
 test("replaces the answer with the full introduction card for a bare greeting", () => {
   const reply = addSecretaryIntroduction({ text: "unused" }, { ...introductionCopy, message: "Hello" })
-  assert.match(reply.text, /^Hi Ben — I'm the SVC AI Secretary\./)
+  assert.match(reply.text, /^Hi Ben — I'm Courtney Roberts, your SVC assistant\./)
   assert.match(reply.text, /What's happening on North Ridge\?/)
   assert.doesNotMatch(reply.text, /unused/)
 })

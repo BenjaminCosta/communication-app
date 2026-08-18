@@ -176,7 +176,7 @@ export interface WhatsAppSecretaryAiConfig {
 }
 
 /**
- * Resolve the WhatsApp SVC AI Secretary config at request time. Mirrors
+ * Resolve Courtney Roberts' config at request time. Mirrors
  * `getDirectoryAiConfig()` and reuses the same `OPENAI_API_KEY` secret + base
  * URL (and, separately, `WHATSAPP_AI_MODEL` for backward compatibility with
  * the existing WhatsApp deployment env var), but keeps its own mode flag so

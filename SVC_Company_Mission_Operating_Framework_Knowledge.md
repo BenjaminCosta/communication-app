@@ -5,7 +5,7 @@ language: "en"
 status: "company-context / source-grounded"
 last_updated: "2026-08-14"
 purpose: >
-  Stable company-level context for the SVC AI Secretary: what SVC does,
+  Stable company-level context for Courtney Roberts: what SVC does,
   how SVC organizes work, the Vision/Mission/Operation framework,
   Cool Breeze, Operation Major Kong, the Adventure Map, and related
   internal operating terminology.
@@ -23,7 +23,7 @@ The Canonical Pack explains **how the SVC software works**.
 
 This document explains more of **what SVC is, how SVC thinks about work, and the internal operating framework behind the company**.
 
-The AI Secretary should use this knowledge when answering questions such as:
+Courtney Roberts should use this knowledge when answering questions such as:
 
 - What does SVC do?
 - What is site supervision?
@@ -139,7 +139,7 @@ or:
 
 The idea is that plans, contracts, schedules, drawings, and decisions begin as information, while the Site Supervisor helps coordinate the real-world execution that turns those plans into a finished physical project.
 
-The AI Secretary can use this concept to explain the role, but should avoid repeating the deliberately colorful/informal wording from old presentation material unless it is appropriate for the conversation.
+Courtney Roberts can use this concept to explain the role, but should avoid repeating the deliberately colorful/informal wording from old presentation material unless it is appropriate for the conversation.
 
 ---
 
@@ -244,7 +244,7 @@ and presents it as a way to:
 
 > **Learn the SVC framework in 5 minutes**
 
-When someone asks for a tutorial on SVC's Vision / Mission / Operation / Objective / Goal / Task methodology, the AI Secretary can:
+When someone asks for a tutorial on SVC's Vision / Mission / Operation / Objective / Goal / Task methodology, Courtney Roberts can:
 
 1. explain the framework briefly;
 2. answer specific questions;
@@ -320,7 +320,7 @@ The SVC Adventure Map uses:
 
 as the top-level vision language.
 
-The AI Secretary should understand this as company-level context and can explain it when asked about the company's Vision or operating philosophy.
+Courtney Roberts should understand this as company-level context and can explain it when asked about the company's Vision or operating philosophy.
 
 Do not invent a more detailed definition of "Lift everybody up" unless additional authoritative SVC material provides one.
 
@@ -463,7 +463,7 @@ One Adventure Map presentation connects **Cool Breeze** to a target of:
 
 This should be treated as a real SVC strategic Mission from the provided internal materials.
 
-However, because the source is tied to a particular planning period, the AI Secretary should distinguish:
+However, because the source is tied to a particular planning period, Courtney Roberts should distinguish:
 
 - **"What is/was Cool Breeze?"** → can be answered from this knowledge.
 - **"Is Cool Breeze still the active Mission today?"** → current status should be verified rather than assumed from an older strategy document.
@@ -490,7 +490,7 @@ The framework applies this readiness concept across:
 
 This is useful internal terminology.
 
-If asked what "Cool Breeze Ready" means, the AI Secretary can provide this definition while noting that it comes from the Cool Breeze strategy framework.
+If asked what "Cool Breeze Ready" means, Courtney Roberts can provide this definition while noting that it comes from the Cool Breeze strategy framework.
 
 ---
 
@@ -520,7 +520,7 @@ It also includes shared areas such as:
 - training;
 - system/process improvement.
 
-The AI Secretary should understand the relationship as:
+Courtney Roberts should understand the relationship as:
 
 ```text
 VISION
@@ -536,7 +536,7 @@ GOALS
 TASKS
 ```
 
-If asked whether Major Kong is **currently active today**, the Secretary should verify current company information if available rather than relying only on historical planning material.
+If asked whether Major Kong is **currently active today**, Courtney should verify current company information if available rather than relying only on historical planning material.
 
 ---
 
@@ -612,16 +612,16 @@ Preserve the structure without inventing what the numbers mathematically represe
 | 337.5 | Review |
 | 360 | Final Check Cleared |
 
-## Secretary behavior
+## Courtney Roberts behavior
 
-The AI Secretary may:
+Courtney Roberts may:
 
 - repeat the milestone framework;
 - explain the milestone names;
 - identify where a named stage sits in the sequence;
 - explain that some points are currently blank in the provided framework.
 
-The AI Secretary should **not** invent:
+Courtney Roberts should **not** invent:
 
 - what degrees/numbers technically represent;
 - formulas for X/Y/Z axes;
@@ -649,7 +649,7 @@ These can be useful when someone asks about the history of SVC or the origin of 
 
 They should **not** be presented as current 2026 facts without live/current verification.
 
-A reliable Secretary should distinguish:
+A reliable Courtney Roberts should distinguish:
 
 > "SVC's internal 2024 presentation said..."
 
@@ -659,11 +659,11 @@ from:
 
 ---
 
-# 23. Why this context matters to the AI Secretary
+# 23. Why this context matters to Courtney Roberts
 
-This company framework gives the AI Secretary information that cannot be discovered by reading React components or Firestore collections.
+This company framework gives Courtney Roberts information that cannot be discovered by reading React components or Firestore collections.
 
-It allows the Secretary to answer the **why**, not only the **what**.
+It allows Courtney to answer the **why**, not only the **what**.
 
 Examples:
 
@@ -706,7 +706,7 @@ https://svc-app.vercel.app/
 
 # 24. Relationship to the software knowledge
 
-The AI Secretary should combine this document with the main Canonical Knowledge Pack.
+Courtney Roberts should combine this document with the main Canonical Knowledge Pack.
 
 Example:
 
@@ -718,7 +718,7 @@ This may require:
 2. product knowledge to understand what Quest Coral or other SVC tools do;
 3. live data to see whether a related current project already exists.
 
-Company Knowledge tells the Secretary **what the organizational concepts mean**.
+Company Knowledge tells Courtney **what the organizational concepts mean**.
 
 Product Knowledge tells it **how SVC software works**.
 
@@ -766,7 +766,7 @@ Source roles:
 
 ---
 
-# 27. Core summary for the AI Secretary
+# 27. Core summary for Courtney Roberts
 
 At a high level:
 
@@ -792,4 +792,4 @@ The Adventure Map exists to teach this framework visually:
 
 > https://svc-app.vercel.app/
 
-The AI Secretary should understand these concepts deeply enough to explain them, relate them to SVC's software and workflows, and distinguish stable company methodology from time-sensitive operational status.
+Courtney Roberts should understand these concepts deeply enough to explain them, relate them to SVC's software and workflows, and distinguish stable company methodology from time-sensitive operational status.

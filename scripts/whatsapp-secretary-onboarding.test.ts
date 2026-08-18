@@ -133,7 +133,7 @@ test("the standalone card recognizes the person, states breadth, and offers runn
   const card = buildStandaloneIntroduction(snapshot(), { show: true, reason: "first-contact", newModules: [] }, [
     "directory", "reports", "outlooks", "clocking", "messages", "knowledge", "svc",
   ])
-  assert.match(card, /^Hey Ben — I recognize you in SVC\./)
+  assert.match(card, /^Hey Ben — I'm Courtney Roberts, your SVC assistant\. I recognize you in SVC\./)
   assert.match(card, /I know you as Ben Acosta, Site Supervisor at SVC\./)
   // Breadth: it must show it reaches live operational data, not just say hello.
   assert.match(card, /live operational data/)
@@ -181,6 +181,7 @@ test("a capability-change card with no nameable new module still reads sensibly"
 test("the prefix version stays short enough to sit above a real answer", () => {
   const prefix = buildPrefixIntroduction(snapshot(), { show: true, reason: "first-contact", newModules: [] })
   assert.ok(prefix.length <= 220, `prefix was ${prefix.length} characters`)
+  assert.match(prefix, /I'm Courtney Roberts, your SVC assistant\./)
   assert.match(prefix, /I know you as Ben Acosta, Site Supervisor at SVC\./)
   assert.match(prefix, /what can you do\?/)
   assert.ok(!prefix.includes("\n"), "the prefix is one line so the answer stays the focus")
@@ -188,6 +189,6 @@ test("the prefix version stays short enough to sit above a real answer", () => {
 
 test("a returning sender's prefix does not greet them as new", () => {
   const prefix = buildPrefixIntroduction(snapshot(), { show: true, reason: "refresher", newModules: [] })
-  assert.doesNotMatch(prefix, /I'm the SVC AI Secretary/)
-  assert.match(prefix, /still have you as Ben Acosta/)
+  assert.match(prefix, /Courtney Roberts here\./)
+  assert.match(prefix, /I still have you as Ben Acosta/)
 })

@@ -74,6 +74,8 @@ const CandidateFlowScreen = dynamic(() => import("@/components/applications/cand
 const QuestCoralScreen = dynamic(() => import("@/components/quest-coral/quest-coral-screen").then((m) => ({ default: m.QuestCoralScreen })), { ssr: false })
 const QuestCoralProjectDetailScreen = dynamic(() => import("@/components/quest-coral/project-detail-screen").then((m) => ({ default: m.ProjectDetailScreen })), { ssr: false })
 const ByeByeDprScreen = dynamic(() => import("@/components/bye-bye-dpr/byebye-dpr-screen").then((m) => ({ default: m.ByeByeDprScreen })), { ssr: false })
+const CourtneyRobertsCenterScreen = dynamic(() => import("@/components/courtney-roberts-center-screen").then((m) => ({ default: m.CourtneyRobertsCenterScreen })), { ssr: false })
+const CourtneyRobertsCenterThreadScreen = dynamic(() => import("@/components/courtney-roberts-center-thread-screen").then((m) => ({ default: m.CourtneyRobertsCenterThreadScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -132,6 +134,8 @@ type Screen =
   | "quest-coral"
   | "quest-coral-detail"
   | "bye-bye-dpr"
+  | "courtney-roberts-center"
+  | "courtney-roberts-center-thread"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -161,6 +165,8 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "quest-coral": 1,
   "quest-coral-detail": 2,
   "bye-bye-dpr": 1,
+  "courtney-roberts-center": 4,
+  "courtney-roberts-center-thread": 5,
 }
 
 // Remembers which module the user was last in,
@@ -330,6 +336,7 @@ export default function Home() {
   const [selectedContextLoading, setSelectedContextLoading] = useState(false)
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
   const [directoryDetailView, setDirectoryDetailView] = useState<DirectoryDeepLinkView>("profile")
+  const [selectedCourtneyRobertsCenterConversationId, setSelectedCourtneyRobertsCenterConversationId] = useState<string | null>(null)
   // ── Applications (mock data for now — see features/applications) ───────
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [applyToken, setApplyToken] = useState<string | null>(null)
@@ -1549,6 +1556,11 @@ export default function Home() {
   const goToAdmin = useCallback(() => navigateTo("admin"), [navigateTo])
   const goToHelp = useCallback(() => navigateTo("help"), [navigateTo])
   const goToSecretaryAi = useCallback(() => navigateTo("secretary-ai"), [navigateTo])
+  const goToCourtneyRobertsCenter = useCallback(() => navigateTo("courtney-roberts-center"), [navigateTo])
+  const goToCourtneyRobertsCenterThread = useCallback((conversationId: string) => {
+    setSelectedCourtneyRobertsCenterConversationId(conversationId)
+    navigateTo("courtney-roberts-center-thread")
+  }, [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -1887,6 +1899,7 @@ export default function Home() {
           onSecretaryAi={goToSecretaryAi}
           isAdmin={currentUser?.isAdmin === true}
           onAdmin={goToAdmin}
+          onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
           onHelp={goToHelp}
         />
       )}
@@ -1916,6 +1929,22 @@ export default function Home() {
           currentUser={currentUser}
           allUsers={[currentUser, ...contacts]}
           onBack={goToProfile}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center" && currentUser?.isAdmin && (
+        <CourtneyRobertsCenterScreen
+          className={entranceClass}
+          onBack={goToProfile}
+          onSelectConversation={goToCourtneyRobertsCenterThread}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-thread" && currentUser?.isAdmin && selectedCourtneyRobertsCenterConversationId && (
+        <CourtneyRobertsCenterThreadScreen
+          className={entranceClass}
+          conversationId={selectedCourtneyRobertsCenterConversationId}
+          onBack={() => navigateTo("courtney-roberts-center")}
         />
       )}
 

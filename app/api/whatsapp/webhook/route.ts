@@ -15,6 +15,10 @@ import { backfillUserPhoneFromInboundWhatsApp, resolveWhatsAppSenderIdentityDeta
 import { createFirestoreIdentityClaimProvider, resolveIdentityClaim } from "@/lib/whatsapp-identity-claim"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
+import {
+  recordCourtneyRobertsCenterAssistantReply,
+  recordCourtneyRobertsCenterInboundMessage,
+} from "@/lib/courtney-roberts-center/history-store"
 import { addCapabilityHint, addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
 import { buildGuidedTourReply, isShowMeAroundRequest } from "@/lib/whatsapp-secretary/guided-tour"
 import { buildCapabilityNudge } from "@/lib/whatsapp-secretary/onboarding"
@@ -158,7 +162,7 @@ async function resolveSecretaryIntroduction(input: {
     const snapshot = await getSelfContextSnapshot(selfContextActorFromIdentity(input.identity))
     const standalone = buildStandaloneIntroduction(snapshot, decision)
     const prefix = buildPrefixIntroduction(snapshot, decision)
-    console.info("Introducing the SVC AI Secretary", { reason: decision.reason, newModuleCount: decision.newModules.length })
+    console.info("Introducing Courtney Roberts", { reason: decision.reason, newModuleCount: decision.newModules.length })
     return {
       apply: (reply) => addSecretaryIntroduction(reply, { standalone, prefix, message: input.message }),
       onboarding: { lastIntroAtMs: Date.now(), capabilitySignature: signature },
@@ -166,7 +170,7 @@ async function resolveSecretaryIntroduction(input: {
   } catch {
     // A personalized introduction that can't be grounded is simply skipped —
     // the normal answer still goes out, and the next turn tries again.
-    console.warn("Unable to build the personalized SVC AI Secretary introduction.")
+    console.warn("Unable to build the personalized Courtney Roberts introduction.")
     return NO_INTRODUCTION
   }
 }
@@ -286,6 +290,18 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           resolvedVia: identityResult.status === "resolved" ? identityResult.identity.resolvedVia : undefined,
         })
 
+        // Durable Courtney Roberts Center history — separate from the
+        // Secretary's own bounded conversation memory above. Best-effort
+        // (errors are logged and swallowed inside the recorder itself), so a
+        // failure here can never affect the Secretary's actual reply.
+        const durableIdentity = identityResult.status === "resolved" ? identityResult.identity : null
+        await recordCourtneyRobertsCenterInboundMessage({
+          senderPhoneNumber: message.senderPhoneNumber,
+          messageId: message.messageId,
+          text: message.text,
+          identity: durableIdentity,
+        })
+
         // A GENUINE ambiguity (2+ real SVC identities could own this number)
         // gets a clarifying question instead of silently falling back to
         // public — see lib/whatsapp-identity-claim.ts. A plain "not found"
@@ -307,6 +323,12 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             reply: { text: claimOutcome.reply },
             // "linked" clears it (resolved); "asked"/"not-matched" (re)store it.
             pendingIdentityClaim: claimOutcome.kind === "linked" ? null : claimOutcome.pendingClaim,
+          })
+          await recordCourtneyRobertsCenterAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            identity: durableIdentity,
+            reply,
           })
         } else {
         const senderIdentity = identityResult.status === "resolved" ? identityResult.identity : null
@@ -346,6 +368,12 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             ...(priorOnboarding ? { onboarding: { ...priorOnboarding, guideCompletedAtMs: Date.now() } } : {}),
             ...clearedPendingIdentityClaim,
           })
+          await recordCourtneyRobertsCenterAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            identity: senderIdentity,
+            reply,
+          })
         } else {
 
         // A pending write is resolved BEFORE the model runs and entirely
@@ -379,6 +407,12 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             // Always clears: confirmed, cancelled and expired all end the preview.
             pendingWrite: null,
             ...clearedPendingIdentityClaim,
+          })
+          await recordCourtneyRobertsCenterAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            identity: senderIdentity,
+            reply,
           })
         } else {
           const companyKnowledge = await findRelevantCompanyKnowledge(
@@ -428,6 +462,12 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             ...(pendingWrite ? { pendingWrite } : {}),
             ...(memory ? { resolvedEntities: memory.resolvedEntities, retrievals: memory.retrievals } : {}),
             ...clearedPendingIdentityClaim,
+          })
+          await recordCourtneyRobertsCenterAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            identity: senderIdentity,
+            reply,
           })
         }
         }
@@ -606,7 +646,7 @@ export async function POST(request: Request): Promise<Response> {
       })
 
       const reply = await getReplyForIncomingMessage(message)
-      console.info("Generated WhatsApp AI Secretary reply", {
+      console.info("Generated Courtney Roberts reply", {
         replyLength: reply.text.length,
         presentation: reply.presentation?.kind ?? "text",
       })

@@ -1,10 +1,10 @@
 ---
-title: "SVC AI Secretary — Canonical Company & Product Knowledge Pack"
+title: "Courtney Roberts — Canonical Company & Product Knowledge Pack"
 audience: "internal"
 language: "en"
 status: "audited-v3.4 / code-grounded product knowledge + restored human-confirmed company context + Messages read layer + company/mission companion document + WhatsApp file attachments + active users + self-context and personalized onboarding"
 last_updated: "2026-08-14"
-purpose: "Stable company, product, workflow, and tutorial knowledge for the SVC AI Secretary"
+purpose: "Stable company, product, workflow, and tutorial knowledge for Courtney Roberts"
 audit_note: >
   v2 (2026-08-13) was produced by reading the actual current code, Firebase rules,
   and every docs/svc-*.md file in the repository, replacing an earlier draft that
@@ -14,7 +14,7 @@ audit_note: >
   company's name or mission — that content is back under its own explicit
   PROJECT CONTEXT / HUMAN-CONFIRMED label (see §1), distinct from
   CODE / PRODUCT VERIFIED, without reopening any of v2's code-grounded product
-  corrections. This document is also now the Secretary's actual live Company
+  corrections. This document is also now the Courtney's actual live Company
   Knowledge source (§13), parsed and retrieved by lib/knowledge-pack.ts. v3.1
   (same day) documents the new Messages/Communications read layer (§13, §21) —
   the one remaining structurally-excluded module through v3 — now a real,
@@ -41,11 +41,11 @@ audit_note: >
   missing role is stated rather than inferred.
 ---
 
-# SVC AI Secretary — Canonical Company & Product Knowledge Pack
+# Courtney Roberts — Canonical Company & Product Knowledge Pack
 
 # 0. Purpose of this document
 
-This document is intended to become a **trusted internal knowledge source** for the SVC AI Secretary.
+This document is intended to become a **trusted internal knowledge source** for Courtney Roberts.
 
 It is not a database dump and it is not a replacement for live SVC data.
 
@@ -109,7 +109,7 @@ For **product/technical behavior** (what a screen does, what a field is called, 
 
 For **company/business/strategy context** (what SVC is, why it exists, how it organizes itself), code has no authority to confer or withhold — it was never going to contain a mission statement. There, PROJECT CONTEXT / HUMAN-CONFIRMED entries in this pack (§2) are themselves the authoritative source, not a fallback below code.
 
-If a *product-behavior* question cannot be verified, the Secretary should say that it does not have enough reliable information rather than inventing an answer. That standard does not apply to company-identity questions answered from PROJECT CONTEXT / HUMAN-CONFIRMED material — the Secretary should answer those directly.
+If a *product-behavior* question cannot be verified, Courtney should say that it does not have enough reliable information rather than inventing an answer. That standard does not apply to company-identity questions answered from PROJECT CONTEXT / HUMAN-CONFIRMED material — Courtney should answer those directly.
 
 ## Companion document: company/mission framework
 
@@ -208,12 +208,12 @@ For the full depth on this framework — planning-horizon heuristics for each le
 
 **Status: CODE / PRODUCT VERIFIED, and independently PROJECT CONTEXT / HUMAN-CONFIRMED as intent**
 
-The SVC software platform is intended to become an internal operating system connecting the company rather than a collection of unrelated apps — the apps should increasingly share the same people, companies, jobs, relationships, and operational context, with the AI Secretary sitting above them as a conversational access layer that doesn't require a user to know where a given piece of information lives.
+The SVC software platform is intended to become an internal operating system connecting the company rather than a collection of unrelated apps — the apps should increasingly share the same people, companies, jobs, relationships, and operational context, with Courtney Roberts sitting above them as a conversational access layer that doesn't require a user to know where a given piece of information lives.
 
 The *engineering* reality independently backs this up — this is not just stated intent:
 
 - All five modules run inside one Next.js app, share one Firebase project (`svc-comms`), one Auth session, and one module switcher (`components/module-switcher.tsx`).
-- Directory exists specifically to be the shared people/company/job layer other modules increasingly reference (ByeByeDPR jobs link to Directory contexts via `directoryContextId`; Quest Coral people are real Directory/Communications contacts, not free text; the WhatsApp Secretary resolves entities through Directory first before falling back to a module's own data).
+- Directory exists specifically to be the shared people/company/job layer other modules increasingly reference (ByeByeDPR jobs link to Directory contexts via `directoryContextId`; Quest Coral people are real Directory/Communications contacts, not free text; Courtney Roberts resolves entities through Directory first before falling back to a module's own data).
 - Cross-module bridges exist at the data layer, not just conceptually: Quest Coral Feedback mirrors into Communications; ByeByeDPR Daily Reports mirror into both Communications and Directory Files/Notes; clock-in/out events post to Communications.
 
 So "SVC's apps are meant to work as one connected system, not silos" is both a stated company strategy and an observed architectural fact — a case where the two evidence types reinforce each other.
@@ -310,7 +310,7 @@ Tags are backed by the `/projects` collection — there is no separate `/tags` c
 1. Five fixed **system type tags**: `type:progress | type:problem | type:feedback | type:decision | type:none`, labeled Progress / Problem / Feedback / Decision / **Unassigned**.
 2. Every document in `/projects`, each rendered as a user-created tag.
 
-`TagCategory` and `CATEGORY_CONFIG` still exist as real, actively-used types in the code (they gate things like whether selecting a tag auto-opens the date picker) — they were not deleted. What actually changed is that the **create-tag UI no longer lets a user pick a category**: every quick-created tag is hardcoded to category `"custom"`. So "categories were removed" is only true at the tag-creation UI level, not at the data-model level — an important distinction if the Secretary is ever asked whether tag categories exist.
+`TagCategory` and `CATEGORY_CONFIG` still exist as real, actively-used types in the code (they gate things like whether selecting a tag auto-opens the date picker) — they were not deleted. What actually changed is that the **create-tag UI no longer lets a user pick a category**: every quick-created tag is hardcoded to category `"custom"`. So "categories were removed" is only true at the tag-creation UI level, not at the data-model level — an important distinction if Courtney is ever asked whether tag categories exist.
 
 The screen a user experiences as "Tags" is literally titled **"Tags"** (component `ProjectListScreen`), with search placeholder "Search tags..." and an "Edit tag" modal.
 
@@ -378,7 +378,7 @@ Every message create/update fires an FCM push (`onMessageCreated` / `onMessageUp
 
 ## PWA / landing behavior
 
-**Not previously documented, and easy to get wrong**: a fresh sign-in with no remembered last-used module lands directly on the full-screen **Compose** screen — not the Stream feed. This is deliberate (`composeMode` initializes to `"fullscreen"`), and it's worth the Secretary knowing so it doesn't describe "opening Communications" as "seeing your messages" for a brand-new session.
+**Not previously documented, and easy to get wrong**: a fresh sign-in with no remembered last-used module lands directly on the full-screen **Compose** screen — not the Stream feed. This is deliberate (`composeMode` initializes to `"fullscreen"`), and it's worth Courtney knowing so it doesn't describe "opening Communications" as "seeing your messages" for a brand-new session.
 
 In-app onboarding (`HelpScreen`, titled **"How it works"**) is a 10-slide swipeable guide (Messages, Replies, Tags, Contexts, People & Contacts, Dates & Calendar, Images, Search & Filters, Favorites & Pins, Notifications) reachable from the user's Profile — it is **not** shown automatically on first login. It's a strong source of exact, SVC-approved user-facing phrasing for tutorials, since it's literally what SVC already tells its own users.
 
@@ -430,7 +430,7 @@ One asymmetry worth knowing for a tutorial: **any authenticated user can edit a 
 
 Both are separate collections keyed to an entity by id, globally readable, but only the author (Notes) or uploader (Files) can edit/delete their own entries — everyone else's are read-only to you. Files cap at 15 MB with automatic image compression.
 
-Directory notes do **not** currently have semantic (embedding-based) search wired into production, despite an embeddings pipeline existing for a related purpose. A Cloud Function embeds each entity's derived summary text (`askContext.aiText`) for Ask AI's own retrieval — but the specific "search notes by meaning" code path (`searchNotesSemantic`) is defined in the provider interface and never implemented by the real production provider, whose own comment says semantic note retrieval is "intentionally absent until the askContext backfill + embeddings land." In practice, note search today is always lexical keyword scoring, not vector search — if the Secretary is asked whether it can find notes "about roughly this idea" rather than by matching words, the honest answer is not yet.
+Directory notes do **not** currently have semantic (embedding-based) search wired into production, despite an embeddings pipeline existing for a related purpose. A Cloud Function embeds each entity's derived summary text (`askContext.aiText`) for Ask AI's own retrieval — but the specific "search notes by meaning" code path (`searchNotesSemantic`) is defined in the provider interface and never implemented by the real production provider, whose own comment says semantic note retrieval is "intentionally absent until the askContext backfill + embeddings land." In practice, note search today is always lexical keyword scoring, not vector search — if Courtney is asked whether it can find notes "about roughly this idea" rather than by matching words, the honest answer is not yet.
 
 ## Ask SVC Directory
 
@@ -440,7 +440,7 @@ Phone numbers, emails, addresses, and pay rates are deliberately **never sent to
 
 ## Deep links
 
-Directory profile/Outlook URLs follow the shape `?directory=<compositeId>&view=profile` or `&view=outlook`. Directory itself has no in-app "share/copy link" button that produces this URL — the only current producer of these deep links is the WhatsApp Secretary's own guidance module, which builds them server-side when it wants to hand a user a CTA button back into the app.
+Directory profile/Outlook URLs follow the shape `?directory=<compositeId>&view=profile` or `&view=outlook`. Directory itself has no in-app "share/copy link" button that produces this URL — the only current producer of these deep links is Courtney Roberts' own guidance module, which builds them server-side when it wants to hand a user a CTA button back into the app.
 
 ## Relationship to other modules
 
@@ -458,7 +458,7 @@ Directory profile/Outlook URLs follow the shape `?directory=<compositeId>&view=p
 
 Quest Coral is SVC's shared project tracker: status, progress, people involved, a "next step," a past/present/future timeline, and a running feed of Update / Feedback / Blocker / Red Team Review activity. It is a permanent module (not behind any UI flag) reachable from the module switcher.
 
-**Status: PROJECT CONTEXT / HUMAN-CONFIRMED** — Quest Coral's requested project concepts, per the person who specified the module, were: project name, people involved, project description, mission connection, next step, timeline, and a project dashboard — with the "mission connection" field meant to answer *"how does this project support the SVC mission?"* concretely, explicitly **not** meant to be a vague score like "High." That framing explains why the field exists at all, even though — see the shipped field below — it landed as a 1-5 number rather than the originally-intended free-text explanation. The **next step** field was called out as particularly important, specifically so a project can't become a passive description with no obvious action; the Secretary should surface it when relevant.
+**Status: PROJECT CONTEXT / HUMAN-CONFIRMED** — Quest Coral's requested project concepts, per the person who specified the module, were: project name, people involved, project description, mission connection, next step, timeline, and a project dashboard — with the "mission connection" field meant to answer *"how does this project support the SVC mission?"* concretely, explicitly **not** meant to be a vague score like "High." That framing explains why the field exists at all, even though — see the shipped field below — it landed as a 1-5 number rather than the originally-intended free-text explanation. The **next step** field was called out as particularly important, specifically so a project can't become a passive description with no obvious action; Courtney should surface it when relevant.
 
 ## Project fields (exact)
 
@@ -499,9 +499,9 @@ This is the one place a Quest Coral activity entry automatically becomes a Commu
 
 A project references real people (Directory/Communications contact ids) but does **not** store a Directory job or company id — a project is not yet linked to a specific Directory job/company entity. There is zero code-level connection to 3-Week Outlooks in either direction; the two remain genuinely distinct surfaces, matching the conceptual distinction stated elsewhere in this pack (Quest Coral = broader project state/next-step tracking; Outlook = near-term task scheduling for a specific job).
 
-## WhatsApp Secretary integration
+## Courtney Roberts integration
 
-The Secretary already has four dedicated, read-only Quest Coral tools: search projects, get one project's full detail (including its written Project Context), get a project's updates with real date-range/cursor pagination (not just "the latest few"), and a cross-project "recent activity" feed for portfolio-style questions.
+Courtney Roberts already has four dedicated, read-only Quest Coral tools: search projects, get one project's full detail (including its written Project Context), get a project's updates with real date-range/cursor pagination (not just "the latest few"), and a cross-project "recent activity" feed for portfolio-style questions.
 
 ## Step-by-step: creating and maintaining a project
 
@@ -615,11 +615,11 @@ Approving atomically unlocks the agreement and issues the signing link. Signing 
 
 ## A real security caveat worth knowing
 
-Firestore/Storage rules for `/applications` and its uploaded files are currently broadly open to **any authenticated Firebase session**, not scoped to "only the candidate's own application" the way some documentation describes. Isolation is enforced only at the Next.js API-route layer (which checks the custom-token claims), not by the security rules themselves. This is an explicit, intentional "operational mode" choice documented in the rules' own comments while the workflow stabilizes — but the Secretary (and anyone reading this pack) should not describe candidate data as cryptographically isolated by Firestore rules; it currently isn't.
+Firestore/Storage rules for `/applications` and its uploaded files are currently broadly open to **any authenticated Firebase session**, not scoped to "only the candidate's own application" the way some documentation describes. Isolation is enforced only at the Next.js API-route layer (which checks the custom-token claims), not by the security rules themselves. This is an explicit, intentional "operational mode" choice documented in the rules' own comments while the workflow stabilizes — but Courtney (and anyone reading this pack) should not describe candidate data as cryptographically isolated by Firestore rules; it currently isn't.
 
-## WhatsApp Secretary integration
+## Courtney Roberts integration
 
-Three read-only tools exist today: search candidates by name, get the review queue (specifically the `submitted`, `ready_for_review`, and `needs_information` states), and get an application history for a given job. This directly means the Secretary **can** already answer basic Applications status questions — it is not limited to zero AI surface here.
+Three read-only tools exist today: search candidates by name, get the review queue (specifically the `submitted`, `ready_for_review`, and `needs_information` states), and get an application history for a given job. This directly means Courtney **can** already answer basic Applications status questions — it is not limited to zero AI surface here.
 
 ## Step-by-step: candidate experience
 
@@ -672,7 +672,7 @@ Submitting: generates a PDF (only non-empty fields shown, plus the original raw 
 
 There is currently **no attendance-report or cross-worker attendance dashboard** — one existed and was fully removed on 2026-08-07. Don't describe ByeByeDPR as having an attendance-summary screen.
 
-## WhatsApp Secretary integration
+## Courtney Roberts integration
 
 Per-job/global/per-author report search with real date-range/cursor pagination, plus a portfolio-wide "which active jobs don't have a recent report" tool. Raw report text, audio, and Communications message content stay out of what's sent to the model.
 
@@ -720,7 +720,7 @@ If a worker forgot to clock out, a **"Forgot to clock out?"** link (visible only
 
 - No aggregation: there is no daily/weekly total-hours calculation anywhere — each `ClockRecord` stores only that one session's duration.
 - No attendance dashboard: nothing in the app shows "who's clocked in right now" across all jobs (that removed feature is gone as of 2026-08-07).
-- No raw location is ever exposed to the WhatsApp Secretary — its clocking tools only ever report *whether* a location was recorded (a boolean), never coordinates, and there is no WhatsApp capability to clock anyone in or out (its tools are strictly read-only). The closest cross-job visibility the Secretary has is a "most active jobs right now" ranking by currently-clocked-in count, not a literal roster of every clocked-in person.
+- No raw location is ever exposed to Courtney Roberts — her clocking tools only ever report *whether* a location was recorded (a boolean), never coordinates, and there is no WhatsApp capability to clock anyone in or out (her tools are strictly read-only). The closest cross-job visibility Courtney has is a "most active jobs right now" ranking by currently-clocked-in count, not a literal roster of every clocked-in person.
 
 ---
 
@@ -728,17 +728,17 @@ If a worker forgot to clock out, a **"Forgot to clock out?"** link (visible only
 
 **Status: CODE / PRODUCT VERIFIED — does not currently exist**
 
-A thorough repo-wide search (routes, types, components, Firestore collections, and both ByeByeDPR product-context docs) found no trace of a "Supply by DPR" feature anywhere in the codebase — the only appearances of the word "supply" in the entire repository are inside the previous draft of this knowledge pack itself. This is not a thin or partially-built feature; it is entirely unimplemented. If asked about it, the Secretary should say plainly that Supply by DPR does not currently exist as a feature in the SVC app suite, rather than describing a plausible-sounding workflow.
+A thorough repo-wide search (routes, types, components, Firestore collections, and both ByeByeDPR product-context docs) found no trace of a "Supply by DPR" feature anywhere in the codebase — the only appearances of the word "supply" in the entire repository are inside the previous draft of this knowledge pack itself. This is not a thin or partially-built feature; it is entirely unimplemented. If asked about it, Courtney should say plainly that Supply by DPR does not currently exist as a feature in the SVC app suite, rather than describing a plausible-sounding workflow.
 
 ---
 
-# 13. AI Secretary (WhatsApp)
+# 13. Courtney Roberts (WhatsApp)
 
 **Status: CODE / PRODUCT VERIFIED**
 
 ## What it is
 
-The SVC AI Secretary is a conversational access layer reachable by texting one WhatsApp number (currently the official Meta WhatsApp Cloud API **test/sandbox number** — no production number has been purchased or migrated). It runs inside this same Next.js app (`app/api/whatsapp/webhook`) — there is no separate bot service.
+Courtney Roberts is a conversational access layer reachable by texting SVC's registered U.S. WhatsApp number through the direct Meta Cloud API integration. It runs inside this same Next.js app (`app/api/whatsapp/webhook`) — there is no separate bot service.
 
 **Status: PROJECT CONTEXT / HUMAN-CONFIRMED** — The core stated concept: an employee should be able to text one WhatsApp number and ask SVC-related questions without first knowing which application contains the answer.
 
@@ -752,14 +752,14 @@ The stated priority order is:
 READ → UNDERSTAND → FIND → EXPLAIN → ROUTE
 ```
 
-before expanding broadly into `DO / WRITE`. The goal is for the Secretary to become excellent at finding and explaining SVC information before it becomes an automation surface for every application. This matches the current implementation closely: the only write capability anywhere is the bounded Daily Report draft flow (§10), while read access spans seven modules, one of them (Messages) itself split across two different access rules (see "Model and orchestration" below).
+before expanding broadly into `DO / WRITE`. The goal is for Courtney to become excellent at finding and explaining SVC information before it becomes an automation surface for every application. This matches the current implementation closely: the only write capability anywhere is the bounded Daily Report draft flow (§10), while read access spans seven modules, one of them (Messages) itself split across two different access rules (see "Model and orchestration" below).
 
 ## Access model (binary, enforced server-side)
 
 Resolved once per sender, from `lib/whatsapp-access-policy.ts`:
 
 - **Unknown number** (no match at all, in Directory or the account system) → `public` scope: only curated public company-knowledge entries. No Directory, Quest Coral, Applications, Reports, Clocking, or Outlook access at all.
-- **Genuinely ambiguous number** (2026-08-16 — the data proves 2+ real SVC identities could own this number, e.g. two different registered accounts both linked to it) is NOT treated as unknown: instead of silent public fallback, the Secretary asks "what's your SVC email address?" and, on an exact single match against a registered account, links the number to it and grants internal access from that point on. This is identity *claiming* (a bare-text reply), not cryptographically verified identity — a deliberate tradeoff for this stage of a small internal rollout, not a security guarantee.
+- **Genuinely ambiguous number** (2026-08-16 — the data proves 2+ real SVC identities could own this number, e.g. two different registered accounts both linked to it) is NOT treated as unknown: instead of silent public fallback, Courtney asks "what's your SVC email address?" and, on an exact single match against a registered account, links the number to it and grants internal access from that point on. This is identity *claiming* (a bare-text reply), not cryptographically verified identity — a deliberate tradeoff for this stage of a small internal rollout, not a security guarantee.
 - **Uniquely identified SVC person** (resolved via a two-tier lookup — a deliberately linked WhatsApp number or the account's own registered phone tried first as the strongest signal, falling back to a Directory contact's phone only if that finds nothing; a single linked account always wins over any number of unrelated duplicate contacts that happen to share a phone number) → `internal` scope: read access across Directory, Quest Coral, Applications, ByeByeDPR reports, Clocking, Outlooks, and Messages/Communications (with its own further split — see below), plus their own SVC context (`canReadOwnContext`, added 2026-08-14 — a personalization narrowing of those same reads down to the sender, never a wider one).
 - **Daily Report draft creation specifically requires more than identification** — the sender must also have a *linked Firebase user id* (`canCreateDailyReportDraft`), since a report needs a real author. An identified contact without a linked account can read, but cannot create a draft.
 - **Messages/Communications is its own nested access decision**, not a flat boolean. `messages_searchOperationalHistory` (automatic, system-generated Communications posts — never human-typed text) is open to any internal sender, same as every other module. `messages_searchMyCommunications` (human-written Communications messages) is further scoped to `visibleToUserIds` — it only ever returns messages the requesting sender is already allowed to see in the app itself, resolved server-side from the access policy, never a model-supplied argument. A sender identified only by contact match (no linked Firebase user id) still gets `canReadMessages`, so the operational-history tool works for them, but the human-message tool returns an explained empty result — there is no uid to scope by.
@@ -768,11 +768,11 @@ This is enforced in the backend/tool-registration layer, not merely as a prompt 
 
 ## Model and orchestration
 
-The Secretary is a genuine cross-module tool-calling orchestrator (`runToolConversation`, up to 4 tool-rounds per turn as of 2026-08-14, up from 3) — the model itself decides which tools to call, across however many modules a question touches, before answering. Its own model default is `gpt-5.6-terra` (separate from Directory's and Quest Coral's own Ask AI, both default to `gpt-5-mini`), overridable via the `WHATSAPP_AI_MODEL` env var. Final-round reasoning effort is `"medium"` as of 2026-08-14 (raised from `"low"`, on explicit user direction after real usage showed low token cost) — every tool-bearing round still forces `"none"` regardless, so this only affects the one round that produces the actual answer; live-tested latency stayed in the 1.5-7s range per call, well under the Vercel Hobby-plan `maxDuration = 60` ceiling on the webhook route.
+Courtney Roberts is a genuine cross-module tool-calling orchestrator (`runToolConversation`, up to 4 tool-rounds per turn as of 2026-08-14, up from 3) — the model itself decides which tools to call, across however many modules a question touches, before answering. Its own model default is `gpt-5.6-terra` (separate from Directory's and Quest Coral's own Ask AI, both default to `gpt-5-mini`), overridable via the `WHATSAPP_AI_MODEL` env var. Final-round reasoning effort is `"medium"` as of 2026-08-14 (raised from `"low"`, on explicit user direction after real usage showed low token cost) — every tool-bearing round still forces `"none"` regardless, so this only affects the one round that produces the actual answer; live-tested latency stayed in the 1.5-7s range per call, well under the Vercel Hobby-plan `maxDuration = 60` ceiling on the webhook route.
 
 Per-module read tools currently registered (all read-only, all bounded/paginated, never a raw collection dump):
 
-- **Directory**: the full tool stack — search people/companies/jobs, entity details, relationships, shared-contact/shared-job lookups, connecting-path search, and note search (with a keyword-fallback layer for partial/misspelled names). Includes a same-day fix that attaches phone/email onto person results specifically for WhatsApp, since every WhatsApp sender who can reach Directory tools at all is already a uniquely identified internal user by construction. Also two presence/roster tools (added 2026-08-14): `directory_getActiveUsers` — who currently has the app open right now (`lastSeen` within the last 90 seconds), the exact same live "active now" presence signal the web app's own UI already shows, not a login/registration list or clock-in status; and `directory_listRegisteredUsers` — every SVC app user account that exists, regardless of current presence (added same day, same session, after a real WhatsApp transcript showed the Secretary had no way to answer "all registered users," only "who's active now"). Neither is the broader Directory contact list, which also includes external, non-app-user contacts.
+- **Directory**: the full tool stack — search people/companies/jobs, entity details, relationships, shared-contact/shared-job lookups, connecting-path search, and note search (with a keyword-fallback layer for partial/misspelled names). Includes a same-day fix that attaches phone/email onto person results specifically for WhatsApp, since every WhatsApp sender who can reach Directory tools at all is already a uniquely identified internal user by construction. Also two presence/roster tools (added 2026-08-14): `directory_getActiveUsers` — who currently has the app open right now (`lastSeen` within the last 90 seconds), the exact same live "active now" presence signal the web app's own UI already shows, not a login/registration list or clock-in status; and `directory_listRegisteredUsers` — every SVC app user account that exists, regardless of current presence (added same day, same session, after a real WhatsApp transcript showed Courtney had no way to answer "all registered users," only "who's active now"). Neither is the broader Directory contact list, which also includes external, non-app-user contacts.
 - **Quest Coral**: search projects, get one project (incl. its Project Context), get updates with real date-range/cursor pagination, cross-project recent-activity feed, and (added 2026-08-14) `listAllProjects` — every project without naming one, optional status filter.
 - **Applications**: search candidates, review queue, per-job application history, and (added 2026-08-14) `listAllApplications` — every application without naming a candidate/job, optional status filter. Candidate summaries were also enriched the same day: phone, email, city/state, years of experience, work reference, resume filename, intro-video status, and per-document status now included — shared as freely as Directory contact info per the same internal-sender trust boundary. The actual resume/document files and video content remain unavailable; only status/filename.
 - **Reports**: per-job/global/per-author search with pagination, plus a cross-job "jobs without a recent report" tool.
@@ -780,9 +780,9 @@ Per-module read tools currently registered (all read-only, all bounded/paginated
 - **Outlooks**: per-job task reads, cross-job "active outlooks today."
 - **Messages/Communications** (added 2026-08-14): `messages_searchOperationalHistory` reads automatic, system-generated Communications posts — 3-Week Outlook publishes, ByeByeDPR clock-in/out events, Daily Report submissions — filterable by job, date range, and category, open to any internal sender since this content is templated/factual, never human-typed. `messages_searchMyCommunications` reads human-written Communications messages, hard-scoped server-side to the requesting sender's own `visibleToUserIds` — the same ACL the Communications app itself enforces — so it can never surface another person's private message. Neither tool covers the other's content: an automatic broadcast never shows up in "my communications," and a human message never shows up in the operational feed, even though today's known Outlook-broadcast-to-everyone behavior (§8) would otherwise make a message's `visibleToUserIds` include far more people than intended.
 
-- **My SVC context** (`me_*`, added 2026-08-14): `me_getMyProfile` (who the sender is recognized as — name, role, their own contact details, the companies/jobs linked to them in Directory), `me_getMySvcContext` (their whole current situation at once: linked jobs/companies, their Quest Coral projects, their own recent Daily Reports including drafts, whether they're clocked in right now, the Outlooks running on their jobs, how much recent Communications activity they can see, and their own Applications record if their contact details match one), and `me_getSecretaryGuide` (what the Secretary can do *for that specific person*, how to use it, and example questions built from their real records). This is personalization over already-permitted reads, **not** a wider scope: every field is either about the sender's own record, already open to any identified internal sender through the tools above, or — for Communications — scoped to the exact same `visibleToUserIds` ACL `messages_searchMyCommunications` enforces. All three take **zero arguments** and the actor is closed over server-side, so there is structurally no way to point them at another person. Two honesty properties are built into the data, not the prompt: every source degrades independently to empty/`null` on failure, and anything genuinely not on file is returned as an explicit `gaps` list ("No role/title is on file for them") — which is why the Secretary states a missing role instead of inferring one from a company or job name.
+- **My SVC context** (`me_*`, added 2026-08-14): `me_getMyProfile` (who the sender is recognized as — name, role, their own contact details, the companies/jobs linked to them in Directory), `me_getMySvcContext` (their whole current situation at once: linked jobs/companies, their Quest Coral projects, their own recent Daily Reports including drafts, whether they're clocked in right now, the Outlooks running on their jobs, how much recent Communications activity they can see, and their own Applications record if their contact details match one), and `me_getSecretaryGuide` (what Courtney can do *for that specific person*, how to use it, and example questions built from their real records). This is personalization over already-permitted reads, **not** a wider scope: every field is either about the sender's own record, already open to any identified internal sender through the tools above, or — for Communications — scoped to the exact same `visibleToUserIds` ACL `messages_searchMyCommunications` enforces. All three take **zero arguments** and the actor is closed over server-side, so there is structurally no way to point them at another person. Two honesty properties are built into the data, not the prompt: every source degrades independently to empty/`null` on failure, and anything genuinely not on file is returned as an explicit `gaps` list ("No role/title is on file for them") — which is why Courtney states a missing role instead of inferring one from a company or job name.
 
-**Personalized introduction** (added 2026-08-14): a recognized employee's first meaningful interaction gets a short card naming who the Secretary recognizes them as, what it can actually see for them, and a few example questions drawn from their own real jobs/projects. It does **not** repeat every conversation: it re-surfaces only when a *capability signature* changes (a newly reachable module, a newly linked SVC app account, a changed role, or a bumped Secretary capability version — in which case it names exactly what is new), or after 45 quiet days. The copy is assembled deterministically server-side from the same self-context snapshot, outside the model, so it cannot invent a role or job; a snapshot failure results in no introduction rather than a wrong one. A bare greeting or a "what can you do?" on that turn gets the card in place of an answer; a substantive first request keeps its answer with one short line of context above it. Later "what can you do?" questions are answered by the model through `me_getSecretaryGuide` instead, so they adapt to the phrasing rather than replaying a fixed card.
+**Personalized introduction** (added 2026-08-14): a recognized employee's first meaningful interaction gets a short card naming who Courtney recognizes them as, what she can actually see for them, and a few example questions drawn from their own real jobs/projects. It does **not** repeat every conversation: it re-surfaces only when a *capability signature* changes (a newly reachable module, a newly linked SVC app account, a changed role, or a bumped Courtney capability version — in which case it names exactly what is new), or after 45 quiet days. The copy is assembled deterministically server-side from the same self-context snapshot, outside the model, so it cannot invent a role or job; a snapshot failure results in no introduction rather than a wrong one. A bare greeting or a "what can you do?" on that turn gets the card in place of an answer; a substantive first request keeps its answer with one short line of context above it. Later "what can you do?" questions are answered by the model through `me_getSecretaryGuide` instead, so they adapt to the phrasing rather than replaying a fixed card.
 
 **File/photo attachments** (added 2026-08-14): a Daily Report PDF, an Outlook PDF, or a Communications image/file can now be delivered as a real native WhatsApp attachment — not a text link — when the user's question actually asks for the file (e.g. "send me the report", "show me the photo"). The mechanism is entirely deterministic and server-side, mirroring how a deep-link CTA is built: the reports/messages tools put a signed URL (reports; minted fresh via Admin SDK, since only a bare storage path is stored) or the message's already-real download URL (Communications images/files, already public-with-token) into `presentation.attachments`, which the model's own `data` never includes — the model only sees a `hasPdf`/`hasAttachment` boolean, enough to say "sending it now" without ever holding a URL it could leak, invent, or mistype. `lib/whatsapp-response-ux.ts`'s `attachmentsFromExecutions` then decides, from the question's own wording, whether to actually attach it, capped at 3 files per turn. `lib/whatsapp-cloud-api.ts` gained `sendWhatsAppImage`/`sendWhatsAppDocument` (Meta's Cloud API "send by link" message types) to deliver them as follow-up messages after the primary text reply.
 
@@ -792,7 +792,7 @@ The only write capability is the ByeByeDPR **Daily Report draft** flow (§10's W
 
 **Status: CODE / PRODUCT VERIFIED**
 
-This canonical knowledge pack — the document you are reading — is one of two files that together are the Secretary's Company Knowledge source, not a separate small hand-curated list anymore. `lib/knowledge-pack.ts` parses this file **and** `SVC_Company_Mission_Operating_Framework_Knowledge.md` (§1's companion-document note) into one shared pool of roughly 90 chunks from this pack plus another ~40 from the companion document (one per top-level `# N.` section for broad "what is X" questions, one per `##` subsection for narrower detail — the companion document's chunk ids are prefixed `mission-` so the two files' independent `# 0.`, `# 1.`, … numbering never collides) and scores them together with lexical keyword matching — deliberately not an embedding/vector search, since the corpus is small and a WhatsApp reply needs to stay fast. Each chunk records which file it came from (`KnowledgeChunk.source`), surfaced in every retrieval result for citation, but retrieval itself treats both files as one pool: a query about Cool Breeze or the Adventure Map is scored exactly the same way as a query about clocking.
+This canonical knowledge pack — the document you are reading — is one of two files that together are the Courtney's Company Knowledge source, not a separate small hand-curated list anymore. `lib/knowledge-pack.ts` parses this file **and** `SVC_Company_Mission_Operating_Framework_Knowledge.md` (§1's companion-document note) into one shared pool of roughly 90 chunks from this pack plus another ~40 from the companion document (one per top-level `# N.` section for broad "what is X" questions, one per `##` subsection for narrower detail — the companion document's chunk ids are prefixed `mission-` so the two files' independent `# 0.`, `# 1.`, … numbering never collides) and scores them together with lexical keyword matching — deliberately not an embedding/vector search, since the corpus is small and a WhatsApp reply needs to stay fast. Each chunk records which file it came from (`KnowledgeChunk.source`), surfaced in every retrieval result for citation, but retrieval itself treats both files as one pool: a query about Cool Breeze or the Adventure Map is scored exactly the same way as a query about clocking.
 
 Two retrieval paths, both reading the same corpus:
 
@@ -811,7 +811,7 @@ Up to 12 recent messages (6 exchanges) are kept per hashed sender phone number, 
 
 **Status: PROJECT CONTEXT / HUMAN-CONFIRMED, matching the shipped architecture above**
 
-The Secretary conceptually draws on three different context layers, and should not confuse them:
+Courtney Roberts conceptually draws on three different context layers, and should not confuse them:
 
 ```text
 COMPANY KNOWLEDGE
@@ -832,11 +832,11 @@ Live Data         → identifies the Turner job / whether it already has an Outl
 Memory            → remembers which "Turner" the user has been discussing, if ambiguous
 ```
 
-## Secretary as orchestrator
+## Courtney Roberts as orchestrator
 
 **Status: PROJECT CONTEXT / HUMAN-CONFIRMED, matching the shipped architecture**
 
-The Secretary is not meant to duplicate every module's own AI logic — it coordinates. Some capabilities are plain deterministic retrieval tools (Directory search, Quest Coral/Applications/Reports/Clocking/Outlook retrieval, and now knowledge-pack retrieval); a few reuse specialized AI services that already exist inside their own module (Daily Report structuring, 3-Week Outlook parsing, audio transcription) rather than reimplementing them. The design principle is to avoid unnecessary AI-to-AI chains when a deterministic query can answer the question directly.
+Courtney Roberts is not meant to duplicate every module's own AI logic — it coordinates. Some capabilities are plain deterministic retrieval tools (Directory search, Quest Coral/Applications/Reports/Clocking/Outlook retrieval, and now knowledge-pack retrieval); a few reuse specialized AI services that already exist inside their own module (Daily Report structuring, 3-Week Outlook parsing, audio transcription) rather than reimplementing them. The design principle is to avoid unnecessary AI-to-AI chains when a deterministic query can answer the question directly.
 
 ## Response behavior
 
@@ -844,7 +844,7 @@ Concise by default (English, ≤700 characters, at most three short bullets), re
 
 ---
 
-# 14. How the Secretary should answer
+# 14. How Courtney should answer
 
 **Status: PRODUCT DIRECTION**
 
@@ -920,7 +920,7 @@ Clocking = presence/time only, with no aggregation or attendance dashboard. Dail
 
 ## 16.3 Project understanding workflow
 
-A "what's going on with {job}" question can genuinely need: Directory (who/company/job), Quest Coral (status/next-step/history, if it has a linked project), ByeByeDPR Reports (field reality), 3-Week Outlook (planned work), and Clocking (who's currently on site). The Secretary is built to combine several of these in one turn rather than guessing which single module has the whole answer.
+A "what's going on with {job}" question can genuinely need: Directory (who/company/job), Quest Coral (status/next-step/history, if it has a linked project), ByeByeDPR Reports (field reality), 3-Week Outlook (planned work), and Clocking (who's currently on site). Courtney Roberts is built to combine several of these in one turn rather than guessing which single module has the whole answer.
 
 ## 16.4 Company understanding workflow
 
@@ -932,7 +932,7 @@ A "what's going on with {job}" question can genuinely need: Directory (who/compa
 
 **Status: PRODUCT DIRECTION**
 
-A new employee should be able to ask the Secretary basic orientation questions without knowing SVC's app structure — which app to use, how to find a person or job, what Quest Coral or an Outlook is, how Daily Reports and clocking work, how candidate review works. SVC's own in-app "How it works" guide (Communications' 10-slide Help screen) is a good source of already-approved, plain-language phrasing for exactly this kind of explanation.
+A new employee should be able to ask Courtney basic orientation questions without knowing SVC's app structure — which app to use, how to find a person or job, what Quest Coral or an Outlook is, how Daily Reports and clocking work, how candidate review works. SVC's own in-app "How it works" guide (Communications' 10-slide Help screen) is a good source of already-approved, plain-language phrasing for exactly this kind of explanation.
 
 ---
 
@@ -950,7 +950,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 ---
 
-# 19. Common questions the Secretary should answer well
+# 19. Common questions Courtney should answer well
 
 ## Company
 "What does SVC do?" / "What does SVC stand for?" / "How does SVC work?" — answer directly from §2's PROJECT CONTEXT / HUMAN-CONFIRMED material; these are company-identity questions, not something to hedge on for lack of a code trail. "What is the difference between Sales, Recruiting, and Field Operations?" / "What does 'Cool Breeze' mean?" / "What is Operation Major Kong?" — likewise answerable directly from §2, in more depth from the companion document.
@@ -961,7 +961,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 "What's John's phone number?" / "Who works for ABC Construction?" / "What jobs is this company on?" / "Who's connected to Turner?"
 
 ## Quest Coral
-"What's the status of this project?" / "Who's involved?" / "What's the next step?" / "What changed recently?" (the Secretary can page into real history, not just the newest few entries)
+"What's the status of this project?" / "Who's involved?" / "What's the next step?" / "What changed recently?" (Courtney can page into real history, not just the newest few entries)
 
 ## Applications
 "What's the status of this candidate?" / "What's missing?" / "Which applications are waiting on review?"
@@ -1029,7 +1029,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 
 **Supply by DPR** — does not currently exist.
 
-**AI Secretary** — the WhatsApp conversational access layer described in §13.
+**Courtney Roberts** — the WhatsApp conversational access layer described in §13.
 
 ---
 
@@ -1044,7 +1044,7 @@ A new employee should be able to ask the Secretary basic orientation questions w
 7. **ByeByeDPR clock records don't actually store a location today**, even though the schema and API support one.
 8. **There is no attendance dashboard or hours-aggregation anywhere in ByeByeDPR** — it was built once and fully removed.
 9. **Supply by DPR does not exist.**
-10. **The WhatsApp Secretary's Communications access is real but narrow, as of 2026-08-14** — never assume it can see more than its two tools actually grant. `messages_searchMyCommunications` never returns a message outside the requesting sender's own `visibleToUserIds` (§4.1's rules, enforced in the query itself, not just the prompt); it cannot be asked to check someone else's messages. `messages_searchOperationalHistory` only ever returns automatic, system-generated posts, never human-written content. Don't describe either tool as a general Communications search.
+10. **Courtney Roberts' Communications access is real but narrow, as of 2026-08-14** — never assume it can see more than its two tools actually grant. `messages_searchMyCommunications` never returns a message outside the requesting sender's own `visibleToUserIds` (§4.1's rules, enforced in the query itself, not just the prompt); it cannot be asked to check someone else's messages. `messages_searchOperationalHistory` only ever returns automatic, system-generated posts, never human-written content. Don't describe either tool as a general Communications search.
 11. **Never claim WhatsApp can perform an action that only exists in the SVC app** — its only write capability anywhere is the Daily Report draft flow.
 12. **Any specific person/job/project/candidate/report/clock value is live data, not something this pack should ever hold** — always defer to a live tool for that.
 13. **Cool Breeze and Operation Major Kong are real, confirmed company knowledge, but their current-active status is not** — "what is Cool Breeze" is answerable directly; "is Cool Breeze still the active Mission today" is not, without live confirmation. Same for any historical target/figure in the companion document's HISTORICAL / TIME-SENSITIVE sections (e.g. the stated Cool Breeze revenue target) — a real past statement, not a current fact by default.
@@ -1118,7 +1118,7 @@ status: "verified"
 
 # 24. Final product principle
 
-The AI Secretary should feel like: *ask this one SVC contact anything about how the company works or what's happening inside SVC, and it will know where to look.*
+Courtney Roberts should feel like: *ask this one SVC contact anything about how the company works or what's happening inside SVC, and it will know where to look.*
 
 To keep that reliable:
 
@@ -1126,5 +1126,5 @@ To keep that reliable:
 - changing facts come from live tools, never from this pack;
 - conversational references come from short-term memory;
 - specialized module AI (Directory's Ask AI, Quest Coral's Ask/Brief, ByeByeDPR's transcription, Outlook's parser) is reused rather than duplicated;
-- the Secretary coordinates across modules rather than guessing which single one has the whole answer;
+- Courtney coordinates across modules rather than guessing which single one has the whole answer;
 - and — the one rule this audit pass leaned on hardest — **unconfirmed information is stated as unconfirmed, not invented.**

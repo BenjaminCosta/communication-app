@@ -1,18 +1,18 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Eliminación de datos | SVC AI Secretary",
-  description: "Instrucciones para solicitar la eliminación de datos en SVC AI Secretary.",
+  title: "Eliminación de datos | Courtney Roberts",
+  description: "Instrucciones para solicitar la eliminación de datos en Courtney Roberts.",
 }
 
 export default function DataDeletionPage() {
   return (
     <main className="h-full overflow-y-auto bg-background px-5 py-10 sm:px-8">
       <article className="mx-auto w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl shadow-black/20 sm:p-10">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-primary">SVC AI Secretary</p>
+        <p className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-primary">Courtney Roberts</p>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Eliminación de datos</h1>
         <p className="mt-3 text-[15px] leading-7 text-muted-foreground">
-          Podés solicitar la eliminación de los datos asociados a tu interacción con SVC AI Secretary.
+          Podés solicitar la eliminación de los datos asociados a tu interacción con Courtney Roberts.
         </p>
 
         <div className="mt-8 space-y-7 text-[15px] leading-7 text-slate-300">

@@ -5,7 +5,7 @@ const rejectIncomingCall = () =>
 
 /**
  * Safe default for the Twilio number while voice routing is not part of the
- * SVC Secretary product. Rejecting avoids answering, recording, or billing
+ * Courtney Roberts product. Rejecting avoids answering, recording, or billing
  * inbound calls; WhatsApp traffic does not use this endpoint.
  */
 export async function GET() {

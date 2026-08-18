@@ -1,4 +1,4 @@
-# SVC AI Secretary — tool/orchestrator architecture review
+# Courtney Roberts — tool/orchestrator architecture review
 
 _Reviewed 2026-08-14 against `lib/whatsapp-secretary/` at commit `7a04dfc`._
 _Scope: orchestrator, tool registry, all nine module tool files, Knowledge,
@@ -253,9 +253,9 @@ Each step unblocks the next; this is a real sequence, not a priority list.
   own. Tiering the catalog (a small always-on core plus a
   `svc_discoverTools({topic})` meta-tool) is the escape hatch if consolidation
   ever stops being enough — not a first move.
-- **Do not split the Secretary into per-module sub-agents.** That trades a
+- **Do not split Courtney into per-module sub-agents.** That trades a
   solved routing problem for AI-to-AI chains, and cross-module questions get
-  worse, not better. The Secretary stays the single orchestrator.
+  worse, not better. Courtney Roberts stays the single orchestrator.
 - **Do not move Company Knowledge to embeddings.** The corpus is small and a
   WhatsApp reply must stay fast; lexical scoring is the correct call, as
   already documented in the knowledge-pack section of the handoff.
@@ -381,6 +381,6 @@ Tests 276 → 299. `pnpm verify:fast` and `pnpm build` green.
 
 ## Related documentation
 
-- [WhatsApp AI Secretary handoff](./svc-whatsapp-ai-secretary-handoff.md) — the operational handoff this review evaluates.
-- [SVC AI Secretary Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — §13 describes the Secretary's own capabilities.
+- [Courtney Roberts handoff](./svc-whatsapp-ai-secretary-handoff.md) — the operational handoff this review evaluates.
+- [Courtney Roberts Canonical Knowledge Pack](../SVC_AI_Secretary_Canonical_Knowledge_Pack.md) — §13 describes the Courtney's own capabilities.
 - [SVC project context for AI agents](./svc-project-context-for-ai-agents.md)

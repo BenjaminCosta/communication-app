@@ -189,7 +189,7 @@ test('first contact: a recognized employee is introduced with who they are and w
     message: "Hi",
   })
 
-  assert.match(reply.text, /Hey Ben — I recognize you in SVC\./)
+  assert.match(reply.text, /Hey Ben — I'm Courtney Roberts, your SVC assistant\. I recognize you in SVC\./)
   assert.match(reply.text, /I know you as Ben Acosta, Site Supervisor at SVC\./)
   // Personalization on the card is recognition + real linked counts + role
   // focus. Specific record names deliberately live in the *answer* to a

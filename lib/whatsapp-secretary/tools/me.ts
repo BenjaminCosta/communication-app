@@ -202,7 +202,7 @@ export function createMeTools(
     name: "me_getSecretaryGuide",
     module: "me",
     description:
-      "What the SVC AI Secretary can actually do FOR THIS PERSON right now, how to use it, and example questions built from their real SVC records. Call this whenever the question is about the assistant itself — \"what can you do\", \"how can you help me\", \"how do I use this\", \"what can I ask you\", \"give me a tutorial\". Answer from these capabilities and examples rather than a generic feature list, and never claim a capability that is not in this result.",
+      "What Courtney Roberts can actually do FOR THIS PERSON right now, how to use her, and example questions built from their real SVC records. Call this whenever the question is about the assistant herself — \"what can you do\", \"how can you help me\", \"how do I use this\", \"what can I ask you\", \"give me a tutorial\". Answer from these capabilities and examples rather than a generic feature list, and never claim a capability that is not in this result.",
     parameters: { type: "object", additionalProperties: false, required: [], properties: {} },
     schema: z.object({}),
     async run(_args, budget): Promise<SecretaryToolResult> {

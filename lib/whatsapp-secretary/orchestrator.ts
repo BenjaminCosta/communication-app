@@ -232,7 +232,7 @@ export async function answerWhatsAppSecretaryQuestionWithPresentation(
 
   const config = getWhatsAppSecretaryAiConfig()
   if (!canCallProvider(config)) {
-    return { text: "SVC AI Secretary is running in a local test mode (no AI provider configured) and can't generate a live answer right now." }
+    return { text: "Courtney Roberts is running in a local test mode (no AI provider configured) and can't generate a live answer right now." }
   }
 
   const system = buildWhatsAppSecretarySystemPrompt({
