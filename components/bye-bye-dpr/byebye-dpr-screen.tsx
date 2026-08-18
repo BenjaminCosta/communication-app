@@ -6,8 +6,11 @@
  * Coral), not a standalone route. All jobs/recentJobs/activeClock data and
  * clock mutations live in `useByeByeDprDashboard` (called at the page.tsx
  * level, gated by a sticky "entered" flag) so switching away and back never
- * refetches or blocks on a loading screen — only a genuine first entry (or a
- * real page reload) does. This component owns only its own internal
+ * refetches. Even the first entry (or a real page reload) never blocks on a
+ * full-screen takeover: `ByeByeDprHomeScreen`'s `loading` prop keeps the
+ * header mounted and skeleton-izes the body instead, matching how
+ * Applications/Quest Coral show their shell immediately with skeleton rows.
+ * This component owns only its own internal
  * navigation (`screen`) and the current report draft's working state —
  * exactly like Applications only hoists `selectedApplicationId` and leaves
  * the rest of its own screen-local state alone. Leaving the module and
@@ -28,7 +31,6 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { ByeByeDprLoadingScreen } from "@/components/app-loading-screen"
 import { ByeByeDprHomeScreen, type ClockStatus } from "@/components/bye-bye-dpr/byebye-dpr-home-screen"
 import { AboutByeByeDprScreen } from "@/components/bye-bye-dpr/about-byebye-dpr-screen"
 import { ChangeJobScreen } from "@/components/bye-bye-dpr/change-job-screen"
@@ -70,14 +72,6 @@ function to24HourInputValue(date: Date): string {
 function formatIsoTime(iso: string | null): string {
   if (!iso) return ""
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-}
-
-function BootLoadingScreen() {
-  return (
-    <div className="byebye-dpr-scope flex min-h-0 flex-1 flex-col">
-      <ByeByeDprLoadingScreen className="min-h-0" />
-    </div>
-  )
 }
 
 function BootErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -210,7 +204,36 @@ export function ByeByeDprScreen({
   let content: React.ReactNode
 
   if (dashboard.bootPhase === "loading") {
-    content = <BootLoadingScreen />
+    // The header mounts immediately with the body skeleton-ized (instead of
+    // a full-screen takeover) so switching into ByeByeDPR never blanks the
+    // screen — matching how Applications/Quest Coral show their shell
+    // immediately with skeleton rows, not a branded splash, on every entry
+    // including the first.
+    content = (
+      <ByeByeDprHomeScreen
+        loading
+        status="clocked_out"
+        job={null}
+        userFirstName={userDisplayName.split(" ")[0]}
+        userFullName={userDisplayName}
+        userInitials={deriveInitials(userDisplayName)}
+        clockedInLabel={null}
+        lastClockOutLabel=""
+        justPosted={false}
+        recentActivity={[]}
+        onClockIn={() => {}}
+        onChangeJob={() => {}}
+        onClockOut={() => {}}
+        onForgotClockOut={() => {}}
+        onOpenDailyReport={() => {}}
+        onOpenAbout={() => setScreen("about")}
+        onSwitchToStream={onSwitchToStream}
+        onSwitchToDirectory={onSwitchToDirectory}
+        onSwitchToApplications={onSwitchToApplications}
+        onSwitchToQuestCoral={onSwitchToQuestCoral}
+        onCourtneyRobertsCenter={onCourtneyRobertsCenter}
+      />
+    )
   } else if (dashboard.bootPhase === "error") {
     content = <BootErrorScreen message={dashboard.bootError} onRetry={() => void dashboard.retry()} />
   } else if (screen === "about") {

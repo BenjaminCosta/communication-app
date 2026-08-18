@@ -34,6 +34,8 @@ import type { Job } from "@/lib/bye-bye-dpr-store"
 export type ClockStatus = "clocked_out" | "clocked_in"
 
 interface ByeByeDprHomeScreenProps {
+  /** While true, renders the header immediately (so a module switch never blanks the screen) with the data-dependent body skeleton-ized, instead of real job/clock data that isn't fetched yet. */
+  loading?: boolean
   status: ClockStatus
   job: Job | null
   userFirstName: string
@@ -65,6 +67,7 @@ function splitActivityLabel(text: string): [string, string | null] {
 }
 
 export function ByeByeDprHomeScreen({
+  loading = false,
   status,
   job,
   userFirstName,
@@ -102,6 +105,10 @@ export function ByeByeDprHomeScreen({
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
         <div className="mx-auto w-full max-w-md px-5 pb-10 pt-6">
+          {loading ? (
+            <ByeByeDprHomeBodySkeleton />
+          ) : (
+            <>
           <h1 className="text-[1.5rem] font-bold leading-tight tracking-[-0.01em] text-[var(--bd-text)]">
             Good morning, {userFirstName} <span aria-hidden="true">👋</span>
           </h1>
@@ -254,8 +261,42 @@ export function ByeByeDprHomeScreen({
               {clockedIn ? "Keep it going. Great work!" : "Stay safe. Build strong."}
             </p>
           </div>
+            </>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Mirrors the real body's shape (greeting, job card, status bar, clock
+ * button, reports row, recent activity) so nothing jumps in size once real
+ * data swaps in — shown while `bootPhase === "loading"`, with the header
+ * already mounted above it, so a module switch never blanks the screen.
+ */
+function ByeByeDprHomeBodySkeleton() {
+  return (
+    <div aria-hidden="true">
+      <div className="h-7 w-52 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+      <div className="mt-2 h-3.5 w-40 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+
+      <div className="mt-7 h-3 w-20 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+      <div className="mt-2 h-16 animate-pulse rounded-2xl bg-[var(--bd-surface)]" />
+
+      <div className="mt-5 h-[4.25rem] animate-pulse rounded-2xl bg-[var(--bd-surface)]" />
+
+      <div className="mt-5 h-19 animate-pulse rounded-2xl bg-[var(--bd-surface-2)]" />
+
+      <div className="my-7 border-t border-[var(--bd-border)]" />
+
+      <div className="h-3 w-20 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+      <div className="mt-2 h-14 animate-pulse rounded-xl bg-[var(--bd-surface-2)]" />
+
+      <div className="my-7 border-t border-[var(--bd-border)]" />
+
+      <div className="h-3 w-28 animate-pulse rounded bg-[var(--bd-surface-2)]" />
+      <div className="mt-2 h-14 animate-pulse rounded-2xl bg-[var(--bd-surface)]" />
     </div>
   )
 }
