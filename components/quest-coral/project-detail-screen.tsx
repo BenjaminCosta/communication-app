@@ -37,6 +37,7 @@ import {
 } from "@/components/quest-coral/ui/quest-coral-primitives"
 import { AddUpdateSheet } from "@/components/quest-coral/add-update-sheet"
 import { EditProjectContextSheet } from "@/components/quest-coral/edit-project-context-sheet"
+import { EditProjectDetailsSheet } from "@/components/quest-coral/edit-project-details-sheet"
 import { MarkdownView } from "@/components/quest-coral/ui/markdown-view"
 import { projectAccent } from "@/components/quest-coral/ui/project-accent"
 import { QcSheet } from "@/components/quest-coral/ui/quest-coral-sheet"
@@ -432,6 +433,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all")
   const [contextEditorOpen, setContextEditorOpen] = useState(false)
   const [contextEditorMode, setContextEditorMode] = useState<"write" | "upload">("write")
+  const [detailsEditorOpen, setDetailsEditorOpen] = useState(false)
   const [askOpen, setAskOpen] = useState(false)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1120,6 +1122,20 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
             type="button"
             onClick={() => {
               setMenuOpen(false)
+              setDetailsEditorOpen(true)
+            }}
+            className="quest-coral-tap flex min-h-12 items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--coral-surface-2)]"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--coral-soft)] text-[var(--coral-strong)]">
+              <Pencil className="h-4 w-4" strokeWidth={2} />
+            </span>
+            <span className="min-w-0 flex-1 text-sm font-semibold text-[var(--coral-text)]">Edit name &amp; description</span>
+            <ChevronRight className="h-4 w-4 text-[var(--coral-text-muted)]" strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false)
               openActivity("all")
             }}
             className="quest-coral-tap flex min-h-12 items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--coral-surface-2)]"
@@ -1161,6 +1177,13 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
           </button>
         </div>
       </QcSheet>
+
+      <EditProjectDetailsSheet
+        open={detailsEditorOpen}
+        project={project}
+        onClose={() => setDetailsEditorOpen(false)}
+        onSave={(patch) => onPatchProject(patch)}
+      />
 
       <QcSheet
         open={deleteConfirmOpen}

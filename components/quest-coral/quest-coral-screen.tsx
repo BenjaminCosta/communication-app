@@ -18,6 +18,7 @@ import {
   CircleArrowRight,
   Info,
   MoreVertical,
+  Pencil,
   Plus,
   Search,
   Share2,
@@ -34,6 +35,7 @@ import { projectAccent, type ProjectAccent } from "@/components/quest-coral/ui/p
 import { TONE_STYLES } from "@/components/quest-coral/ui/tone"
 import { AboutQuestCoralScreen } from "@/components/quest-coral/about-quest-coral-screen"
 import { CreateProjectSheet } from "@/components/quest-coral/create-project-sheet"
+import { EditProjectDetailsSheet } from "@/components/quest-coral/edit-project-details-sheet"
 import { QuestCoralAskGenerating } from "@/components/quest-coral/ui/quest-coral-ask-generating"
 import { answerPortfolioQuestion } from "@/features/quest-coral/quest-coral-mock-ai"
 import { effectiveProjectStatus, missionFitLabel, PROJECT_STATUS_META, PROJECT_STATUS_ORDER, type Project, type ProjectStatus } from "@/lib/quest-coral-core"
@@ -192,7 +194,7 @@ export function QuestCoralScreen({
   onSwitchToApplications,
   onSwitchToByeByeDpr,
 }: QuestCoralScreenProps) {
-  const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, unreadCountFor } = dashboard
+  const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, patchProject, unreadCountFor } = dashboard
   const [showAbout, setShowAbout] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [statusSheetOpen, setStatusSheetOpen] = useState(false)
@@ -206,6 +208,7 @@ export function QuestCoralScreen({
   const [askCooldownUntil, setAskCooldownUntil] = useState(0)
   const askGenerating = useGeneratingReveal(askAttempt, asking, 500)
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
+  const [detailsProjectId, setDetailsProjectId] = useState<string | null>(null)
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null)
   const [isProjectActionPending, setIsProjectActionPending] = useState(false)
   const [projectActionError, setProjectActionError] = useState<string | null>(null)
@@ -214,6 +217,7 @@ export function QuestCoralScreen({
   const statusLabel = filters.status === "all" ? "All statuses" : PROJECT_STATUS_META[filters.status].label
   const hasActiveProjectFilters = filters.status !== "all" || filters.query.trim().length > 0
   const menuProject = useMemo(() => projects.find((project) => project.id === projectMenuId) ?? null, [projects, projectMenuId])
+  const detailsProject = useMemo(() => projects.find((project) => project.id === detailsProjectId) ?? null, [projects, detailsProjectId])
   const contextsByProjectId = useMemo(
     () => new Map(contexts.map((context) => [context.projectId, context.markdown])),
     [contexts],
@@ -552,6 +556,21 @@ export function QuestCoralScreen({
               if (!menuProject) return
               const projectId = menuProject.id
               setProjectMenuId(null)
+              setDetailsProjectId(projectId)
+            }}
+            className="quest-coral-tap flex min-h-12 items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--coral-surface-2)]"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--coral-soft)] text-[var(--coral-strong)]">
+              <Pencil className="h-4 w-4" strokeWidth={2} />
+            </span>
+            <span className="min-w-0 flex-1 text-sm font-semibold text-[var(--coral-text)]">Edit name &amp; description</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!menuProject) return
+              const projectId = menuProject.id
+              setProjectMenuId(null)
               onOpenProject(projectId)
             }}
             className="quest-coral-tap flex min-h-12 items-center gap-3 rounded-xl px-3 text-left hover:bg-[var(--coral-surface-2)]"
@@ -590,6 +609,15 @@ export function QuestCoralScreen({
           {projectActionError && <p className="px-3 pt-2 text-[0.75rem] font-medium text-[var(--coral-missing)]">{projectActionError}</p>}
         </div>
       </QcSheet>
+
+      {detailsProject && (
+        <EditProjectDetailsSheet
+          open
+          project={detailsProject}
+          onClose={() => setDetailsProjectId(null)}
+          onSave={(patch) => patchProject(detailsProject.id, patch)}
+        />
+      )}
 
       <QcSheet
         open={deleteProjectId !== null}
