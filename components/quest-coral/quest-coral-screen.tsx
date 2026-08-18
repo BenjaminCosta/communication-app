@@ -662,7 +662,7 @@ export function QuestCoralScreen({
       <button
         type="button"
         onClick={() => setCreateOpen(true)}
-        className="quest-coral-primary-button quest-coral-tap absolute bottom-[max(calc(var(--sab)+2rem),24dvh)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(255,122,89,0.30)]"
+        className="quest-coral-primary-button quest-coral-tap absolute bottom-[max(calc(var(--sab)+2rem),12dvh)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(255,122,89,0.30)]"
       >
         <Plus className="h-4.5 w-4.5" strokeWidth={2.4} />
         New project
