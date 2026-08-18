@@ -84,6 +84,8 @@ export type CourtneyRobertsCenterLinkResult = {
   displayName: string
   resolvedUserId?: string
   resolvedPersonId?: string
+  /** Whether the person was actually told they are now recognized. */
+  recognitionNotice: "sent" | "deferred" | "skipped"
 }
 
 /** Manually links this conversation's WhatsApp number to an SVC account. */

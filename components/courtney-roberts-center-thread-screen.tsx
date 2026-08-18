@@ -7,6 +7,7 @@ import { deriveInitials } from "@/lib/store"
 import {
   fetchCourtneyRobertsCenterThread,
   linkCourtneyRobertsCenterConversation,
+  type CourtneyRobertsCenterLinkResult,
   CourtneyRobertsCenterClientError,
 } from "@/lib/courtney-roberts-center/client"
 import type { CourtneyRobertsCenterConversationSummary, CourtneyRobertsCenterMessage } from "@/lib/courtney-roberts-center/types"
@@ -80,6 +81,9 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // Survives the identityStatus flip that would otherwise unmount the banner
+  // the instant it succeeds, taking the outcome with it.
+  const [linkOutcome, setLinkOutcome] = useState<LinkOutcome | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -161,12 +165,14 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
         </div>
       </div>
 
-      {conversation?.identityStatus === "public" && (
+      {(conversation?.identityStatus === "public" || linkOutcome) && (
         <LinkIdentityBanner
           conversationId={conversationId}
-          onLinked={(linked) =>
+          outcome={linkOutcome}
+          onLinked={(linked) => {
+            setLinkOutcome({ displayName: linked.displayName, recognitionNotice: linked.recognitionNotice })
             setData((current) => (current ? { ...current, conversation: { ...current.conversation, ...linked } } : current))
-          }
+          }}
         />
       )}
 
@@ -199,16 +205,28 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
  * Senders can enroll themselves by replying with their SVC email, so this is
  * the fallback for the cases that path cannot reach — no `/users` account to
  * match, a number linked to the wrong person, or simply an admin fixing a
- * thread in front of them instead of running the CLI link script. Shown only
- * while the conversation is still unlinked; the banner disappears the moment
- * it succeeds.
+ * thread in front of them instead of running the CLI link script. Shown while
+ * the conversation is unlinked, and then once more to report what the person
+ * was actually told — linking someone silently is exactly what this feature
+ * exists to stop.
  */
+type LinkOutcome = { displayName: string; recognitionNotice: CourtneyRobertsCenterLinkResult["recognitionNotice"] }
+
+/** What the admin needs to know: whether the person heard about it, and if not, when they will. */
+const RECOGNITION_NOTICE_LABEL: Record<LinkOutcome["recognitionNotice"], string> = {
+  sent: "and told them Courtney recognizes them now",
+  deferred: "— they'll be told the next time they message, since the 24h window has closed",
+  skipped: "— they'd already been told Courtney recognizes them",
+}
+
 function LinkIdentityBanner({
   conversationId,
+  outcome,
   onLinked,
 }: {
   conversationId: string
-  onLinked: (linked: { identityStatus: "internal" | "public"; displayName: string; resolvedUserId?: string; resolvedPersonId?: string }) => void
+  outcome: LinkOutcome | null
+  onLinked: (linked: CourtneyRobertsCenterLinkResult) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [email, setEmail] = useState("")
@@ -225,6 +243,19 @@ function LinkIdentityBanner({
         setError(err instanceof CourtneyRobertsCenterClientError ? err.message : "Unable to link this conversation.")
         setIsSaving(false)
       })
+  }
+
+  if (outcome) {
+    return (
+      <div className="shrink-0 border-b border-white/10">
+        <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-2.5 flex items-center gap-2">
+          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.5} />
+          <span className="text-[11px] text-muted-foreground/70">
+            Linked to {outcome.displayName} {RECOGNITION_NOTICE_LABEL[outcome.recognitionNotice]}
+          </span>
+        </div>
+      </div>
+    )
   }
 
   return (

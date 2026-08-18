@@ -4,6 +4,8 @@ import type { CourtneyRobertsCenterIdentitySnapshot } from "./identity"
 import { IdentityClaimConflictError, createFirestoreIdentityClaimProvider } from "@/lib/whatsapp-identity-claim"
 import { normalizePhoneDigits } from "@/lib/phone-normalization"
 import { resolveWhatsAppSenderIdentityDetailed } from "@/lib/whatsapp-svc-identity"
+import { deliverRecognitionNotice } from "@/lib/whatsapp-secretary/recognition-notice"
+import type { RecognitionNoticeDelivery } from "@/lib/whatsapp-secretary/recognition-notice"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 
 /**
@@ -28,6 +30,8 @@ export type LinkConversationIdentityResult = {
   displayName: string
   resolvedUserId?: string
   resolvedPersonId?: string
+  /** What happened to the one-time recognition confirmation — see `lib/whatsapp-secretary/recognition-notice.ts`. */
+  recognitionNotice: RecognitionNoticeDelivery["status"]
 }
 
 export class CourtneyRobertsCenterLinkError extends Error {
@@ -64,7 +68,8 @@ export async function linkCourtneyRobertsCenterConversationIdentity(input: {
 
   const conversationRef = db.collection(CRC_CONVERSATIONS_COLLECTION).doc(input.conversationId)
   const conversationSnap = await conversationRef.get()
-  const phoneNumber = conversationSnap.exists ? conversationSnap.data()?.phoneNumber : null
+  const conversation = conversationSnap.data()
+  const phoneNumber = conversationSnap.exists ? conversation?.phoneNumber : null
   if (typeof phoneNumber !== "string" || !phoneNumber) {
     throw new CourtneyRobertsCenterLinkError(404, "This conversation has no phone number on record to link.")
   }
@@ -105,9 +110,25 @@ export async function linkCourtneyRobertsCenterConversationIdentity(input: {
     { merge: true },
   )
 
+  // Telling the person is the point of linking them, and it is the one part
+  // of this flow they can actually see. Fail-soft: the link already happened
+  // and stands on its own, so a delivery problem is reported back rather than
+  // thrown.
+  const recognitionNotice = identity
+    ? await deliverRecognitionNotice({
+        senderPhoneNumber: phoneNumber,
+        identity,
+        lastInboundAtMs: lastInboundAtMs(conversation),
+      }).catch((): RecognitionNoticeDelivery => {
+        console.error("Unable to deliver the recognition confirmation for a linked WhatsApp conversation.")
+        return { status: "deferred", reason: "send-failed" }
+      })
+    : ({ status: "deferred", reason: "send-failed" } as RecognitionNoticeDelivery)
+
   console.info("Courtney Roberts Center admin linked a WhatsApp conversation to an SVC account", {
     userId: user.id,
     identityStatus: snapshot.identityStatus,
+    recognitionNotice: recognitionNotice.status,
   })
 
   return {
@@ -115,5 +136,19 @@ export async function linkCourtneyRobertsCenterConversationIdentity(input: {
     displayName: snapshot.displayName,
     ...(snapshot.resolvedUserId ? { resolvedUserId: snapshot.resolvedUserId } : {}),
     ...(snapshot.resolvedPersonId ? { resolvedPersonId: snapshot.resolvedPersonId } : {}),
+    recognitionNotice: recognitionNotice.status,
   }
+}
+
+/**
+ * The inbound timestamp that opens WhatsApp's free-form window. Conversations
+ * recorded before `lastInboundAtMs` existed fall back to the last message of
+ * any role — off by however long the Secretary took to reply, which is
+ * seconds against a 24-hour window.
+ */
+function lastInboundAtMs(conversation: Record<string, unknown> | undefined): number | null {
+  const inbound = conversation?.lastInboundAtMs
+  if (typeof inbound === "number" && Number.isFinite(inbound)) return inbound
+  const lastMessage = conversation?.lastMessageAtMs
+  return typeof lastMessage === "number" && Number.isFinite(lastMessage) ? lastMessage : null
 }

@@ -50,6 +50,14 @@ export type PreparedWhatsAppConversation = {
    */
   pendingIdentityClaim: PendingIdentityClaim | null
   /**
+   * An admin linked this number to an SVC person while the sender was not in
+   * the middle of a conversation, and the 24-hour customer-service window had
+   * already closed — so the one-time recognition confirmation could not be
+   * pushed and rides on this sender's next reply instead. See
+   * `lib/whatsapp-secretary/recognition-notice.ts`.
+   */
+  pendingRecognitionNotice: PendingRecognitionNotice | null
+  /**
    * Entities resolved on previous turns, re-seeded into this turn's resolver.
    *
    * Tool *results* were never persisted — only the final assistant text — so a
@@ -62,6 +70,12 @@ export type PreparedWhatsAppConversation = {
   resolvedEntities: ResolvedEntity[]
   /** Compact record of what the last turn retrieved, so the model can page rather than restart. */
   retrievals: ConversationRetrieval[]
+}
+
+/** A recognition confirmation waiting for the sender to write again. */
+export type PendingRecognitionNotice = {
+  /** When the link that earned the notice happened — kept for audit, never for expiry: a person who was recognized deserves to be told whenever they next appear. */
+  sinceMs: number
 }
 
 /** One tool call's compact trace, small enough to fold into the next prompt. */
@@ -182,6 +196,7 @@ function readOnboardingState(value: unknown): WhatsAppOnboardingState | null {
     ...(millis(state.firstSeenAtMs) ? { firstSeenAtMs: millis(state.firstSeenAtMs) as number } : {}),
     ...(millis(state.guideCompletedAtMs) ? { guideCompletedAtMs: millis(state.guideCompletedAtMs) as number } : {}),
     ...(millis(state.lastCapabilityNudgeAtMs) ? { lastCapabilityNudgeAtMs: millis(state.lastCapabilityNudgeAtMs) as number } : {}),
+    ...(millis(state.recognitionNoticeAtMs) ? { recognitionNoticeAtMs: millis(state.recognitionNoticeAtMs) as number } : {}),
     ...(suggested && suggested.length > 0 ? { suggestedCapabilities: suggested as WhatsAppOnboardingState["suggestedCapabilities"] } : {}),
   }
 }
@@ -243,6 +258,12 @@ function readRetrievals(value: unknown): ConversationRetrieval[] {
     .slice(-MAX_PERSISTED_RETRIEVALS)
 }
 
+function readPendingRecognitionNotice(value: unknown): PendingRecognitionNotice | null {
+  const record = asRecord(value)
+  const sinceMs = record ? millis(record.sinceMs) : null
+  return sinceMs ? { sinceMs } : null
+}
+
 /** Test seam: the write/read round trip is where a dropped field silently disables a rate limit. */
 export const readOnboardingStateForTests = readOnboardingState
 
@@ -274,6 +295,7 @@ export async function prepareWhatsAppConversation(input: {
     const onboarding = readOnboardingState(snapshot.data()?.onboarding)
     const pendingWrite = readPendingWrite(snapshot.data()?.pendingWrite)
     const pendingIdentityClaim = readPendingIdentityClaim(snapshot.data()?.pendingIdentityClaim)
+    const pendingRecognitionNotice = readPendingRecognitionNotice(snapshot.data()?.pendingRecognitionNotice)
     const resolvedEntities = readResolvedEntities(snapshot.data()?.resolvedEntities)
     const retrievals = readRetrievals(snapshot.data()?.retrievals)
     const existingReply = recentMessages.find(
@@ -288,6 +310,7 @@ export async function prepareWhatsAppConversation(input: {
         onboarding,
         pendingWrite,
         pendingIdentityClaim,
+        pendingRecognitionNotice,
         resolvedEntities,
         retrievals,
       }
@@ -324,6 +347,7 @@ export async function prepareWhatsAppConversation(input: {
       onboarding,
       pendingWrite,
       pendingIdentityClaim,
+      pendingRecognitionNotice,
       resolvedEntities,
       retrievals,
     }
@@ -381,6 +405,10 @@ export async function storeWhatsAppAssistantReply(input: {
         recentMessages: updatedMessages,
         updatedAtMs: Date.now(),
         ...(input.onboarding ? { onboarding: input.onboarding } : {}),
+        // Clearing the deferred notice is not a separate decision: the only
+        // way `recognitionNoticeAtMs` reaches this write is the reply itself
+        // carrying the confirmation, so both land or neither does.
+        ...(input.onboarding?.recognitionNoticeAtMs ? { pendingRecognitionNotice: null } : {}),
         ...(input.pendingWrite !== undefined ? { pendingWrite: input.pendingWrite } : {}),
         ...(input.pendingIdentityClaim !== undefined ? { pendingIdentityClaim: input.pendingIdentityClaim } : {}),
         ...(input.resolvedEntities ? { resolvedEntities: input.resolvedEntities.slice(-MAX_PERSISTED_ENTITIES) } : {}),
@@ -390,5 +418,87 @@ export async function storeWhatsAppAssistantReply(input: {
     )
 
     return input.reply
+  })
+}
+
+
+/**
+ * Reads only what the recognition confirmation needs to decide whether it may
+ * fire — deliberately not the whole conversation, because the caller (the
+ * Courtney Roberts Center link route) is not running a Secretary turn and has
+ * no business loading a sender's transcript to send one message.
+ */
+export async function getRecognitionNoticeStatus(senderPhoneNumber: string): Promise<{
+  noticedAtMs: number | null
+  pendingSinceMs: number | null
+}> {
+  const db = await getAdminDb()
+  const snapshot = await db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(senderPhoneNumber)).get()
+  const onboarding = readOnboardingState(snapshot.data()?.onboarding)
+  const pending = readPendingRecognitionNotice(snapshot.data()?.pendingRecognitionNotice)
+  return {
+    noticedAtMs: onboarding?.recognitionNoticeAtMs ?? null,
+    pendingSinceMs: pending?.sinceMs ?? null,
+  }
+}
+
+/**
+ * Records that the one-time recognition confirmation actually went out.
+ *
+ * It is written as an *introduction*, not just a flag: the short confirmation
+ * is what this person was told, so the ordinary intro machinery must consider
+ * them introduced and stay quiet. Without that, someone linked by an admin
+ * would get "got you, I recognize you now" and then, on their very next
+ * message, the full "Hi X — Courtney Roberts here" refresher.
+ *
+ * Existing onboarding fields are preserved rather than replaced, so a nudge
+ * rate limit or a completed guided tour survives being recognized.
+ */
+export async function markRecognitionNoticeSent(input: {
+  senderPhoneNumber: string
+  capabilitySignature: string
+  nowMs: number
+}): Promise<void> {
+  const db = await getAdminDb()
+  const conversationRef = db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(input.senderPhoneNumber))
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(conversationRef)
+    const existing = readOnboardingState(snapshot.data()?.onboarding)
+    transaction.set(
+      conversationRef,
+      {
+        onboarding: {
+          ...(existing ?? {}),
+          lastIntroAtMs: input.nowMs,
+          capabilitySignature: input.capabilitySignature,
+          recognitionNoticeAtMs: input.nowMs,
+        },
+        pendingRecognitionNotice: null,
+        updatedAtMs: input.nowMs,
+      },
+      { merge: true },
+    )
+  })
+}
+
+/**
+ * Defers the confirmation to the sender's next message — used when the
+ * 24-hour window has closed, or when the push itself failed. Never overwrites
+ * an earlier pending marker, so the recorded `sinceMs` stays the moment the
+ * person actually became recognized.
+ */
+export async function markRecognitionNoticePending(input: { senderPhoneNumber: string; nowMs: number }): Promise<void> {
+  const db = await getAdminDb()
+  const conversationRef = db.collection(CONVERSATIONS_COLLECTION).doc(conversationDocumentId(input.senderPhoneNumber))
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(conversationRef)
+    if (readPendingRecognitionNotice(snapshot.data()?.pendingRecognitionNotice)) return
+    transaction.set(
+      conversationRef,
+      { pendingRecognitionNotice: { sinceMs: input.nowMs }, updatedAtMs: input.nowMs },
+      { merge: true },
+    )
   })
 }

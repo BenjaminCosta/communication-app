@@ -74,6 +74,10 @@ async function appendMessage(input: {
         phoneNumber: input.senderPhoneNumber,
         messageCount,
         lastMessageAtMs: now,
+        // Tracked separately from `lastMessageAtMs` because it is what opens
+        // WhatsApp's 24-hour free-form window — an assistant reply, which is
+        // what usually moves `lastMessageAtMs`, does not.
+        ...(input.role === "user" ? { lastInboundAtMs: now } : {}),
         lastMessagePreview: preview(text),
         lastMessageRole: input.role,
         updatedAtMs: now,

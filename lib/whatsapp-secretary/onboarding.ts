@@ -51,6 +51,14 @@ export interface WhatsAppOnboardingState {
   suggestedCapabilities?: SecretaryModule[]
   /** Rate-limits progressive discovery, so capability hints stay occasional. */
   lastCapabilityNudgeAtMs?: number
+  /**
+   * When the one-time "got you, I recognize you now" confirmation went out —
+   * see `lib/whatsapp-secretary/recognition-notice.ts`. Its only job is to
+   * make that message unrepeatable: a number can be re-linked, re-resolved or
+   * re-introduced any number of times, and the person is still only ever told
+   * once that the Secretary started recognizing them.
+   */
+  recognitionNoticeAtMs?: number
 }
 
 export type IntroductionReason = "first-contact" | "capabilities-changed" | "refresher"

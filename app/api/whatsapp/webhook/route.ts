@@ -41,6 +41,8 @@ import { getSelfContextSnapshot as loadSelfContext } from "@/lib/whatsapp-secret
 import { getSelfContextSnapshot, selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
 import type { WhatsAppIdentityResolution, WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
+import { resolveRecognitionNotice } from "@/lib/whatsapp-secretary/recognition-notice"
+import type { PendingRecognitionNotice } from "@/lib/whatsapp-conversation-memory"
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 export const runtime = "nodejs"
@@ -149,8 +151,36 @@ async function resolveSecretaryIntroduction(input: {
   onboarding: WhatsAppOnboardingState | null
   isFirstInteraction: boolean
   message: string
+  /** An admin recognized this sender while they were away — see below. */
+  pendingRecognitionNotice: PendingRecognitionNotice | null
 }): Promise<ResolvedIntroduction> {
   if (!input.identity) return NO_INTRODUCTION
+
+  // A deferred recognition confirmation replaces the ordinary introduction
+  // rather than joining it. This sender was linked to their SVC person while
+  // the 24-hour window was closed, so the first thing they hear on coming back
+  // must be that they are now recognized — not a "refresher" about a person
+  // the Secretary has never once acknowledged them as.
+  if (input.pendingRecognitionNotice) {
+    try {
+      const notice = await resolveRecognitionNotice(input.identity)
+      const nowMs = Date.now()
+      console.info("Delivering a deferred WhatsApp recognition confirmation")
+      return {
+        apply: (reply) => addSecretaryIntroduction(reply, { standalone: notice.text, prefix: notice.text, message: input.message }),
+        onboarding: {
+          ...(input.onboarding ?? {}),
+          lastIntroAtMs: nowMs,
+          capabilitySignature: notice.capabilitySignature,
+          recognitionNoticeAtMs: nowMs,
+        },
+      }
+    } catch {
+      // Fall through to the ordinary introduction; the pending marker stays,
+      // so the confirmation is retried on the next message rather than lost.
+      console.warn("Unable to build the deferred WhatsApp recognition confirmation.")
+    }
+  }
 
   const signature = buildCapabilitySignature({
     level: input.accessPolicy.level,
@@ -173,7 +203,9 @@ async function resolveSecretaryIntroduction(input: {
     console.info("Introducing Courtney Roberts", { reason: decision.reason, newModuleCount: decision.newModules.length })
     return {
       apply: (reply) => addSecretaryIntroduction(reply, { standalone, prefix, message: input.message }),
-      onboarding: { lastIntroAtMs: Date.now(), capabilitySignature: signature },
+      // Spread rather than replace: the nudge rate limit, the completed guided
+      // tour and the recognition marker all live here and must survive an intro.
+      onboarding: { ...(input.onboarding ?? {}), lastIntroAtMs: Date.now(), capabilitySignature: signature },
     }
   } catch {
     // A personalized introduction that can't be grounded is simply skipped —
@@ -459,6 +491,7 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           onboarding: conversation.onboarding,
           isFirstInteraction: conversation.isFirstInteraction,
           message: message.text,
+          pendingRecognitionNotice: conversation.pendingRecognitionNotice,
         })
         // The sender's whole message was the email that just linked them, so
         // there is nothing to answer — feeding it to the model would have it
