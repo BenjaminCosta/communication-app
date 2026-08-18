@@ -52,6 +52,7 @@ interface ByeByeDprScreenProps {
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
   onSwitchToQuestCoral: () => void
+  onCourtneyRobertsCenter?: () => void
 }
 
 function timeStringToToday(time: string): Date {
@@ -115,6 +116,7 @@ export function ByeByeDprScreen({
   onSwitchToDirectory,
   onSwitchToApplications,
   onSwitchToQuestCoral,
+  onCourtneyRobertsCenter,
 }: ByeByeDprScreenProps) {
   const [screen, setScreen] = useState<Screen>("home")
   const [clockOutConfirmOpen, setClockOutConfirmOpen] = useState(false)
@@ -286,6 +288,7 @@ export function ByeByeDprScreen({
           onSwitchToDirectory={onSwitchToDirectory}
           onSwitchToApplications={onSwitchToApplications}
           onSwitchToQuestCoral={onSwitchToQuestCoral}
+          onCourtneyRobertsCenter={onCourtneyRobertsCenter}
         />
 
         <ClockOutConfirmSheet

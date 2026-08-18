@@ -60,6 +60,7 @@ interface QuestCoralScreenProps {
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
   onSwitchToByeByeDpr: () => void
+  onCourtneyRobertsCenter?: () => void
 }
 
 function formatShortDate(iso: string): string {
@@ -193,6 +194,7 @@ export function QuestCoralScreen({
   onSwitchToDirectory,
   onSwitchToApplications,
   onSwitchToByeByeDpr,
+  onCourtneyRobertsCenter,
 }: QuestCoralScreenProps) {
   const { currentUserId, projects, updates, feedbackReplies, contexts, visibleProjects, counts, filters, setFilters, createProject, deleteProject, patchProject, unreadCountFor } = dashboard
   const [showAbout, setShowAbout] = useState(false)
@@ -318,11 +320,13 @@ export function QuestCoralScreen({
       <header className="quest-coral-topbar app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
         <ModuleSwitcher
           activeModule="quest-coral"
+          showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
           onSelect={(module) => {
             if (module === "communications") onSwitchToStream()
             if (module === "directory") onSwitchToDirectory()
             if (module === "applications") onSwitchToApplications()
             if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
+            if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
           }}
         />
         <div className="flex items-center gap-2">

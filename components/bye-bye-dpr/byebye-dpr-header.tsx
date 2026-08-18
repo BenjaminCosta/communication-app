@@ -20,6 +20,7 @@ interface ByeByeDprHeaderProps {
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
   onSwitchToQuestCoral: () => void
+  onCourtneyRobertsCenter?: () => void
 }
 
 export function ByeByeDprHeader({
@@ -28,16 +29,19 @@ export function ByeByeDprHeader({
   onSwitchToDirectory,
   onSwitchToApplications,
   onSwitchToQuestCoral,
+  onCourtneyRobertsCenter,
 }: ByeByeDprHeaderProps) {
   return (
     <header className="byebye-dpr-topbar app-topbar flex shrink-0 items-center justify-between border-b px-4">
       <ModuleSwitcher
         activeModule="bye-bye-dpr"
+        showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
         onSelect={(module) => {
           if (module === "communications") onSwitchToStream()
           if (module === "directory") onSwitchToDirectory()
           if (module === "applications") onSwitchToApplications()
           if (module === "quest-coral") onSwitchToQuestCoral()
+          if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
         }}
       />
       <button

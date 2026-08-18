@@ -106,6 +106,7 @@ interface StreamScreenProps {
   onApplications: () => void
   onQuestCoral: () => void
   onByeByeDpr: () => void
+  onCourtneyRobertsCenter?: () => void
   onCopyMessage: (text: string) => void
   contexts?: AppContext[]
   onSendMessage: (draft: MessageDraft) => Promise<void>
@@ -154,6 +155,7 @@ export function StreamScreen({
   onApplications,
   onQuestCoral,
   onByeByeDpr,
+  onCourtneyRobertsCenter,
   onCopyMessage,
   contexts = [],
   onSendMessage,
@@ -501,11 +503,13 @@ export function StreamScreen({
       <div className="glass-panel flex-shrink-0 px-4 app-topbar flex items-center justify-between border-b animate-slide-down">
         <ModuleSwitcher
           activeModule="communications"
+          showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
           onSelect={(module) => {
             if (module === "directory") onDirectory()
             if (module === "applications") onApplications()
             if (module === "quest-coral") onQuestCoral()
             if (module === "bye-bye-dpr") onByeByeDpr()
+            if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
           }}
         />
         <div className="flex items-center gap-2">

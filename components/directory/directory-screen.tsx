@@ -32,6 +32,7 @@ interface DirectoryScreenProps {
   onSwitchToApplications: () => void
   onSwitchToQuestCoral: () => void
   onSwitchToByeByeDpr: () => void
+  onCourtneyRobertsCenter?: () => void
   className?: string
 }
 
@@ -45,6 +46,7 @@ export function DirectoryScreen({
   onSwitchToApplications,
   onSwitchToQuestCoral,
   onSwitchToByeByeDpr,
+  onCourtneyRobertsCenter,
   className,
 }: DirectoryScreenProps) {
   const [draftQuery, setDraftQuery] = useState("")
@@ -236,11 +238,13 @@ export function DirectoryScreen({
       <header className="glass-panel app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
         <ModuleSwitcher
           activeModule="directory"
+          showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
           onSelect={(module) => {
             if (module === "communications") onSwitchToStream()
             if (module === "applications") onSwitchToApplications()
             if (module === "quest-coral") onSwitchToQuestCoral()
             if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
+            if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
           }}
         />
         <button

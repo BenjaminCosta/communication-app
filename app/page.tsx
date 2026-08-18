@@ -2075,6 +2075,7 @@ export default function Home() {
               onSwitchToApplications={goToApplications}
               onSwitchToQuestCoral={goToQuestCoral}
               onSwitchToByeByeDpr={goToByeByeDpr}
+              onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
             />
             {activeScreen === "directory-detail" && selectedDirectoryId && (
               <DirectoryProfileScreen
@@ -2114,6 +2115,7 @@ export default function Home() {
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToQuestCoral={goToQuestCoral}
             onSwitchToByeByeDpr={goToByeByeDpr}
+            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
             onPreviewCandidateFlow={handlePreviewCandidateFlow}
           />
           {activeScreen === "application-detail" && selectedApplication && (
@@ -2156,6 +2158,7 @@ export default function Home() {
             onSwitchToDirectory={goToDirectoryFromStream}
             onSwitchToApplications={goToApplications}
             onSwitchToByeByeDpr={goToByeByeDpr}
+            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
           />
           {activeScreen === "quest-coral-detail" && selectedQuestCoralProject && selectedQuestCoralCoverage && (
             <QuestCoralProjectDetailScreen
@@ -2187,6 +2190,7 @@ export default function Home() {
           onSwitchToDirectory={goToDirectoryFromStream}
           onSwitchToApplications={goToApplications}
           onSwitchToQuestCoral={goToQuestCoral}
+          onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
         />
       )}
 
@@ -2256,6 +2260,7 @@ export default function Home() {
             onApplications={goToApplications}
             onQuestCoral={goToQuestCoral}
             onByeByeDpr={goToByeByeDpr}
+            onCourtneyRobertsCenter={currentUser?.isAdmin ? goToCourtneyRobertsCenter : undefined}
             onCopyMessage={handleCopyMessage}
             onSendMessage={handleSend}
             onCreateProject={handleCreateProject}

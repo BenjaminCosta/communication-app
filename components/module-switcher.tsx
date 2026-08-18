@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { BookUser, Check, ChevronDown, ClipboardCheck, Clock, FolderKanban, MessageCircle, X } from "lucide-react"
+import { BookUser, Check, ChevronDown, ClipboardCheck, Clock, FolderKanban, MessageCircle, MessagesSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type SvcModule = "communications" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr"
+export type SvcModule = "communications" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr" | "courtney-roberts-center"
 
 interface ModuleSwitcherProps {
   activeModule: SvcModule
   onSelect: (module: SvcModule) => void
+  /** Admin-only entry — omitted from the list entirely unless the viewer is approved. */
+  showCourtneyRobertsCenter?: boolean
 }
 
 const MODULES: Array<{
@@ -24,6 +26,8 @@ const MODULES: Array<{
   /** Accent for the header trigger. Defaults to `accent` — light modules
       override it so the label keeps its contrast on a white surface. */
   labelAccent?: string
+  /** Filtered out of the list entirely unless the caller opts in — see `showCourtneyRobertsCenter`. */
+  adminOnly?: boolean
 }> = [
   {
     id: "communications",
@@ -80,10 +84,25 @@ const MODULES: Array<{
     border: "rgba(167,139,250,0.42)",
     labelAccent: "#5C4BB8",
   },
+  {
+    // Reuses the app's existing --progress green identity (see
+    // app/globals.css's .glass-pill-crc-active), not a new hue.
+    id: "courtney-roberts-center",
+    title: "Courtney Roberts Center",
+    description: "WhatsApp conversation history",
+    productLabel: "Courtney Roberts Center",
+    icon: MessagesSquare,
+    accent: "#4ADE80",
+    surface: "rgba(34,197,94,0.14)",
+    border: "rgba(74,222,128,0.42)",
+    labelAccent: "#16A34A",
+    adminOnly: true,
+  },
 ]
 
-export function ModuleSwitcher({ activeModule, onSelect }: ModuleSwitcherProps) {
+export function ModuleSwitcher({ activeModule, onSelect, showCourtneyRobertsCenter }: ModuleSwitcherProps) {
   const [open, setOpen] = useState(false)
+  const visibleModules = MODULES.filter((module) => !module.adminOnly || showCourtneyRobertsCenter)
 
   useEffect(() => {
     if (!open) return
@@ -153,7 +172,7 @@ export function ModuleSwitcher({ activeModule, onSelect }: ModuleSwitcherProps) 
             </header>
 
             <div className="flex flex-col divide-y divide-white/[0.06]">
-              {MODULES.map((module) => {
+              {visibleModules.map((module) => {
                 const selected = module.id === activeModule
                 const Icon = module.icon
                 return (

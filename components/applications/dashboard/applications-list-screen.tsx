@@ -78,6 +78,7 @@ interface ApplicationsListScreenProps {
   onSwitchToDirectory: () => void
   onSwitchToQuestCoral: () => void
   onSwitchToByeByeDpr: () => void
+  onCourtneyRobertsCenter?: () => void
   onPreviewCandidateFlow: (token: string) => void
 }
 
@@ -89,6 +90,7 @@ export function ApplicationsListScreen({
   onSwitchToDirectory,
   onSwitchToQuestCoral,
   onSwitchToByeByeDpr,
+  onCourtneyRobertsCenter,
   onPreviewCandidateFlow,
 }: ApplicationsListScreenProps) {
   const { visibleApplications, counts, filters, setFilters, sort, setSort, jobs, trades } = dashboard
@@ -108,11 +110,13 @@ export function ApplicationsListScreen({
       <header className="applications-topbar app-topbar flex shrink-0 items-center justify-between border-b px-4 animate-slide-down">
         <ModuleSwitcher
           activeModule="applications"
+          showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
           onSelect={(module) => {
             if (module === "communications") onSwitchToStream()
             if (module === "directory") onSwitchToDirectory()
             if (module === "quest-coral") onSwitchToQuestCoral()
             if (module === "bye-bye-dpr") onSwitchToByeByeDpr()
+            if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
           }}
         />
         <div className="flex items-center gap-2">

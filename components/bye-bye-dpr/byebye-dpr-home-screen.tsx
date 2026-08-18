@@ -53,6 +53,7 @@ interface ByeByeDprHomeScreenProps {
   onSwitchToDirectory: () => void
   onSwitchToApplications: () => void
   onSwitchToQuestCoral: () => void
+  onCourtneyRobertsCenter?: () => void
 }
 
 /** Splits "Clocked out yesterday at 4:18 PM" into ["Clocked out yesterday", "4:18 PM"]
@@ -83,6 +84,7 @@ export function ByeByeDprHomeScreen({
   onSwitchToDirectory,
   onSwitchToApplications,
   onSwitchToQuestCoral,
+  onCourtneyRobertsCenter,
 }: ByeByeDprHomeScreenProps) {
   const clockedIn = status === "clocked_in"
   const [activityLine1, activityLine2] = recentActivity[0] ? splitActivityLabel(recentActivity[0]) : [null, null]
@@ -95,6 +97,7 @@ export function ByeByeDprHomeScreen({
         onSwitchToDirectory={onSwitchToDirectory}
         onSwitchToApplications={onSwitchToApplications}
         onSwitchToQuestCoral={onSwitchToQuestCoral}
+        onCourtneyRobertsCenter={onCourtneyRobertsCenter}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
