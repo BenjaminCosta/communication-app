@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { normalizePhoneDigits } from "@/lib/phone-normalization"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import type { CourtneyRobertsCenterIdentityStatus } from "./types"
 
@@ -12,12 +11,6 @@ import type { CourtneyRobertsCenterIdentityStatus } from "./types"
  */
 export function hashWhatsAppPhoneNumber(phoneNumber: string): string {
   return createHash("sha256").update(phoneNumber).digest("hex")
-}
-
-/** Last 4 normalized digits — a low-sensitivity reference an admin can eyeball, never the full number. */
-export function phoneReference(phoneNumber: string): string {
-  const digits = normalizePhoneDigits(phoneNumber)
-  return digits.length >= 4 ? digits.slice(-4) : digits
 }
 
 export type CourtneyRobertsCenterIdentitySnapshot = {

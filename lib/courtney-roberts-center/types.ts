@@ -42,8 +42,8 @@ export type CourtneyRobertsCenterConversationSummary = {
   /** Mirrors `WhatsAppSenderIdentity.resolvedVia` — informational only. */
   resolvedVia?: "explicit" | "fallback"
   phoneHash: string
-  /** Last 4 normalized digits — enough for an admin to recognize a thread without storing the full number in the open. */
-  phoneLast4?: string
+  /** The sender's WhatsApp number as WhatsApp delivered it (digits, no formatting). Shown in full — this admin tool is restricted to approved admins specifically so they can identify and reach out to the sender. */
+  phoneNumber: string
   messageCount: number
   lastMessageAtMs: number
   lastMessagePreview: string

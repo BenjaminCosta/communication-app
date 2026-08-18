@@ -1899,7 +1899,6 @@ export default function Home() {
           onSecretaryAi={goToSecretaryAi}
           isAdmin={currentUser?.isAdmin === true}
           onAdmin={goToAdmin}
-          onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
           onHelp={goToHelp}
         />
       )}

@@ -83,7 +83,7 @@ export function CourtneyRobertsCenterScreen({
     const byFilter = filter === "all" ? list : list.filter((c) => c.identityStatus === filter)
     const q = query.trim().toLowerCase()
     if (!q) return byFilter
-    return byFilter.filter((c) => c.displayName.toLowerCase().includes(q) || (c.phoneLast4 ?? "").includes(q))
+    return byFilter.filter((c) => c.displayName.toLowerCase().includes(q) || c.phoneNumber.includes(q))
   }, [conversations, filter, query])
 
   const isLoading = conversations === null
@@ -202,16 +202,21 @@ function ConversationRow({
           {conversation.lastMessageRole === "assistant" && <span className="text-muted-foreground/50">Courtney: </span>}
           {conversation.lastMessagePreview || "No messages yet"}
         </p>
-        <span
-          className={cn(
-            "inline-flex mt-1.5 items-center rounded-full px-2 py-0.5 text-[10px] font-medium border",
-            conversation.identityStatus === "internal"
-              ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
-              : "border-white/15 text-muted-foreground/60 bg-white/5",
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border",
+              conversation.identityStatus === "internal"
+                ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                : "border-white/15 text-muted-foreground/60 bg-white/5",
+            )}
+          >
+            {conversation.identityStatus === "internal" ? "Internal" : "Public"}
+          </span>
+          {conversation.phoneNumber && (
+            <span className="text-[10px] text-muted-foreground/50 font-mono truncate">+{conversation.phoneNumber}</span>
           )}
-        >
-          {conversation.identityStatus === "internal" ? "Internal" : "Public"}
-        </span>
+        </div>
       </div>
       <span className="text-[11px] text-muted-foreground/50 shrink-0 self-start pt-0.5">
         {formatTimestamp(conversation.lastMessageAtMs)}

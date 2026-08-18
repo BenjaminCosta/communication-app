@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle, Bot, MessagesSquare } from "lucide-react"
+import { ArrowLeft, LogOut, Mail, Bell, ChevronRight, Activity, Download, HelpCircle, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { usePwaInstall } from "@/components/use-pwa-install"
 
@@ -18,12 +18,11 @@ interface ProfileScreenProps {
   onSecretaryAi: () => void
   isAdmin?: boolean
   onAdmin?: () => void
-  onCourtneyRobertsCenter?: () => void
   onHelp?: () => void
   className?: string
 }
 
-export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onSecretaryAi, isAdmin, onAdmin, onCourtneyRobertsCenter, onHelp, className }: ProfileScreenProps) {
+export function ProfileScreen({ userName, userEmail, userInitials, userColor, projectCount, messageCount, onBack, onSignOut, onNotifications, onSecretaryAi, isAdmin, onAdmin, onHelp, className }: ProfileScreenProps) {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const { openInstall, status: pwaInstallStatus } = usePwaInstall()
   return (
@@ -83,14 +82,6 @@ export function ProfileScreen({ userName, userEmail, userInitials, userColor, pr
             icon={<Activity className="w-4 h-4 text-primary" />}
             label="Activity Monitor"
             onClick={onAdmin}
-            badge="Admin"
-          />
-        )}
-        {isAdmin && onCourtneyRobertsCenter && (
-          <SettingsRow
-            icon={<MessagesSquare className="w-4 h-4 text-emerald-400" />}
-            label="Courtney Roberts Center"
-            onClick={onCourtneyRobertsCenter}
             badge="Admin"
           />
         )}

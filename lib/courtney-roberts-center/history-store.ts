@@ -2,7 +2,7 @@ import type { Firestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import type { WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
-import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity, phoneReference } from "./identity"
+import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity } from "./identity"
 import type { CourtneyRobertsCenterAttachmentMetadata, CourtneyRobertsCenterMessageRole } from "./types"
 
 export const CRC_CONVERSATIONS_COLLECTION = "courtneyRobertsCenterConversations"
@@ -63,7 +63,7 @@ async function appendMessage(input: {
       {
         ...snapshot,
         phoneHash: conversationId,
-        phoneLast4: phoneReference(input.senderPhoneNumber),
+        phoneNumber: input.senderPhoneNumber,
         messageCount,
         lastMessageAtMs: now,
         lastMessagePreview: preview(text),

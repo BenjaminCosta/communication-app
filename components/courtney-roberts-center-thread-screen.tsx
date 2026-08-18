@@ -77,9 +77,9 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
               </div>
               <div className="flex-1 min-w-0">
                 <h1 className="text-sm font-bold tracking-tight truncate">{conversation.displayName}</h1>
-                <p className="text-[11px] text-muted-foreground/60">
+                <p className="text-[11px] text-muted-foreground/60 font-mono">
                   {conversation.identityStatus === "internal" ? "Internal" : "Public"}
-                  {conversation.phoneLast4 ? ` · •••${conversation.phoneLast4}` : ""}
+                  {conversation.phoneNumber ? ` · +${conversation.phoneNumber}` : ""}
                 </p>
               </div>
             </>

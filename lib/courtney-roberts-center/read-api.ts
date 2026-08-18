@@ -37,7 +37,7 @@ function toConversationSummary(id: string, data: unknown): CourtneyRobertsCenter
     ...(typeof record.resolvedPersonId === "string" && record.resolvedPersonId ? { resolvedPersonId: record.resolvedPersonId } : {}),
     ...(record.resolvedVia === "explicit" || record.resolvedVia === "fallback" ? { resolvedVia: record.resolvedVia } : {}),
     phoneHash: typeof record.phoneHash === "string" && record.phoneHash ? record.phoneHash : id,
-    ...(typeof record.phoneLast4 === "string" && record.phoneLast4 ? { phoneLast4: record.phoneLast4 } : {}),
+    phoneNumber: typeof record.phoneNumber === "string" ? record.phoneNumber : "",
     messageCount: typeof record.messageCount === "number" ? record.messageCount : 0,
     lastMessageAtMs,
     lastMessagePreview: typeof record.lastMessagePreview === "string" ? record.lastMessagePreview : "",

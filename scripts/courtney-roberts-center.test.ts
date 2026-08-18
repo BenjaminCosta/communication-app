@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createHash } from "node:crypto"
-import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity, phoneReference } from "../lib/courtney-roberts-center/identity"
+import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity } from "../lib/courtney-roberts-center/identity"
 import {
   isApprovedCourtneyRobertsCenterAdminEmailForTests,
   parseCourtneyRobertsCenterAdminEmailsForTests,
@@ -12,15 +12,6 @@ import type { WhatsAppSenderIdentity } from "../lib/whatsapp-svc-identity"
 test("hashWhatsAppPhoneNumber matches the sha256(phone) convention lib/whatsapp-conversation-memory.ts uses", () => {
   const phone = "15551234567"
   assert.equal(hashWhatsAppPhoneNumber(phone), createHash("sha256").update(phone).digest("hex"))
-})
-
-test("phoneReference keeps only the last 4 normalized digits", () => {
-  assert.equal(phoneReference("+1 (555) 123-4567"), "4567")
-  assert.equal(phoneReference("5491122334455"), "4455")
-})
-
-test("phoneReference falls back to whatever digits exist for a too-short number", () => {
-  assert.equal(phoneReference("123"), "123")
 })
 
 test("identitySnapshotFromSenderIdentity: unresolved sender is public with a placeholder name", () => {
@@ -77,6 +68,7 @@ test("toConversationSummaryForTests: defaults a malformed/legacy doc rather than
   assert.equal(summary?.displayName, "Unknown sender")
   assert.equal(summary?.identityStatus, "public")
   assert.equal(summary?.phoneHash, "abc123")
+  assert.equal(summary?.phoneNumber, "")
   assert.equal(summary?.messageCount, 0)
 })
 
@@ -88,7 +80,7 @@ test("toConversationSummaryForTests: reads a well-formed internal conversation d
     resolvedPersonId: "contact-1",
     resolvedVia: "explicit",
     phoneHash: "abc123",
-    phoneLast4: "4567",
+    phoneNumber: "15551234567",
     messageCount: 3,
     lastMessageAtMs: 1000,
     lastMessagePreview: "Hello",
@@ -104,7 +96,7 @@ test("toConversationSummaryForTests: reads a well-formed internal conversation d
     resolvedPersonId: "contact-1",
     resolvedVia: "explicit",
     phoneHash: "abc123",
-    phoneLast4: "4567",
+    phoneNumber: "15551234567",
     messageCount: 3,
     lastMessageAtMs: 1000,
     lastMessagePreview: "Hello",
