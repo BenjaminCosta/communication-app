@@ -61,6 +61,7 @@ import {
   listGeocodedDirectoryJobs,
   resolveDirectoryJob,
 } from "@/lib/bye-bye-dpr-directory-link"
+import { parseDirectoryId } from "@/lib/directory-core"
 import { computeVisibleToUserIds, type AutomaticMessageSourceModule } from "@/lib/store"
 import { structureDailyReportDraft } from "@/features/bye-bye-dpr/ai/server/daily-report-structuring-service"
 import { transcribeReportAudio as transcribeReportAudioAi } from "@/features/bye-bye-dpr/ai/server/transcription-service"
@@ -359,7 +360,12 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
 
   const visibleToUserIds = computeVisibleToUserIds(input.authorUid, recipientIds)
   const tagAssociation = await resolveByeByeDprMessageTagAssociation(db, input.event)
-  const contextIds = input.job.directoryContextId ? [input.job.directoryContextId] : []
+  // message.contextIds holds raw /contexts doc ids (see lib/store.ts), unlike
+  // job.directoryContextId which is the prefixed "job__<id>" composite id
+  // Directory's derived layer uses — strip the prefix or the Comms UI's
+  // `contexts.find((c) => c.id === id)` lookup silently never matches.
+  const parsedJobContext = input.job.directoryContextId ? parseDirectoryId(input.job.directoryContextId) : null
+  const contextIds = parsedJobContext ? [parsedJobContext.sourceId] : []
 
   const msgData = {
     authorId: input.authorUid,
