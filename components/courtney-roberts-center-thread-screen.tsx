@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, Lock, MessageCircleOff, Paperclip } from "lucide-react"
+import { ArrowLeft, Check, Copy, Lock, MessageCircleOff, Paperclip } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { fetchCourtneyRobertsCenterThread, CourtneyRobertsCenterClientError } from "@/lib/courtney-roberts-center/client"
@@ -26,16 +26,63 @@ function formatMessageTimestamp(ms: number): string {
   return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${time}`
 }
 
+/** Plain-text export of the full thread — readable on its own, no app-specific markup. */
+function buildConversationTranscript(conversation: CourtneyRobertsCenterConversationSummary, messages: CourtneyRobertsCenterMessage[]): string {
+  const header = `Courtney Roberts Center — ${conversation.displayName}\n${
+    conversation.identityStatus === "internal" ? "Internal" : "Public"
+  }${conversation.phoneNumber ? ` · +${conversation.phoneNumber}` : ""}\n`
+
+  const lines = messages.map((message) => {
+    const who = message.role === "assistant" ? "Courtney" : conversation.displayName
+    const when = new Date(message.createdAtMs).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+    const attachments = message.attachments?.length
+      ? `\n${message.attachments.map((attachment) => `  [attachment: ${attachment.filename ?? attachment.kind}]`).join("\n")}`
+      : ""
+    return `[${when}] ${who}: ${message.text}${attachments}`
+  })
+
+  return `${header}\n${lines.join("\n")}`
+}
+
+/** Same clipboard-write + textarea fallback as `handleCopyMessage` in app/page.tsx. */
+function copyToClipboard(text: string): void {
+  const fallback = () => {
+    try {
+      const el = document.createElement("textarea")
+      el.value = text
+      el.style.cssText = "position:fixed;opacity:0;pointer-events:none"
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand("copy")
+      document.body.removeChild(el)
+    } catch {
+      /* best-effort */
+    }
+  }
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(fallback)
+  } else {
+    fallback()
+  }
+}
+
 export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, className }: CourtneyRobertsCenterThreadScreenProps) {
   const [data, setData] = useState<ThreadData | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setData(null)
     setErrorStatus(null)
     setErrorMessage(null)
+    setCopied(false)
     fetchCourtneyRobertsCenterThread(conversationId, { limit: THREAD_PAGE_SIZE })
       .then((page) => {
         if (!cancelled) setData({ conversation: page.conversation, messages: page.messages })
@@ -53,6 +100,13 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
   const isLoading = !data && !errorMessage
   const isDenied = errorStatus === 401 || errorStatus === 403
   const conversation = data?.conversation
+
+  const handleCopy = () => {
+    if (!data) return
+    copyToClipboard(buildConversationTranscript(data.conversation, data.messages))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
 
   return (
     <div className={cn("flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
@@ -85,6 +139,20 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
             </>
           ) : (
             <h1 className="text-base font-bold tracking-tight">Conversation</h1>
+          )}
+          {data && (
+            <button
+              onClick={handleCopy}
+              aria-label="Copy conversation"
+              className={cn(
+                "w-9 h-9 rounded-full border flex items-center justify-center active:scale-95 transition-all duration-150 shrink-0",
+                copied
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                  : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/8",
+              )}
+            >
+              {copied ? <Check className="w-4 h-4" strokeWidth={2.5} /> : <Copy className="w-4 h-4" strokeWidth={1.8} />}
+            </button>
           )}
         </div>
       </div>
