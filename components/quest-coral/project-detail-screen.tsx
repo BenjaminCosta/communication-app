@@ -1243,7 +1243,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
       <button
         type="button"
         onClick={() => setAddOpen(true)}
-        className="quest-coral-primary-button quest-coral-tap absolute bottom-[max(calc(var(--sab)+2rem),12dvh)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-white"
+        className="quest-coral-primary-button quest-coral-tap absolute bottom-[max(calc(var(--sab)+2rem),6dvh)] right-4 z-10 flex h-12 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-white"
       >
         <Plus className="h-4.5 w-4.5" strokeWidth={2.4} />
         Add
