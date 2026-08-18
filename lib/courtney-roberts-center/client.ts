@@ -78,3 +78,24 @@ export async function fetchCourtneyRobertsCenterThread(
     "Unable to load this conversation.",
   )
 }
+
+export type CourtneyRobertsCenterLinkResult = {
+  identityStatus: CourtneyRobertsCenterConversationSummary["identityStatus"]
+  displayName: string
+  resolvedUserId?: string
+  resolvedPersonId?: string
+}
+
+/** Manually links this conversation's WhatsApp number to an SVC account. */
+export async function linkCourtneyRobertsCenterConversation(
+  conversationId: string,
+  email: string,
+): Promise<CourtneyRobertsCenterLinkResult> {
+  const response = await fetch(`/api/courtney-roberts-center/conversations/${encodeURIComponent(conversationId)}/link`, {
+    method: "POST",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  if (!response.ok) await readError(response, "Unable to link this conversation.")
+  return (await response.json()) as CourtneyRobertsCenterLinkResult
+}

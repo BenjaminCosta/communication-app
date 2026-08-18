@@ -1,12 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createHash } from "node:crypto"
-import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity } from "../lib/courtney-roberts-center/identity"
+import { hashWhatsAppPhoneNumber, identitySnapshotFromSenderIdentity, identitySnapshotWriteFields, reconcileIdentitySnapshot } from "../lib/courtney-roberts-center/identity"
 import {
   isApprovedCourtneyRobertsCenterAdminEmailForTests,
   parseCourtneyRobertsCenterAdminEmailsForTests,
 } from "../lib/courtney-roberts-center/access"
 import { toConversationSummaryForTests, toMessageForTests } from "../lib/courtney-roberts-center/read-api"
+import { CourtneyRobertsCenterLinkError, normalizeLinkEmail } from "../lib/courtney-roberts-center/link-identity"
 import type { WhatsAppSenderIdentity } from "../lib/whatsapp-svc-identity"
 
 test("hashWhatsAppPhoneNumber matches the sha256(phone) convention lib/whatsapp-conversation-memory.ts uses", () => {
@@ -148,4 +149,95 @@ test("toMessageForTests: drops an attachment entry with no recognizable kind", (
     attachments: [{ kind: "video" }],
   })
   assert.deepEqual(message, { id: "assistant:wamid.2", role: "assistant", text: "ok", createdAtMs: 3 })
+})
+
+// ── Admin manual identity linking ──────────────────────────────────────────
+
+test("normalizeLinkEmail accepts a single well-formed address and lower-cases it", () => {
+  assert.equal(normalizeLinkEmail("  Joe@SuperVisionCompany.com "), "joe@supervisioncompany.com")
+})
+
+test("normalizeLinkEmail rejects anything that is not exactly one address", () => {
+  for (const value of ["", "   ", "not-an-email", "joe@", "@supervisioncompany.com", "joe@svc", "a@b.com c@d.com", null, 42]) {
+    assert.throws(() => normalizeLinkEmail(value), CourtneyRobertsCenterLinkError, JSON.stringify(value))
+  }
+})
+
+test("a link failure carries the HTTP status the route should return", () => {
+  try {
+    normalizeLinkEmail("nope")
+    assert.fail("should have thrown")
+  } catch (error) {
+    assert.ok(error instanceof CourtneyRobertsCenterLinkError)
+    assert.equal(error.status, 400)
+  }
+})
+
+// ── The Center must follow identity in the direction it really moves ───────
+
+test("a claimed or admin-linked sender flips the thread from public to internal", () => {
+  const snapshot = reconcileIdentitySnapshot(
+    { identityStatus: "public", displayName: "Unknown sender" },
+    { identityStatus: "internal", displayName: "Joe Haddad", resolvedUserId: "user-joe", resolvedPersonId: "contact-joe", resolvedVia: "explicit" },
+  )
+
+  assert.equal(snapshot.identityStatus, "internal")
+  assert.equal(snapshot.displayName, "Joe Haddad")
+  assert.equal(snapshot.resolvedUserId, "user-joe")
+})
+
+test("a failed resolution never downgrades an already-identified thread back to Unknown sender", () => {
+  const existing = {
+    identityStatus: "internal" as const,
+    displayName: "Joe Haddad",
+    resolvedUserId: "user-joe",
+    resolvedPersonId: "contact-joe",
+    resolvedVia: "explicit" as const,
+  }
+  const snapshot = reconcileIdentitySnapshot(existing, { identityStatus: "public", displayName: "Unknown sender" })
+
+  assert.deepEqual(snapshot, existing)
+})
+
+test("re-linking a number to a different person is reflected immediately", () => {
+  const snapshot = reconcileIdentitySnapshot(
+    { identityStatus: "internal", displayName: "Joe Haddad", resolvedUserId: "user-joe" },
+    { identityStatus: "internal", displayName: "Mary Ruiz", resolvedUserId: "user-mary", resolvedPersonId: "contact-mary" },
+  )
+
+  assert.equal(snapshot.displayName, "Mary Ruiz")
+  assert.equal(snapshot.resolvedUserId, "user-mary")
+  // The previous person's ids must not survive as merge leftovers.
+  assert.equal(snapshot.resolvedPersonId, "contact-mary")
+})
+
+test("a brand-new conversation with no prior document takes the incoming snapshot as-is", () => {
+  const incoming = { identityStatus: "public" as const, displayName: "Unknown sender" }
+  assert.deepEqual(reconcileIdentitySnapshot(undefined, incoming), incoming)
+  assert.deepEqual(reconcileIdentitySnapshot(null, incoming), incoming)
+})
+
+test("a malformed prior document (internal with no name) is not preserved over a fresh snapshot", () => {
+  const incoming = { identityStatus: "public" as const, displayName: "Unknown sender" }
+  assert.deepEqual(reconcileIdentitySnapshot({ identityStatus: "internal" }, incoming), incoming)
+})
+
+test("identitySnapshotWriteFields always writes every key, so a merge cannot leave the previous person's ids behind", () => {
+  assert.deepEqual(identitySnapshotWriteFields({ identityStatus: "public", displayName: "Unknown sender" }), {
+    identityStatus: "public",
+    displayName: "Unknown sender",
+    resolvedUserId: null,
+    resolvedPersonId: null,
+    resolvedVia: null,
+  })
+  assert.deepEqual(
+    identitySnapshotWriteFields({ identityStatus: "internal", displayName: "Directory Only", resolvedPersonId: "contact-x" }),
+    {
+      identityStatus: "internal",
+      displayName: "Directory Only",
+      resolvedUserId: null,
+      resolvedPersonId: "contact-x",
+      resolvedVia: null,
+    },
+  )
 })

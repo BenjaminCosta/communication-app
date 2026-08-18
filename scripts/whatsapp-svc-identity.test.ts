@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   classifyWhatsAppIdentityMatches,
+  mergeLinkedContactIntoIdentity,
   resolveWhatsAppIdentityFromMatches,
   type WhatsAppIdentityDocument,
   type WhatsAppIdentityMatchSet,
@@ -251,4 +252,121 @@ test("classify: a resolved identity carries resolvedVia", () => {
   const result = classifyWhatsAppIdentityMatches(matches)
   assert.equal(result.status, "resolved")
   assert.equal(result.status === "resolved" && result.identity.resolvedVia, "fallback")
+})
+
+// ── The claim loop regression (2026-08-18) ──────────────────────────────────
+// Observed in production on a real Courtney Roberts conversation: the sender
+// was asked for their SVC email, gave it, was told the number was linked —
+// and the very next message asked for the email again, forever. The link
+// wrote /users.whatsappPhoneNormalized into the SAME tier as the
+// /users.phoneNormalized docs that caused the ambiguity, so it could never
+// break the tie. A deliberate WhatsApp link is now strictly stronger.
+
+test("a deliberate WhatsApp link resolves a number that two registered profile phones would otherwise leave ambiguous", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    // Two employees registered the same office number — a genuine tie at the
+    // registered-phone tier, and exactly what the claim flow exists to settle.
+    usersByPhone: [userDoc("user-a", "Account A"), userDoc("user-b", "Account B")],
+    // ...then one of them claimed it over WhatsApp.
+    usersByWhatsApp: [userDoc("user-a", "Account A")],
+  }
+
+  const result = classifyWhatsAppIdentityMatches(matches)
+  assert.equal(result.status, "resolved")
+  assert.equal(result.status === "resolved" && result.identity.userId, "user-a")
+  assert.equal(result.status === "resolved" && result.identity.resolvedTier, "whatsapp-link")
+})
+
+test("without the WhatsApp link, two registered profile phones are still correctly ambiguous", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    usersByPhone: [userDoc("user-a", "Account A"), userDoc("user-b", "Account B")],
+  }
+
+  assert.deepEqual(classifyWhatsAppIdentityMatches(matches), { status: "ambiguous" })
+})
+
+test("an admin-linked /contacts WhatsApp number also outranks a conflicting registered-phone tier", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    contactsByWhatsApp: [contactDoc("contact-linked", "Real Owner", { linkedUserId: "user-owner" })],
+    usersByPhone: [userDoc("user-a", "Account A"), userDoc("user-b", "Account B")],
+  }
+
+  const result = classifyWhatsAppIdentityMatches(matches)
+  assert.equal(result.status === "resolved" && result.identity.userId, "user-owner")
+})
+
+test("a registered profile phone still outranks Directory contact data underneath it", () => {
+  const matches: WhatsAppIdentityMatchSet = {
+    ...emptyMatches(),
+    usersByPhone: [userDoc("user-registered", "Registered Person")],
+    contactsByPhone: [contactDoc("a", "Someone", {}), contactDoc("b", "Someone Else", {})],
+  }
+
+  const result = classifyWhatsAppIdentityMatches(matches)
+  assert.equal(result.status === "resolved" && result.identity.userId, "user-registered")
+  assert.equal(result.status === "resolved" && result.identity.resolvedTier, "registered-phone")
+})
+
+test("the three tiers report the coarse resolvedVia bucket that persisted data and the self-heal branch key off", () => {
+  const linked = classifyWhatsAppIdentityMatches({ ...emptyMatches(), usersByWhatsApp: [userDoc("u", "U")] })
+  const registered = classifyWhatsAppIdentityMatches({ ...emptyMatches(), usersByPhone: [userDoc("u", "U")] })
+  const directory = classifyWhatsAppIdentityMatches({ ...emptyMatches(), contactsByPhone: [contactDoc("c", "C", {})] })
+
+  assert.equal(linked.status === "resolved" && linked.identity.resolvedVia, "explicit")
+  assert.equal(registered.status === "resolved" && registered.identity.resolvedVia, "explicit")
+  assert.equal(directory.status === "resolved" && directory.identity.resolvedVia, "fallback")
+})
+
+// ── Following a registered account back to its Directory record ─────────────
+// A /users-only match carries personId "user:<uid>", which every Directory-side
+// read treats as "no contact" — so the strongest tiers produced the emptiest
+// self-context ("Directory profile: none linked" for someone who has one).
+
+test("a /users-only identity adopts the single Directory contact that links back to it", () => {
+  const identity = mergeLinkedContactIntoIdentity(
+    { personId: "user:user-1", userId: "user-1", name: "Benja Costa", resolvedVia: "explicit" },
+    [contactDoc("contact-benja", "Benja Costa", { linkedUserId: "user-1", role: "Project Manager" })],
+  )
+
+  assert.equal(identity.personId, "contact-benja")
+  assert.equal(identity.linkedContactId, "contact-benja")
+  // A role Directory knows and the account doesn't fills the gap.
+  assert.equal(identity.role, "Project Manager")
+})
+
+test("the registered account's own name and role stay authoritative over Directory's", () => {
+  const identity = mergeLinkedContactIntoIdentity(
+    { personId: "user:user-1", userId: "user-1", name: "Benja Costa", role: "Owner", resolvedVia: "explicit" },
+    [contactDoc("contact-benja", "B. Costa (old import)", { linkedUserId: "user-1", role: "Laborer" })],
+  )
+
+  assert.equal(identity.name, "Benja Costa")
+  assert.equal(identity.role, "Owner")
+  assert.equal(identity.personId, "contact-benja")
+})
+
+test("two contacts claiming the same account is declined, never guessed", () => {
+  const original = { personId: "user:user-1", userId: "user-1", name: "Benja Costa", resolvedVia: "explicit" as const }
+  const identity = mergeLinkedContactIntoIdentity(original, [
+    contactDoc("contact-a", "Benja Costa", { linkedUserId: "user-1" }),
+    contactDoc("contact-b", "Benja C", { linkedUserId: "user-1" }),
+  ])
+
+  assert.deepEqual(identity, original)
+})
+
+test("an identity that already resolved through a Directory contact is left exactly as it is", () => {
+  const original = { personId: "contact-existing", userId: "user-1", name: "Benja Costa", resolvedVia: "fallback" as const }
+  assert.deepEqual(mergeLinkedContactIntoIdentity(original, [contactDoc("contact-other", "Other", { linkedUserId: "user-1" })]), original)
+})
+
+test("a private linked contact is not adopted, matching the resolver's own exclusion", () => {
+  const original = { personId: "user:user-1", userId: "user-1", name: "Benja Costa", resolvedVia: "explicit" as const }
+  assert.deepEqual(
+    mergeLinkedContactIntoIdentity(original, [contactDoc("contact-private", "Hidden", { linkedUserId: "user-1", visibility: "private" })]),
+    original,
+  )
 })

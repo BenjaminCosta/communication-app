@@ -69,6 +69,36 @@ export function addCapabilityHint(reply: WhatsAppOutgoingReply, hint: string): W
   }
 }
 
+/**
+ * Composes this turn's identity notices onto an already-generated reply:
+ * a `prefix` confirming a WhatsApp number was just linked to an SVC account,
+ * and/or a `suffix` inviting an unrecognized sender to enroll.
+ *
+ * Kept next to {@link addCapabilityHint} and {@link addSecretaryIntroduction}
+ * because it shares their two obligations — never overflow the CTA body cap,
+ * and keep a native presentation's `body` identical to the persisted text.
+ * The notices are dropped rather than truncated when they would not fit: a
+ * half-sentence about identity is worse than none, and the state change they
+ * describe has already happened server-side either way.
+ */
+export function addIdentityNotice(
+  reply: WhatsAppOutgoingReply,
+  input: { prefix?: string; suffix?: string },
+): WhatsAppOutgoingReply {
+  const parts = [input.prefix, reply.text, input.suffix].filter((part): part is string => Boolean(part))
+  if (parts.length === 1) return reply
+
+  const text = parts.join("\n\n")
+  // A native list's rows are the answer; padding its body with notices risks
+  // pushing it past the cap and stranding the selection UI.
+  if (text.length > MAX_CTA_BODY_CHARACTERS || reply.presentation?.kind === "list") return reply
+  return {
+    ...reply,
+    text,
+    ...(reply.presentation ? { presentation: { ...reply.presentation, body: text } } : {}),
+  }
+}
+
 /** The persisted assistant text plus the optional native WhatsApp rendering. */
 export type WhatsAppOutgoingReply = {
   text: string

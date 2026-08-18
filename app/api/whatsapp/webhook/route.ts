@@ -11,15 +11,23 @@ import { buildToolRegistry, enabledSecretaryModules, type SecretaryModule, type 
 import { createEntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerEntityLookups } from "@/lib/whatsapp-secretary/tools/entity-lookups"
 import { DEFAULT_TOOL_FACTORIES } from "@/lib/whatsapp-secretary/orchestrator"
-import { backfillUserPhoneFromInboundWhatsApp, resolveWhatsAppSenderIdentityDetailed } from "@/lib/whatsapp-svc-identity"
-import { createFirestoreIdentityClaimProvider, resolveIdentityClaim } from "@/lib/whatsapp-identity-claim"
+import { backfillUserPhoneFromInboundWhatsApp, resolveWhatsAppSenderIdentityDetailed, withLinkedDirectoryContact } from "@/lib/whatsapp-svc-identity"
+import {
+  createFirestoreIdentityClaimProvider,
+  IDENTITY_LINKED_READY_REPLY,
+  isIdentityEmailOnlyMessage,
+  resolveIdentityClaim,
+  shouldOfferIdentityEnrollment,
+  UNRECOGNIZED_IDENTITY_OFFER,
+  type PendingIdentityClaim,
+} from "@/lib/whatsapp-identity-claim"
 import { answerWhatsAppSecretaryQuestionWithPresentation } from "@/lib/whatsapp-secretary/orchestrator"
 import { markWhatsAppMessageRead, sendWhatsAppReply, sendWhatsAppText } from "@/lib/whatsapp-cloud-api"
 import {
   recordCourtneyRobertsCenterAssistantReply,
   recordCourtneyRobertsCenterInboundMessage,
 } from "@/lib/courtney-roberts-center/history-store"
-import { addCapabilityHint, addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
+import { addCapabilityHint, addIdentityNotice, addSecretaryIntroduction, type WhatsAppOutgoingReply } from "@/lib/whatsapp-response-ux"
 import { buildGuidedTourReply, isShowMeAroundRequest } from "@/lib/whatsapp-secretary/guided-tour"
 import { buildCapabilityNudge } from "@/lib/whatsapp-secretary/onboarding"
 import {
@@ -32,7 +40,7 @@ import {
 import { getSelfContextSnapshot as loadSelfContext } from "@/lib/whatsapp-secretary/self-context"
 import { getSelfContextSnapshot, selfContextActorFromIdentity } from "@/lib/whatsapp-secretary/self-context"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
-import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
+import type { WhatsAppIdentityResolution, WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 export const runtime = "nodejs"
@@ -251,6 +259,99 @@ async function resolveLegacyDraftCommand(input: {
 }
 
 
+/**
+ * One turn of identity enrollment, decided before anything else runs.
+ *
+ * Only two of the three resolution statuses ever reach the claim flow, and
+ * they are deliberately handled differently:
+ *
+ * - **ambiguous** — blocking. The Secretary genuinely cannot act until it
+ *   knows which of the matching people is writing.
+ * - **not_found** — non-blocking. The sender may be an outsider with a public
+ *   question, so their answer still goes out; the enrollment offer rides
+ *   alongside it (once per TTL, not on every reply). Before this existed, an
+ *   unrecognized SVC employee hit a dead end — "ask your SVC admin" — with no
+ *   way to act on it from WhatsApp.
+ *
+ * A successful link does NOT end the turn. The claimed identity is returned
+ * and the normal flow continues with it, so the sender's original question is
+ * answered immediately instead of being thrown away with a "send it again".
+ */
+type IdentityEnrollment =
+  /** Nothing else happens this turn; `reply` is the whole answer. */
+  | { kind: "blocked"; reply: string; pendingClaim: PendingIdentityClaim }
+  /** Continue the normal flow with `identity` (possibly null = public). */
+  | {
+      kind: "proceed"
+      identity: WhatsAppSenderIdentity | null
+      /** `undefined` leaves the stored claim untouched; `null` clears it. */
+      pendingIdentityClaimUpdate?: PendingIdentityClaim | null
+      /** Confirmation prefixed onto whatever this turn ends up answering. */
+      linkConfirmation?: string
+      /** Enrollment invitation appended to a public answer. */
+      enrollmentOffer?: string
+      /** The link was the whole point of this message — there is no question
+       * to carry forward, so the caller answers deterministically. */
+      linkOnlyTurn?: boolean
+    }
+
+async function resolveIdentityEnrollment(input: {
+  identityResult: WhatsAppIdentityResolution
+  text: string
+  pendingClaim: PendingIdentityClaim | null
+  senderPhoneNumber: string
+}): Promise<IdentityEnrollment> {
+  const nowMs = Date.now()
+
+  if (input.identityResult.status === "resolved") {
+    // A stale claim prompt (data changed since it was asked, e.g. an admin
+    // cleaned up the duplicate contacts) should not linger once resolution
+    // stops being ambiguous.
+    return {
+      kind: "proceed",
+      identity: input.identityResult.identity,
+      ...(input.pendingClaim ? { pendingIdentityClaimUpdate: null } : {}),
+    }
+  }
+
+  const mode = input.identityResult.status === "ambiguous" ? "ambiguous" : "unrecognized"
+  const claimOutcome = await resolveIdentityClaim({
+    text: input.text,
+    pendingClaim: input.pendingClaim,
+    senderPhoneNumber: input.senderPhoneNumber,
+    provider: createFirestoreIdentityClaimProvider(),
+    mode,
+    nowMs,
+  })
+
+  if (claimOutcome.kind === "linked") {
+    console.info("WhatsApp identity claim linked a number to an SVC account", { userId: claimOutcome.identity.userId, mode })
+    return {
+      kind: "proceed",
+      // The claim itself can only produce a `user:<uid>` identity; resolving
+      // its Directory contact here means the very first answer after linking
+      // already has the sender's jobs, companies and profile behind it.
+      identity: await withLinkedDirectoryContact(claimOutcome.identity),
+      pendingIdentityClaimUpdate: null,
+      linkConfirmation: claimOutcome.reply,
+      ...(isIdentityEmailOnlyMessage(input.text) ? { linkOnlyTurn: true } : {}),
+    }
+  }
+
+  if (claimOutcome.kind === "skipped") {
+    const offer = shouldOfferIdentityEnrollment(input.pendingClaim, nowMs)
+    return {
+      kind: "proceed",
+      identity: null,
+      // Recording the offer is what rate-limits it: an outsider asking three
+      // public questions in a row is invited once, not three times.
+      ...(offer ? { enrollmentOffer: UNRECOGNIZED_IDENTITY_OFFER, pendingIdentityClaimUpdate: { askedAtMs: nowMs } } : {}),
+    }
+  }
+
+  return { kind: "blocked", reply: claimOutcome.reply, pendingClaim: claimOutcome.pendingClaim }
+}
+
 /** Maps this turn's tool names back to their modules, for the capability nudge. */
 function modulesUsed(retrievals: Array<{ toolName: string }>): SecretaryModule[] {
   const modules = new Set<SecretaryModule>()
@@ -288,13 +389,27 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           hasRole: identityResult.status === "resolved" && Boolean(identityResult.identity.role),
           linkedToUser: identityResult.status === "resolved" && Boolean(identityResult.identity.userId),
           resolvedVia: identityResult.status === "resolved" ? identityResult.identity.resolvedVia : undefined,
+          resolvedTier: identityResult.status === "resolved" ? identityResult.identity.resolvedTier : undefined,
+        })
+
+        // Identity enrollment runs before anything else. It can end the turn
+        // outright (a blocking question), or hand back an identity — including
+        // one it just linked this very turn — for the normal flow to answer as.
+        const enrollment = await resolveIdentityEnrollment({
+          identityResult,
+          text: message.text,
+          pendingClaim: conversation.pendingIdentityClaim,
+          senderPhoneNumber: message.senderPhoneNumber,
         })
 
         // Durable Courtney Roberts Center history — separate from the
         // Secretary's own bounded conversation memory above. Best-effort
         // (errors are logged and swallowed inside the recorder itself), so a
-        // failure here can never affect the Secretary's actual reply.
-        const durableIdentity = identityResult.status === "resolved" ? identityResult.identity : null
+        // failure here can never affect the Secretary's actual reply. Recorded
+        // after enrollment so a number linked on THIS turn is attributed to the
+        // person from their very first message, rather than staying "Unknown
+        // sender" in the Center for the message that identified them.
+        const durableIdentity = enrollment.kind === "proceed" ? enrollment.identity : null
         await recordCourtneyRobertsCenterInboundMessage({
           senderPhoneNumber: message.senderPhoneNumber,
           messageId: message.messageId,
@@ -302,27 +417,12 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           identity: durableIdentity,
         })
 
-        // A GENUINE ambiguity (2+ real SVC identities could own this number)
-        // gets a clarifying question instead of silently falling back to
-        // public — see lib/whatsapp-identity-claim.ts. A plain "not found"
-        // does not: that goes straight to the normal public flow below, same
-        // as always.
-        if (identityResult.status === "ambiguous") {
-          const claimOutcome = await resolveIdentityClaim({
-            text: message.text,
-            pendingClaim: conversation.pendingIdentityClaim,
-            senderPhoneNumber: message.senderPhoneNumber,
-            provider: createFirestoreIdentityClaimProvider(),
-          })
-          if (claimOutcome.kind === "linked") {
-            console.info("WhatsApp identity claim linked a number to an SVC account", { userId: claimOutcome.identity.userId })
-          }
+        if (enrollment.kind === "blocked") {
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: { text: claimOutcome.reply },
-            // "linked" clears it (resolved); "asked"/"not-matched" (re)store it.
-            pendingIdentityClaim: claimOutcome.kind === "linked" ? null : claimOutcome.pendingClaim,
+            reply: { text: enrollment.reply },
+            pendingIdentityClaim: enrollment.pendingClaim,
           })
           await recordCourtneyRobertsCenterAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
@@ -331,7 +431,7 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
             reply,
           })
         } else {
-        const senderIdentity = identityResult.status === "resolved" ? identityResult.identity : null
+        const senderIdentity = enrollment.identity
         // Self-healing: a fallback-tier resolution just proved this number
         // belongs to exactly one registered user. Recording it directly on
         // /users moves future messages onto the strongest (explicit) tier
@@ -340,10 +440,16 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
         if (senderIdentity?.resolvedVia === "fallback" && senderIdentity.userId) {
           await backfillUserPhoneFromInboundWhatsApp(senderIdentity.userId, message.senderPhoneNumber)
         }
-        // A stale claim prompt (data changed since it was asked, e.g. an
-        // admin cleaned up the duplicate contacts) should not linger once
-        // resolution stops being ambiguous.
-        const clearedPendingIdentityClaim = conversation.pendingIdentityClaim ? { pendingIdentityClaim: null as null } : {}
+        const pendingIdentityClaimUpdate =
+          enrollment.pendingIdentityClaimUpdate !== undefined ? { pendingIdentityClaim: enrollment.pendingIdentityClaimUpdate } : {}
+        // Composed onto whichever branch below produces this turn's reply, so
+        // "I linked your number" and the enrollment invitation attach to a
+        // real answer instead of replacing one.
+        const applyIdentityNotice = (outgoing: WhatsAppOutgoingReply): WhatsAppOutgoingReply =>
+          addIdentityNotice(outgoing, {
+            ...(enrollment.linkConfirmation ? { prefix: enrollment.linkConfirmation } : {}),
+            ...(enrollment.enrollmentOffer ? { suffix: enrollment.enrollmentOffer } : {}),
+          })
         const accessPolicy = resolveWhatsAppAccessPolicy(senderIdentity)
         // Resolved once per turn, before either branch, so the Daily Report
         // draft flow and the AI answer introduce identically.
@@ -354,19 +460,34 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           isFirstInteraction: conversation.isFirstInteraction,
           message: message.text,
         })
-        // "Show me around" is answered deterministically, before the model:
-        // the tour's whole value is that its rows are runnable, and a
-        // paraphrased list of rows is not.
-        if (senderIdentity && isShowMeAroundRequest(message.text)) {
+        // The sender's whole message was the email that just linked them, so
+        // there is nothing to answer — feeding it to the model would have it
+        // reply to an email address. The confirmation and (on a first contact)
+        // the personalized introduction are the answer.
+        if (senderIdentity && enrollment.linkOnlyTurn) {
+          reply = await storeWhatsAppAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            reply: applyIdentityNotice(introduction.apply({ text: IDENTITY_LINKED_READY_REPLY })),
+            ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
+            ...pendingIdentityClaimUpdate,
+          })
+          await recordCourtneyRobertsCenterAssistantReply({
+            senderPhoneNumber: message.senderPhoneNumber,
+            replyToMessageId: message.messageId,
+            identity: senderIdentity,
+            reply,
+          })
+        } else if (senderIdentity && isShowMeAroundRequest(message.text)) {
           const snapshot = await loadSelfContext(selfContextActorFromIdentity(senderIdentity))
           const tour = buildGuidedTourReply(snapshot, enabledSecretaryModules(accessPolicy))
           const priorOnboarding = introduction.onboarding ?? conversation.onboarding
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: introduction.apply(tour),
+            reply: applyIdentityNotice(introduction.apply(tour)),
             ...(priorOnboarding ? { onboarding: { ...priorOnboarding, guideCompletedAtMs: Date.now() } } : {}),
-            ...clearedPendingIdentityClaim,
+            ...pendingIdentityClaimUpdate,
           })
           await recordCourtneyRobertsCenterAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
@@ -402,11 +523,11 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: introduction.apply({ text: writeOutcome.reply }),
+            reply: applyIdentityNotice(introduction.apply({ text: writeOutcome.reply })),
             ...(introduction.onboarding ? { onboarding: introduction.onboarding } : {}),
             // Always clears: confirmed, cancelled and expired all end the preview.
             pendingWrite: null,
-            ...clearedPendingIdentityClaim,
+            ...pendingIdentityClaimUpdate,
           })
           await recordCourtneyRobertsCenterAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
@@ -457,11 +578,11 @@ async function getReplyForIncomingMessage(message: IncomingWhatsAppMessage): Pro
           reply = await storeWhatsAppAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,
             replyToMessageId: message.messageId,
-            reply: nudge ? addCapabilityHint(introduction.apply(outgoing), nudge.line) : introduction.apply(outgoing),
+            reply: applyIdentityNotice(nudge ? addCapabilityHint(introduction.apply(outgoing), nudge.line) : introduction.apply(outgoing)),
             ...(nudgedOnboarding ? { onboarding: nudgedOnboarding } : {}),
             ...(pendingWrite ? { pendingWrite } : {}),
             ...(memory ? { resolvedEntities: memory.resolvedEntities, retrievals: memory.retrievals } : {}),
-            ...clearedPendingIdentityClaim,
+            ...pendingIdentityClaimUpdate,
           })
           await recordCourtneyRobertsCenterAssistantReply({
             senderPhoneNumber: message.senderPhoneNumber,

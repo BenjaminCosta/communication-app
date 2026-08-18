@@ -10,18 +10,31 @@ export type WhatsAppSenderIdentity = {
   name: string
   role?: string
   /**
-   * How this identity was resolved. `"explicit"` means a deliberate WhatsApp
-   * link (`/users.whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`)
-   * or the account holder's own registered profile phone
-   * (`/users.phoneNormalized`) — the strongest source of truth. `"fallback"`
-   * means it was only found via a Directory contact's general
-   * `phoneNormalized`, which can be imported/unverified data and, per person,
-   * duplicated across several contact records. Purely informational (used for
-   * logging); never changes what the sender is authorized to do. Optional —
-   * absent on identities built by hand (tests, other call sites) rather than
-   * by {@link resolveWhatsAppSenderIdentity} itself.
+   * Coarse trust bucket, kept as a stable two-value contract because it is
+   * persisted (Courtney Roberts Center conversation docs) and drives the
+   * self-heal branch in the webhook. `"explicit"` covers the two strong tiers
+   * (a deliberate WhatsApp link, or the account holder's own registered
+   * profile phone); `"fallback"` means it was only found via a Directory
+   * contact's general `phoneNormalized`, which can be imported/unverified
+   * data and, per person, duplicated across several contact records. Purely
+   * informational; never changes what the sender is authorized to do.
+   * Optional — absent on identities built by hand (tests, other call sites)
+   * rather than by {@link resolveWhatsAppSenderIdentity} itself.
    */
   resolvedVia?: "explicit" | "fallback"
+  /**
+   * Which of the three tiers actually matched — see
+   * {@link classifyWhatsAppIdentityMatches}. Strictly for logging and audit
+   * output; {@link resolvedVia} remains the field anything else keys off.
+   */
+  resolvedTier?: IdentityTier
+  /**
+   * `/contacts` id found by following this identity's `userId` back through
+   * `linkedUserId`, when the tier that matched only produced a `/users` doc.
+   * Set by {@link resolveWhatsAppSenderIdentityDetailed}, never by the pure
+   * classifier — see {@link mergeLinkedContactIntoIdentity}.
+   */
+  linkedContactId?: string
 }
 
 /** A raw Firestore-shaped document, decoupled from the Admin SDK's own
@@ -58,7 +71,7 @@ function cleanText(value: unknown): string | null {
   return text || null
 }
 
-function contactIdentityFromDocument(id: string, data: unknown): Omit<WhatsAppSenderIdentity, "resolvedVia"> | null {
+function contactIdentityFromDocument(id: string, data: unknown): Omit<WhatsAppSenderIdentity, "resolvedVia" | "resolvedTier"> | null {
   const contact = asRecord(data)
   if (!contact || contact.visibility === "private") return null
 
@@ -77,7 +90,7 @@ function contactIdentityFromDocument(id: string, data: unknown): Omit<WhatsAppSe
   }
 }
 
-function userIdentityFromDocument(userId: string, data: unknown): Omit<WhatsAppSenderIdentity, "resolvedVia"> | null {
+function userIdentityFromDocument(userId: string, data: unknown): Omit<WhatsAppSenderIdentity, "resolvedVia" | "resolvedTier"> | null {
   const user = asRecord(data)
   const name = cleanText(user?.name)
   if (!name) return null
@@ -91,27 +104,47 @@ function userIdentityFromDocument(userId: string, data: unknown): Omit<WhatsAppS
   }
 }
 
+/**
+ * The three trust tiers, strongest first.
+ *
+ * `"whatsapp-link"` exists as its own tier — above `"registered-phone"` —
+ * specifically so the identity-claim flow (`lib/whatsapp-identity-claim.ts`)
+ * can always break a tie. Before this split, a claim wrote
+ * `/users.whatsappPhoneNormalized` into the SAME tier as the
+ * `/users.phoneNormalized` docs that caused the ambiguity, so linking could
+ * not resolve it: the next message re-resolved as ambiguous and the Secretary
+ * asked for the email again, forever. A deliberate WhatsApp link is now the
+ * single strongest statement about who owns a number, which makes claiming
+ * self-terminating by construction.
+ */
+export type IdentityTier = "whatsapp-link" | "registered-phone" | "directory-phone"
+
+/** Coarse bucket persisted as {@link WhatsAppSenderIdentity.resolvedVia}. */
+function trustBucketForTier(tier: IdentityTier): "explicit" | "fallback" {
+  return tier === "directory-phone" ? "fallback" : "explicit"
+}
+
 /** One matched document, tagged with the trust tier its query implies. */
 type IdentityCandidate = {
-  tier: "explicit" | "fallback"
+  tier: IdentityTier
   /** Real-identity grouping key: `user:{uid}` when the match is tied to a
    * registered account (directly, or via a contact's `linkedUserId`),
    * otherwise `person:{contactId}` — an identity Firestore has no way to
    * confirm is a real, singular person. */
   key: string
-  identity: Omit<WhatsAppSenderIdentity, "resolvedVia">
+  identity: Omit<WhatsAppSenderIdentity, "resolvedVia" | "resolvedTier">
 }
 
-function candidateFromContactDoc(tier: "explicit" | "fallback", doc: WhatsAppIdentityDocument): IdentityCandidate | null {
+function candidateFromContactDoc(tier: IdentityTier, doc: WhatsAppIdentityDocument): IdentityCandidate | null {
   const identity = contactIdentityFromDocument(doc.id, doc.data)
   if (!identity) return null
   return { tier, key: identity.userId ? `user:${identity.userId}` : `person:${identity.personId}`, identity }
 }
 
-function candidateFromUserDoc(doc: WhatsAppIdentityDocument): IdentityCandidate | null {
+function candidateFromUserDoc(tier: IdentityTier, doc: WhatsAppIdentityDocument): IdentityCandidate | null {
   const identity = userIdentityFromDocument(doc.id, doc.data)
   if (!identity) return null
-  return { tier: "explicit", key: `user:${identity.userId}`, identity }
+  return { tier, key: `user:${identity.userId}`, identity }
 }
 
 /** Merges same-key candidates (e.g. a `/users` doc match and its linked
@@ -181,41 +214,60 @@ export type WhatsAppIdentityResolution =
 
 /**
  * Pure resolution algorithm — no Firestore, fully unit-testable. Takes every
- * document each query matched and applies the two-tier, unique-real-identity
- * rule described on {@link resolveTier}.
+ * document each query matched and applies the unique-real-identity rule of
+ * {@link resolveTier} to each {@link IdentityTier} in turn, strongest first:
  *
- * `/users`/explicit-WhatsApp-link matches (`explicit` tier) are the strongest
- * source of truth and are tried first. Directory contact `phoneNormalized`
- * matches (`fallback` tier) are consulted ONLY when the explicit tier found
- * nothing at all — never to break an explicit-tier ambiguity, and never
- * blended with explicit-tier data. A conflict at the trusted tier (two
- * different accounts both explicitly claim the number) must stay
- * unresolved rather than be quietly overridden by a weaker signal.
+ * 1. **`whatsapp-link`** — `/users.whatsappPhoneNormalized` or
+ *    `/contacts.whatsappPhoneNormalized`. Someone (an admin, or the sender
+ *    themselves through the claim flow) deliberately stated that this number
+ *    belongs to this person.
+ * 2. **`registered-phone`** — `/users.phoneNormalized`, the account holder's
+ *    own registered profile phone. Strong, but self-reported at signup and
+ *    genuinely duplicable (several employees can register one office number).
+ * 3. **`directory-phone`** — `/contacts.phoneNormalized`, general
+ *    imported/unverified Directory data.
+ *
+ * A weaker tier is consulted ONLY when every stronger one found nothing at
+ * all — never to break a stronger tier's ambiguity, and never blended with
+ * it. A conflict within a tier (two different accounts both claiming the
+ * number at the same strength) stays unresolved rather than being quietly
+ * overridden by a weaker signal.
+ *
+ * The tier-1/tier-2 split is what makes {@link resolveIdentityClaim}'s link
+ * actually stick: writing `whatsappPhoneNormalized` now lands strictly above
+ * whatever caused the ambiguity, so the very next message resolves.
  */
 export function classifyWhatsAppIdentityMatches(matches: WhatsAppIdentityMatchSet): WhatsAppIdentityResolution {
-  const explicit = [
-    ...matches.contactsByWhatsApp.map((doc) => candidateFromContactDoc("explicit", doc)),
-    ...matches.usersByPhone.map((doc) => candidateFromUserDoc(doc)),
-    ...matches.usersByWhatsApp.map((doc) => candidateFromUserDoc(doc)),
-  ].filter((c): c is IdentityCandidate => c !== null)
+  const tiers: Array<{ tier: IdentityTier; candidates: IdentityCandidate[] }> = [
+    {
+      tier: "whatsapp-link",
+      candidates: [
+        ...matches.contactsByWhatsApp.map((doc) => candidateFromContactDoc("whatsapp-link", doc)),
+        ...matches.usersByWhatsApp.map((doc) => candidateFromUserDoc("whatsapp-link", doc)),
+      ].filter((c): c is IdentityCandidate => c !== null),
+    },
+    {
+      tier: "registered-phone",
+      candidates: matches.usersByPhone.map((doc) => candidateFromUserDoc("registered-phone", doc)).filter((c): c is IdentityCandidate => c !== null),
+    },
+    {
+      tier: "directory-phone",
+      candidates: matches.contactsByPhone.map((doc) => candidateFromContactDoc("directory-phone", doc)).filter((c): c is IdentityCandidate => c !== null),
+    },
+  ]
 
-  const explicitResult = resolveTier(explicit)
-  if (explicitResult.status === "resolved") {
-    return { status: "resolved", identity: { ...explicitResult.candidate.identity, resolvedVia: "explicit" } }
-  }
-  if (explicitResult.status === "ambiguous") {
-    console.warn("WhatsApp sender identity was ambiguous at the explicit (verified) tier", { matchCount: explicitResult.matchCount })
-    return { status: "ambiguous" }
-  }
-
-  const fallback = matches.contactsByPhone.map((doc) => candidateFromContactDoc("fallback", doc)).filter((c): c is IdentityCandidate => c !== null)
-  const fallbackResult = resolveTier(fallback)
-  if (fallbackResult.status === "resolved") {
-    return { status: "resolved", identity: { ...fallbackResult.candidate.identity, resolvedVia: "fallback" } }
-  }
-  if (fallbackResult.status === "ambiguous") {
-    console.warn("WhatsApp sender identity was ambiguous at the fallback (Directory) tier", { matchCount: fallbackResult.matchCount })
-    return { status: "ambiguous" }
+  for (const { tier, candidates } of tiers) {
+    const result = resolveTier(candidates)
+    if (result.status === "resolved") {
+      return {
+        status: "resolved",
+        identity: { ...result.candidate.identity, resolvedVia: trustBucketForTier(tier), resolvedTier: tier },
+      }
+    }
+    if (result.status === "ambiguous") {
+      console.warn("WhatsApp sender identity was ambiguous", { tier, matchCount: result.matchCount })
+      return { status: "ambiguous" }
+    }
   }
   return { status: "not_found" }
 }
@@ -245,6 +297,51 @@ async function fetchWhatsAppIdentityMatchSet(candidates: string[]): Promise<What
 }
 
 /**
+ * Follows a resolved account back to its Directory record.
+ *
+ * The phone queries above are one-directional: `/contacts.linkedUserId`
+ * points at `/users`, never the reverse. So an identity that matched only a
+ * `/users` document carried `personId: "user:<uid>"`, and every Directory-side
+ * read keyed off that personId came back empty — `contactIdFromPersonId()` in
+ * `lib/whatsapp-secretary/self-context.ts` returns null for it. The result was
+ * backwards: the STRONGEST tiers produced the POOREST context ("Directory
+ * profile: none linked" for someone with a perfectly good Directory record,
+ * simply because their contact's phone was stored differently or not at all).
+ *
+ * Pure so the "exactly one, and only when we don't already have a contact"
+ * rule is unit-testable. Ambiguity is declined, never guessed: two contacts
+ * claiming the same `linkedUserId` leave the identity exactly as it was.
+ */
+export function mergeLinkedContactIntoIdentity(identity: WhatsAppSenderIdentity, contactDocs: WhatsAppIdentityDocument[]): WhatsAppSenderIdentity {
+  if (!identity.personId.startsWith("user:")) return identity
+
+  const usable = contactDocs
+    .map((doc) => contactIdentityFromDocument(doc.id, doc.data))
+    .filter((contact): contact is NonNullable<typeof contact> => contact !== null)
+  if (usable.length !== 1) return identity
+
+  const contact = usable[0]
+  return {
+    ...identity,
+    // The Directory record becomes the person identifier, which is what every
+    // Directory-side read needs. The registered account's own name stays
+    // authoritative — it is what this person typed about themselves — while a
+    // role only Directory knows is filled in rather than left blank.
+    personId: contact.personId,
+    linkedContactId: contact.personId,
+    role: identity.role ?? contact.role,
+  }
+}
+
+/** Reads the `/contacts` docs pointing back at a registered account. Bounded
+ * at 2 because anything past "exactly one" is declined anyway. */
+async function fetchContactsLinkedToUser(userId: string): Promise<WhatsAppIdentityDocument[]> {
+  const db = await getAdminDb()
+  const snapshot = await db.collection("contacts").where("linkedUserId", "==", userId).limit(2).get()
+  return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
+}
+
+/**
  * Resolves the tri-state outcome for an inbound WhatsApp sender. It
  * intentionally never reads messages, Directory projections, or private
  * contact fields. A query failure fails closed as `"not_found"` — the same
@@ -254,11 +351,29 @@ export async function resolveWhatsAppSenderIdentityDetailed(phoneNumber: string)
   const candidates = phoneLookupCandidates(phoneNumber)
   if (candidates.length === 0) return { status: "not_found" }
 
+  let resolution: WhatsAppIdentityResolution
   try {
-    return classifyWhatsAppIdentityMatches(await fetchWhatsAppIdentityMatchSet(candidates))
+    resolution = classifyWhatsAppIdentityMatches(await fetchWhatsAppIdentityMatchSet(candidates))
   } catch {
     console.error("Unable to resolve WhatsApp sender identity.")
     return { status: "not_found" }
+  }
+
+  return resolution.status === "resolved" ? { status: "resolved", identity: await withLinkedDirectoryContact(resolution.identity) } : resolution
+}
+
+/**
+ * Best-effort Directory enrichment for an already-resolved identity. A
+ * failure degrades to the un-enriched identity — the sender is still
+ * recognized, they just keep the thinner `user:<uid>` person id for this turn.
+ */
+export async function withLinkedDirectoryContact(identity: WhatsAppSenderIdentity): Promise<WhatsAppSenderIdentity> {
+  if (!identity.userId || !identity.personId.startsWith("user:")) return identity
+  try {
+    return mergeLinkedContactIntoIdentity(identity, await fetchContactsLinkedToUser(identity.userId))
+  } catch {
+    console.warn("Unable to look up the Directory contact linked to a resolved WhatsApp identity.")
+    return identity
   }
 }
 

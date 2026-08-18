@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { addSecretaryIntroduction, isDiscoveryMessage, createWhatsAppSecretaryPresentation } from "../lib/whatsapp-response-ux"
+import { addIdentityNotice, addSecretaryIntroduction, isDiscoveryMessage, createWhatsAppSecretaryPresentation } from "../lib/whatsapp-response-ux"
 
 test("uses a native list for an explicit ambiguity, from the resolver's one shared shape", () => {
   const reply = createWhatsAppSecretaryPresentation({
@@ -266,4 +266,51 @@ test("an ambiguous-candidate list never also carries attachments", () => {
   })
   assert.equal(reply.presentation?.kind, "list")
   assert.equal(reply.attachments, undefined)
+})
+
+// ── Identity notices compose onto a real answer, never replace one ──────────
+
+test("a link confirmation is prefixed so the sender's original question is still answered in the same turn", () => {
+  const reply = addIdentityNotice(
+    { text: "The Wonder job in Canton is in progress." },
+    { prefix: "Thanks, Joe Haddad — I've linked this WhatsApp number to your SVC account." },
+  )
+
+  assert.equal(
+    reply.text,
+    "Thanks, Joe Haddad — I've linked this WhatsApp number to your SVC account.\n\nThe Wonder job in Canton is in progress.",
+  )
+})
+
+test("an enrollment offer is appended after the public answer", () => {
+  const reply = addIdentityNotice({ text: "SVC is a construction supervision company." }, { suffix: "If you work at SVC, reply with your SVC email." })
+  assert.equal(reply.text, "SVC is a construction supervision company.\n\nIf you work at SVC, reply with your SVC email.")
+})
+
+test("no notices leaves the reply object untouched", () => {
+  const original = { text: "Plain answer." }
+  assert.equal(addIdentityNotice(original, {}), original)
+})
+
+test("a native presentation body is kept identical to the persisted text", () => {
+  const reply = addIdentityNotice(
+    { text: "Answer.", presentation: { kind: "cta_url", body: "Answer.", buttonText: "Open", url: "https://example.com" } },
+    { prefix: "Linked." },
+  )
+
+  assert.equal(reply.text, "Linked.\n\nAnswer.")
+  assert.equal(reply.presentation?.kind === "cta_url" && reply.presentation.body, "Linked.\n\nAnswer.")
+})
+
+test("a native list is left alone — its rows are the answer, and padding the body risks the cap", () => {
+  const list = {
+    text: "Which one?",
+    presentation: { kind: "list" as const, body: "Which one?", buttonText: "Choose", sectionTitle: "Matches", rows: [{ id: "a", title: "A" }] },
+  }
+  assert.equal(addIdentityNotice(list, { suffix: "If you work at SVC, reply with your SVC email." }), list)
+})
+
+test("notices are dropped rather than truncated when they would overflow the CTA body cap", () => {
+  const long = { text: "x".repeat(990) }
+  assert.equal(addIdentityNotice(long, { suffix: "If you work at SVC, reply with your SVC email address." }), long)
 })

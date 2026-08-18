@@ -1,10 +1,140 @@
 # Courtney Roberts — WhatsApp handoff
 
-_Last updated: 2026-08-17. This is the operational handoff for continuing the
+_Last updated: 2026-08-18. This is the operational handoff for continuing the
 Courtney Roberts work. Treat the current code, Vercel configuration, and
 Firebase data as the authority if they differ from this document._
 
-## Profile UI: "Courtney Roberts" card replaces the plain phone field (2026-08-16, latest)
+## Onboarding rebuild: the claim loop, and a way in for unrecognized numbers (2026-08-18, latest)
+
+Reported from three real production transcripts. Three separate defects, one
+theme: identity was a dead end for anyone Courtney did not already recognize.
+
+### 1. The claim loop (the actual bug)
+
+A sender was asked for their SVC email, gave it, was told "I've linked this
+WhatsApp number to your SVC account" — and their very next message asked for
+the email again. Forever.
+
+**Root cause**: `lib/whatsapp-identity-claim.ts` writes
+`/users.whatsappPhoneNormalized`, but the 2026-08-16 resolver put that field
+in the SAME "explicit" tier as `/users.phoneNormalized`. When the ambiguity
+came from two `/users` docs sharing a registered phone (several employees
+registering one office number), the link could not break its own tie: the next
+message re-resolved as ambiguous and re-asked. `linkWhatsAppNumberToUser()`
+did not notice, because its conflict check only looked at
+`whatsappPhoneNormalized`.
+
+**Fix** — the resolver is now **three tiers**, strongest first
+(`classifyWhatsAppIdentityMatches`, `IdentityTier`):
+
+1. `whatsapp-link` — `/users.whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`
+2. `registered-phone` — `/users.phoneNormalized`
+3. `directory-phone` — `/contacts.phoneNormalized`
+
+A deliberate WhatsApp link now lands strictly above whatever caused the
+ambiguity, which makes claiming **self-terminating by construction**. Each
+tier still resolves to a unique *real identity* exactly as before (one linked
+account beats any number of unlinked duplicates), and a weaker tier is still
+only consulted when every stronger one is empty.
+
+`resolvedVia` stays a two-value field (`explicit` = tiers 1–2, `fallback` =
+tier 3) because it is persisted on Courtney Roberts Center conversation docs
+and drives the self-heal branch; the precise tier rides along as the new
+log/audit-only `resolvedTier`.
+
+### 2. Linking no longer throws the sender's question away
+
+The claim outcome's identity was previously discarded — the reply was "Send
+your question again and I'll help." Now `resolveIdentityEnrollment()` in the
+webhook hands the freshly claimed identity to the normal flow, so the original
+message is answered in the same turn with the confirmation prefixed onto it
+(`addIdentityNotice` in `lib/whatsapp-response-ux.ts`, sibling to
+`addCapabilityHint`/`addSecretaryIntroduction`, with the same body-cap and
+native-presentation care).
+
+When the message was *only* the email there is no question to carry forward —
+`isIdentityEmailOnlyMessage()` detects that and a deterministic "you're all
+set" reply goes out instead, so the model is never asked to answer an email
+address.
+
+An email anywhere in a message is now also acted on immediately, pending
+prompt or not. The 24h TTL governs whether the prompt is *re-asked*, not
+whether a volunteered answer counts.
+
+### 3. Unrecognized numbers now have a way in (the headline change)
+
+Before: `not_found` went straight to public with no recovery path at all. A
+real SVC employee writing from an unlisted phone was told to "ask your SVC
+admin" — something they cannot action from WhatsApp.
+
+Now the claim flow has two modes (`IdentityClaimMode`):
+
+- **`"ambiguous"`** — blocking, unchanged. Courtney genuinely cannot act until
+  it knows which matching person is writing.
+- **`"unrecognized"`** — non-blocking. The public answer still goes out, with
+  `UNRECOGNIZED_IDENTITY_OFFER` appended inviting them to reply with their SVC
+  email. Rate-limited by `shouldOfferIdentityEnrollment()`, which reuses the
+  same `pendingIdentityClaim` record and TTL — so one invitation stands for
+  24h and an outsider asking several public questions is invited once, not
+  every time.
+
+`lib/whatsapp-secretary/prompt.ts`'s public access block was updated to match,
+so the model stops telling people their only option is an admin.
+
+### 4. A resolved account now finds its Directory record
+
+A `/users`-only match carried `personId: "user:<uid>"`, and
+`contactIdFromPersonId()` returns null for that — so the STRONGEST tiers
+produced the EMPTIEST self-context ("Directory profile: none linked" for
+someone who has a perfectly good one). `withLinkedDirectoryContact()` /
+`mergeLinkedContactIntoIdentity()` follow `linkedUserId` back the other way
+(`contacts.where("linkedUserId","==",uid).limit(2)`, no new index) and adopt
+the contact when there is exactly one. Ambiguity is declined, never guessed;
+the account's own name and role stay authoritative.
+
+### 5. Admin manual link, from the Center itself
+
+`POST /api/courtney-roberts-center/conversations/{id}/link` +
+`lib/courtney-roberts-center/link-identity.ts` + a "Not linked to an SVC
+account → Link" banner on an unlinked thread. Writes the same
+`whatsappPhoneNormalized` field the conversational claim writes (no separate
+"admin link" concept), then re-resolves and re-stamps the conversation doc so
+the Center reflects it immediately. This is the fallback for what self-service
+cannot reach; it replaces having to shell into
+`scripts/link-whatsapp-sender-identity.ts`.
+
+### ⚠️ Security debt, accepted deliberately
+
+Extending claiming to `"unrecognized"` senders **materially widens** the trust
+model, on Ben's explicit 2026-08-18 call to prioritize a working onboarding at
+this stage. Previously only senders already provably matching 2+ SVC records
+could claim; now ANY number that messages the SVC line and supplies a valid
+SVC email address obtains the full internal read scope — Directory phones and
+emails, Applications candidate PII, daily reports, clocking. The system prompt
+still tells the model every sender reaching its tools is "already a verified
+internal SVC employee," which is no longer strictly true.
+
+There is also **no attempt cap** (the AI usage guard lives in the orchestrator,
+which the claim path returns before) and **no domain restriction** on the
+email.
+
+**Before this goes beyond the current small internal rollout it needs**: a
+one-time code mailed to the SVC address for `"unrecognized"` claims, and a
+per-sender attempt limit. Same open item the 2026-08-16 section already
+flagged, now more urgent.
+
+### Verification
+
+`pnpm verify` green: 388 tests in `test:whatsapp-secretary` (up from 369),
+typecheck, functions build, production build. New coverage includes the exact
+loop scenario as a regression test ("a deliberate WhatsApp link resolves a
+number that two registered profile phones would otherwise leave ambiguous").
+
+**Not done**: no live-WhatsApp run yet — same gap the 2026-08-16 claim flow
+had. The 60 genuinely ambiguous prod numbers should shrink once affected
+people claim; re-run `pnpm audit:whatsapp-identity` (read-only) to measure.
+
+## Profile UI: "Courtney Roberts" card replaces the plain phone field (2026-08-16)
 
 Ben asked for the phone-number entry point in the app's own Profile screen
 (not WhatsApp) to stop looking like a generic "Phone" settings row and
@@ -1347,7 +1477,7 @@ service or backend.
 | Meta webhook | `app/api/whatsapp/webhook/route.ts` | GET verification, POST signature validation, WABA / Phone Number ID filtering, and dispatch. |
 | Cloud API sender | `lib/whatsapp-cloud-api.ts` | Sends text plus native WhatsApp lists/CTA URL buttons via Graph API `v26.0`; sandbox recipient override is optional. |
 | Conversation memory | `lib/whatsapp-conversation-memory.ts` | Keeps 12 recent messages per hashed sender and makes Meta delivery retries safe across Vercel instances. |
-| Identity | `lib/whatsapp-svc-identity.ts`, `lib/whatsapp-identity-claim.ts`, `lib/phone-normalization.ts` | Two-tier resolution (2026-08-16): explicit (`/users.phoneNormalized`/`whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`) tried first, `/contacts.phoneNormalized` fallback only if explicit is empty; resolves a unique real identity per tier (one linked account beats any number of unlinked duplicates). Missing → `null`/public. Genuinely ambiguous (2+ real identities) → an "ask for your SVC email" claim flow, not silent public fallback — see the 2026-08-16 section above. |
+| Identity | `lib/whatsapp-svc-identity.ts`, `lib/whatsapp-identity-claim.ts`, `lib/phone-normalization.ts` | Three-tier resolution (2026-08-18): `whatsapp-link` (`/users.whatsappPhoneNormalized`, `/contacts.whatsappPhoneNormalized`) → `registered-phone` (`/users.phoneNormalized`) → `directory-phone` (`/contacts.phoneNormalized`); a weaker tier is consulted only if every stronger one is empty, and each resolves a unique real identity (one linked account beats any number of unlinked duplicates). A `/users`-only match then adopts its single `linkedUserId` contact so Directory context resolves. Ambiguous → a blocking "what's your SVC email" claim; not found → the public answer plus a non-blocking enrollment offer. Both link `whatsappPhoneNormalized`, i.e. the top tier, so a claim always settles the next message. See the 2026-08-18 section above. |
 | Authorization | `lib/whatsapp-access-policy.ts` | Central backend policy; public vs internal and a stricter linked-user check for draft creation. |
 | Orchestrator / model | `lib/whatsapp-secretary/orchestrator.ts` | Tool-calling loop on `gpt-5.6-terra` by default (`runToolConversation`); the model chooses which tools to call, across modules, across up to `maxToolRounds` rounds, before answering. Must not invent unavailable SVC data. |
 | Tool registry | `lib/whatsapp-secretary/tool-registry.ts` | Generic `SecretaryTool` contract + per-sender access-policy-filtered registry; `assertOnlyAllowedMessagesTools` still structurally blocks any *unreviewed* Messages/Communications-shaped tool name — only the two real `messages_*` tools below are allowlisted (see the 2026-08-14 section above). |
@@ -1364,13 +1494,20 @@ prompt.
 
 - An unknown WhatsApp number (no identity match at all) receives only public
   company knowledge. It cannot query Directory, people, companies, jobs,
-  contexts, Quest Coral, Applications, Reports, or other internal data.
+  contexts, Quest Coral, Applications, Reports, or other internal data — but
+  since 2026-08-18 it is also *offered a way in*: the public answer carries an
+  invitation to reply with an SVC email address, which links the number and
+  grants internal access from then on (once per 24h, never replacing the
+  answer).
 - A GENUINELY AMBIGUOUS number (2+ real SVC identities could own it) is
   NOT treated as unknown: Courtney asks for the sender's SVC email and,
   on an exact single match, links the number and grants internal access from
-  then on. This is identity *claiming* (a bare-text email reply), not
-  cryptographic verification — see the 2026-08-16 section above before
-  changing this or widening who it applies to.
+  then on.
+- ⚠️ Both of the above are identity *claiming* (a bare-text email reply), not
+  cryptographic verification. Since the unrecognized path opened, knowing any
+  SVC email address is sufficient to obtain internal read access from any
+  phone, with no attempt cap. Read the "Security debt" note in the 2026-08-18
+  section before widening this further or exposing the number publicly.
 - A uniquely recognized SVC person receives the internal read-only scope.
 - The Daily Report write action is stricter: it requires a recognized person
   **and** a linked Firebase `userId`, because a ByeByeDPR report must have a

@@ -85,7 +85,7 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
 
   const accessBlock =
     input.accessLevel === "public"
-      ? "This sender is not a recognized SVC user. You have no tools this turn — answer only from the curated public knowledge below, and if asked an internal question, state that it requires a recognized SVC WhatsApp number."
+      ? "This sender is not a recognized SVC user. You have no tools this turn — answer only from the curated public knowledge below. If they ask something internal, say you can't look it up from an unrecognized number, and tell them that if they work at SVC they can reply with their SVC email address and you'll link this WhatsApp number to their account. Never tell them their only option is to contact an admin — the email reply is a real, self-service path that works. Do not ask for any other credential, and never claim the number is already linked."
       : "This sender is a recognized SVC user with read access to the tools you have been given."
 
   const knowledge = input.companyKnowledge

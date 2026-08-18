@@ -1,10 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, Check, Copy, Lock, MessageCircleOff, Paperclip } from "lucide-react"
+import { ArrowLeft, Check, Copy, Link2, Loader2, Lock, MessageCircleOff, Paperclip } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
-import { fetchCourtneyRobertsCenterThread, CourtneyRobertsCenterClientError } from "@/lib/courtney-roberts-center/client"
+import {
+  fetchCourtneyRobertsCenterThread,
+  linkCourtneyRobertsCenterConversation,
+  CourtneyRobertsCenterClientError,
+} from "@/lib/courtney-roberts-center/client"
 import type { CourtneyRobertsCenterConversationSummary, CourtneyRobertsCenterMessage } from "@/lib/courtney-roberts-center/types"
 
 interface CourtneyRobertsCenterThreadScreenProps {
@@ -157,6 +161,15 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
         </div>
       </div>
 
+      {conversation?.identityStatus === "public" && (
+        <LinkIdentityBanner
+          conversationId={conversationId}
+          onLinked={(linked) =>
+            setData((current) => (current ? { ...current, conversation: { ...current.conversation, ...linked } } : current))
+          }
+        />
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-4">
           {isDenied ? (
@@ -175,6 +188,81 @@ export function CourtneyRobertsCenterThreadScreen({ conversationId, onBack, clas
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Manual recovery for a sender Courtney could not recognize.
+ *
+ * Senders can enroll themselves by replying with their SVC email, so this is
+ * the fallback for the cases that path cannot reach — no `/users` account to
+ * match, a number linked to the wrong person, or simply an admin fixing a
+ * thread in front of them instead of running the CLI link script. Shown only
+ * while the conversation is still unlinked; the banner disappears the moment
+ * it succeeds.
+ */
+function LinkIdentityBanner({
+  conversationId,
+  onLinked,
+}: {
+  conversationId: string
+  onLinked: (linked: { identityStatus: "internal" | "public"; displayName: string; resolvedUserId?: string; resolvedPersonId?: string }) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [email, setEmail] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleLink = () => {
+    if (isSaving || !email.trim()) return
+    setIsSaving(true)
+    setError(null)
+    linkCourtneyRobertsCenterConversation(conversationId, email.trim())
+      .then(onLinked)
+      .catch((err: unknown) => {
+        setError(err instanceof CourtneyRobertsCenterClientError ? err.message : "Unable to link this conversation.")
+        setIsSaving(false)
+      })
+  }
+
+  return (
+    <div className="shrink-0 border-b border-white/10">
+      <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-2.5 flex flex-col gap-2">
+        {isOpen ? (
+          <>
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                autoFocus
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLink()}
+                placeholder="person@supervisioncompany.com"
+                className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-full px-3.5 py-2 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-white/20 transition-colors"
+              />
+              <button
+                onClick={handleLink}
+                disabled={isSaving || !email.trim()}
+                className="px-3.5 py-2 rounded-full text-xs font-semibold border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 disabled:opacity-40 active:scale-95 transition-all duration-150 shrink-0 flex items-center gap-1.5"
+              >
+                {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Link
+              </button>
+            </div>
+            {error && <p className="text-[11px] text-red-400/90 px-1">{error}</p>}
+          </>
+        ) : (
+          <button
+            onClick={() => setIsOpen(true)}
+            className="flex items-center gap-2 text-left active:scale-[0.99] transition-transform duration-150"
+          >
+            <Link2 className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+            <span className="text-[11px] text-muted-foreground/70 flex-1">Not linked to an SVC account</span>
+            <span className="text-[11px] font-semibold text-emerald-400/90 shrink-0">Link</span>
+          </button>
+        )}
       </div>
     </div>
   )
