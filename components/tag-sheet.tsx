@@ -1461,7 +1461,6 @@ function getTagSemanticAliases(
   if (systemType === "problem") aliases.push("problem", "issue", "bug", "blocked", "bloqueado", "error", "crash", "broken")
   if (systemType === "decision") aliases.push("decision", "decided", "approved", "resolved", "aprobado", "decidido")
   if (systemType === "feedback") aliases.push("feedback", "review", "revision", "check", "comment", "notes")
-  if (systemType === "red_team_review") aliases.push("red team review", "red team", "redteam", "critical review", "risk review", "assumptions", "blind spots")
   if (categoryId === "task") aliases.push("task", "todo", "to do", "pending", "pendiente", "accion", "action")
   if (categoryId === "date") aliases.push("date", "fecha", "calendar", "calendario")
   if (categoryId === "report") aliases.push("report", "daily", "weekly", "standup", "analytics", "reporte", "informe")
@@ -1663,7 +1662,6 @@ function tagDotClass(tag: MessageTag): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
-  if (systemType === "red_team_review") return "bg-red-team-review"
   return "bg-violet-500"
 }
 

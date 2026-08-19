@@ -33,7 +33,6 @@
   --problem: #EF4444;
   --feedback: #F59E0B;
   --decision: #3B82F6;
-  --red-team-review: #14B8A6;
   
   /* Borders */
   --border: #1F2937;
@@ -87,7 +86,6 @@
   --color-problem: var(--problem);
   --color-feedback: var(--feedback);
   --color-decision: var(--decision);
-  --color-red-team-review: var(--red-team-review);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -132,19 +130,16 @@
 .bg-problem { background-color: var(--problem); }
 .bg-feedback { background-color: var(--feedback); }
 .bg-decision { background-color: var(--decision); }
-.bg-red-team-review { background-color: var(--red-team-review); }
 
 .text-progress { color: var(--progress); }
 .text-problem { color: var(--problem); }
 .text-feedback { color: var(--feedback); }
 .text-decision { color: var(--decision); }
-.text-red-team-review { color: var(--red-team-review); }
 
 .border-progress { border-color: var(--progress); }
 .border-problem { border-color: var(--problem); }
 .border-feedback { border-color: var(--feedback); }
 .border-decision { border-color: var(--decision); }
-.border-red-team-review { border-color: var(--red-team-review); }
 
 /* Custom scrollbar hiding */
 .scrollbar-hide {

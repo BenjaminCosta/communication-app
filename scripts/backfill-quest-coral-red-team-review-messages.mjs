@@ -189,11 +189,19 @@ async function main() {
           || !sameStringSet(stringArray(message.peopleIds), mergedPeopleIds)
           || !sameStringSet(stringArray(message.participants), mergedParticipants)
           || !sameStringSet(stringArray(message.visibleToUserIds), mergedVisibleToUserIds)
-        const mergedTagIds = mergedStringIds(message.tagIds, [RED_TEAM_REVIEW_TAG_ID, RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID])
+        // Only the user's own "Red Team Review" Communications project tag —
+        // strip any leftover type:red_team_review systemType tag (an earlier
+        // version of this script also added that, producing a duplicate
+        // "Red Team Review" chip) rather than just unioning tags in.
+        const desiredTagIds = mergedStringIds(
+          stringArray(message.tagIds).filter((id) => id !== RED_TEAM_REVIEW_TAG_ID),
+          [RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
+        )
         const mergedProjectIds = mergedStringIds(message.projectIds, [RED_TEAM_REVIEW_COMMS_PROJECT_ID])
-        const needsTagRepair = !sameStringSet(stringArray(message.tagIds), mergedTagIds)
+        const needsTagRepair = !sameStringSet(stringArray(message.tagIds), desiredTagIds)
           || !sameStringSet(stringArray(message.projectIds), mergedProjectIds)
           || message.projectId !== RED_TEAM_REVIEW_COMMS_PROJECT_ID
+          || message.type !== "none"
         const needsRepair = needsRecipientRepair || needsTagRepair
         messagePlan.push({
           redTeamReviewId: review.id,
@@ -206,9 +214,10 @@ async function main() {
               peopleIds: mergedPeopleIds,
               participants: mergedParticipants,
               visibleToUserIds: mergedVisibleToUserIds,
-              tagIds: mergedTagIds,
+              tagIds: desiredTagIds,
               projectIds: mergedProjectIds,
               projectId: RED_TEAM_REVIEW_COMMS_PROJECT_ID,
+              type: "none",
               updatedAt: Timestamp.now(),
             } }
             : {}),
@@ -234,10 +243,10 @@ async function main() {
         visibleToUserIds,
         projectIds: [RED_TEAM_REVIEW_COMMS_PROJECT_ID],
         projectId: RED_TEAM_REVIEW_COMMS_PROJECT_ID,
-        tagIds: [RED_TEAM_REVIEW_TAG_ID, RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
+        tagIds: [RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
         content: redTeamReviewText(project.name, body),
         text: redTeamReviewText(project.name, body),
-        type: "red_team_review",
+        type: "none",
         contactIds: [],
         contextIds: [contextId(projectId)],
         createdAt: originalTimestamp(data.createdAt),

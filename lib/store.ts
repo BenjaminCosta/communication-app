@@ -1,7 +1,7 @@
 import { formatTimeInAppZone } from "@/lib/datetime"
 
 // Types
-export type MessageType = "progress" | "problem" | "feedback" | "decision" | "red_team_review" | "none"
+export type MessageType = "progress" | "problem" | "feedback" | "decision" | "none"
 
 /**
  * TagCategory is a string — supports both system categories (hardcoded constants below)
@@ -325,7 +325,6 @@ export const MESSAGE_TYPE_CONFIG: Record<MessageType, { bg: string; text: string
   problem:  { bg: "bg-problem/10",   text: "text-problem",   border: "border-problem/20",   label: "Problem" },
   feedback: { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Feedback" },
   decision: { bg: "bg-decision/10",  text: "text-decision",  border: "border-decision/20",  label: "Decision" },
-  red_team_review: { bg: "bg-red-team-review/10", text: "text-red-team-review", border: "border-red-team-review/20", label: "Red Team Review" },
   none:     { bg: "bg-feedback/10",  text: "text-feedback",  border: "border-feedback/20",  label: "Unassigned" },
 }
 
@@ -336,7 +335,7 @@ export const NO_TYPE_TAG_ID = `${SYSTEM_TAG_PREFIX}none`
 
 export const SYSTEM_TAGS: Tag[] = [
   { id: NO_TYPE_TAG_ID, name: "Unassigned", category: "systemType", color: "bg-feedback" },
-  ...(["progress", "problem", "feedback", "decision", "red_team_review"] as const).map((type) => ({
+  ...(["progress", "problem", "feedback", "decision"] as const).map((type) => ({
     id: `${SYSTEM_TAG_PREFIX}${type}`,
     name: MESSAGE_TYPE_CONFIG[type].label,
     category: "systemType" as const,

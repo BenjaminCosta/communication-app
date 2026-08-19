@@ -27,7 +27,6 @@ const CONTEXTS_COLLECTION = "contexts"
 const MESSAGES_COLLECTION = "messages"
 const USERS_COLLECTION = "users"
 const FEEDBACK_TAG_ID = "type:feedback"
-const RED_TEAM_REVIEW_TAG_ID = "type:red_team_review"
 
 export class QuestCoralFeedbackPublicationError extends Error {
   constructor(
@@ -614,10 +613,13 @@ export async function publishQuestCoralRedTeamReview(
       visibleToUserIds,
       projectIds: [RED_TEAM_REVIEW_COMMS_PROJECT_ID],
       projectId: RED_TEAM_REVIEW_COMMS_PROJECT_ID,
-      tagIds: [RED_TEAM_REVIEW_TAG_ID, RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
+      // Only the user's own "Red Team Review" Communications project tag —
+      // no systemType tag, so a Red Team Review message shows exactly one
+      // "Red Team Review" chip instead of two.
+      tagIds: [RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
       content: questCoralRedTeamReviewMessageText(projectName, input.body),
       text: questCoralRedTeamReviewMessageText(projectName, input.body),
-      type: "red_team_review",
+      type: "none",
       contactIds: [],
       contextIds: [contextId],
       createdAt: FieldValue.serverTimestamp(),
@@ -964,10 +966,12 @@ export async function publishQuestCoralRedTeamReviewReply(
       ...audience,
       projectIds: [RED_TEAM_REVIEW_COMMS_PROJECT_ID],
       projectId: RED_TEAM_REVIEW_COMMS_PROJECT_ID,
-      tagIds: [RED_TEAM_REVIEW_TAG_ID, RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
+      // Only the user's own "Red Team Review" Communications project tag —
+      // see publishQuestCoralRedTeamReview for why there's no systemType tag.
+      tagIds: [RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID],
       content: input.body,
       text: input.body,
-      type: "red_team_review",
+      type: "none",
       contactIds: input.contactIds,
       contextIds: [contextId],
       createdAt: FieldValue.serverTimestamp(),

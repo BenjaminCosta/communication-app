@@ -180,7 +180,7 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
 
   const displayTags = useMemo<MessageTag[]>(() => {
     const tags = availableTags ?? [
-      ...(["progress", "problem", "feedback", "decision", "red_team_review"] as Exclude<MessageType, "none">[]).map((type) => ({
+      ...(["progress", "problem", "feedback", "decision"] as Exclude<MessageType, "none">[]).map((type) => ({
         id: systemTypeTagId(type),
         name: MESSAGE_TYPE_CONFIG[type].label,
         category: "systemType" as const,
@@ -1160,7 +1160,6 @@ function tagDotClass(tag: MessageTag): string {
   if (tag.systemType === "problem") return "bg-problem"
   if (tag.systemType === "feedback") return "bg-feedback"
   if (tag.systemType === "decision") return "bg-decision"
-  if (tag.systemType === "red_team_review") return "bg-red-team-review"
   return "bg-violet-500"
 }
 
