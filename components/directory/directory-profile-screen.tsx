@@ -12,7 +12,6 @@ import {
   ExternalLink,
   FolderOpen,
   Link2,
-  Loader2,
   Mail,
   MapPin,
   Pencil,
@@ -46,6 +45,7 @@ import {
   type DirectoryRelations,
   type RelationEntityRef,
 } from "@/lib/directory-relations"
+import { applyOptimisticOverrides, recordOptimisticEdgeChange } from "@/lib/directory-relations-optimistic"
 
 type ProfileTab = "overview" | "outlook" | "related" | "notes" | "files"
 
@@ -85,11 +85,6 @@ export function DirectoryProfileScreen({
   // description renders once (no visible mid-load text swap).
   const [relationsSettled, setRelationsSettled] = useState(false)
   const [activitySettled, setActivitySettled] = useState(false)
-  // /directoryRelations is derived asynchronously by a Cloud Function trigger
-  // off the edited source doc, so right after a save it can lag behind for a
-  // beat — this stays true through the retry window so the UI shows that a
-  // refresh is in flight instead of looking stuck on stale/empty data.
-  const [relationsRefreshing, setRelationsRefreshing] = useState(false)
   // Bumped only when a save actually changed a relation edge (see onSaved
   // below) — separate from reloadKey so a save that only touched a text
   // field never triggers a pointless relations refetch.
@@ -162,13 +157,14 @@ export function DirectoryProfileScreen({
   //  - Fresh entity (relationsRefreshToken === 0): load /directoryRelations
   //    immediately, same as any other panel.
   //  - Post-save with a known relation change (token bumped by onSaved
-  //    below): the edit sheet's optimistic patch already merged the new
-  //    edge(s) into `relations` synchronously, so an IMMEDIATE re-fetch here
-  //    is skipped on purpose — /directoryRelations is derived asynchronously
-  //    by a Cloud Function trigger off the edit's write, so fetching right
-  //    away would very likely race it and flash the optimistic result back
-  //    to stale data. Instead this reconciles with the server a couple beats
-  //    later (timed like the post-create refresh in directory-screen.tsx).
+  //    below): the edit sheet's optimistic patch — plus any mirrored change
+  //    recorded on this id from editing the OTHER side of a relation, applied
+  //    via applyOptimisticOverrides — already makes `relations` correct
+  //    synchronously, so there's nothing for the UI to wait on. The two
+  //    delayed fetches below are a silent correctness backstop only: they
+  //    reconcile with the real /directoryRelations edge once the Cloud
+  //    Function has actually derived it, with no loading state attached,
+  //    since the screen is already showing the right thing.
   useEffect(() => {
     if (!vmId) return
     let active = true
@@ -183,8 +179,9 @@ export function DirectoryProfileScreen({
       loadDirectoryRelationsPage(vmId, null, 5)
         .then((page) => {
           if (!active) return
-          setRelationEdges(page.edges)
-          setRelations(page.relations)
+          const edges = applyOptimisticOverrides(vmId, page.edges)
+          setRelationEdges(edges)
+          setRelations(directoryRelationsFromEdges(edges))
           setRelationsCursor(page.nextCursor)
           setHasMoreRelations(page.hasMore)
         })
@@ -194,19 +191,19 @@ export function DirectoryProfileScreen({
     }
 
     setFullRelationsLoaded(false)
-    setRelationsRefreshing(true)
     const reconcile = () => loadDirectoryRelationsPage(vmId, null, 5)
       .then((page) => {
         if (!active) return
-        setRelationEdges(page.edges)
-        setRelations(page.relations)
+        const edges = applyOptimisticOverrides(vmId, page.edges)
+        setRelationEdges(edges)
+        setRelations(directoryRelationsFromEdges(edges))
         setRelationsCursor(page.nextCursor)
         setHasMoreRelations(page.hasMore)
       })
       .catch(() => { /* keep the optimistic state on a failed reconcile */ })
     const timers = [
       window.setTimeout(reconcile, 1_200),
-      window.setTimeout(() => { reconcile().finally(() => { if (active) setRelationsRefreshing(false) }) }, 3_800),
+      window.setTimeout(reconcile, 3_800),
     ]
     return () => { active = false; timers.forEach((timer) => window.clearTimeout(timer)) }
   }, [vmId, relationsRefreshToken])
@@ -218,8 +215,9 @@ export function DirectoryProfileScreen({
     loadDirectoryRelationsPage(vmId, null, 50)
       .then((page) => {
         if (!active) return
-        setRelationEdges(page.edges)
-        setRelations(page.relations)
+        const edges = applyOptimisticOverrides(vmId, page.edges)
+        setRelationEdges(edges)
+        setRelations(directoryRelationsFromEdges(edges))
         setRelationsCursor(page.nextCursor)
         setHasMoreRelations(page.hasMore)
         setFullRelationsLoaded(true)
@@ -264,7 +262,7 @@ export function DirectoryProfileScreen({
     setRelationsPageLoading(true)
     try {
       const page = await loadDirectoryRelationsPage(vm.id, relationsCursor, 50)
-      const merged = [...relationEdges, ...page.edges]
+      const merged = applyOptimisticOverrides(vm.id, [...relationEdges, ...page.edges])
       setRelationEdges(merged)
       setRelations(directoryRelationsFromEdges(merged))
       setRelationsCursor(page.nextCursor)
@@ -413,7 +411,6 @@ export function DirectoryProfileScreen({
                   <OverviewTab
                     vm={vm}
                     relations={relations}
-                    relationsRefreshing={relationsRefreshing}
                     onOpenEntity={onOpenEntity}
                     showAdmin={showAdmin}
                     onToggleAdmin={() => setShowAdmin((v) => !v)}
@@ -432,7 +429,6 @@ export function DirectoryProfileScreen({
                   <RelatedTab
                     vm={vm}
                     relations={relations}
-                    relationsRefreshing={relationsRefreshing}
                     onOpenEntity={onOpenEntity}
                     hasMore={hasMoreRelations}
                     isLoadingMore={relationsPageLoading}
@@ -468,6 +464,15 @@ export function DirectoryProfileScreen({
                 return mergedList
               })
               setRelationsRefreshToken((token) => token + 1)
+
+              // Mirror the change onto each OTHER entity's side too, so
+              // navigating straight to the job/company/person you just
+              // linked or unlinked shows it immediately — that screen
+              // hasn't mounted yet and would otherwise race the Cloud
+              // Function that derives /directoryRelations from this write.
+              const selfRef: RelationEntityRef = { id: vm.id, type: vm.type, name: vm.name }
+              for (const otherId of patch.removeIds) recordOptimisticEdgeChange(otherId, selfRef, "remove")
+              for (const edge of patch.addEdges) recordOptimisticEdgeChange(edge.id, selfRef, "add")
             }
           }}
         />
@@ -610,14 +615,12 @@ function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onActio
 function OverviewTab({
   vm,
   relations,
-  relationsRefreshing,
   onOpenEntity,
   showAdmin,
   onToggleAdmin,
 }: {
   vm: DirectoryProfileViewModel
   relations: DirectoryRelations | null
-  relationsRefreshing: boolean
   onOpenEntity: (id: string) => void
   showAdmin: boolean
   onToggleAdmin: () => void
@@ -670,12 +673,9 @@ function OverviewTab({
         )}
       </div>
 
-      {(hasRelated || relationsRefreshing) && (
+      {hasRelated && (
         <aside className="mt-8 lg:mt-0">
-          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground/60">
-            Related
-            {relationsRefreshing && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/45" aria-label="Updating" />}
-          </h3>
+          <h3 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground/60">Related</h3>
           <div className="space-y-1">
             {relations?.company && <RelationRow entity={relations.company} onOpen={onOpenEntity} />}
             {relations?.jobs.slice(0, 4).map((job) => <RelationRow key={job.id} entity={job} onOpen={onOpenEntity} />)}
@@ -731,7 +731,6 @@ function FieldIcon({ kind, label }: { kind: ProfileField["kind"]; label: string 
 function RelatedTab({
   vm,
   relations,
-  relationsRefreshing,
   onOpenEntity,
   hasMore,
   isLoadingMore,
@@ -739,15 +738,12 @@ function RelatedTab({
 }: {
   vm: DirectoryProfileViewModel
   relations: DirectoryRelations | null
-  relationsRefreshing: boolean
   onOpenEntity: (id: string) => void
   hasMore: boolean
   isLoadingMore: boolean
   onLoadMore: () => void
 }) {
-  if (!relations) {
-    return relationsRefreshing ? <RelationsUpdatingState /> : <DirectoryRowsSkeleton count={4} />
-  }
+  if (!relations) return <DirectoryRowsSkeleton count={4} />
 
   const groups: Array<{ title: string; entities: RelationEntityRef[] }> = []
   if (vm.type === "person") {
@@ -770,17 +766,11 @@ function RelatedTab({
   }
 
   if (groups.length === 0) {
-    if (relationsRefreshing) return <RelationsUpdatingState />
     return <PreparedState icon={Link2} title="No relationships" body="No safe, confirmed relationships are recorded for this entity yet." />
   }
 
   return (
     <div className="space-y-6">
-      {relationsRefreshing && (
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground/55" role="status">
-          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Updating relationships…
-        </p>
-      )}
       {groups.map((group) => (
         <section key={group.title}>
           <h3 className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground/60">
@@ -886,18 +876,6 @@ function PreparedState({ icon: Icon, title, body }: { icon: typeof Link2; title:
       </div>
       <p className="text-sm font-medium text-foreground/80">{title}</p>
       <p className="mt-1 max-w-72 text-xs leading-5 text-muted-foreground/60">{body}</p>
-    </div>
-  )
-}
-
-function RelationsUpdatingState() {
-  return (
-    <div className="flex flex-col items-center px-6 py-14 text-center" role="status">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035]">
-        <Loader2 className="h-5 w-5 animate-spin text-[var(--directory-title)]/70" strokeWidth={1.7} />
-      </div>
-      <p className="text-sm font-medium text-foreground/80">Updating relationships…</p>
-      <p className="mt-1 max-w-72 text-xs leading-5 text-muted-foreground/60">Your change was saved — this list refreshes in a moment.</p>
     </div>
   )
 }

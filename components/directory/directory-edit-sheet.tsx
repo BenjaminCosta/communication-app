@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import { loadDirectorySearch } from "@/lib/directory-search"
-import { loadDirectoryRelationsPage, type RelationEntityRef } from "@/lib/directory-relations"
+import { directoryRelationsFromEdges, loadDirectoryRelationsPage, type RelationEntityRef } from "@/lib/directory-relations"
+import { applyOptimisticOverrides } from "@/lib/directory-relations-optimistic"
 import { parseDirectoryId, isLikelyEmail, isLikelyPhone } from "@/lib/directory"
 import { cn } from "@/lib/utils"
 import {
@@ -137,7 +138,10 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     loadDirectoryRelationsPage(vm.id, null, 50)
       .then((page) => {
         if (!active) return
-        const jobs = page.relations.jobs.map((job) => {
+        // Picks up any not-yet-reconciled edge from a save made moments ago
+        // (this entity or the other side of it), same as the profile screen.
+        const edges = applyOptimisticOverrides(vm.id, page.edges)
+        const jobs = directoryRelationsFromEdges(edges).jobs.map((job) => {
           const parsed = parseDirectoryId(job.id)
           return { id: parsed?.sourceId ?? job.id, name: job.name }
         })
