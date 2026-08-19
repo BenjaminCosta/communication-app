@@ -158,7 +158,7 @@ export function DirectoryCreateSheet({
         <div className="w-9" aria-hidden="true" />
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
+      <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide">
         <div className="mx-auto w-full max-w-2xl px-4 pb-24 pt-6 md:px-6">
           {!type ? (
             <>
@@ -219,7 +219,12 @@ export function DirectoryCreateSheet({
                     <input value={values.role} onChange={(event) => setValue("role", event.target.value)} placeholder="Project manager" className={inputClassName} />
                   </FormField>
                   <FormField label="Company">
-                    <input value={values.companyName} onChange={(event) => setValue("companyName", event.target.value)} placeholder="Company name" list="directory-companies" className={inputClassName} />
+                    <CompanyPicker
+                      companies={companies}
+                      value={values.companyName}
+                      onChange={(name) => setValue("companyName", name)}
+                      placeholder="Company name"
+                    />
                   </FormField>
                   <FormField label="Email">
                     <input type="email" value={values.email} onChange={(event) => setValue("email", event.target.value)} placeholder="jane@example.com" className={inputClassName} />
@@ -253,7 +258,12 @@ export function DirectoryCreateSheet({
               {type === "job" && (
                 <>
                   <FormField label="Company">
-                    <input value={values.companyName} onChange={(event) => setValue("companyName", event.target.value)} placeholder="Select or enter a company" list="directory-companies" className={inputClassName} />
+                    <CompanyPicker
+                      companies={companies}
+                      value={values.companyName}
+                      onChange={(name) => setValue("companyName", name)}
+                      placeholder="Select or enter a company"
+                    />
                   </FormField>
                   <FormField label="Status">
                     <input value={values.status} onChange={(event) => setValue("status", event.target.value)} placeholder="Active" className={inputClassName} />
@@ -281,10 +291,11 @@ export function DirectoryCreateSheet({
                           key={person.id}
                           type="button"
                           onClick={() => removePerson(person.id)}
-                          className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+                          className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
                           aria-label={`Remove ${person.name}`}
                         >
-                          {person.name} <span aria-hidden="true">×</span>
+                          <span className="min-w-0 truncate">{person.name}</span>
+                          <span aria-hidden="true" className="shrink-0">×</span>
                         </button>
                       ))}
                     </div>
@@ -314,10 +325,6 @@ export function DirectoryCreateSheet({
                 </fieldset>
               )}
 
-              <datalist id="directory-companies">
-                {companies.map((company) => <option key={company.sourceId} value={company.name} />)}
-              </datalist>
-
               <button
                 type="submit"
                 disabled={isSaving}
@@ -335,6 +342,61 @@ export function DirectoryCreateSheet({
 
 const inputClassName = "w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-sm text-foreground/90 placeholder:text-muted-foreground/40 focus:border-white/20 focus:outline-none"
 const textareaClassName = `${inputClassName} resize-none leading-6`
+
+/**
+ * Search-as-you-type company field. Native <input list="..."> (datalist) has
+ * poor/absent dropdown support on iOS Safari, so this renders its own
+ * filtered list under the input — while still allowing a free-text name for
+ * a company that doesn't exist in Directory yet.
+ */
+function CompanyPicker({
+  companies,
+  value,
+  onChange,
+  placeholder,
+}: {
+  companies: Array<{ sourceId: string; name: string }>
+  value: string
+  onChange: (name: string) => void
+  placeholder: string
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const matches = useMemo(() => {
+    const query = value.trim().toLowerCase()
+    const pool = query ? companies.filter((company) => company.name.toLowerCase().includes(query)) : companies
+    return pool.slice(0, 8)
+  }, [companies, value])
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(event) => { onChange(event.target.value); setIsOpen(true) }}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className={inputClassName}
+      />
+      {isOpen && matches.length > 0 && (
+        <div className="module-switcher-popover absolute inset-x-0 top-full z-20 mt-1.5 max-w-full overflow-hidden rounded-xl border border-white/10 shadow-[0_16px_44px_rgba(0,0,0,0.42)]">
+          {matches.map((company) => (
+            <button
+              key={company.sourceId}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { onChange(company.name); setIsOpen(false) }}
+              className="flex w-full items-center gap-2.5 border-b border-white/[0.06] px-3 py-2.5 text-left last:border-b-0 active:bg-white/[0.04]"
+            >
+              <DirectoryEntityIcon item={{ type: "company", name: company.name }} size="xs" />
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground/85">{company.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function FormField({
   label,

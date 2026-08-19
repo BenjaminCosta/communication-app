@@ -280,7 +280,7 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
         </button>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
+      <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide">
         <div className="mx-auto w-full max-w-2xl px-4 pb-24 pt-6 md:px-6">
           {error && (
             <p className="mb-4 rounded-xl border border-orange-400/20 bg-orange-400/[0.06] px-4 py-3 text-xs text-orange-200/85" role="alert">
@@ -402,10 +402,11 @@ function CompanySelector({
         <button
           type="button"
           onClick={() => onChange("", null)}
-          className="mt-3 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+          className="mt-3 inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
           aria-label={`Remove ${selected.name}`}
         >
-          {selected.name} <span aria-hidden="true">×</span>
+          <span className="min-w-0 truncate">{selected.name}</span>
+          <span aria-hidden="true" className="shrink-0">×</span>
         </button>
       )}
       <input
@@ -470,10 +471,11 @@ function PeopleSelector({
               key={person.id}
               type="button"
               onClick={() => onRemove(person.id)}
-              className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
               aria-label={`Remove ${person.name}`}
             >
-              {person.name} <span aria-hidden="true">×</span>
+              <span className="min-w-0 truncate">{person.name}</span>
+              <span aria-hidden="true" className="shrink-0">×</span>
             </button>
           ))}
         </div>
@@ -541,10 +543,11 @@ function JobsSelector({
               type="button"
               onClick={() => onRemove(job.id)}
               disabled={isLoading}
-              className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97] disabled:opacity-50"
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97] disabled:opacity-50"
               aria-label={`Remove ${job.name}`}
             >
-              {job.name} <span aria-hidden="true">×</span>
+              <span className="min-w-0 truncate">{job.name}</span>
+              <span aria-hidden="true" className="shrink-0">×</span>
             </button>
           ))}
         </div>
@@ -656,12 +659,14 @@ function ValueListEditor({
               key={value}
               type="button"
               onClick={() => onChange(values.filter((_, i) => i !== index))}
-              className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
               aria-label={`Remove ${value}`}
             >
-              {value}
-              {index === 0 && values.length > 1 && <span className="ml-1 text-[var(--directory-title)]/60">· Primary</span>}
-              {" "}<span aria-hidden="true">×</span>
+              <span className="min-w-0 truncate">
+                {value}
+                {index === 0 && values.length > 1 && <span className="ml-1 text-[var(--directory-title)]/60">· Primary</span>}
+              </span>
+              <span aria-hidden="true" className="shrink-0">×</span>
             </button>
           ))}
         </div>
