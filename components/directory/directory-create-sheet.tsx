@@ -281,7 +281,7 @@ export function DirectoryCreateSheet({
               )}
 
               {type !== "person" && (
-                <fieldset>
+                <fieldset className="min-w-0">
                   <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">People involved</legend>
                   <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">Add existing Directory contacts to keep this shared context connected to the people on it.</p>
                   {involvedPeople.length > 0 && (

@@ -395,7 +395,7 @@ function CompanySelector({
   const selected = companies.find((company) => company.id === selectedId)
 
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Company</legend>
       <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">Choose an existing Company context or enter a name.</p>
       {selected && (
@@ -461,7 +461,7 @@ function PeopleSelector({
   }, [people, query, selectedIds])
 
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">People involved</legend>
       <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">Add existing Directory contacts to this shared context.</p>
       {selectedPeople.length > 0 && (
@@ -532,7 +532,7 @@ function JobsSelector({
   }, [jobs, query, selectedIds])
 
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Jobs</legend>
       <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">Jobs this contact is working on.</p>
       {selectedJobs.length > 0 && (
@@ -589,7 +589,7 @@ function StatusToggle({ value, onChange }: { value: string; onChange: (value: st
     { key: "Inactive", label: "Inactive" },
   ]
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Status</legend>
       <div className="mt-3 flex gap-2">
         {options.map((option) => (
@@ -649,7 +649,7 @@ function ValueListEditor({
   }
 
   return (
-    <fieldset>
+    <fieldset className="min-w-0">
       <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">{label}</legend>
       <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">{hint}</p>
       {values.length > 0 && (

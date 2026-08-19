@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FolderOpen,
   Link2,
+  Loader2,
   Mail,
   MapPin,
   Pencil,
@@ -84,6 +85,11 @@ export function DirectoryProfileScreen({
   // description renders once (no visible mid-load text swap).
   const [relationsSettled, setRelationsSettled] = useState(false)
   const [activitySettled, setActivitySettled] = useState(false)
+  // /directoryRelations is derived asynchronously by a Cloud Function trigger
+  // off the edited source doc, so right after a save it can lag behind for a
+  // beat — this stays true through the retry window so the UI shows that a
+  // refresh is in flight instead of looking stuck on stale/empty data.
+  const [relationsRefreshing, setRelationsRefreshing] = useState(false)
   const [tab, setTab] = useState<ProfileTab>("overview")
   const [fullOutlook, setFullOutlook] = useState(false)
   const { favoriteIds, toggleFavorite: updateFavorite, recordRecent } = useDirectoryUserState()
@@ -131,14 +137,23 @@ export function DirectoryProfileScreen({
 
   // Resolve safe relationships + recent activity once the entity is known
   // (best-effort, non-blocking — the About narrative refines as they arrive).
+  // Also re-runs on reloadKey (bumped after an edit save): the edit writes to
+  // /contacts or /contexts, and a Cloud Function trigger derives the
+  // /directoryRelations edge from that write asynchronously, so an immediate
+  // re-fetch can still race it — hence the two delayed retries below, timed
+  // the same as the post-create refresh in directory-screen.tsx.
   useEffect(() => {
     if (!vmId) return
     let active = true
+    const isPostSave = reloadKey > 0
     setRelations(null)
     setActivity(null)
     setRelationsSettled(false)
     setActivitySettled(false)
-    loadDirectoryRelationsPage(vmId, null, 5)
+    setFullRelationsLoaded(false)
+    if (isPostSave) setRelationsRefreshing(true)
+
+    const loadRelations = () => loadDirectoryRelationsPage(vmId, null, 5)
       .then((page) => {
         if (!active) return
         setRelationEdges(page.edges)
@@ -147,13 +162,24 @@ export function DirectoryProfileScreen({
         setHasMoreRelations(page.hasMore)
       })
       .catch(() => { if (active) setRelations(null) })
-      .finally(() => { if (active) setRelationsSettled(true) })
+
+    loadRelations().finally(() => { if (active) setRelationsSettled(true) })
+
+    const timers: number[] = []
+    if (isPostSave) {
+      timers.push(window.setTimeout(loadRelations, 1_200))
+      timers.push(window.setTimeout(
+        () => { loadRelations().finally(() => { if (active) setRelationsRefreshing(false) }) },
+        3_800,
+      ))
+    }
+
     loadDirectoryActivitySummary(vmId)
       .then((summary) => { if (active) setActivity(summary) })
       .catch(() => { if (active) setActivity(null) })
       .finally(() => { if (active) setActivitySettled(true) })
-    return () => { active = false }
-  }, [vmId])
+    return () => { active = false; timers.forEach((timer) => window.clearTimeout(timer)) }
+  }, [vmId, reloadKey])
 
   useEffect(() => {
     if (!vmId || tab !== "related" || fullRelationsLoaded || relationsPageLoading) return
@@ -357,6 +383,7 @@ export function DirectoryProfileScreen({
                   <OverviewTab
                     vm={vm}
                     relations={relations}
+                    relationsRefreshing={relationsRefreshing}
                     onOpenEntity={onOpenEntity}
                     showAdmin={showAdmin}
                     onToggleAdmin={() => setShowAdmin((v) => !v)}
@@ -375,6 +402,7 @@ export function DirectoryProfileScreen({
                   <RelatedTab
                     vm={vm}
                     relations={relations}
+                    relationsRefreshing={relationsRefreshing}
                     onOpenEntity={onOpenEntity}
                     hasMore={hasMoreRelations}
                     isLoadingMore={relationsPageLoading}
@@ -537,12 +565,14 @@ function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onActio
 function OverviewTab({
   vm,
   relations,
+  relationsRefreshing,
   onOpenEntity,
   showAdmin,
   onToggleAdmin,
 }: {
   vm: DirectoryProfileViewModel
   relations: DirectoryRelations | null
+  relationsRefreshing: boolean
   onOpenEntity: (id: string) => void
   showAdmin: boolean
   onToggleAdmin: () => void
@@ -595,13 +625,16 @@ function OverviewTab({
         )}
       </div>
 
-      {hasRelated && (
+      {(hasRelated || relationsRefreshing) && (
         <aside className="mt-8 lg:mt-0">
-          <h3 className="mb-2 text-xs font-medium tracking-wide text-muted-foreground/60">Related</h3>
+          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground/60">
+            Related
+            {relationsRefreshing && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/45" aria-label="Updating" />}
+          </h3>
           <div className="space-y-1">
-            {relations!.company && <RelationRow entity={relations!.company} onOpen={onOpenEntity} />}
-            {relations!.jobs.slice(0, 4).map((job) => <RelationRow key={job.id} entity={job} onOpen={onOpenEntity} />)}
-            {relations!.people.slice(0, 4).map((person) => <RelationRow key={person.id} entity={person} onOpen={onOpenEntity} />)}
+            {relations?.company && <RelationRow entity={relations.company} onOpen={onOpenEntity} />}
+            {relations?.jobs.slice(0, 4).map((job) => <RelationRow key={job.id} entity={job} onOpen={onOpenEntity} />)}
+            {relations?.people.slice(0, 4).map((person) => <RelationRow key={person.id} entity={person} onOpen={onOpenEntity} />)}
           </div>
         </aside>
       )}
@@ -653,6 +686,7 @@ function FieldIcon({ kind, label }: { kind: ProfileField["kind"]; label: string 
 function RelatedTab({
   vm,
   relations,
+  relationsRefreshing,
   onOpenEntity,
   hasMore,
   isLoadingMore,
@@ -660,12 +694,15 @@ function RelatedTab({
 }: {
   vm: DirectoryProfileViewModel
   relations: DirectoryRelations | null
+  relationsRefreshing: boolean
   onOpenEntity: (id: string) => void
   hasMore: boolean
   isLoadingMore: boolean
   onLoadMore: () => void
 }) {
-  if (!relations) return <DirectoryRowsSkeleton count={4} />
+  if (!relations) {
+    return relationsRefreshing ? <RelationsUpdatingState /> : <DirectoryRowsSkeleton count={4} />
+  }
 
   const groups: Array<{ title: string; entities: RelationEntityRef[] }> = []
   if (vm.type === "person") {
@@ -688,11 +725,17 @@ function RelatedTab({
   }
 
   if (groups.length === 0) {
+    if (relationsRefreshing) return <RelationsUpdatingState />
     return <PreparedState icon={Link2} title="No relationships" body="No safe, confirmed relationships are recorded for this entity yet." />
   }
 
   return (
     <div className="space-y-6">
+      {relationsRefreshing && (
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground/55" role="status">
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Updating relationships…
+        </p>
+      )}
       {groups.map((group) => (
         <section key={group.title}>
           <h3 className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground/60">
@@ -798,6 +841,18 @@ function PreparedState({ icon: Icon, title, body }: { icon: typeof Link2; title:
       </div>
       <p className="text-sm font-medium text-foreground/80">{title}</p>
       <p className="mt-1 max-w-72 text-xs leading-5 text-muted-foreground/60">{body}</p>
+    </div>
+  )
+}
+
+function RelationsUpdatingState() {
+  return (
+    <div className="flex flex-col items-center px-6 py-14 text-center" role="status">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035]">
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--directory-title)]/70" strokeWidth={1.7} />
+      </div>
+      <p className="text-sm font-medium text-foreground/80">Updating relationships…</p>
+      <p className="mt-1 max-w-72 text-xs leading-5 text-muted-foreground/60">Your change was saved — this list refreshes in a moment.</p>
     </div>
   )
 }
