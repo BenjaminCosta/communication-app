@@ -262,6 +262,47 @@ export async function updateDirectoryContextConnections(
   })
 }
 
+/**
+ * The reverse of updateDirectoryContextConnections' `involvedPeople`: edit
+ * which Jobs a person is on FROM the person's side. Each affected job is its
+ * own transaction (jobs are independent docs; there's no need for one atomic
+ * multi-doc write, only per-job consistency against a concurrent edit).
+ */
+export async function updateContactJobAssignments(
+  person: { id: string; name: string },
+  changes: { addJobSourceIds: string[]; removeJobSourceIds: string[] },
+): Promise<void> {
+  const jobs = [
+    ...changes.addJobSourceIds.map((jobId) => ({ jobId, add: true })),
+    ...changes.removeJobSourceIds.map((jobId) => ({ jobId, add: false })),
+  ]
+  await Promise.all(jobs.map(async ({ jobId, add }) => {
+    const ref = doc(db, "contexts", jobId)
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref)
+      if (!snap.exists()) return // job was deleted concurrently — nothing to update
+      const data = snap.data()
+      const existing = normalizedInvolvedPeople(
+        Array.isArray(data.involvedPeople) ? (data.involvedPeople as DirectoryInvolvedPerson[]) : [],
+      )
+      const next = add
+        ? (existing.some((p) => p.id === person.id) ? existing : [...existing, { id: person.id, name: person.name }])
+        : existing.filter((p) => p.id !== person.id)
+      const fields: CoreContextField[] = Array.isArray(data.fields) ? [...data.fields] : []
+      const withoutPeople = fields.filter((field) => (field.label ?? "").toLowerCase() !== "people involved")
+      if (next.length > 0) {
+        withoutPeople.push({ label: "People involved", value: next.map((p) => p.name).join(", ") })
+      }
+      tx.update(ref, {
+        fields: withoutPeople,
+        involvedContactIds: next.map((p) => p.id),
+        involvedPeople: next,
+        updatedAt: serverTimestamp(),
+      })
+    })
+  }))
+}
+
 // ── Public Overview field edits ─────────────────────────────────────────────
 // Human edits are authoritative, so they are written into `masterData` — the
 // map the normalizer (lib/directory-core) and view models read FIRST, above
@@ -324,6 +365,10 @@ export async function applyDirectoryEdits(
       }
       if (has("address")) master.address = val("address")
       if (has("notes")) { const v = val("notes"); master.notes = v; patch.notes = v }
+      if (has("active")) {
+        const v = val("active")
+        master.active = v === "Active" ? true : v === "Inactive" ? false : null
+      }
       patch.masterData = master
     } else if (type === "company") {
       if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); master.displayName = v; patch.name = v }
@@ -334,7 +379,15 @@ export async function applyDirectoryEdits(
       patch.masterData = master
     } else if (type === "job") {
       if (has("name")) { const v = val("name"); if (!v) throw new DirectoryWriteError("Name cannot be empty."); master.canonicalName = v; patch.name = v }
-      const jobKeys = ["status", "address", "location", "durationWeeks", "projectType", "reportCadence", "operationalNotes"] as const
+      if (has("imageFolderUrl")) {
+        const v = val("imageFolderUrl")
+        if (v && !isLikelyUrl(v)) throw new DirectoryWriteError("Enter a valid Drive folder URL.")
+      }
+      const jobKeys = [
+        "status", "address", "location", "durationWeeks", "projectType", "reportCadence", "operationalNotes",
+        "operatingZone", "estimatedStartDate", "confirmedStartDate", "imageFolderUrl",
+        "projectManagerName", "projectLeadName", "jobRateAmount", "jobRateCurrency", "jobRateUnit",
+      ] as const
       for (const key of jobKeys) if (has(key)) master[key] = val(key)
       patch.masterData = master
     } else {

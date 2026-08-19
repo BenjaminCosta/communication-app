@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import { loadDirectorySearch } from "@/lib/directory-search"
+import { loadDirectoryRelationsPage } from "@/lib/directory-relations"
+import { parseDirectoryId } from "@/lib/directory"
 import { cn } from "@/lib/utils"
 import {
   getEditableFields,
@@ -13,6 +15,7 @@ import {
   applyDirectoryEdits,
   DirectoryWriteError,
   setContactCompanyContext,
+  updateContactJobAssignments,
   updateDirectoryContextConnections,
   type DirectoryEditInput,
   type DirectoryInvolvedPerson,
@@ -62,12 +65,17 @@ function samePeople(left: DirectoryInvolvedPerson[], right: DirectoryInvolvedPer
   return left.length === right.length && left.every((person, index) => person.id === right[index]?.id)
 }
 
+function sameJobSelection(selected: DirectoryInvolvedPerson[], initialIds: Set<string>): boolean {
+  return selected.length === initialIds.size && selected.every((job) => initialIds.has(job.id))
+}
+
 export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onSaved }: DirectoryEditSheetProps) {
   // The profile can open before the app-level Directory catalog is ready. Load
   // the same index used by + New so the relationship selectors never start
   // with an empty, non-searchable list.
   const [availableCompanies, setAvailableCompanies] = useState(companies)
   const [availablePeople, setAvailablePeople] = useState(people)
+  const [availableJobs, setAvailableJobs] = useState<Array<{ id: string; name: string }>>([])
   const [isSelectorIndexLoading, setIsSelectorIndexLoading] = useState(
     companies.length === 0 || people.length === 0,
   )
@@ -78,6 +86,7 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
       if (!active) return
       setAvailableCompanies(index.byType.company.map((entry) => ({ id: entry.sourceId, name: entry.name })))
       setAvailablePeople(index.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setAvailableJobs(index.byType.job.map((entry) => ({ id: entry.sourceId, name: entry.name })))
       setIsSelectorIndexLoading(false)
     }
 
@@ -85,16 +94,41 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     setAvailablePeople(people)
     if (companies.length > 0 && people.length > 0) {
       setIsSelectorIndexLoading(false)
-      return () => { active = false }
+    } else {
+      setIsSelectorIndexLoading(true)
     }
-
-    setIsSelectorIndexLoading(true)
     loadDirectorySearch(userId, { onCache: applyIndex })
       .then(applyIndex)
       .catch(() => { if (active) setIsSelectorIndexLoading(false) })
 
     return () => { active = false }
   }, [companies, people, userId])
+
+  // A person's Jobs come from the live-synced /directoryRelations edges (see
+  // functions/src/directory/sync.ts) rather than from `vm`/props, so this
+  // always reflects the full set regardless of which profile tab was opened.
+  const [selectedJobs, setSelectedJobs] = useState<DirectoryInvolvedPerson[]>([])
+  const [initialJobIds, setInitialJobIds] = useState<Set<string> | null>(null)
+  const [isJobsLoading, setIsJobsLoading] = useState(vm.type === "person")
+
+  useEffect(() => {
+    if (vm.type !== "person") { setInitialJobIds(new Set()); setIsJobsLoading(false); return }
+    let active = true
+    setIsJobsLoading(true)
+    loadDirectoryRelationsPage(vm.id, null, 50)
+      .then((page) => {
+        if (!active) return
+        const jobs = page.relations.jobs.map((job) => {
+          const parsed = parseDirectoryId(job.id)
+          return { id: parsed?.sourceId ?? job.id, name: job.name }
+        })
+        setSelectedJobs(jobs)
+        setInitialJobIds(new Set(jobs.map((job) => job.id)))
+      })
+      .catch(() => { if (active) setInitialJobIds(new Set()) })
+      .finally(() => { if (active) setIsJobsLoading(false) })
+    return () => { active = false }
+  }, [vm.id, vm.type])
 
   const initial = useMemo(() => {
     const fields = getEditableFields(vm)
@@ -118,17 +152,19 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   const [error, setError] = useState("")
 
   const formFields = useMemo(
-    () => initial.fields.filter((field) => !(vm.type === "person" && field.key === "company")),
+    () => initial.fields.filter((field) => !(vm.type === "person" && (field.key === "company" || field.key === "active"))),
     [initial.fields, vm.type],
   )
   const allowsCompanySelection = vm.type === "person" || vm.type === "job"
   const allowsPeopleSelection = vm.type === "company" || vm.type === "job"
+  const allowsJobSelection = vm.type === "person"
   const fieldDirty = formFields.some((field) => (values[field.key] ?? "") !== (initial.values[field.key] ?? ""))
   const companyDirty = allowsCompanySelection && (
     companyName.trim() !== initial.companyName.trim() || selectedCompanyId !== initial.companyId
   )
   const peopleDirty = allowsPeopleSelection && !samePeople(involvedPeople, initial.involvedPeople)
-  const dirty = fieldDirty || companyDirty || peopleDirty
+  const jobsDirty = allowsJobSelection && initialJobIds !== null && !sameJobSelection(selectedJobs, initialJobIds)
+  const dirty = fieldDirty || companyDirty || peopleDirty || jobsDirty
 
   const setValue = (key: string, value: string) => {
     setValues((current) => ({ ...current, [key]: value }))
@@ -148,12 +184,22 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     setError("")
   }
 
+  const addJob = (job: { id: string; name: string }) => {
+    setSelectedJobs((current) => current.some((selected) => selected.id === job.id)
+      ? current
+      : [...current, job])
+    setError("")
+  }
+
   const save = async () => {
     if (isSaving) return
     const edits: DirectoryEditInput = {}
     for (const field of formFields) {
       const next = values[field.key] ?? ""
       if (next !== (initial.values[field.key] ?? "")) edits[field.key] = next
+    }
+    if (vm.type === "person" && (values.active ?? "") !== (initial.values.active ?? "")) {
+      edits.active = values.active ?? ""
     }
     if (!dirty) { onClose(); return }
 
@@ -171,6 +217,16 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
           ...(vm.type === "job" && companyDirty ? { company: { id: selectedCompanyId, name: companyName } } : {}),
           ...(peopleDirty ? { involvedPeople } : {}),
         })
+      }
+      if (vm.type === "person" && jobsDirty && initialJobIds) {
+        const nextIds = new Set(selectedJobs.map((job) => job.id))
+        await updateContactJobAssignments(
+          { id: vm.sourceId, name: values.name?.trim() || vm.name },
+          {
+            addJobSourceIds: selectedJobs.filter((job) => !initialJobIds.has(job.id)).map((job) => job.id),
+            removeJobSourceIds: [...initialJobIds].filter((id) => !nextIds.has(id)),
+          },
+        )
       }
       onSaved()
     } catch (err) {
@@ -250,6 +306,20 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
                 selectedPeople={involvedPeople}
                 onAdd={addPerson}
                 onRemove={(id) => setInvolvedPeople((current) => current.filter((person) => person.id !== id))}
+              />
+            )}
+
+            {vm.type === "person" && (
+              <StatusToggle value={values.active ?? ""} onChange={(next) => setValue("active", next)} />
+            )}
+
+            {allowsJobSelection && (
+              <JobsSelector
+                jobs={availableJobs}
+                isLoading={isSelectorIndexLoading || isJobsLoading}
+                selectedJobs={selectedJobs}
+                onAdd={addJob}
+                onRemove={(id) => setSelectedJobs((current) => current.filter((job) => job.id !== id))}
               />
             )}
           </div>
@@ -388,6 +458,109 @@ function PeopleSelector({
             {isLoading ? "Loading Directory contacts…" : "No additional contacts match."}
           </p>
         )}
+      </div>
+    </fieldset>
+  )
+}
+
+function JobsSelector({
+  jobs,
+  isLoading,
+  selectedJobs,
+  onAdd,
+  onRemove,
+}: {
+  jobs: Array<{ id: string; name: string }>
+  isLoading: boolean
+  selectedJobs: DirectoryInvolvedPerson[]
+  onAdd: (job: DirectoryInvolvedPerson) => void
+  onRemove: (id: string) => void
+}) {
+  const [query, setQuery] = useState("")
+  const selectedIds = useMemo(() => new Set(selectedJobs.map((job) => job.id)), [selectedJobs])
+  const matches = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return jobs
+      .filter((job) => !selectedIds.has(job.id))
+      .filter((job) => !normalizedQuery || job.name.toLowerCase().includes(normalizedQuery))
+      .slice(0, 8)
+  }, [jobs, query, selectedIds])
+
+  return (
+    <fieldset>
+      <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Jobs</legend>
+      <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">Jobs this contact is working on.</p>
+      {selectedJobs.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2" aria-live="polite">
+          {selectedJobs.map((job) => (
+            <button
+              key={job.id}
+              type="button"
+              onClick={() => onRemove(job.id)}
+              disabled={isLoading}
+              className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97] disabled:opacity-50"
+              aria-label={`Remove ${job.name}`}
+            >
+              {job.name} <span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search jobs to add"
+        disabled={isLoading}
+        className={cn(inputClassName, "mt-3", isLoading && "opacity-50")}
+      />
+      <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]">
+        {matches.length > 0 ? matches.map((job) => (
+          <button
+            key={job.id}
+            type="button"
+            onClick={() => { onAdd(job); setQuery("") }}
+            disabled={isLoading}
+            className="flex w-full items-center gap-2.5 border-b border-white/[0.06] px-3 py-2.5 text-left last:border-b-0 active:bg-white/[0.04] disabled:opacity-50"
+          >
+            <DirectoryEntityIcon item={{ type: "job", name: job.name }} size="xs" />
+            <span className="min-w-0 flex-1 truncate text-sm text-foreground/85">{job.name}</span>
+            <span className="text-xs font-semibold text-[var(--directory-title)]">Add</span>
+          </button>
+        )) : (
+          <p className="px-3 py-3 text-xs text-muted-foreground/50">
+            {isLoading ? "Loading Directory jobs…" : "No additional jobs match."}
+          </p>
+        )}
+      </div>
+    </fieldset>
+  )
+}
+
+function StatusToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const options: Array<{ key: string; label: string }> = [
+    { key: "", label: "Unset" },
+    { key: "Active", label: "Active" },
+    { key: "Inactive", label: "Inactive" },
+  ]
+  return (
+    <fieldset>
+      <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Status</legend>
+      <div className="mt-3 flex gap-2">
+        {options.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            onClick={() => onChange(option.key)}
+            className={cn(
+              "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors active:scale-[0.97]",
+              value === option.key
+                ? "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]"
+                : "border-white/[0.1] bg-white/[0.03] text-foreground/70",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
     </fieldset>
   )

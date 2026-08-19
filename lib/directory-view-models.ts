@@ -117,6 +117,9 @@ export interface JobProfileViewModel extends BaseProfileViewModel {
   address: string | null
   estimatedStartDate: string | null
   confirmedStartDate: string | null
+  /** Pre-formatting raw value — what edits should round-trip through, not the humanized display string. */
+  estimatedStartDateRaw: string | null
+  confirmedStartDateRaw: string | null
   durationWeeks: string | null
   projectType: string | null
   operatingZone: string | null
@@ -128,6 +131,9 @@ export interface JobProfileViewModel extends BaseProfileViewModel {
   isLegacyOrArchived: boolean
   /** Rendered only when the viewer is authorized (see `canViewSensitive`). */
   jobRate: string | null
+  jobRateAmount: string | null
+  jobRateCurrency: string | null
+  jobRateUnit: string | null
 }
 
 export interface OtherProfileViewModel extends BaseProfileViewModel {
@@ -475,8 +481,10 @@ export function buildJobProfileViewModel(
     : firstStr(index.companyName)
   const companyEntityId = safeCompany ? firstStr(index.companyEntityId) : null
 
-  const estimatedStartDate = cleanDate(firstStr(master.estimatedStartDate, fieldValue(fields, "Estimated Start Date")))
-  const confirmedStartDate = cleanDate(firstStr(master.confirmedStartDate, fieldValue(fields, "Confirmed Start Date")))
+  const estimatedStartDateRaw = firstStr(master.estimatedStartDate, fieldValue(fields, "Estimated Start Date"))
+  const confirmedStartDateRaw = firstStr(master.confirmedStartDate, fieldValue(fields, "Confirmed Start Date"))
+  const estimatedStartDate = cleanDate(estimatedStartDateRaw)
+  const confirmedStartDate = cleanDate(confirmedStartDateRaw)
   const durationWeeks = firstStr(
     master.durationWeeks != null ? String(master.durationWeeks) : null,
     fieldValue(fields, "Duration in Weeks"),
@@ -493,6 +501,9 @@ export function buildJobProfileViewModel(
   const isLegacyOrArchived = bool(master.isLegacyOrArchived) === true
 
   const jobRate = buildJobRate(master, fields)
+  const jobRateAmount = firstStr(master.jobRateAmount != null ? String(master.jobRateAmount) : null, fieldValue(fields, "Job Rate Amount"))
+  const jobRateCurrency = firstStr(master.jobRateCurrency, fieldValue(fields, "Job Rate Currency"))
+  const jobRateUnit = firstStr(master.jobRateUnit, fieldValue(fields, "Job Rate Unit"))
 
   const overview: ProfileField[] = []
   if (company) overview.push({ label: "Company", value: company, kind: "text" })
@@ -505,6 +516,8 @@ export function buildJobProfileViewModel(
   if (confirmedStartDate) overview.push({ label: "Confirmed start", value: confirmedStartDate, kind: "date" })
   if (durationWeeks) overview.push({ label: "Duration", value: `${durationWeeks} weeks`, kind: "text" })
   if (reportCadence) overview.push({ label: "Report cadence", value: reportCadence, kind: "text" })
+  if (projectManagerName) overview.push({ label: "Project manager", value: projectManagerName, kind: "text" })
+  if (projectLeadName) overview.push({ label: "Project lead", value: projectLeadName, kind: "text" })
   if (peopleInvolved) overview.push({ label: "People involved", value: peopleInvolved, kind: "text" })
   if (driveFolderUrl) overview.push({ label: "Drive folder", value: "Open folder", kind: "url", href: driveFolderUrl })
   if (options.canViewSensitive && jobRate) overview.push({ label: "Job rate", value: jobRate, kind: "text" })
@@ -532,6 +545,8 @@ export function buildJobProfileViewModel(
     address,
     estimatedStartDate,
     confirmedStartDate,
+    estimatedStartDateRaw,
+    confirmedStartDateRaw,
     durationWeeks,
     projectType,
     operatingZone,
@@ -542,6 +557,9 @@ export function buildJobProfileViewModel(
     projectLeadName,
     isLegacyOrArchived,
     jobRate: options.canViewSensitive ? jobRate : null,
+    jobRateAmount: options.canViewSensitive ? jobRateAmount : null,
+    jobRateCurrency: options.canViewSensitive ? jobRateCurrency : null,
+    jobRateUnit: options.canViewSensitive ? jobRateUnit : null,
     actions,
     overview,
     adminDetails: jobAdminDetails(index, source, master, jobRate),
@@ -671,6 +689,7 @@ export function getEditableFields(vm: DirectoryProfileViewModel): EditableField[
         { key: "phone", label: "Primary phone", value: vm.primaryPhone ?? "", inputType: "tel" },
         { key: "email", label: "Primary email", value: vm.primaryEmail ?? "", inputType: "email" },
         { key: "address", label: "Address", value: vm.addresses[0] ?? "" },
+        { key: "active", label: "Status", value: vm.isActive == null ? "" : vm.isActive ? "Active" : "Inactive" },
         { key: "notes", label: "Notes", value: vm.notes ?? "", multiline: true },
       ]
     case "company":
@@ -681,17 +700,35 @@ export function getEditableFields(vm: DirectoryProfileViewModel): EditableField[
         { key: "website", label: "Website", value: vm.website ?? "", inputType: "url" },
         { key: "description", label: "Description", value: vm.description ?? "", multiline: true },
       ]
-    case "job":
-      return [
+    case "job": {
+      const fields: EditableField[] = [
         { key: "name", label: "Name", value: vm.name },
         { key: "status", label: "Status", value: vm.status ?? "" },
         { key: "address", label: "Address", value: vm.address ?? "" },
         { key: "location", label: "Location", value: vm.location ?? "" },
+        { key: "operatingZone", label: "Operating zone", value: vm.operatingZone ?? "" },
+        { key: "estimatedStartDate", label: "Estimated start", value: vm.estimatedStartDateRaw ?? "" },
+        { key: "confirmedStartDate", label: "Confirmed start", value: vm.confirmedStartDateRaw ?? "" },
         { key: "durationWeeks", label: "Duration (weeks)", value: vm.durationWeeks ?? "" },
         { key: "projectType", label: "Project type", value: vm.projectType ?? "" },
         { key: "reportCadence", label: "Report cadence", value: vm.reportCadence ?? "" },
-        { key: "operationalNotes", label: "Operational notes", value: vm.operationalNotes ?? "", multiline: true },
+        { key: "projectManagerName", label: "Project manager", value: vm.projectManagerName ?? "" },
+        { key: "projectLeadName", label: "Project lead", value: vm.projectLeadName ?? "" },
+        { key: "imageFolderUrl", label: "Drive folder URL", value: vm.driveFolderUrl ?? "", inputType: "url" },
       ]
+      // Job rate is sensitive — the view model already nulls these out for an
+      // unauthorized viewer, so gating the editable field on their presence
+      // reuses that same check instead of a second permission lookup here.
+      if (vm.jobRate !== null || vm.jobRateAmount !== null) {
+        fields.push(
+          { key: "jobRateAmount", label: "Job rate amount", value: vm.jobRateAmount ?? "" },
+          { key: "jobRateCurrency", label: "Job rate currency", value: vm.jobRateCurrency ?? "" },
+          { key: "jobRateUnit", label: "Job rate unit", value: vm.jobRateUnit ?? "" },
+        )
+      }
+      fields.push({ key: "operationalNotes", label: "Operational notes", value: vm.operationalNotes ?? "", multiline: true })
+      return fields
+    }
     default:
       return [
         { key: "name", label: "Name", value: vm.name },
