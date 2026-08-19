@@ -33,7 +33,7 @@ const MODULES: Array<{
     id: "communications",
     title: "Communications",
     description: "Team messages",
-    productLabel: "Communications",
+    productLabel: "Comms",
     icon: MessageCircle,
     accent: "#93C5FD",
     surface: "rgba(37,99,235,0.13)",
