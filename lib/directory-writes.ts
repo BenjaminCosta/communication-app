@@ -218,6 +218,64 @@ export async function setContactCompanyContext(
   })
 }
 
+function dedupeValid(values: string[], isValid: (v: string) => boolean, normalize: (v: string) => string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of values) {
+    const v = cleanValue(raw)
+    if (!v) continue
+    if (!isValid(v)) throw new DirectoryWriteError(`"${v}" doesn't look valid.`)
+    const key = normalize(v)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(v)
+  }
+  return out
+}
+
+/**
+ * Replace a contact's full email list (first = primary). Written into
+ * masterData — same "human edits are authoritative" rule as the rest of the
+ * Public Overview fields — with the legacy top-level scalar kept in sync for
+ * non-Directory consumers that still read it directly.
+ */
+export async function setContactEmails(contactId: string, emails: string[]): Promise<void> {
+  const clean = dedupeValid(emails, isLikelyEmail, (v) => v.toLowerCase())
+  const ref = doc(db, "contacts", contactId)
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This contact no longer exists.")
+    const master: Record<string, unknown> = { ...(snap.data().masterData ?? {}) }
+    master.emails = clean
+    master.primaryEmail = clean[0] ?? null
+    tx.update(ref, {
+      masterData: master,
+      email: clean[0] ?? "",
+      emailNormalized: clean[0] ? clean[0].toLowerCase() : "",
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
+/** Replace a contact's full phone list (first = primary). Same shape as setContactEmails. */
+export async function setContactPhones(contactId: string, phones: string[]): Promise<void> {
+  const clean = dedupeValid(phones, isLikelyPhone, (v) => normalizePhoneDigits(v))
+  const ref = doc(db, "contacts", contactId)
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This contact no longer exists.")
+    const master: Record<string, unknown> = { ...(snap.data().masterData ?? {}) }
+    master.phones = clean
+    master.primaryPhone = clean[0] ?? null
+    tx.update(ref, {
+      masterData: master,
+      phone: clean[0] ?? "",
+      phoneNormalized: clean[0] ? normalizePhoneDigits(clean[0]) : "",
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
 /**
  * Update the actual context connections used by Directory and Communications.
  * The transaction preserves unrelated fields while replacing only the named

@@ -682,12 +682,13 @@ export interface EditableField {
 export function getEditableFields(vm: DirectoryProfileViewModel): EditableField[] {
   switch (vm.type) {
     case "person":
+      // Emails/phones are edited as full ordered lists (first = primary) via
+      // a dedicated chip editor in the sheet, not as single text fields here —
+      // see EmailsEditor/PhonesEditor in directory-edit-sheet.tsx.
       return [
         { key: "name", label: "Name", value: vm.name },
         { key: "role", label: "Role", value: vm.role ?? "" },
         { key: "company", label: "Company", value: vm.companyName ?? "" },
-        { key: "phone", label: "Primary phone", value: vm.primaryPhone ?? "", inputType: "tel" },
-        { key: "email", label: "Primary email", value: vm.primaryEmail ?? "", inputType: "email" },
         { key: "address", label: "Address", value: vm.addresses[0] ?? "" },
         { key: "active", label: "Status", value: vm.isActive == null ? "" : vm.isActive ? "Active" : "Inactive" },
         { key: "notes", label: "Notes", value: vm.notes ?? "", multiline: true },

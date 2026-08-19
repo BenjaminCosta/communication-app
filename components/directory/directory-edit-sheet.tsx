@@ -5,7 +5,7 @@ import { X } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import { loadDirectorySearch } from "@/lib/directory-search"
 import { loadDirectoryRelationsPage } from "@/lib/directory-relations"
-import { parseDirectoryId } from "@/lib/directory"
+import { parseDirectoryId, isLikelyEmail, isLikelyPhone } from "@/lib/directory"
 import { cn } from "@/lib/utils"
 import {
   getEditableFields,
@@ -15,6 +15,8 @@ import {
   applyDirectoryEdits,
   DirectoryWriteError,
   setContactCompanyContext,
+  setContactEmails,
+  setContactPhones,
   updateContactJobAssignments,
   updateDirectoryContextConnections,
   type DirectoryEditInput,
@@ -67,6 +69,10 @@ function samePeople(left: DirectoryInvolvedPerson[], right: DirectoryInvolvedPer
 
 function sameJobSelection(selected: DirectoryInvolvedPerson[], initialIds: Set<string>): boolean {
   return selected.length === initialIds.size && selected.every((job) => initialIds.has(job.id))
+}
+
+function sameStringList(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
 export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onSaved }: DirectoryEditSheetProps) {
@@ -141,6 +147,8 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
       companyName,
       companyId: vm.type === "person" || vm.type === "job" ? sourceCompanyId(vm.companyEntityId) : null,
       involvedPeople: currentInvolvedPeople(vm, people),
+      emails: vm.type === "person" ? vm.emails : [],
+      phones: vm.type === "person" ? vm.phones : [],
     }
   }, [people, vm])
 
@@ -148,6 +156,8 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   const [companyName, setCompanyName] = useState(initial.companyName)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(initial.companyId)
   const [involvedPeople, setInvolvedPeople] = useState<DirectoryInvolvedPerson[]>(initial.involvedPeople)
+  const [emails, setEmails] = useState<string[]>(initial.emails)
+  const [phones, setPhones] = useState<string[]>(initial.phones)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -158,13 +168,16 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   const allowsCompanySelection = vm.type === "person" || vm.type === "job"
   const allowsPeopleSelection = vm.type === "company" || vm.type === "job"
   const allowsJobSelection = vm.type === "person"
+  const allowsContactListEditing = vm.type === "person"
   const fieldDirty = formFields.some((field) => (values[field.key] ?? "") !== (initial.values[field.key] ?? ""))
   const companyDirty = allowsCompanySelection && (
     companyName.trim() !== initial.companyName.trim() || selectedCompanyId !== initial.companyId
   )
   const peopleDirty = allowsPeopleSelection && !samePeople(involvedPeople, initial.involvedPeople)
   const jobsDirty = allowsJobSelection && initialJobIds !== null && !sameJobSelection(selectedJobs, initialJobIds)
-  const dirty = fieldDirty || companyDirty || peopleDirty || jobsDirty
+  const emailsDirty = allowsContactListEditing && !sameStringList(emails, initial.emails)
+  const phonesDirty = allowsContactListEditing && !sameStringList(phones, initial.phones)
+  const dirty = fieldDirty || companyDirty || peopleDirty || jobsDirty || emailsDirty || phonesDirty
 
   const setValue = (key: string, value: string) => {
     setValues((current) => ({ ...current, [key]: value }))
@@ -211,6 +224,12 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
       }
       if (vm.type === "person" && companyDirty) {
         await setContactCompanyContext(vm.sourceId, { id: selectedCompanyId, name: companyName })
+      }
+      if (vm.type === "person" && emailsDirty) {
+        await setContactEmails(vm.sourceId, emails)
+      }
+      if (vm.type === "person" && phonesDirty) {
+        await setContactPhones(vm.sourceId, phones)
       }
       if ((vm.type === "company" || vm.type === "job") && (peopleDirty || companyDirty)) {
         await updateDirectoryContextConnections(vm.sourceId, {
@@ -269,6 +288,30 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
             </p>
           )}
           <div className="space-y-5">
+            {allowsContactListEditing && (
+              <ValueListEditor
+                label="Emails"
+                hint="First one is the primary email."
+                values={emails}
+                placeholder="Add an email"
+                inputType="email"
+                validate={isLikelyEmail}
+                onChange={setEmails}
+              />
+            )}
+
+            {allowsContactListEditing && (
+              <ValueListEditor
+                label="Phones"
+                hint="First one is the primary phone."
+                values={phones}
+                placeholder="Add a phone number"
+                inputType="tel"
+                validate={isLikelyPhone}
+                onChange={setPhones}
+              />
+            )}
+
             {formFields.map((field) => (
               <FormField key={field.key} label={field.label}>
                 {field.multiline ? (
@@ -562,6 +605,85 @@ function StatusToggle({ value, onChange }: { value: string; onChange: (value: st
           </button>
         ))}
       </div>
+    </fieldset>
+  )
+}
+
+function ValueListEditor({
+  label,
+  hint,
+  values,
+  placeholder,
+  inputType,
+  validate,
+  onChange,
+}: {
+  label: string
+  hint: string
+  values: string[]
+  placeholder: string
+  inputType: "email" | "tel"
+  validate: (value: string) => boolean
+  onChange: (values: string[]) => void
+}) {
+  const [draft, setDraft] = useState("")
+  const [localError, setLocalError] = useState("")
+
+  const add = () => {
+    const value = draft.trim()
+    if (!value) return
+    if (!validate(value)) {
+      setLocalError(`That doesn't look like a valid ${inputType === "email" ? "email" : "phone number"}.`)
+      return
+    }
+    const normalized = inputType === "email" ? value.toLowerCase() : value.replace(/\D/g, "")
+    const alreadyPresent = values.some((existing) =>
+      (inputType === "email" ? existing.toLowerCase() : existing.replace(/\D/g, "")) === normalized,
+    )
+    if (!alreadyPresent) onChange([...values, value])
+    setDraft("")
+    setLocalError("")
+  }
+
+  return (
+    <fieldset>
+      <legend className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">{label}</legend>
+      <p className="mt-1.5 text-xs leading-5 text-muted-foreground/55">{hint}</p>
+      {values.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2" aria-live="polite">
+          {values.map((value, index) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onChange(values.filter((_, i) => i !== index))}
+              className="rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+              aria-label={`Remove ${value}`}
+            >
+              {value}
+              {index === 0 && values.length > 1 && <span className="ml-1 text-[var(--directory-title)]/60">· Primary</span>}
+              {" "}<span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex gap-2">
+        <input
+          type={inputType}
+          value={draft}
+          onChange={(event) => { setDraft(event.target.value); setLocalError("") }}
+          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add() } }}
+          placeholder={placeholder}
+          className={cn(inputClassName, "flex-1")}
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="shrink-0 rounded-xl border border-white/[0.1] bg-white/[0.03] px-4 text-xs font-semibold text-foreground/80 active:scale-[0.97]"
+        >
+          Add
+        </button>
+      </div>
+      {localError && <p className="mt-1.5 text-[11px] text-orange-300/80">{localError}</p>}
     </fieldset>
   )
 }
