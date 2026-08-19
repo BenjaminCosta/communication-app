@@ -104,6 +104,142 @@ async function markDirectoryChanged(db: Firestore): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// /directoryRelations — live sync from source-of-truth links.
+//
+// The Directory profile ("Related" tab, job health, "About" narrative) reads
+// confirmed relationship edges from /directoryRelations. That collection was
+// originally populated ONLY by one-off/batch scripts (import-time matching),
+// so live edits made in the app (Job/Company "People involved", a person's
+// Company picker) never produced an edge — the source doc updated, but the
+// other side's profile never found out. The functions below close that gap:
+// every write to a person's resolved company, or to a job/company's
+// `involvedPeople`, upserts (or retires) the matching edge here too.
+//
+// Edges this owns are tagged `source: "context-sync"` so retirement never
+// touches edges written by the import scripts (different source values,
+// different doc ids) — only edges this same sync created are ever flipped
+// back to `active: false` when the underlying link disappears.
+// ══════════════════════════════════════════════════════════════════════════
+
+const RELATION_SYNC_SOURCE = "context-sync"
+
+function relationDocId(fromId: string, toId: string): string {
+  return `rel__${fromId}__${toId}`
+}
+
+/**
+ * Create or refresh one confirmed, unambiguous relation edge (both endpoints
+ * were resolved to a composite Directory id already — by a picker in the UI
+ * or by the existing company resolver — so there is no ambiguity to gate on).
+ * Never writes `role`/`relationshipType`: those are curated data from the
+ * import scripts and must not be clobbered or invented here.
+ */
+async function upsertRelationEdge(
+  db: Firestore,
+  input: { fromId: string; fromName: string; toId: string; toName: string },
+): Promise<void> {
+  const ref = db.collection("directoryRelations").doc(relationDocId(input.fromId, input.toId))
+  const snap = await ref.get()
+  const patch: Record<string, unknown> = {
+    fromDirectoryId: input.fromId,
+    fromName: input.fromName,
+    toDirectoryId: input.toId,
+    toName: input.toName,
+    entityIds: [input.fromId, input.toId],
+    active: true,
+    confidence: 1,
+    source: RELATION_SYNC_SOURCE,
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+  if (!snap.exists) patch.createdAt = FieldValue.serverTimestamp()
+  await ref.set(patch, { merge: true })
+}
+
+/**
+ * Deactivate this-sync-owned edges touching `entityDirId` whose other endpoint
+ * (i) starts with `otherPrefix` (e.g. "person__" — pass "" to match any type)
+ * and (ii) is not in `keepIds`. Edges from any other `source` are left alone.
+ */
+async function deactivateStaleSyncEdges(
+  db: Firestore,
+  entityDirId: string,
+  otherPrefix: string,
+  keepIds: Set<string>,
+): Promise<void> {
+  const snap = await db.collection("directoryRelations")
+    .where("entityIds", "array-contains", entityDirId)
+    .where("active", "==", true)
+    .get()
+  const batch = db.batch()
+  let any = false
+  for (const relDoc of snap.docs) {
+    const data = relDoc.data()
+    if (data.source !== RELATION_SYNC_SOURCE) continue
+    const from = typeof data.fromDirectoryId === "string" ? data.fromDirectoryId : ""
+    const to = typeof data.toDirectoryId === "string" ? data.toDirectoryId : ""
+    const other = from === entityDirId ? to : from
+    if (!other.startsWith(otherPrefix)) continue
+    if (keepIds.has(other)) continue
+    batch.update(relDoc.ref, { active: false, updatedAt: FieldValue.serverTimestamp() })
+    any = true
+  }
+  if (any) await batch.commit()
+}
+
+/** Person → resolved Company edge, from the same companyEntityId the index uses. */
+async function syncPersonCompanyRelation(db: Firestore, personEntry: DirectoryIndexEntry): Promise<void> {
+  const companyId = personEntry.companyEntityId
+  if (companyId) {
+    await upsertRelationEdge(db, {
+      fromId: companyId,
+      fromName: personEntry.companyName ?? "",
+      toId: personEntry.id,
+      toName: personEntry.name,
+    })
+  }
+  await deactivateStaleSyncEdges(db, personEntry.id, "company__", companyId ? new Set([companyId]) : new Set())
+}
+
+/** Job/Company → each selected "People involved" contact. */
+async function syncInvolvedPeopleRelations(
+  db: Firestore,
+  entry: DirectoryIndexEntry,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const involvedPeople = Array.isArray(data.involvedPeople)
+    ? (data.involvedPeople as Array<Record<string, unknown>>)
+    : []
+  const keepIds = new Set<string>()
+  for (const person of involvedPeople) {
+    const rawId = typeof person.id === "string" ? person.id.trim() : ""
+    if (!rawId) continue
+    const personDirId = directoryId("person", rawId)
+    keepIds.add(personDirId)
+    await upsertRelationEdge(db, {
+      fromId: entry.id,
+      fromName: entry.name,
+      toId: personDirId,
+      toName: typeof person.name === "string" ? person.name : "",
+    })
+  }
+  await deactivateStaleSyncEdges(db, entry.id, "person__", keepIds)
+}
+
+/** Job → resolved Company edge (mirrors buildJobIndex's companyEntityId). */
+async function syncJobCompanyRelation(db: Firestore, jobEntry: DirectoryIndexEntry): Promise<void> {
+  const companyId = jobEntry.companyEntityId
+  if (companyId) {
+    await upsertRelationEdge(db, {
+      fromId: jobEntry.id,
+      fromName: jobEntry.name,
+      toId: companyId,
+      toName: jobEntry.companyName ?? "",
+    })
+  }
+  await deactivateStaleSyncEdges(db, jobEntry.id, "company__", companyId ? new Set([companyId]) : new Set())
+}
+
 /**
  * Incrementally maintains the compact catalog after the full shard backfill is
  * installed. The index remains authoritative if this best-effort projection
@@ -251,6 +387,7 @@ async function reRelatePeopleForCompany(
   for (let i = 0; i < docs.length; i += 50) {
     const entries = await Promise.all(docs.slice(i, i + 50).map((d) => reindexContact(db, d.id, d.data())))
     await syncDirectorySearchCatalog(db, entries, [])
+    await Promise.all(entries.map((entry) => syncPersonCompanyRelation(db, entry)))
     count += Math.min(50, docs.length - i)
   }
   functionsV1.logger.info(`[directorySync] company ${companyCtxId} re-related ${count} people (names=${names.join("|")})`)
@@ -271,6 +408,7 @@ export const syncDirectoryOnContactWrite = functionsV1.firestore
     if (!change.after.exists) {
       await ref.delete()
       await syncDirectorySearchCatalog(db, [], [directoryId("person", id)])
+      await deactivateStaleSyncEdges(db, directoryId("person", id), "", new Set())
       await markDirectoryChanged(db)
       functionsV1.logger.info(`[directorySync] contact ${id} deleted → removed person__${id}`)
       return
@@ -284,6 +422,7 @@ export const syncDirectoryOnContactWrite = functionsV1.firestore
     const data = change.after.data() ?? {}
     const entry = await reindexContact(db, id, data)
     await syncDirectorySearchCatalog(db, [entry], [])
+    await syncPersonCompanyRelation(db, entry)
     await markDirectoryChanged(db)
     functionsV1.logger.info(`[directorySync] contact ${id} → person__${id}`)
   })
@@ -310,6 +449,7 @@ export const syncDirectoryOnContextWrite = functionsV1.firestore
       for (const cid of allIds) batch.delete(col.doc(cid))
       await batch.commit()
       await syncDirectorySearchCatalog(db, [], allIds)
+      await Promise.all(allIds.map((cid) => deactivateStaleSyncEdges(db, cid, "", new Set())))
       await markDirectoryChanged(db)
       functionsV1.logger.info(`[directorySync] context ${id} deleted → removed ${allIds.join(", ")}`)
       return
@@ -358,6 +498,16 @@ export const syncDirectoryOnContextWrite = functionsV1.firestore
     })
     await batch.commit()
     await syncDirectorySearchCatalog(db, [entry], allIds.filter((candidate) => candidate !== entry.id))
+
+    // Keep /directoryRelations edges in lockstep with this context's own
+    // links, so the other endpoint's profile (person's Jobs/Company, a
+    // company's People/Jobs) reflects edits made right here, not just imports.
+    if (entry.type === "job" || entry.type === "company") {
+      await syncInvolvedPeopleRelations(db, entry, data)
+    }
+    if (entry.type === "job") {
+      await syncJobCompanyRelation(db, entry)
+    }
 
     // Company created or renamed → re-relate people referencing it.
     if (entry.type === "company") {
