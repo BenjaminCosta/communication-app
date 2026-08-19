@@ -2046,6 +2046,11 @@ export default function Home() {
           onCreateContext={handleCreateContext}
           isContactsLoading={!contactsLoaded}
           isContextsLoading={!contextsLoaded}
+          onDirectory={goToDirectoryFromStream}
+          onApplications={goToApplications}
+          onQuestCoral={goToQuestCoral}
+          onByeByeDpr={goToByeByeDpr}
+          onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
         />
       )}
 
@@ -2335,6 +2340,11 @@ export default function Home() {
                   onCreateContext={handleCreateContext}
                   isContactsLoading={!contactsLoaded}
                   isContextsLoading={!contextsLoaded}
+                  onDirectory={goToDirectoryFromStream}
+                  onApplications={goToApplications}
+                  onQuestCoral={goToQuestCoral}
+                  onByeByeDpr={goToByeByeDpr}
+                  onCourtneyRobertsCenter={goToCourtneyRobertsCenter}
                 />
               </div>
             )}
