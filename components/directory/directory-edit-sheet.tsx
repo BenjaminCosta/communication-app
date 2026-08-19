@@ -6,7 +6,7 @@ import { DirectoryEntityIcon } from "@/components/directory/directory-entity-ico
 import { loadDirectorySearch } from "@/lib/directory-search"
 import { directoryRelationsFromEdges, loadDirectoryRelationsPage, type RelationEntityRef } from "@/lib/directory-relations"
 import { applyOptimisticOverrides } from "@/lib/directory-relations-optimistic"
-import { parseDirectoryId, isLikelyEmail, isLikelyPhone } from "@/lib/directory"
+import { parseDirectoryId, isLikelyEmail, isLikelyPhone, isLikelyUrl } from "@/lib/directory"
 import { cn } from "@/lib/utils"
 import {
   getEditableFields,
@@ -14,7 +14,6 @@ import {
 } from "@/lib/directory-view-models"
 import {
   applyDirectoryEdits,
-  DirectoryWriteError,
   setContactCompanyContext,
   setContactEmails,
   setContactPhones,
@@ -43,7 +42,14 @@ interface DirectoryEditSheetProps {
   companies: Array<{ id: string; name: string }>
   people: Array<{ id: string; name: string }>
   onClose: () => void
-  onSaved: (patch: DirectoryEditRelationsPatch) => void
+  /**
+   * Fires the instant validation passes and the writes are in flight — NOT
+   * once they've finished. The sheet closes immediately off the back of this
+   * (fire-and-forget) instead of blocking on the network round-trip; the
+   * caller awaits `writesDone` itself to know when to drop any "saving"
+   * indicator and to react if a write actually fails.
+   */
+  onSaved: (patch: DirectoryEditRelationsPatch, writesDone: Promise<unknown>) => void
 }
 
 const TITLES: Record<DirectoryProfileViewModel["type"], string> = {
@@ -175,7 +181,6 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   const [involvedPeople, setInvolvedPeople] = useState<DirectoryInvolvedPerson[]>(initial.involvedPeople)
   const [emails, setEmails] = useState<string[]>(initial.emails)
   const [phones, setPhones] = useState<string[]>(initial.phones)
-  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
 
   const formFields = useMemo(
@@ -221,8 +226,18 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     setError("")
   }
 
-  const save = async () => {
-    if (isSaving) return
+  /** Same format checks the write functions do server-side, run first so an
+   * obvious typo (empty name, bad phone/URL) blocks with the sheet still
+   * open instead of surfacing after the sheet has already closed. */
+  const validateEdits = (edits: DirectoryEditInput): string | null => {
+    if (edits.name !== undefined && !edits.name.trim()) return "Name cannot be empty."
+    if (edits.phone && !isLikelyPhone(edits.phone)) return "Enter a valid phone number."
+    if (edits.website && !isLikelyUrl(edits.website)) return "Enter a valid website URL."
+    if (edits.imageFolderUrl && !isLikelyUrl(edits.imageFolderUrl)) return "Enter a valid Drive folder URL."
+    return null
+  }
+
+  const save = () => {
     const edits: DirectoryEditInput = {}
     for (const field of formFields) {
       const next = values[field.key] ?? ""
@@ -233,11 +248,12 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     }
     if (!dirty) { onClose(); return }
 
+    const validationError = validateEdits(edits)
+    if (validationError) { setError(validationError); return }
+
     // Every write below targets an independent document (or, at worst, the
     // same doc protected by Firestore's transaction retry-on-conflict), so
-    // there's no ordering dependency between them — running them in parallel
-    // turns N sequential network round-trips into the cost of the slowest
-    // one, which is most of what "Save" actually feels slow doing.
+    // there's no ordering dependency between them — they fire together.
     const writes: Promise<unknown>[] = []
     if (Object.keys(edits).length > 0) {
       writes.push(applyDirectoryEdits(vm.sourceCollection, vm.sourceId, vm.type, edits))
@@ -268,15 +284,14 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
       ))
     }
 
-    setIsSaving(true)
-    setError("")
-    try {
-      await Promise.all(writes)
-      onSaved(buildRelationsPatch())
-    } catch (err) {
-      setError(err instanceof DirectoryWriteError ? err.message : "Changes could not be saved. Try again.")
-      setIsSaving(false)
-    }
+    // Everything past this point is format-valid, so hand off to the parent
+    // immediately (fire-and-forget) instead of blocking the sheet open for
+    // the network round-trip — that wait was most of what made Save feel
+    // slow. The parent applies the relations patch optimistically, closes
+    // the sheet, and awaits `writesDone` itself to clear its own pending
+    // indicator or roll back if a write actually fails server-side (e.g. the
+    // entity was deleted concurrently).
+    onSaved(buildRelationsPatch(), Promise.all(writes))
   }
 
   /** Edge-level diff for the optimistic merge — see DirectoryEditRelationsPatch. */
@@ -315,8 +330,7 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
         <button
           type="button"
           onClick={onClose}
-          disabled={isSaving}
-          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96] disabled:opacity-40"
+          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96]"
           aria-label="Cancel"
         >
           <X className="h-4 w-4 text-white/80" strokeWidth={1.8} />
@@ -325,13 +339,13 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
         <button
           type="button"
           onClick={save}
-          disabled={isSaving || !dirty}
+          disabled={!dirty}
           className={cn(
             "rounded-full px-4 py-1.5 text-xs font-semibold transition-colors active:scale-[0.97] disabled:opacity-40",
             "bg-[var(--directory-title)]/15 text-[var(--directory-title)]",
           )}
         >
-          {isSaving ? "Saving…" : "Save"}
+          Save
         </button>
       </header>
 
