@@ -291,7 +291,7 @@ export function DirectoryCreateSheet({
                           key={person.id}
                           type="button"
                           onClick={() => removePerson(person.id)}
-                          className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+                          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
                           aria-label={`Remove ${person.name}`}
                         >
                           <span className="min-w-0 truncate">{person.name}</span>

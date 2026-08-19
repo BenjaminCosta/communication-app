@@ -402,7 +402,7 @@ function CompanySelector({
         <button
           type="button"
           onClick={() => onChange("", null)}
-          className="mt-3 inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+          className="mt-3 inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
           aria-label={`Remove ${selected.name}`}
         >
           <span className="min-w-0 truncate">{selected.name}</span>
@@ -471,7 +471,7 @@ function PeopleSelector({
               key={person.id}
               type="button"
               onClick={() => onRemove(person.id)}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
               aria-label={`Remove ${person.name}`}
             >
               <span className="min-w-0 truncate">{person.name}</span>
@@ -543,7 +543,7 @@ function JobsSelector({
               type="button"
               onClick={() => onRemove(job.id)}
               disabled={isLoading}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97] disabled:opacity-50"
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97] disabled:opacity-50"
               aria-label={`Remove ${job.name}`}
             >
               <span className="min-w-0 truncate">{job.name}</span>
@@ -659,7 +659,7 @@ function ValueListEditor({
               key={value}
               type="button"
               onClick={() => onChange(values.filter((_, i) => i !== index))}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] px-3 py-1.5 text-xs font-medium text-[var(--directory-title)] active:scale-[0.97]"
               aria-label={`Remove ${value}`}
             >
               <span className="min-w-0 truncate">
