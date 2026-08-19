@@ -14,6 +14,7 @@ import {
 } from "@/lib/directory-view-models"
 import {
   applyDirectoryEdits,
+  DirectoryWriteError,
   setContactCompanyContext,
   setContactEmails,
   setContactPhones,
@@ -42,14 +43,7 @@ interface DirectoryEditSheetProps {
   companies: Array<{ id: string; name: string }>
   people: Array<{ id: string; name: string }>
   onClose: () => void
-  /**
-   * Fires the instant validation passes and the writes are in flight — NOT
-   * once they've finished. The sheet closes immediately off the back of this
-   * (fire-and-forget) instead of blocking on the network round-trip; the
-   * caller awaits `writesDone` itself to know when to drop any "saving"
-   * indicator and to react if a write actually fails.
-   */
-  onSaved: (patch: DirectoryEditRelationsPatch, writesDone: Promise<unknown>) => void
+  onSaved: (patch: DirectoryEditRelationsPatch) => void
 }
 
 const TITLES: Record<DirectoryProfileViewModel["type"], string> = {
@@ -181,6 +175,7 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   const [involvedPeople, setInvolvedPeople] = useState<DirectoryInvolvedPerson[]>(initial.involvedPeople)
   const [emails, setEmails] = useState<string[]>(initial.emails)
   const [phones, setPhones] = useState<string[]>(initial.phones)
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
 
   const formFields = useMemo(
@@ -237,7 +232,8 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     return null
   }
 
-  const save = () => {
+  const save = async () => {
+    if (isSaving) return
     const edits: DirectoryEditInput = {}
     for (const field of formFields) {
       const next = values[field.key] ?? ""
@@ -284,14 +280,15 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
       ))
     }
 
-    // Everything past this point is format-valid, so hand off to the parent
-    // immediately (fire-and-forget) instead of blocking the sheet open for
-    // the network round-trip — that wait was most of what made Save feel
-    // slow. The parent applies the relations patch optimistically, closes
-    // the sheet, and awaits `writesDone` itself to clear its own pending
-    // indicator or roll back if a write actually fails server-side (e.g. the
-    // entity was deleted concurrently).
-    onSaved(buildRelationsPatch(), Promise.all(writes))
+    setIsSaving(true)
+    setError("")
+    try {
+      await Promise.all(writes)
+      onSaved(buildRelationsPatch())
+    } catch (err) {
+      setError(err instanceof DirectoryWriteError ? err.message : "Changes could not be saved. Try again.")
+      setIsSaving(false)
+    }
   }
 
   /** Edge-level diff for the optimistic merge — see DirectoryEditRelationsPatch. */
@@ -330,7 +327,8 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
         <button
           type="button"
           onClick={onClose}
-          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96]"
+          disabled={isSaving}
+          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border active:scale-[0.96] disabled:opacity-40"
           aria-label="Cancel"
         >
           <X className="h-4 w-4 text-white/80" strokeWidth={1.8} />
@@ -339,13 +337,13 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
         <button
           type="button"
           onClick={save}
-          disabled={!dirty}
+          disabled={isSaving || !dirty}
           className={cn(
             "rounded-full px-4 py-1.5 text-xs font-semibold transition-colors active:scale-[0.97] disabled:opacity-40",
             "bg-[var(--directory-title)]/15 text-[var(--directory-title)]",
           )}
         >
-          Save
+          {isSaving ? "Saving…" : "Save"}
         </button>
       </header>
 
