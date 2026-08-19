@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   AlertTriangle,
@@ -90,6 +90,11 @@ export function DirectoryProfileScreen({
   // beat — this stays true through the retry window so the UI shows that a
   // refresh is in flight instead of looking stuck on stale/empty data.
   const [relationsRefreshing, setRelationsRefreshing] = useState(false)
+  // Bumped only when a save actually changed a relation edge (see onSaved
+  // below) — separate from reloadKey so a save that only touched a text
+  // field never triggers a pointless relations refetch.
+  const [relationsRefreshToken, setRelationsRefreshToken] = useState(0)
+  const prevDirectoryIdRef = useRef<string | null>(null)
   const [tab, setTab] = useState<ProfileTab>("overview")
   const [fullOutlook, setFullOutlook] = useState(false)
   const { favoriteIds, toggleFavorite: updateFavorite, recordRecent } = useDirectoryUserState()
@@ -106,6 +111,10 @@ export function DirectoryProfileScreen({
 
   useEffect(() => {
     let active = true
+    if (prevDirectoryIdRef.current !== directoryId) {
+      prevDirectoryIdRef.current = directoryId
+      setRelationsRefreshToken(0)
+    }
     setIsLoading(true)
     setError("none")
     const cachedProfile = readCachedDirectoryProfile(directoryId)
@@ -135,25 +144,58 @@ export function DirectoryProfileScreen({
     return () => { active = false }
   }, [directoryId, initialView, reloadKey, userId])
 
-  // Resolve safe relationships + recent activity once the entity is known
-  // (best-effort, non-blocking — the About narrative refines as they arrive).
-  // Also re-runs on reloadKey (bumped after an edit save): the edit writes to
-  // /contacts or /contexts, and a Cloud Function trigger derives the
-  // /directoryRelations edge from that write asynchronously, so an immediate
-  // re-fetch can still race it — hence the two delayed retries below, timed
-  // the same as the post-create refresh in directory-screen.tsx.
+  // Resolve recent activity once the entity is known (best-effort, non-
+  // blocking — the About narrative refines as it arrives).
   useEffect(() => {
     if (!vmId) return
     let active = true
-    const isPostSave = reloadKey > 0
-    setRelations(null)
     setActivity(null)
-    setRelationsSettled(false)
     setActivitySettled(false)
-    setFullRelationsLoaded(false)
-    if (isPostSave) setRelationsRefreshing(true)
+    loadDirectoryActivitySummary(vmId)
+      .then((summary) => { if (active) setActivity(summary) })
+      .catch(() => { if (active) setActivity(null) })
+      .finally(() => { if (active) setActivitySettled(true) })
+    return () => { active = false }
+  }, [vmId])
 
-    const loadRelations = () => loadDirectoryRelationsPage(vmId, null, 5)
+  // Resolve safe relationships (best-effort, non-blocking). Two modes:
+  //  - Fresh entity (relationsRefreshToken === 0): load /directoryRelations
+  //    immediately, same as any other panel.
+  //  - Post-save with a known relation change (token bumped by onSaved
+  //    below): the edit sheet's optimistic patch already merged the new
+  //    edge(s) into `relations` synchronously, so an IMMEDIATE re-fetch here
+  //    is skipped on purpose — /directoryRelations is derived asynchronously
+  //    by a Cloud Function trigger off the edit's write, so fetching right
+  //    away would very likely race it and flash the optimistic result back
+  //    to stale data. Instead this reconciles with the server a couple beats
+  //    later (timed like the post-create refresh in directory-screen.tsx).
+  useEffect(() => {
+    if (!vmId) return
+    let active = true
+
+    if (relationsRefreshToken === 0) {
+      setRelations(null)
+      setRelationEdges([])
+      setRelationsCursor(null)
+      setHasMoreRelations(false)
+      setFullRelationsLoaded(false)
+      setRelationsSettled(false)
+      loadDirectoryRelationsPage(vmId, null, 5)
+        .then((page) => {
+          if (!active) return
+          setRelationEdges(page.edges)
+          setRelations(page.relations)
+          setRelationsCursor(page.nextCursor)
+          setHasMoreRelations(page.hasMore)
+        })
+        .catch(() => { if (active) setRelations(null) })
+        .finally(() => { if (active) setRelationsSettled(true) })
+      return () => { active = false }
+    }
+
+    setFullRelationsLoaded(false)
+    setRelationsRefreshing(true)
+    const reconcile = () => loadDirectoryRelationsPage(vmId, null, 5)
       .then((page) => {
         if (!active) return
         setRelationEdges(page.edges)
@@ -161,25 +203,13 @@ export function DirectoryProfileScreen({
         setRelationsCursor(page.nextCursor)
         setHasMoreRelations(page.hasMore)
       })
-      .catch(() => { if (active) setRelations(null) })
-
-    loadRelations().finally(() => { if (active) setRelationsSettled(true) })
-
-    const timers: number[] = []
-    if (isPostSave) {
-      timers.push(window.setTimeout(loadRelations, 1_200))
-      timers.push(window.setTimeout(
-        () => { loadRelations().finally(() => { if (active) setRelationsRefreshing(false) }) },
-        3_800,
-      ))
-    }
-
-    loadDirectoryActivitySummary(vmId)
-      .then((summary) => { if (active) setActivity(summary) })
-      .catch(() => { if (active) setActivity(null) })
-      .finally(() => { if (active) setActivitySettled(true) })
+      .catch(() => { /* keep the optimistic state on a failed reconcile */ })
+    const timers = [
+      window.setTimeout(reconcile, 1_200),
+      window.setTimeout(() => { reconcile().finally(() => { if (active) setRelationsRefreshing(false) }) }, 3_800),
+    ]
     return () => { active = false; timers.forEach((timer) => window.clearTimeout(timer)) }
-  }, [vmId, reloadKey])
+  }, [vmId, relationsRefreshToken])
 
   useEffect(() => {
     if (!vmId || tab !== "related" || fullRelationsLoaded || relationsPageLoading) return
@@ -424,7 +454,22 @@ export function DirectoryProfileScreen({
           companies={companies}
           people={people}
           onClose={() => setShowEdit(false)}
-          onSaved={() => { setShowEdit(false); setReloadKey((k) => k + 1); setNotice("Changes saved.") }}
+          onSaved={(patch) => {
+            setShowEdit(false)
+            setReloadKey((k) => k + 1)
+            setNotice("Changes saved.")
+            if (patch.addEdges.length > 0 || patch.removeIds.length > 0) {
+              const removeIds = new Set(patch.removeIds)
+              setRelationEdges((current) => {
+                const merged = new Map(current.filter((edge) => !removeIds.has(edge.id)).map((edge) => [edge.id, edge]))
+                for (const edge of patch.addEdges) merged.set(edge.id, edge)
+                const mergedList = [...merged.values()]
+                setRelations(directoryRelationsFromEdges(mergedList))
+                return mergedList
+              })
+              setRelationsRefreshToken((token) => token + 1)
+            }
+          }}
         />
       )}
     </div>

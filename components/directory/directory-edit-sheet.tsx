@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import { loadDirectorySearch } from "@/lib/directory-search"
-import { loadDirectoryRelationsPage } from "@/lib/directory-relations"
+import { loadDirectoryRelationsPage, type RelationEntityRef } from "@/lib/directory-relations"
 import { parseDirectoryId, isLikelyEmail, isLikelyPhone } from "@/lib/directory"
 import { cn } from "@/lib/utils"
 import {
@@ -23,13 +23,26 @@ import {
   type DirectoryInvolvedPerson,
 } from "@/lib/directory-writes"
 
+/**
+ * Exact edge-level diff of what this save changed, from the edited entity's
+ * own perspective (the "other endpoint" of each relation). The profile screen
+ * merges this into its live relations state immediately on save — before the
+ * Cloud Function that derives /directoryRelations from the write has even
+ * run — so the Related section reflects the edit with no visible lag. The
+ * background reconcile fetch a couple seconds later confirms/corrects it.
+ */
+export interface DirectoryEditRelationsPatch {
+  addEdges: RelationEntityRef[]
+  removeIds: string[]
+}
+
 interface DirectoryEditSheetProps {
   vm: DirectoryProfileViewModel
   userId: string
   companies: Array<{ id: string; name: string }>
   people: Array<{ id: string; name: string }>
   onClose: () => void
-  onSaved: () => void
+  onSaved: (patch: DirectoryEditRelationsPatch) => void
 }
 
 const TITLES: Record<DirectoryProfileViewModel["type"], string> = {
@@ -216,42 +229,80 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
     }
     if (!dirty) { onClose(); return }
 
+    // Every write below targets an independent document (or, at worst, the
+    // same doc protected by Firestore's transaction retry-on-conflict), so
+    // there's no ordering dependency between them — running them in parallel
+    // turns N sequential network round-trips into the cost of the slowest
+    // one, which is most of what "Save" actually feels slow doing.
+    const writes: Promise<unknown>[] = []
+    if (Object.keys(edits).length > 0) {
+      writes.push(applyDirectoryEdits(vm.sourceCollection, vm.sourceId, vm.type, edits))
+    }
+    if (vm.type === "person" && companyDirty) {
+      writes.push(setContactCompanyContext(vm.sourceId, { id: selectedCompanyId, name: companyName }))
+    }
+    if (vm.type === "person" && emailsDirty) {
+      writes.push(setContactEmails(vm.sourceId, emails))
+    }
+    if (vm.type === "person" && phonesDirty) {
+      writes.push(setContactPhones(vm.sourceId, phones))
+    }
+    if ((vm.type === "company" || vm.type === "job") && (peopleDirty || companyDirty)) {
+      writes.push(updateDirectoryContextConnections(vm.sourceId, {
+        ...(vm.type === "job" && companyDirty ? { company: { id: selectedCompanyId, name: companyName } } : {}),
+        ...(peopleDirty ? { involvedPeople } : {}),
+      }))
+    }
+    if (vm.type === "person" && jobsDirty && initialJobIds) {
+      const nextIds = new Set(selectedJobs.map((job) => job.id))
+      writes.push(updateContactJobAssignments(
+        { id: vm.sourceId, name: values.name?.trim() || vm.name },
+        {
+          addJobSourceIds: selectedJobs.filter((job) => !initialJobIds.has(job.id)).map((job) => job.id),
+          removeJobSourceIds: [...initialJobIds].filter((id) => !nextIds.has(id)),
+        },
+      ))
+    }
+
     setIsSaving(true)
     setError("")
     try {
-      if (Object.keys(edits).length > 0) {
-        await applyDirectoryEdits(vm.sourceCollection, vm.sourceId, vm.type, edits)
-      }
-      if (vm.type === "person" && companyDirty) {
-        await setContactCompanyContext(vm.sourceId, { id: selectedCompanyId, name: companyName })
-      }
-      if (vm.type === "person" && emailsDirty) {
-        await setContactEmails(vm.sourceId, emails)
-      }
-      if (vm.type === "person" && phonesDirty) {
-        await setContactPhones(vm.sourceId, phones)
-      }
-      if ((vm.type === "company" || vm.type === "job") && (peopleDirty || companyDirty)) {
-        await updateDirectoryContextConnections(vm.sourceId, {
-          ...(vm.type === "job" && companyDirty ? { company: { id: selectedCompanyId, name: companyName } } : {}),
-          ...(peopleDirty ? { involvedPeople } : {}),
-        })
-      }
-      if (vm.type === "person" && jobsDirty && initialJobIds) {
-        const nextIds = new Set(selectedJobs.map((job) => job.id))
-        await updateContactJobAssignments(
-          { id: vm.sourceId, name: values.name?.trim() || vm.name },
-          {
-            addJobSourceIds: selectedJobs.filter((job) => !initialJobIds.has(job.id)).map((job) => job.id),
-            removeJobSourceIds: [...initialJobIds].filter((id) => !nextIds.has(id)),
-          },
-        )
-      }
-      onSaved()
+      await Promise.all(writes)
+      onSaved(buildRelationsPatch())
     } catch (err) {
       setError(err instanceof DirectoryWriteError ? err.message : "Changes could not be saved. Try again.")
       setIsSaving(false)
     }
+  }
+
+  /** Edge-level diff for the optimistic merge — see DirectoryEditRelationsPatch. */
+  const buildRelationsPatch = (): DirectoryEditRelationsPatch => {
+    const addEdges: RelationEntityRef[] = []
+    const removeIds: string[] = []
+
+    if (allowsCompanySelection && companyDirty) {
+      if (initial.companyId) removeIds.push(`company__${initial.companyId}`)
+      if (selectedCompanyId && companyName.trim()) {
+        addEdges.push({ id: `company__${selectedCompanyId}`, type: "company", name: companyName.trim() })
+      }
+    }
+    if (allowsPeopleSelection && peopleDirty) {
+      const initialIds = new Set(initial.involvedPeople.map((person) => `person__${person.id}`))
+      const nextIds = new Set(involvedPeople.map((person) => `person__${person.id}`))
+      for (const id of initialIds) if (!nextIds.has(id)) removeIds.push(id)
+      for (const person of involvedPeople) {
+        const id = `person__${person.id}`
+        if (!initialIds.has(id)) addEdges.push({ id, type: "person", name: person.name })
+      }
+    }
+    if (allowsJobSelection && jobsDirty && initialJobIds) {
+      const nextIds = new Set(selectedJobs.map((job) => job.id))
+      for (const id of initialJobIds) if (!nextIds.has(id)) removeIds.push(`job__${id}`)
+      for (const job of selectedJobs) {
+        if (!initialJobIds.has(job.id)) addEdges.push({ id: `job__${job.id}`, type: "job", name: job.name })
+      }
+    }
+    return { addEdges, removeIds }
   }
 
   return (

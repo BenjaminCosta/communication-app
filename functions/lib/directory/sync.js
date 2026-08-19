@@ -195,52 +195,66 @@ async function deactivateStaleSyncEdges(db, entityDirId, otherPrefix, keepIds) {
     if (any)
         await batch.commit();
 }
-/** Person → resolved Company edge, from the same companyEntityId the index uses. */
+/**
+ * Person → resolved Company edge, from the same companyEntityId the index
+ * uses. The upsert (when there's an edge to write) and the stale-edge scan
+ * are independent reads/writes on different docs, so they run concurrently
+ * instead of paying two sequential round-trips.
+ */
 async function syncPersonCompanyRelation(db, personEntry) {
     const companyId = personEntry.companyEntityId;
-    if (companyId) {
-        await upsertRelationEdge(db, {
-            fromId: companyId,
-            fromName: personEntry.companyName ?? "",
-            toId: personEntry.id,
-            toName: personEntry.name,
-        });
-    }
-    await deactivateStaleSyncEdges(db, personEntry.id, "company__", companyId ? new Set([companyId]) : new Set());
+    await Promise.all([
+        companyId
+            ? upsertRelationEdge(db, {
+                fromId: companyId,
+                fromName: personEntry.companyName ?? "",
+                toId: personEntry.id,
+                toName: personEntry.name,
+            })
+            : Promise.resolve(),
+        deactivateStaleSyncEdges(db, personEntry.id, "company__", companyId ? new Set([companyId]) : new Set()),
+    ]);
 }
-/** Job/Company → each selected "People involved" contact. */
+/**
+ * Job/Company → each selected "People involved" contact. Each person is an
+ * independent doc write, so all upserts fire together (not one-by-one), run
+ * alongside the stale-edge scan for the same reason as above.
+ */
 async function syncInvolvedPeopleRelations(db, entry, data) {
     const involvedPeople = Array.isArray(data.involvedPeople)
         ? data.involvedPeople
         : [];
     const keepIds = new Set();
+    const upserts = [];
     for (const person of involvedPeople) {
         const rawId = typeof person.id === "string" ? person.id.trim() : "";
         if (!rawId)
             continue;
         const personDirId = (0, directory_core_1.directoryId)("person", rawId);
         keepIds.add(personDirId);
-        await upsertRelationEdge(db, {
+        upserts.push(upsertRelationEdge(db, {
             fromId: entry.id,
             fromName: entry.name,
             toId: personDirId,
             toName: typeof person.name === "string" ? person.name : "",
-        });
+        }));
     }
-    await deactivateStaleSyncEdges(db, entry.id, "person__", keepIds);
+    await Promise.all([Promise.all(upserts), deactivateStaleSyncEdges(db, entry.id, "person__", keepIds)]);
 }
-/** Job → resolved Company edge (mirrors buildJobIndex's companyEntityId). */
+/** Job → resolved Company edge (mirrors buildJobIndex's companyEntityId). Same concurrency shape as syncPersonCompanyRelation. */
 async function syncJobCompanyRelation(db, jobEntry) {
     const companyId = jobEntry.companyEntityId;
-    if (companyId) {
-        await upsertRelationEdge(db, {
-            fromId: jobEntry.id,
-            fromName: jobEntry.name,
-            toId: companyId,
-            toName: jobEntry.companyName ?? "",
-        });
-    }
-    await deactivateStaleSyncEdges(db, jobEntry.id, "company__", companyId ? new Set([companyId]) : new Set());
+    await Promise.all([
+        companyId
+            ? upsertRelationEdge(db, {
+                fromId: jobEntry.id,
+                fromName: jobEntry.name,
+                toId: companyId,
+                toName: jobEntry.companyName ?? "",
+            })
+            : Promise.resolve(),
+        deactivateStaleSyncEdges(db, jobEntry.id, "company__", companyId ? new Set([companyId]) : new Set()),
+    ]);
 }
 /**
  * Incrementally maintains the compact catalog after the full shard backfill is
@@ -479,12 +493,14 @@ exports.syncDirectoryOnContextWrite = functionsV1.firestore
     await syncDirectorySearchCatalog(db, [entry], allIds.filter((candidate) => candidate !== entry.id));
     // Keep /directoryRelations edges in lockstep with this context's own
     // links, so the other endpoint's profile (person's Jobs/Company, a
-    // company's People/Jobs) reflects edits made right here, not just imports.
-    if (entry.type === "job" || entry.type === "company") {
-        await syncInvolvedPeopleRelations(db, entry, data);
-    }
+    // company's People/Jobs) reflects edits made right here, not just
+    // imports. The two sync calls touch disjoint edge namespaces (person__
+    // vs company__ prefixed docs) for a job, so they run concurrently.
     if (entry.type === "job") {
-        await syncJobCompanyRelation(db, entry);
+        await Promise.all([syncInvolvedPeopleRelations(db, entry, data), syncJobCompanyRelation(db, entry)]);
+    }
+    else if (entry.type === "company") {
+        await syncInvolvedPeopleRelations(db, entry, data);
     }
     // Company created or renamed → re-relate people referencing it.
     if (entry.type === "company") {
