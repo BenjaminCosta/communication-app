@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Search, MessageCircleOff, Lock, Pause, UserRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
+import { formatDateInAppZone, formatTimeInAppZone, isSameDayInAppZone } from "@/lib/datetime"
 import { ModuleSwitcher, type SvcModule } from "@/components/module-switcher"
 import { fetchCourtneyRobertsCenterConversations, CourtneyRobertsCenterClientError } from "@/lib/courtney-roberts-center/client"
 import type { CourtneyRobertsCenterConversationSummary } from "@/lib/courtney-roberts-center/types"
@@ -35,13 +36,12 @@ function formatTimestamp(ms: number): string {
   if (!ms) return ""
   const date = new Date(ms)
   const now = new Date()
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  if (isSameDayInAppZone(date, now)) {
+    return formatTimeInAppZone(date, { hour: "numeric", minute: "2-digit" })
   }
-  const yesterday = new Date(now)
-  yesterday.setDate(now.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday"
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  if (isSameDayInAppZone(date, yesterday)) return "Yesterday"
+  return formatDateInAppZone(date, { month: "short", day: "numeric" })
 }
 
 export function CourtneyRobertsCenterScreen({

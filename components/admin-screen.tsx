@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { ArrowLeft, Activity, Clock, Wifi, WifiOff } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateInAppZone } from "@/lib/datetime"
 import { type Contact } from "@/lib/store"
 
 interface AdminScreenProps {
@@ -23,7 +24,7 @@ function timeAgo(date: Date | null | undefined): string {
   const days = Math.floor(hours / 24)
   if (days === 1) return "Yesterday"
   if (days < 7) return `${days} days ago`
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  return formatDateInAppZone(date, { month: "short", day: "numeric" })
 }
 
 function getStatus(lastSeen: Date | null | undefined): "online" | "recent" | "away" | "offline" {

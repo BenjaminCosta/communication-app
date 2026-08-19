@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { formatDateInAppZone, isSameDayInAppZone } from "@/lib/datetime"
 import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Pencil, Save, Share2, SlidersHorizontal, Sparkles } from "lucide-react"
 import { OutlookActionBar, type OutlookAction } from "@/components/directory/outlooks/outlook-action-bar"
 import { OutlookAdvancedView } from "@/components/directory/outlooks/outlook-advanced-view"
@@ -327,10 +328,9 @@ function Metric({ icon, value }: { icon?: React.ReactNode; value: string }) {
 
 function updatedLabel(value: Date | null): string {
   if (!value) return "Not updated"
-  const today = new Date()
-  return value.toDateString() === today.toDateString()
+  return isSameDayInAppZone(value, new Date())
     ? "Updated today"
-    : `Updated ${value.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+    : `Updated ${formatDateInAppZone(value, { month: "short", day: "numeric" })}`
 }
 
 function buildActions({

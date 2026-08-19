@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { ArrowLeft, Check, Copy, Link2, Loader2, Lock, MessageCircleOff, Pause, Paperclip, Play, Send } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
+import { formatDateInAppZone, formatDateTimeInAppZone, formatTimeInAppZone, isSameDayInAppZone } from "@/lib/datetime"
 import {
   fetchCourtneyRobertsCenterThread,
   linkCourtneyRobertsCenterConversation,
@@ -28,9 +29,9 @@ const THREAD_PAGE_SIZE = 200
 function formatMessageTimestamp(ms: number): string {
   const date = new Date(ms)
   const now = new Date()
-  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-  if (date.toDateString() === now.toDateString()) return time
-  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${time}`
+  const time = formatTimeInAppZone(date, { hour: "numeric", minute: "2-digit" })
+  if (isSameDayInAppZone(date, now)) return time
+  return `${formatDateInAppZone(date, { month: "short", day: "numeric" })} · ${time}`
 }
 
 /** Plain-text export of the full thread — readable on its own, no app-specific markup. */
@@ -41,7 +42,7 @@ function buildConversationTranscript(conversation: CourtneyRobertsCenterConversa
 
   const lines = messages.map((message) => {
     const who = message.role === "assistant" ? "Courtney" : conversation.displayName
-    const when = new Date(message.createdAtMs).toLocaleString("en-US", {
+    const when = formatDateTimeInAppZone(new Date(message.createdAtMs), {
       month: "short",
       day: "numeric",
       hour: "numeric",

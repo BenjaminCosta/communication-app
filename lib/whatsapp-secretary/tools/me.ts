@@ -10,6 +10,7 @@ import {
 } from "@/lib/whatsapp-secretary/self-context"
 import { buildCapabilityProfile, capabilityFocusLine } from "@/lib/whatsapp-secretary/capability-profiles"
 import { createServerSelfContextProvider } from "@/lib/whatsapp-secretary/self-context"
+import { todayIsoInAppZone } from "@/lib/datetime"
 
 /**
  * "Me" tools — the Secretary's self-awareness about the person it is talking
@@ -133,7 +134,7 @@ export function createMeTools(
   },
 ): SecretaryTool[] {
   const loadSnapshot = () => getSelfContextSnapshot(deps.actor, { provider: deps.provider, today: deps.today })
-  const today = deps.today ?? new Date().toISOString().slice(0, 10)
+  const today = deps.today ?? todayIsoInAppZone()
   const loadJobActivity = async (snapshot: SelfContextSnapshot): Promise<SelfJobActivity[]> => {
     const provider = deps.provider ?? createServerSelfContextProvider()
     try {

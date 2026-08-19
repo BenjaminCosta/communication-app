@@ -26,6 +26,7 @@ import {
   UploadCloud,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateInAppZone, formatTimeInAppZone } from "@/lib/datetime"
 import {
   AiBriefCard,
   Avatar,
@@ -126,13 +127,13 @@ const ACTIVITY_VISUALS: Record<
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return formatDateInAppZone(new Date(iso), { month: "short", day: "numeric" })
 }
 
 function formatActivityDate(iso: string): string {
   const date = new Date(iso)
-  const day = date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  const day = formatDateInAppZone(date, { month: "short", day: "numeric" })
+  const time = formatTimeInAppZone(date, { hour: "numeric", minute: "2-digit" })
   return `${day} · ${time}`
 }
 

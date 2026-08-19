@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { Plus, Send, X, Tag, Hash, CalendarDays } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatCalendarDateLabel } from "@/lib/datetime"
 import {
   type Contact,
   type MessageType,
@@ -318,7 +319,4 @@ function MiniAvatar({ initials, color }: { initials: string; color: string }) {
   )
 }
 
-function formatDateChip(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
+const formatDateChip = formatCalendarDateLabel

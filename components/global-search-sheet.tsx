@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, Hash, LayoutGrid, MessageSquare, Search, Users, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatCalendarDateLabel } from "@/lib/datetime"
 import {
   type Contact,
   type ImportedContact,
@@ -345,8 +346,7 @@ type SearchResult = { id: string; primary: string; secondary?: string; onClick?:
 
 function fmtDate(dateStr: string): string {
   if (!dateStr) return ""
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  return formatCalendarDateLabel(dateStr)
 }
 
 // ── Sub-component: one result section ──────────────────────────────────────

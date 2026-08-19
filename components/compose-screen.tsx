@@ -5,6 +5,7 @@ import { X, User, Tag, Check, Image as ImageIcon, Trash2, Search, CalendarDays, 
 import { HelpTooltip } from "@/components/help-tooltip"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
+import { formatCalendarDateLabel } from "@/lib/datetime"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type MessageType,
@@ -25,6 +26,7 @@ import {
   isCategoryTimeBased,
 } from "@/lib/store"
 import { DatePickerModal } from "@/components/date-picker-modal"
+import { ModuleSwitcher } from "@/components/module-switcher"
 
 interface ComposeScreenProps {
   onCancel: () => void
@@ -46,12 +48,17 @@ interface ComposeScreenProps {
   onCreateContext?: (name: string) => Promise<AppContext>
   isContactsLoading?: boolean
   isContextsLoading?: boolean
+  onDirectory?: () => void
+  onApplications?: () => void
+  onQuestCoral?: () => void
+  onByeByeDpr?: () => void
+  onCourtneyRobertsCenter?: () => void
 }
 
 // Max items shown in browse panels before requiring search
 const MAX_PANEL_ITEMS = 30
 
-export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialText = "", initialContextIds = [], initialAttachment = null, initialCalendarDates, availableTags, contexts = [], onCreateContext, isContactsLoading = false, isContextsLoading = false }: ComposeScreenProps) {
+export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mode = "sheet", contacts, importedContacts = [], initialProjectId, initialText = "", initialContextIds = [], initialAttachment = null, initialCalendarDates, availableTags, contexts = [], onCreateContext, isContactsLoading = false, isContextsLoading = false, onDirectory, onApplications, onQuestCoral, onByeByeDpr, onCourtneyRobertsCenter }: ComposeScreenProps) {
   const { handlers: swipeHandlers, dragStyle } = useSwipeDismiss(onCancel)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const firstFocusRef = useRef(true)
@@ -389,9 +396,17 @@ export function ComposeScreen({ onCancel, onSend, projects, onCreateProject, mod
       )}
       {/* Header */}
       <div className="glass-panel shrink-0 px-3 app-topbar flex items-center justify-between border-b">
-        <h1 className="text-base font-bold">
-          New <span className="text-blue-300">Message</span>
-        </h1>
+        <ModuleSwitcher
+          activeModule="communications"
+          showCourtneyRobertsCenter={Boolean(onCourtneyRobertsCenter)}
+          onSelect={(module) => {
+            if (module === "directory") onDirectory?.()
+            if (module === "applications") onApplications?.()
+            if (module === "quest-coral") onQuestCoral?.()
+            if (module === "bye-bye-dpr") onByeByeDpr?.()
+            if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
+          }}
+        />
         <button
           onClick={onCancel}
           className="glass-button w-8 h-8 rounded-full border flex items-center justify-center active:scale-[0.98] transition-all duration-150"
@@ -1148,7 +1163,4 @@ function tagDotClass(tag: MessageTag): string {
   return "bg-violet-500"
 }
 
-function formatDateChip(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
+const formatDateChip = formatCalendarDateLabel

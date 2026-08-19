@@ -8,6 +8,7 @@ import {
   type ResolvedEntity,
 } from "@/lib/whatsapp-secretary/entity-resolver"
 import { createServerDossierSources } from "@/lib/whatsapp-secretary/tools/dossier-sources"
+import { todayIsoInAppZone } from "@/lib/datetime"
 
 /**
  * `svc_getEntityDossier` — one call that answers "what is going on with X?"
@@ -235,7 +236,7 @@ export function createSvcTools(
 ): SecretaryTool[] {
   const resolver = deps.resolver
   const sources = deps.sources ?? createServerDossierSources()
-  const today = deps.today ?? new Date().toISOString().slice(0, 10)
+  const today = deps.today ?? todayIsoInAppZone()
   const allowed = deps.enabledModules ? new Set(deps.enabledModules) : null
   const permitted = (sections: DossierSection[]): DossierSection[] =>
     allowed ? sections.filter((section) => allowed.has(SECTION_MODULE[section])) : sections

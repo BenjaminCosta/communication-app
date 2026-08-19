@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { formatCalendarDateLabel, todayIsoInAppZone } from "@/lib/datetime"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type Message,
@@ -1640,7 +1641,8 @@ function nextWeekdayDate(baseDate: Date, targetDay: number, explicitNext: boolea
 }
 
 function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const [y, m, d] = todayIsoInAppZone(date).split("-").map(Number)
+  return new Date(y, m - 1, d)
 }
 
 function toDateInputValue(date: Date): string {
@@ -1663,7 +1665,4 @@ function tagDotClass(tag: MessageTag): string {
   return "bg-violet-500"
 }
 
-function formatDateShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
+const formatDateShort = formatCalendarDateLabel

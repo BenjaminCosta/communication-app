@@ -8,6 +8,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "pdf-lib"
 import type { AgreementTemplate } from "@/lib/applications-core"
+import { formatDateTimeInAppZone } from "@/lib/datetime"
 
 const PAGE = { width: 612, height: 792 } // US Letter, portrait
 const MARGIN = 56
@@ -89,7 +90,7 @@ export async function sealAgreementPdf(input: SealAgreementInput): Promise<Uint8
   const signedDate = new Date(input.signedAtIso)
   const dateLabel = Number.isNaN(signedDate.getTime())
     ? input.signedAtIso
-    : signedDate.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })
+    : formatDateTimeInAppZone(signedDate, { dateStyle: "long", timeStyle: "short" })
 
   const drawSignature = (maxWidth: number, maxHeight: number, caption: string) => {
     if (!signatureImage) {

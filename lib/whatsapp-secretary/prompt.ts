@@ -2,6 +2,7 @@ import type { StructuredJsonSchema } from "@/lib/ai/openai/client"
 import type { CompanyKnowledgeContext } from "@/lib/company-knowledge"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { buildGuidanceReferenceBlock } from "@/lib/whatsapp-secretary/guidance"
+import { todayIsoInAppZone } from "@/lib/datetime"
 
 /**
  * System prompt + result contract for the WhatsApp Secretary orchestrator.
@@ -69,10 +70,11 @@ export function buildWhatsAppSecretarySystemPrompt(input: {
   /** What earlier turns already retrieved, with any cursor for paging further. */
   priorRetrievals?: Array<{ toolName: string; summary: string; nextCursor?: string }>
 }): string {
-  // Matches the UTC-date convention `outlooks_listActiveOutlooks` already
-  // uses server-side, so the model's notion of "today" agrees with what a
-  // date-range tool call actually computes.
-  const todayLine = `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`
+  // Matches the America/New_York-date convention every date-anchored tool
+  // (outlooks_listActiveOutlooks, me_*, svc_getEntityDossier, etc.) already
+  // uses server-side via todayIsoInAppZone, so the model's notion of "today"
+  // agrees with what a date-range tool call actually computes.
+  const todayLine = `Today is ${todayIsoInAppZone()} (Eastern Time).`
 
   // The old prompt said "never reveal it back", which made the Secretary
   // pretend not to recognize the person it had just recognized. Recognition is

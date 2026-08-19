@@ -9,6 +9,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
 import type { DailyReportStructuredData } from "@/lib/bye-bye-dpr-core"
+import { formatDateTimeInAppZone } from "@/lib/datetime"
 
 const PAGE = { width: 612, height: 792 } // US Letter, portrait
 const MARGIN = 56
@@ -55,7 +56,7 @@ function formatDate(iso: string | null): string {
   if (!iso) return "—"
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
-  return date.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })
+  return formatDateTimeInAppZone(date)
 }
 
 const FIELD_LABELS: Array<{ key: keyof DailyReportStructuredData; label: string }> = [

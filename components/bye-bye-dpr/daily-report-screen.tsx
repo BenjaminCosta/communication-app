@@ -13,6 +13,7 @@
 
 import { useRef, useState } from "react"
 import { ArrowLeft, Building2, Camera, ImagePlus, Keyboard, Lock, Mic, Square, TriangleAlert, X } from "lucide-react"
+import { formatDateInAppZone } from "@/lib/datetime"
 import { cn } from "@/lib/utils"
 import { BdButton, BdCard } from "@/components/bye-bye-dpr/ui/byebye-dpr-primitives"
 import { ByeByeDprAiGenerating } from "@/components/bye-bye-dpr/ui/byebye-dpr-ai-generating"
@@ -118,7 +119,7 @@ export function DailyReportScreen({ job, reportId, photos, onAddPhotos, onRemove
             </span>
             <span className="truncate text-[0.9375rem] font-semibold text-[var(--bd-text)]">{job.name}</span>
             <span className="ml-auto shrink-0 text-[0.8125rem] text-[var(--bd-text-muted)]">
-              {new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              {formatDateInAppZone(new Date())}
             </span>
           </BdCard>
 

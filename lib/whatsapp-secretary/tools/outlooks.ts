@@ -3,6 +3,7 @@ import type { Firestore } from "firebase-admin/firestore"
 import { createServerDirectoryProvider } from "@/features/directory/ai/server/tools/provider"
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
+import { todayIsoInAppZone } from "@/lib/datetime"
 import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
@@ -235,7 +236,7 @@ export function createOutlooksTools(
         }
       }
 
-      const onDate = args.onDate ?? new Date().toISOString().slice(0, 10)
+      const onDate = args.onDate ?? todayIsoInAppZone()
       const limit = Math.max(1, Math.min(args.limit ?? 10, budget.maxRecordsPerTool, budget.remainingRecords))
       if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
 

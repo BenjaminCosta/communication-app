@@ -58,6 +58,10 @@ exports.initialsFor = initialsFor;
  *
  * Nothing here talks to a backend yet — the UI drives it with local state.
  */
+// Relative (not "@/lib/datetime") — this file is copied verbatim into
+// functions/src by copy-shared-core.mjs, which has no "@/" path alias but
+// does keep a sibling datetime.ts copy alongside it.
+const datetime_1 = require("./datetime");
 exports.APPLICATIONS_SCHEMA_VERSION = 1;
 exports.APPLICATION_STATUS_META = {
     draft: {
@@ -833,7 +837,7 @@ function formatApplicationDate(iso) {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime()))
         return "—";
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return (0, datetime_1.formatDateInAppZone)(date);
 }
 function formatRelativeDate(iso, now = new Date()) {
     if (!iso)

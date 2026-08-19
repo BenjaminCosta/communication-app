@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateInAppZone } from "@/lib/datetime"
 import { ModuleSwitcher } from "@/components/module-switcher"
 import { QcSheet } from "@/components/quest-coral/ui/quest-coral-sheet"
 import { Avatar, MissionFitDots, ProgressRing, QcButton, QcCard } from "@/components/quest-coral/ui/quest-coral-primitives"
@@ -64,7 +65,7 @@ interface QuestCoralScreenProps {
 }
 
 function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return formatDateInAppZone(new Date(iso), { month: "short", day: "numeric" })
 }
 
 function StatTile({

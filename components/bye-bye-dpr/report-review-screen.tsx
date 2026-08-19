@@ -10,6 +10,7 @@ import { useState } from "react"
 import { ArrowLeft, Building2, CalendarDays, CheckCircle2, ListTodo, Loader2, Paperclip, Pencil, Send, Sparkles, TriangleAlert, X } from "lucide-react"
 import { BdButton, BdCard } from "@/components/bye-bye-dpr/ui/byebye-dpr-primitives"
 import { emptyDailyReportStructuredData, type DailyReportStructuredData } from "@/lib/bye-bye-dpr-core"
+import { formatDateInAppZone } from "@/lib/datetime"
 import { ByeByeDprClientError, structureReportDraft, submitReport, updateReportDraft } from "@/features/bye-bye-dpr/client/byebye-dpr-client"
 import type { Job } from "@/lib/bye-bye-dpr-store"
 
@@ -118,7 +119,7 @@ export function ReportReviewScreen({ job, reportId, source, initialText, photos,
             <span className="truncate text-[0.9375rem] font-semibold text-[var(--bd-text)]">{job.name}</span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[0.8125rem] text-[var(--bd-text-muted)]">
               <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-              {new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              {formatDateInAppZone(new Date())}
             </span>
           </BdCard>
 

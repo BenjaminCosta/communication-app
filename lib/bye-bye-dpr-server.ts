@@ -24,6 +24,7 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import type { DocumentData, DocumentReference, Firestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
+import { formatTimeInAppZone, todayIsoInAppZone } from "@/lib/datetime"
 import type { OutlookAiOperation } from "@/lib/ai/server/safe-log"
 import {
   durationMinutes,
@@ -456,7 +457,7 @@ export async function createAutomaticCommsPost(input: CreateAutomaticCommsPostIn
 }
 
 function clockEventText(userName: string, jobName: string, when: Date, kind: "in" | "out"): string {
-  const time = when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  const time = formatTimeInAppZone(when, { hour: "numeric", minute: "2-digit" })
   return kind === "in" ? `${userName} clocked in at ${jobName} at ${time}.` : `${userName} clocked out from ${jobName} at ${time}.`
 }
 
@@ -904,7 +905,7 @@ export async function createDailyReportPdfAttachment(input: {
   const bucket = getStorage(await getFirebaseAdminApp()).bucket(STORAGE_BUCKET)
   const [url] = await bucket.file(input.pdfStoragePath).getSignedUrl({ action: "read", expires: "01-01-2500" })
   const submittedDate = new Date(input.submittedAt ?? Date.now())
-  const dateLabel = Number.isNaN(submittedDate.getTime()) ? "report" : submittedDate.toISOString().slice(0, 10)
+  const dateLabel = Number.isNaN(submittedDate.getTime()) ? "report" : todayIsoInAppZone(submittedDate)
   return {
     url,
     path: input.pdfStoragePath,
@@ -993,7 +994,7 @@ async function fileReportIntoDirectory(
   if (!job.directoryContextId) return
   try {
     const now = new Date()
-    const submittedOn = new Date(report.submittedAt ?? now.toISOString()).toLocaleDateString()
+    const submittedOn = todayIsoInAppZone(new Date(report.submittedAt ?? now.toISOString()))
 
     await db.collection("directoryFiles").add({
       entityIds: [job.directoryContextId],

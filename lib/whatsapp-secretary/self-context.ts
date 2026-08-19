@@ -3,6 +3,7 @@ import { createServerDirectoryProvider } from "@/features/directory/ai/server/to
 import type { DirectoryDataProvider } from "@/features/directory/ai/server/tools/types"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { directoryId, parseDirectoryId } from "@/lib/directory-core"
+import { todayIsoInAppZone } from "@/lib/datetime"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 import { createServerContactDetailsProvider, type DirectoryContactDetailsProvider } from "@/lib/whatsapp-secretary/tools/directory"
 
@@ -515,7 +516,7 @@ export async function buildSelfContextSnapshot(
   deps: { provider?: SelfContextProvider; today?: string } = {},
 ): Promise<SelfContextSnapshot> {
   const provider = deps.provider ?? createServerSelfContextProvider()
-  const today = deps.today ?? new Date().toISOString().slice(0, 10)
+  const today = deps.today ?? todayIsoInAppZone()
   const contactId = contactIdFromPersonId(actor.personId)
   const userId = actor.userId
 

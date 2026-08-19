@@ -7,6 +7,7 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
+import { formatDateTimeInAppZone } from "@/lib/datetime"
 
 const PAGE = { width: 612, height: 792 } // US Letter, portrait
 const MARGIN = 48
@@ -102,7 +103,7 @@ function dateLabel(value: string | null): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime())
     ? value
-    : date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })
+    : formatDateTimeInAppZone(date, { dateStyle: "medium", timeStyle: "short" })
 }
 
 function durationLabel(seconds: number | null): string {

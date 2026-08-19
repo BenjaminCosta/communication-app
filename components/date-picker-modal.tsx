@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatCalendarDateLabel, todayIsoInAppZone } from "@/lib/datetime"
 
 interface DatePickerModalProps {
   /** Currently selected dates as "YYYY-MM-DD" strings */
@@ -23,13 +24,11 @@ function toDateStr(year: number, month: number, day: number): string {
 }
 
 function todayStr(): string {
-  const d = new Date()
-  return toDateStr(d.getFullYear(), d.getMonth(), d.getDate())
+  return todayIsoInAppZone()
 }
 
 function formatShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  return formatCalendarDateLabel(dateStr)
 }
 
 export function DatePickerModal({
@@ -38,9 +37,9 @@ export function DatePickerModal({
   onClose,
   title = "Pick dates",
 }: DatePickerModalProps) {
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const [todayYear, todayMonth] = todayStr().split("-").map(Number)
+  const [year, setYear] = useState(todayYear)
+  const [month, setMonth] = useState(todayMonth - 1)
   const [picked, setPicked] = useState<Set<string>>(new Set(selectedDates))
 
   const iso = todayStr()

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Check, Clock, Plus, Search, X } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
+import { formatCalendarDateLabel, todayIsoInAppZone } from "@/lib/datetime"
 import { useSwipeDismiss } from "@/hooks/use-swipe-dismiss"
 import {
   type Contact,
@@ -44,13 +45,11 @@ function toDateStr(year: number, month: number, day: number): string {
 }
 
 function todayStr(): string {
-  const d = new Date()
-  return toDateStr(d.getFullYear(), d.getMonth(), d.getDate())
+  return todayIsoInAppZone()
 }
 
 function formatDayLabel(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+  return formatCalendarDateLabel(dateStr, { weekday: "long", month: "long", day: "numeric" })
 }
 
 function tagDotClass(tag: MessageTag): string {
@@ -68,9 +67,9 @@ export function CalendarScreen({
   messages, contacts, importedContacts = [], projects, currentUserId,
   onBack, onSendMessage, onMessageClick, className,
 }: CalendarScreenProps) {
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const [todayYear, todayMonth] = todayStr().split("-").map(Number)
+  const [year, setYear] = useState(todayYear)
+  const [month, setMonth] = useState(todayMonth - 1)
   const [selectedDate, setSelectedDate] = useState<string>(todayStr())
   const [showComposeSheet, setShowComposeSheet] = useState(false)
 

@@ -13,6 +13,11 @@
  * Nothing here talks to a backend yet — the UI drives it with local state.
  */
 
+// Relative (not "@/lib/datetime") — this file is copied verbatim into
+// functions/src by copy-shared-core.mjs, which has no "@/" path alias but
+// does keep a sibling datetime.ts copy alongside it.
+import { formatDateInAppZone } from "./datetime"
+
 export const APPLICATIONS_SCHEMA_VERSION = 1
 
 // ── Status model ────────────────────────────────────────────────────────
@@ -1211,7 +1216,7 @@ export function formatApplicationDate(iso: string | null): string {
   if (!iso) return "—"
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  return formatDateInAppZone(date)
 }
 
 export function formatRelativeDate(iso: string | null, now: Date = new Date()): string {

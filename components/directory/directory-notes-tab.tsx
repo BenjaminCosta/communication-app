@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { NotebookPen, Pencil, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateInAppZone } from "@/lib/datetime"
 import {
   addDirectoryNote,
   deleteDirectoryNote,
@@ -28,7 +29,7 @@ function timeAgo(date: Date | null): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+  return formatDateInAppZone(date, { month: "short", day: "numeric", year: "numeric" })
 }
 
 export function DirectoryNotesTab({ directoryId, userId, autoFocus }: DirectoryNotesTabProps) {

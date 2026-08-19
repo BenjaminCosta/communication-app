@@ -1,3 +1,5 @@
+import { mondayForDateInAppZone, todayIsoInAppZone } from "@/lib/datetime"
+
 export const OUTLOOK_SCHEMA_VERSION = 1
 export const OUTLOOK_DAY_COUNT = 21
 export const MAX_OUTLOOK_TASKS = 60
@@ -66,12 +68,9 @@ export function isoDate(date: Date): string {
   ].join("-")
 }
 
+/** The calendar day `date` falls on in APP_TIME_ZONE (the app's "today" convention), not the viewer's device zone. */
 export function localDateToIso(date: Date): string {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-")
+  return todayIsoInAppZone(date)
 }
 
 export function addIsoDays(date: string, days: number): string {
@@ -85,12 +84,9 @@ export function compareIsoDates(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
-/** Monday of the local calendar week containing `date`. */
+/** Monday of the calendar week containing `date`, in APP_TIME_ZONE. */
 export function mondayForDate(date: Date): string {
-  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const day = local.getDay()
-  local.setDate(local.getDate() - (day === 0 ? 6 : day - 1))
-  return localDateToIso(local)
+  return mondayForDateInAppZone(date)
 }
 
 export function outlookWindow(windowStart: string): OutlookWindow {

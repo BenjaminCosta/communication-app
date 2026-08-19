@@ -2,16 +2,13 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore"
 import * as functionsV1 from "firebase-functions/v1"
 import { mapWithConcurrency } from "../shared/batches"
 import { sendNotificationsToUsers } from "./notifications"
-
-function todayUTC(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayIsoInAppZone } from "../datetime"
 
 export const onDailyCalendarReminders = functionsV1.pubsub
   .schedule("0 8 * * *")
-  .timeZone("UTC")
+  .timeZone("America/New_York")
   .onRun(async () => {
-    const today = todayUTC()
+    const today = todayIsoInAppZone()
     const db = getFirestore()
     const snapshot = await db
       .collection("messages")

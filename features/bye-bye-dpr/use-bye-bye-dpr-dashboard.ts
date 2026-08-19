@@ -26,11 +26,12 @@ import {
 } from "@/features/bye-bye-dpr/client/byebye-dpr-client"
 import type { ClockSelectionSource } from "@/lib/bye-bye-dpr-core"
 import type { ClockRecord, Job } from "@/lib/bye-bye-dpr-store"
+import { formatTimeInAppZone } from "@/lib/datetime"
 
 export type ByeByeDprBootPhase = "loading" | "error" | "ready"
 
 function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  return formatTimeInAppZone(date, { hour: "numeric", minute: "2-digit" })
 }
 
 function formatIsoTime(iso: string | null): string {

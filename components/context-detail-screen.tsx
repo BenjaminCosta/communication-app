@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { ArrowLeft, Check, Pencil, Plus, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateInAppZone } from "@/lib/datetime"
 import type { AppContext } from "@/lib/store"
 
 interface ContextDetailScreenProps {
@@ -275,7 +276,7 @@ export function ContextDetailScreen({
 
           {/* Metadata */}
           <p className="text-xs text-muted-foreground/40 px-1">
-            Created {context.createdAt.toLocaleDateString()}
+            Created {formatDateInAppZone(context.createdAt)}
           </p>
 
           {/* Delete — only creator */}

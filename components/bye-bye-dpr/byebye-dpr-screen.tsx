@@ -31,6 +31,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatTimeInAppZone } from "@/lib/datetime"
 import { ByeByeDprHomeScreen, type ClockStatus } from "@/components/bye-bye-dpr/byebye-dpr-home-screen"
 import { AboutByeByeDprScreen } from "@/components/bye-bye-dpr/about-byebye-dpr-screen"
 import { ChangeJobScreen } from "@/components/bye-bye-dpr/change-job-screen"
@@ -71,7 +72,7 @@ function to24HourInputValue(date: Date): string {
 
 function formatIsoTime(iso: string | null): string {
   if (!iso) return ""
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  return formatTimeInAppZone(new Date(iso), { hour: "numeric", minute: "2-digit" })
 }
 
 function BootErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {

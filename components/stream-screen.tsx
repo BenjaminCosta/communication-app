@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, Fragment, type PointerEvent as Re
 import { MessageCircle, Star, Trash2, FolderOpen, X, LayoutGrid, Copy, User, Tag, Image as ImageIcon, Check, Search, Users, CircleSlash, ZoomIn, ZoomOut, RotateCcw, CalendarDays, ChevronRight, Plus, CornerDownLeft, Hash, FileText } from "lucide-react"
 import { cn, haptic } from "@/lib/utils"
 import { validateImageFile } from "@/lib/image-upload"
+import { formatCalendarDateLabel, getRelativeDayLabel, isSameDayInAppZone } from "@/lib/datetime"
 import {
   type Message,
   type MessageDraft,
@@ -48,29 +49,9 @@ import {
 
 const typeStyles = MESSAGE_TYPE_CONFIG
 
-function formatCalDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
-function getDayLabel(date: Date): string {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const diffDays = Math.round((today.getTime() - msgDay.getTime()) / 86_400_000)
-  if (diffDays === 0) return "Today"
-  if (diffDays === 1) return "Yesterday"
-  if (diffDays < 7) return date.toLocaleDateString("en-US", { weekday: "long" })
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
+const formatCalDate = formatCalendarDateLabel
+const isSameDay = isSameDayInAppZone
+const getDayLabel = getRelativeDayLabel
 
 interface StreamScreenProps {
   messages: Message[]

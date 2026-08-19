@@ -22,6 +22,7 @@ const SHARED = [
   { source: "../../lib/directory-core.ts", target: "../src/directory-core.ts" },
   { source: "../../lib/directory-ask-context.ts", target: "../src/directory-ask-context.ts" },
   { source: "../../lib/applications-core.ts", target: "../src/applications-core.ts" },
+  { source: "../../lib/datetime.ts", target: "../src/datetime.ts" },
 ]
 
 const banner = `// ⚠️ GENERATED FILE — DO NOT EDIT.

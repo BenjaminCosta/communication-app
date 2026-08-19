@@ -38,14 +38,12 @@ const firestore_1 = require("firebase-admin/firestore");
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const batches_1 = require("../shared/batches");
 const notifications_1 = require("./notifications");
-function todayUTC() {
-    return new Date().toISOString().slice(0, 10);
-}
+const datetime_1 = require("../datetime");
 exports.onDailyCalendarReminders = functionsV1.pubsub
     .schedule("0 8 * * *")
-    .timeZone("UTC")
+    .timeZone("America/New_York")
     .onRun(async () => {
-    const today = todayUTC();
+    const today = (0, datetime_1.todayIsoInAppZone)();
     const db = (0, firestore_1.getFirestore)();
     const snapshot = await db
         .collection("messages")
