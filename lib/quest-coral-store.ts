@@ -26,6 +26,7 @@ import {
   type ProjectContextSource,
   type ProjectUnreadState,
   type FeedbackReply,
+  type RedTeamReviewReply,
   type ProjectUpdate,
   type UpdateType,
 } from "@/lib/quest-coral-core"
@@ -34,6 +35,8 @@ export const QUEST_CORAL_PROJECTS_COLLECTION = "questCoralProjects"
 export const QUEST_CORAL_UPDATES_COLLECTION = "questCoralUpdates"
 /** Replies to Feedback threads, written only by the authenticated server command. */
 export const QUEST_CORAL_FEEDBACK_REPLIES_COLLECTION = "questCoralFeedbackReplies"
+/** Replies to Red Team Review threads, written only by the authenticated server command. */
+export const QUEST_CORAL_RED_TEAM_REVIEW_REPLIES_COLLECTION = "questCoralRedTeamReviewReplies"
 /** One Markdown brief per Quest Coral project; the document id is its project id. */
 export const QUEST_CORAL_PROJECT_CONTEXTS_COLLECTION = "questCoralProjectContexts"
 /** Private per-user reading markers for the immutable Quest Coral activity feed. */
@@ -160,6 +163,25 @@ export function mapFeedbackReplyDoc(id: string, data: DocumentData): FeedbackRep
     id,
     projectId: typeof data.projectId === "string" ? data.projectId : "",
     feedbackId: typeof data.feedbackId === "string" ? data.feedbackId : "",
+    authorId: typeof data.authorId === "string" ? data.authorId : "",
+    authorName: typeof data.authorName === "string" ? data.authorName : "Someone",
+    body: typeof data.body === "string" ? data.body : "",
+    communicationMessageId: typeof data.communicationMessageId === "string" ? data.communicationMessageId : "",
+    replyToCommunicationMessageId: typeof data.replyToCommunicationMessageId === "string" ? data.replyToCommunicationMessageId : "",
+    createdAt: isoOrNow(data.createdAt),
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    imageName: typeof data.imageName === "string" ? data.imageName : undefined,
+    fileUrl: typeof data.fileUrl === "string" ? data.fileUrl : undefined,
+    fileName: typeof data.fileName === "string" ? data.fileName : undefined,
+  }
+}
+
+/** Maps a Communications-authored Red Team Review reply into the project thread contract. */
+export function mapRedTeamReviewReplyDoc(id: string, data: DocumentData): RedTeamReviewReply {
+  return {
+    id,
+    projectId: typeof data.projectId === "string" ? data.projectId : "",
+    redTeamReviewId: typeof data.redTeamReviewId === "string" ? data.redTeamReviewId : "",
     authorId: typeof data.authorId === "string" ? data.authorId : "",
     authorName: typeof data.authorName === "string" ? data.authorName : "Someone",
     body: typeof data.body === "string" ? data.body : "",

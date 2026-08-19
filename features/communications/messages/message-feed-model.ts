@@ -94,6 +94,8 @@ export function mapMessageDocument(id: string, data: MessageDocument): Message {
     sourceQuestCoralProjectId: optionalString(data.sourceQuestCoralProjectId),
     sourceQuestCoralFeedbackId: optionalString(data.sourceQuestCoralFeedbackId),
     sourceQuestCoralFeedbackReplyId: optionalString(data.sourceQuestCoralFeedbackReplyId),
+    sourceQuestCoralRedTeamReviewId: optionalString(data.sourceQuestCoralRedTeamReviewId),
+    sourceQuestCoralRedTeamReviewReplyId: optionalString(data.sourceQuestCoralRedTeamReviewReplyId),
   }
 }
 

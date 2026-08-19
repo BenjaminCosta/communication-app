@@ -27,7 +27,7 @@ import {
   requestQuestCoralBrief,
 } from "@/features/quest-coral/ai/client/quest-coral-ai-client"
 import { projectToAskPayload } from "@/features/quest-coral/use-quest-coral-ask"
-import type { FeedbackReply, Project, ProjectUpdate } from "@/lib/quest-coral-core"
+import type { FeedbackReply, RedTeamReviewReply, Project, ProjectUpdate } from "@/lib/quest-coral-core"
 
 export type QuestCoralBriefPhase = "idle" | "loading" | "ready"
 
@@ -39,7 +39,7 @@ interface CachedBrief {
 
 const briefCache = new Map<string, CachedBrief>()
 
-function projectFingerprint(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []): string {
+function projectFingerprint(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = [], redTeamReviewReplies: RedTeamReviewReply[] = []): string {
   const projectUpdates = updates.filter((update) => update.projectId === project.id)
   const latest = projectUpdates.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   return [
@@ -52,18 +52,20 @@ function projectFingerprint(project: Project, updates: ProjectUpdate[], contextM
     latest?.createdAt ?? "",
     feedbackReplies.filter((reply) => reply.projectId === project.id).length,
     feedbackReplies.filter((reply) => reply.projectId === project.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? "",
+    redTeamReviewReplies.filter((reply) => reply.projectId === project.id).length,
+    redTeamReviewReplies.filter((reply) => reply.projectId === project.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? "",
     contextMarkdown ?? "",
   ].join("|")
 }
 
-export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []) {
+export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = [], redTeamReviewReplies: RedTeamReviewReply[] = []) {
   const fingerprint = useMemo(
-    () => projectFingerprint(project, updates, contextMarkdown, feedbackReplies),
-    [project, updates, contextMarkdown, feedbackReplies],
+    () => projectFingerprint(project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies),
+    [project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies],
   )
   const mockBrief = useMemo(
-    () => generateProjectBrief(project, updates, contextMarkdown, feedbackReplies),
-    [project, updates, contextMarkdown, feedbackReplies],
+    () => generateProjectBrief(project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies),
+    [project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies],
   )
 
   const [phase, setPhase] = useState<QuestCoralBriefPhase>(QUEST_CORAL_AI_ENABLED ? "idle" : "ready")
@@ -94,7 +96,7 @@ export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], c
       void (async () => {
         try {
           const response = await requestQuestCoralBrief(
-            { project: projectToAskPayload(project, updates, contextMarkdown, feedbackReplies) },
+            { project: projectToAskPayload(project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies) },
             { idempotencyKey: createQuestCoralAiIdempotencyKey() },
           )
           briefCache.set(project.id, { fingerprint, text: response.brief, mode: response.mode })
@@ -117,7 +119,7 @@ export function useQuestCoralBrief(project: Project, updates: ProjectUpdate[], c
         }
       })()
     },
-    [project, updates, contextMarkdown, feedbackReplies, fingerprint, mockBrief],
+    [project, updates, contextMarkdown, feedbackReplies, redTeamReviewReplies, fingerprint, mockBrief],
   )
 
   useEffect(() => {

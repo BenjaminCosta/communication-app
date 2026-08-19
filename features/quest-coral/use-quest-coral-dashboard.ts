@@ -26,6 +26,7 @@ import {
   type Project,
   type ProjectContext,
   type FeedbackReply,
+  type RedTeamReviewReply,
   type ProjectPerson,
   type ProjectStatus,
   type ProjectUnreadState,
@@ -61,6 +62,7 @@ import {
   subscribeQuestCoralProjectContexts,
   subscribeQuestCoralProjectUnreadStates,
   subscribeQuestCoralFeedbackReplies,
+  subscribeQuestCoralRedTeamReviewReplies,
   subscribeQuestCoralUpdates,
   synchronizeQuestCoralProjectUnreadCount,
 } from "@/lib/quest-coral-writes"
@@ -103,6 +105,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
   const [projects, setProjects] = useState<Project[]>([])
   const [updates, setUpdates] = useState<ProjectUpdate[]>([])
   const [feedbackReplies, setFeedbackReplies] = useState<FeedbackReply[]>([])
+  const [redTeamReviewReplies, setRedTeamReviewReplies] = useState<RedTeamReviewReply[]>([])
   const [contexts, setContexts] = useState<ProjectContext[]>([])
   const [unreadStates, setUnreadStates] = useState<ProjectUnreadState[]>([])
   const [filters, setFilters] = useState<QuestCoralFilters>(emptyQuestCoralFilters)
@@ -121,6 +124,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
         setProjects(next.projects)
         setUpdates(next.updates)
         setFeedbackReplies([])
+        setRedTeamReviewReplies([])
         setIsLoading(false)
         setUpdatesLoaded(true)
         setLoadError(null)
@@ -166,11 +170,16 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
       (next) => setFeedbackReplies(next),
       (error) => setLoadError((current) => current ?? (error.message.includes("permission") ? "Feedback replies are not enabled for this environment yet." : "Feedback replies could not be loaded.")),
     )
+    const unsubscribeRedTeamReviewReplies = subscribeQuestCoralRedTeamReviewReplies(
+      (next) => setRedTeamReviewReplies(next),
+      (error) => setLoadError((current) => current ?? (error.message.includes("permission") ? "Red Team Review replies are not enabled for this environment yet." : "Red Team Review replies could not be loaded.")),
+    )
     return () => {
       unsubscribeProjects()
       unsubscribeUpdates()
       unsubscribeContexts()
       unsubscribeFeedbackReplies()
+      unsubscribeRedTeamReviewReplies()
     }
   }, [enabled])
 
@@ -303,6 +312,11 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
   const feedbackRepliesForProject = useCallback(
     (projectId: string) => feedbackReplies.filter((reply) => reply.projectId === projectId),
     [feedbackReplies],
+  )
+
+  const redTeamReviewRepliesForProject = useCallback(
+    (projectId: string) => redTeamReviewReplies.filter((reply) => reply.projectId === projectId),
+    [redTeamReviewReplies],
   )
 
   const coverageFor = useCallback(
@@ -478,6 +492,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
     projects,
     updates,
     feedbackReplies,
+    redTeamReviewReplies,
     contexts,
     unreadCountsByProjectId,
     visibleProjects,
@@ -489,6 +504,7 @@ export function useQuestCoralDashboard(currentUserId: string, currentUserName: s
     getProject,
     updatesForProject,
     feedbackRepliesForProject,
+    redTeamReviewRepliesForProject,
     coverageFor,
     blockerCountFor,
     unreadCountFor,

@@ -160,6 +160,26 @@ export interface FeedbackReply {
   fileName?: string
 }
 
+/**
+ * An append-only reply to a Red Team Review activity, authored in
+ * Communications — same shape and reasoning as `FeedbackReply`.
+ */
+export interface RedTeamReviewReply {
+  id: string
+  projectId: string
+  redTeamReviewId: string
+  authorId: string
+  authorName: string
+  body: string
+  communicationMessageId: string
+  replyToCommunicationMessageId: string
+  createdAt: string
+  imageUrl?: string
+  imageName?: string
+  fileUrl?: string
+  fileName?: string
+}
+
 // ── Per-user unread activity ───────────────────────────────────────────
 
 /**

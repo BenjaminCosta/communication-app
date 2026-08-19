@@ -2345,6 +2345,7 @@ function tagDotClass(tag: { id: string; systemType?: MessageType }): string {
   if (systemType === "problem") return "bg-problem"
   if (systemType === "feedback") return "bg-feedback"
   if (systemType === "decision") return "bg-decision"
+  if (systemType === "red_team_review") return "bg-red-team-review"
   return "bg-violet-500"
 }
 
@@ -2353,6 +2354,7 @@ function messageTypeChipClass(type: MessageType): string {
   if (type === "problem") return "bg-problem/12 text-red-300 border-problem/35"
   if (type === "feedback") return "bg-feedback/12 text-amber-300 border-feedback/35"
   if (type === "decision") return "bg-decision/12 text-blue-300 border-decision/35"
+  if (type === "red_team_review") return "bg-red-team-review/12 text-teal-300 border-red-team-review/35"
   return "bg-feedback/10 text-feedback border-feedback/25"
 }
 

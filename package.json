@@ -37,6 +37,8 @@
     "backfill:quest-coral-feedbacks:prod": "DRY_RUN=false CONFIRM_PROD_QUEST_CORAL_FEEDBACK_BACKFILL=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-feedback-messages.mjs",
     "backfill:quest-coral-feedback-replies:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-feedback-replies.mjs",
     "backfill:quest-coral-feedback-replies:prod": "DRY_RUN=false CONFIRM_PROD_QUEST_CORAL_FEEDBACK_REPLY_BACKFILL=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-feedback-replies.mjs",
+    "backfill:quest-coral-red-team-reviews:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-red-team-review-messages.mjs",
+    "backfill:quest-coral-red-team-reviews:prod": "DRY_RUN=false CONFIRM_PROD_QUEST_CORAL_RED_TEAM_REVIEW_BACKFILL=true EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/backfill-quest-coral-red-team-review-messages.mjs",
     "emulator:test-applications-session": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node scripts/test-applications-session.mjs",
     "emulator:verify": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/verify-test-cases.mjs",
     "emulator:test-message-pagination": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-message-pagination.mjs",

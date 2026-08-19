@@ -33,6 +33,16 @@ export const questCoralAskFeedbackReplySchema = z.object({
 
 export type QuestCoralAskFeedbackReply = z.infer<typeof questCoralAskFeedbackReplySchema>
 
+/** A bounded conversation reply attached to a Red Team Review activity. */
+export const questCoralAskRedTeamReviewReplySchema = z.object({
+  redTeamReviewId: z.string().min(1).max(200),
+  body: z.string().max(QUEST_CORAL_AI_LIMITS.maxFieldChars),
+  authorName: z.string().max(200),
+  createdAt: z.string().max(40),
+})
+
+export type QuestCoralAskRedTeamReviewReply = z.infer<typeof questCoralAskRedTeamReviewReplySchema>
+
 /** One project's bounded context: its own fields plus its own updates feed. */
 export const questCoralAskProjectSchema = z.object({
   id: z.string().min(1).max(200),
@@ -50,6 +60,8 @@ export const questCoralAskProjectSchema = z.object({
   updates: z.array(questCoralAskUpdateSchema).max(QUEST_CORAL_AI_LIMITS.maxUpdates).default([]),
   /** Thread replies are conversation, not activity, but may clarify Feedback. */
   feedbackReplies: z.array(questCoralAskFeedbackReplySchema).max(20).default([]),
+  /** Same reasoning as feedbackReplies, for the Red Team Review thread. */
+  redTeamReviewReplies: z.array(questCoralAskRedTeamReviewReplySchema).max(20).default([]),
 })
 
 export type QuestCoralAskProject = z.infer<typeof questCoralAskProjectSchema>

@@ -28,6 +28,20 @@ export function questCoralFeedbackReplyMessageId(replyId: string): string {
   return `quest-coral-feedback-reply-${normalized}`
 }
 
+/** One Red Team Review maps to one deterministic Communications message. */
+export function questCoralRedTeamReviewMessageId(redTeamReviewId: string): string {
+  const normalized = redTeamReviewId.trim()
+  if (!normalized) throw new Error("Quest Coral Red Team Review id is required to create a Communications message.")
+  return `quest-coral-red-team-review-${normalized}`
+}
+
+/** One reply in a Red Team Review thread maps to one deterministic Communications message. */
+export function questCoralRedTeamReviewReplyMessageId(replyId: string): string {
+  const normalized = replyId.trim()
+  if (!normalized) throw new Error("Quest Coral Red Team Review reply id is required to create a Communications message.")
+  return `quest-coral-red-team-review-reply-${normalized}`
+}
+
 export function questCoralCommunicationsContextDescription(description: string): string {
   const normalized = description.trim()
   return normalized
@@ -39,6 +53,21 @@ export function questCoralFeedbackMessageText(projectName: string, feedbackBody:
   const name = projectName.trim() || "Untitled project"
   return `Feedback on ${name}\n\n${feedbackBody.trim()}`
 }
+
+export function questCoralRedTeamReviewMessageText(projectName: string, reviewBody: string): string {
+  const name = projectName.trim() || "Untitled project"
+  return `Red Team Review on ${name}\n\n${reviewBody.trim()}`
+}
+
+/**
+ * The Communications "Project" tag the user created by hand to label Red
+ * Team Review activity (Firestore `/projects/p1787155484276-nxhjd`, name
+ * "Red Team Review"). Every Red Team Review mirror also carries this tag —
+ * on top of the systemType tag — so it lines up with the tag the user
+ * already browses this content by.
+ */
+export const RED_TEAM_REVIEW_COMMS_PROJECT_ID = "p1787155484276-nxhjd"
+export const RED_TEAM_REVIEW_COMMS_PROJECT_TAG_ID = `project:${RED_TEAM_REVIEW_COMMS_PROJECT_ID}`
 
 type ProjectAudience = Pick<Project, "ownerId"> & { people: Array<Pick<ProjectPerson, "id">> }
 

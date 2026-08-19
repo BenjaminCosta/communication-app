@@ -35,10 +35,12 @@ import {
   QUEST_CORAL_PROJECTS_COLLECTION,
   QUEST_CORAL_PROJECT_CONTEXTS_COLLECTION,
   QUEST_CORAL_FEEDBACK_REPLIES_COLLECTION,
+  QUEST_CORAL_RED_TEAM_REVIEW_REPLIES_COLLECTION,
   QUEST_CORAL_PROJECT_UNREAD_STATES_COLLECTION,
   QUEST_CORAL_UPDATES_COLLECTION,
   mapProjectContextDoc,
   mapFeedbackReplyDoc,
+  mapRedTeamReviewReplyDoc,
   mapProjectDoc,
   mapProjectUnreadStateDoc,
   mapUpdateDoc,
@@ -51,6 +53,10 @@ import {
   synchronizeQuestCoralFeedbackAudience,
 } from "@/features/quest-coral/quest-coral-feedback-client"
 import {
+  publishQuestCoralRedTeamReview,
+  synchronizeQuestCoralRedTeamReviewAudience,
+} from "@/features/quest-coral/quest-coral-red-team-review-client"
+import {
   QUEST_CORAL_COMMUNICATIONS_SOURCE,
   questCoralCommunicationsContextDescription,
   questCoralCommunicationsContextId,
@@ -61,6 +67,7 @@ import {
   type Project,
   type ProjectContext,
   type FeedbackReply,
+  type RedTeamReviewReply,
   type ProjectUnreadState,
   type ProjectUpdate,
 } from "@/lib/quest-coral-core"
@@ -68,6 +75,7 @@ import {
 const PROJECTS_PAGE_SIZE = 500
 const UPDATES_PAGE_SIZE = 500
 const FEEDBACK_REPLIES_PAGE_SIZE = 1_000
+const RED_TEAM_REVIEW_REPLIES_PAGE_SIZE = 1_000
 const PROJECT_CONTEXTS_PAGE_SIZE = 500
 
 function normalizedUnreadCount(value: number): number {
@@ -144,6 +152,26 @@ export function subscribeQuestCoralFeedbackReplies(
   return subscribeWithServerReconcile(
     repliesQuery,
     (snapshot) => onChange(snapshot.docs.map((entry) => mapFeedbackReplyDoc(entry.id, entry.data()))),
+    (error) => onError?.(error),
+  )
+}
+
+/**
+ * Replies to Red Team Review — same separate-thread-collection reasoning as
+ * `subscribeQuestCoralFeedbackReplies`.
+ */
+export function subscribeQuestCoralRedTeamReviewReplies(
+  onChange: (replies: RedTeamReviewReply[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const repliesQuery = query(
+    collection(db, QUEST_CORAL_RED_TEAM_REVIEW_REPLIES_COLLECTION),
+    orderBy("createdAt", "desc"),
+    limit(RED_TEAM_REVIEW_REPLIES_PAGE_SIZE),
+  )
+  return subscribeWithServerReconcile(
+    repliesQuery,
+    (snapshot) => onChange(snapshot.docs.map((entry) => mapRedTeamReviewReplyDoc(entry.id, entry.data()))),
     (error) => onError?.(error),
   )
 }
@@ -257,7 +285,12 @@ export async function patchQuestCoralProject(projectId: string, patch: Partial<P
   const projectRef = doc(db, QUEST_CORAL_PROJECTS_COLLECTION, projectId)
   if (patch.name === undefined && patch.description === undefined) {
     await updateDoc(projectRef, data)
-    if (patch.people !== undefined) await synchronizeQuestCoralFeedbackAudience(projectId)
+    if (patch.people !== undefined) {
+      await Promise.all([
+        synchronizeQuestCoralFeedbackAudience(projectId),
+        synchronizeQuestCoralRedTeamReviewAudience(projectId),
+      ])
+    }
     return
   }
   const contextRef = doc(db, "contexts", questCoralCommunicationsContextId(projectId))
@@ -278,7 +311,12 @@ export async function patchQuestCoralProject(projectId: string, patch: Partial<P
       transaction.update(contextRef, contextData)
     }
   })
-  if (patch.people !== undefined) await synchronizeQuestCoralFeedbackAudience(projectId)
+  if (patch.people !== undefined) {
+    await Promise.all([
+      synchronizeQuestCoralFeedbackAudience(projectId),
+      synchronizeQuestCoralRedTeamReviewAudience(projectId),
+    ])
+  }
 }
 
 /**
@@ -294,6 +332,29 @@ export async function createQuestCoralUpdate(
     const feedbackRef = doc(collection(db, QUEST_CORAL_UPDATES_COLLECTION))
     return publishQuestCoralFeedback({
       feedbackId: feedbackRef.id,
+      projectId: update.projectId,
+      body: update.body,
+      authorName: update.authorName,
+      image: update.imageUrl ? {
+        url: update.imageUrl,
+        path: update.imagePath,
+        name: update.imageName,
+        contentType: update.imageContentType,
+        size: update.imageSize,
+      } : undefined,
+      attachment: update.fileUrl ? {
+        url: update.fileUrl,
+        path: update.filePath,
+        name: update.fileName,
+        contentType: update.fileContentType,
+        size: update.fileSize,
+      } : undefined,
+    })
+  }
+  if (update.type === "red_team_review") {
+    const redTeamReviewRef = doc(collection(db, QUEST_CORAL_UPDATES_COLLECTION))
+    return publishQuestCoralRedTeamReview({
+      redTeamReviewId: redTeamReviewRef.id,
       projectId: update.projectId,
       body: update.body,
       authorName: update.authorName,

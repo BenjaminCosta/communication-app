@@ -8,7 +8,7 @@
  * for that runbook); the hook's contract (question/phase/answer) stays put.
  */
 
-import { effectiveProjectStatus, PROJECT_STATUS_META, missionFitLabel, openBlockerCount, type FeedbackReply, type Project, type ProjectUpdate } from "@/lib/quest-coral-core"
+import { effectiveProjectStatus, PROJECT_STATUS_META, missionFitLabel, openBlockerCount, type FeedbackReply, type RedTeamReviewReply, type Project, type ProjectUpdate } from "@/lib/quest-coral-core"
 
 function daysUntil(dateIso: string | null): number | null {
   if (!dateIso) return null
@@ -27,7 +27,7 @@ function latestUpdate(projectId: string, updates: ProjectUpdate[]): ProjectUpdat
   )
 }
 
-export function generateProjectBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []): string {
+export function generateProjectBrief(project: Project, updates: ProjectUpdate[], contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = [], redTeamReviewReplies: RedTeamReviewReply[] = []): string {
   const statusMeta = PROJECT_STATUS_META[effectiveProjectStatus(project)]
   const blockers = openBlockerCount(project.id, updates)
   const latest = latestUpdate(project.id, updates)
@@ -54,6 +54,10 @@ export function generateProjectBrief(project: Project, updates: ProjectUpdate[],
     .filter((reply) => reply.projectId === project.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   if (latestReply?.body) parts.push(`Latest feedback reply from ${latestReply.authorName}: "${latestReply.body}"`)
+  const latestRedTeamReviewReply = redTeamReviewReplies
+    .filter((reply) => reply.projectId === project.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  if (latestRedTeamReviewReply?.body) parts.push(`Latest Red Team Review reply from ${latestRedTeamReviewReply.authorName}: "${latestRedTeamReviewReply.body}"`)
 
   const excerpt = contextExcerpt(contextMarkdown)
   if (excerpt) parts.push(`Context: ${excerpt}`)
@@ -119,7 +123,7 @@ function contextExcerpt(markdown: string | null | undefined): string | null {
   return plain.length > 440 ? `${plain.slice(0, 437).trimEnd()}…` : plain
 }
 
-export function answerProjectQuestion(project: Project, updates: ProjectUpdate[], question: string, contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = []): string {
+export function answerProjectQuestion(project: Project, updates: ProjectUpdate[], question: string, contextMarkdown?: string | null, feedbackReplies: FeedbackReply[] = [], redTeamReviewReplies: RedTeamReviewReply[] = []): string {
   const projectUpdates = updates.filter((update) => update.projectId === project.id)
   if (/context|purpose|problem|users?|flow|feature|decision|pending|connection/i.test(question)) {
     const excerpt = contextExcerpt(contextMarkdown)
@@ -128,7 +132,7 @@ export function answerProjectQuestion(project: Project, updates: ProjectUpdate[]
   }
   const template = ANSWER_TEMPLATES.find((entry) => entry.match.test(question))
   if (template) return template.build(project, projectUpdates)
-  return generateProjectBrief(project, projectUpdates, contextMarkdown, feedbackReplies)
+  return generateProjectBrief(project, projectUpdates, contextMarkdown, feedbackReplies, redTeamReviewReplies)
 }
 
 /** Portfolio-wide version of the same idea, for the Ask AI card on the Home screen. */

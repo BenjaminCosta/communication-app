@@ -317,10 +317,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null
                     && request.auth.uid == request.resource.data.authorId
-                    // Feedback is mirrored to Communications by the secure
-                    // server command, so clients cannot create an unmirrored
-                    // Feedback document directly.
-                    && request.resource.data.type != 'feedback';
+                    // Feedback and Red Team Review are mirrored to
+                    // Communications by the secure server command, so clients
+                    // cannot create an unmirrored document directly.
+                    && request.resource.data.type != 'feedback'
+                    && request.resource.data.type != 'red_team_review';
       allow update: if false;
       allow delete: if request.auth != null
                     && request.auth.uid == resource.data.authorId;
@@ -330,6 +331,12 @@ service cloud.firestore {
     // thread. The server command creates both records atomically; clients
     // may only read the resulting conversation.
     match /questCoralFeedbackReplies/{replyId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Same pattern as questCoralFeedbackReplies, for the Red Team Review thread.
+    match /questCoralRedTeamReviewReplies/{replyId} {
       allow read: if request.auth != null;
       allow write: if false;
     }

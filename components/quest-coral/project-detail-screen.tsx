@@ -56,6 +56,7 @@ import {
   UPDATE_TYPE_META,
   type CoverageResult,
   type FeedbackReply,
+  type RedTeamReviewReply,
   type Project,
   type ProjectPerson,
   type ProjectTimeline,
@@ -69,6 +70,7 @@ interface ProjectDetailScreenProps {
   project: Project
   updates: ProjectUpdate[]
   feedbackReplies: FeedbackReply[]
+  redTeamReviewReplies: RedTeamReviewReply[]
   activityLoaded: boolean
   coverage: CoverageResult
   contacts: Contact[]
@@ -155,7 +157,10 @@ const ActivityBadge = memo(function ActivityBadge({ type }: { type: UpdateType }
   )
 })
 
-const FeedbackReplyRows = memo(function FeedbackReplyRows({ replies }: { replies: FeedbackReply[] }) {
+/** A Quest Coral thread reply row — Feedback and Red Team Review replies share this exact shape. */
+type ThreadReplyRow = Pick<FeedbackReply, "id" | "authorName" | "createdAt" | "body" | "imageUrl" | "imageName" | "fileUrl" | "fileName">
+
+const FeedbackReplyRows = memo(function FeedbackReplyRows({ replies }: { replies: ThreadReplyRow[] }) {
   if (replies.length === 0) return null
   return (
     <div className="ml-9 mt-3 border-l border-[var(--coral-border)] pl-3">
@@ -206,7 +211,7 @@ const ActivityMediaLinks = memo(function ActivityMediaLinks({ update }: { update
   )
 })
 
-const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedbackReplies }: { update: ProjectUpdate; previousProgress?: number; feedbackReplies: FeedbackReply[] }) {
+const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedbackReplies, redTeamReviewReplies }: { update: ProjectUpdate; previousProgress?: number; feedbackReplies: FeedbackReply[]; redTeamReviewReplies: RedTeamReviewReply[] }) {
   const visual = ACTIVITY_VISUALS[update.type]
   const Icon = visual.Icon
   const progressChanged = update.type === "update" && update.progress !== undefined && previousProgress !== undefined && update.progress !== previousProgress
@@ -237,6 +242,7 @@ const ActivityRow = memo(function ActivityRow({ update, previousProgress, feedba
           </p>
         )}
         {update.type === "feedback" && <FeedbackReplyRows replies={feedbackReplies} />}
+        {update.type === "red_team_review" && <FeedbackReplyRows replies={redTeamReviewReplies} />}
       </div>
     </article>
   )
@@ -288,6 +294,7 @@ const ActivityEntries = memo(function ActivityEntries({
   loaded,
   updates,
   feedbackReplies,
+  redTeamReviewReplies,
   emptyLabel,
   actionLabel,
   onAction,
@@ -296,6 +303,7 @@ const ActivityEntries = memo(function ActivityEntries({
   loaded: boolean
   updates: ProjectUpdate[]
   feedbackReplies: FeedbackReply[]
+  redTeamReviewReplies: RedTeamReviewReply[]
   emptyLabel: string
   actionLabel: string
   onAction: () => void
@@ -345,6 +353,15 @@ const ActivityEntries = memo(function ActivityEntries({
   for (const replies of repliesByFeedbackId.values()) {
     replies.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   }
+  const repliesByRedTeamReviewId = new Map<string, RedTeamReviewReply[]>()
+  for (const reply of redTeamReviewReplies) {
+    const bucket = repliesByRedTeamReviewId.get(reply.redTeamReviewId)
+    if (bucket) bucket.push(reply)
+    else repliesByRedTeamReviewId.set(reply.redTeamReviewId, [reply])
+  }
+  for (const replies of repliesByRedTeamReviewId.values()) {
+    replies.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
   let trailingProgress: number | undefined
   for (let index = updates.length - 1; index >= 0; index -= 1) {
     previousProgressByIndex[index] = trailingProgress
@@ -355,7 +372,13 @@ const ActivityEntries = memo(function ActivityEntries({
   return (
     <>
       {updates.map((update, index) => (
-        <ActivityRow key={update.id} update={update} previousProgress={previousProgressByIndex[index]} feedbackReplies={repliesByFeedbackId.get(update.id) ?? []} />
+        <ActivityRow
+          key={update.id}
+          update={update}
+          previousProgress={previousProgressByIndex[index]}
+          feedbackReplies={repliesByFeedbackId.get(update.id) ?? []}
+          redTeamReviewReplies={repliesByRedTeamReviewId.get(update.id) ?? []}
+        />
       ))}
     </>
   )
@@ -457,7 +480,7 @@ const EventCoverageCard = memo(function EventCoverageCard({ coverage, timeline, 
   )
 })
 
-export function ProjectDetailScreen({ project, updates, feedbackReplies, activityLoaded, coverage, contacts, importedContacts, currentUserName, onBack, onAddUpdate, onPatchProject, onDeleteProject, onMarkProjectRead, className }: ProjectDetailScreenProps) {
+export function ProjectDetailScreen({ project, updates, feedbackReplies, redTeamReviewReplies, activityLoaded, coverage, contacts, importedContacts, currentUserName, onBack, onAddUpdate, onPatchProject, onDeleteProject, onMarkProjectRead, className }: ProjectDetailScreenProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [activeView, setActiveView] = useState<DetailView>("overview")
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all")
@@ -484,8 +507,8 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
   const [deleteProjectError, setDeleteProjectError] = useState<string | null>(null)
   const readMarkedProjectRef = useRef<string | null>(null)
   const { context, saveContext } = useQuestCoralContext(project.id, currentUserName)
-  const ask = useQuestCoralAsk(project, updates, context?.markdown, feedbackReplies)
-  const brief = useQuestCoralBrief(project, updates, context?.markdown, feedbackReplies)
+  const ask = useQuestCoralAsk(project, updates, context?.markdown, feedbackReplies, redTeamReviewReplies)
+  const brief = useQuestCoralBrief(project, updates, context?.markdown, feedbackReplies, redTeamReviewReplies)
   // Holds the generating skeleton visible for a minimum beat per question, so
   // it reads as an intentional micro-moment even when mock mode (or a warm
   // cache) resolves near-instantly — same pattern as Directory's Ask AI.
@@ -706,6 +729,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
                   loaded={activityLoaded}
                   updates={visibleUpdates}
                   feedbackReplies={feedbackReplies}
+                  redTeamReviewReplies={redTeamReviewReplies}
                   emptyLabel={activityEmptyLabel}
                   actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
                   onAction={handleActivityAction}
@@ -951,6 +975,7 @@ export function ProjectDetailScreen({ project, updates, feedbackReplies, activit
                 loaded={activityLoaded}
                 updates={latestUpdates}
                 feedbackReplies={feedbackReplies}
+                redTeamReviewReplies={redTeamReviewReplies}
                 emptyLabel={activityEmptyLabel}
                 actionLabel={activityFilter === "all" ? "Add update" : "Show all activity"}
                 onAction={handleActivityAction}

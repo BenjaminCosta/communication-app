@@ -48,6 +48,7 @@ import { useApplicationsDashboard } from "@/features/applications/use-applicatio
 import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-dashboard"
 import { useByeByeDprDashboard } from "@/features/bye-bye-dpr/use-bye-bye-dpr-dashboard"
 import { publishQuestCoralFeedbackReply } from "@/features/quest-coral/quest-coral-feedback-client"
+import { publishQuestCoralRedTeamReviewReply } from "@/features/quest-coral/quest-coral-red-team-review-client"
 import { AppScreenSkeleton, LaunchLoadingScreen } from "@/components/app-loading-screen"
 import { ToastNotification } from "@/components/toast-notification"
 import { DirectoryStateProvider } from "@/components/directory/directory-state-provider"
@@ -1151,10 +1152,33 @@ export default function Home() {
       const replyToMessage = draft.replyToId ? messages.find((message) => message.id === draft.replyToId) : undefined
       const isQuestCoralFeedbackReply = replyToMessage?.sourceModule === "quest-coral"
         && Boolean(replyToMessage.sourceQuestCoralFeedbackId)
+      const isQuestCoralRedTeamReviewReply = replyToMessage?.sourceModule === "quest-coral"
+        && Boolean(replyToMessage.sourceQuestCoralRedTeamReviewId)
       if (isQuestCoralFeedbackReply && draft.replyToId) {
         const feedbackReplyRef = doc(collection(db, "questCoralFeedbackReplies"))
         await publishQuestCoralFeedbackReply({
           replyId: feedbackReplyRef.id,
+          replyToMessageId: draft.replyToId,
+          body: text,
+          authorName: firebaseUser.displayName ?? currentUser?.name ?? "Someone",
+          requestedRecipientIds: peopleIds,
+          contactIds: importedContactIds,
+          calendarDates: draft.calendarDates ?? [],
+          ...(feedbackReplyImage ? { image: feedbackReplyImage } : {}),
+          ...(draft.attachment?.url ? {
+            attachment: {
+              url: draft.attachment.url,
+              ...(draft.attachment.path ? { path: draft.attachment.path } : {}),
+              ...(draft.attachment.name ? { name: draft.attachment.name } : {}),
+              ...(draft.attachment.contentType ? { contentType: draft.attachment.contentType } : {}),
+              ...(typeof draft.attachment.size === "number" ? { size: draft.attachment.size } : {}),
+            },
+          } : {}),
+        })
+      } else if (isQuestCoralRedTeamReviewReply && draft.replyToId) {
+        const redTeamReviewReplyRef = doc(collection(db, "questCoralRedTeamReviewReplies"))
+        await publishQuestCoralRedTeamReviewReply({
+          replyId: redTeamReviewReplyRef.id,
           replyToMessageId: draft.replyToId,
           body: text,
           authorName: firebaseUser.displayName ?? currentUser?.name ?? "Someone",
@@ -1852,6 +1876,9 @@ export default function Home() {
   const selectedQuestCoralFeedbackReplies = selectedQuestCoralProject
     ? questCoralDashboard.feedbackRepliesForProject(selectedQuestCoralProject.id)
     : []
+  const selectedQuestCoralRedTeamReviewReplies = selectedQuestCoralProject
+    ? questCoralDashboard.redTeamReviewRepliesForProject(selectedQuestCoralProject.id)
+    : []
   const selectedQuestCoralCoverage = selectedQuestCoralProject
     ? questCoralDashboard.coverageFor(selectedQuestCoralProject)
     : null
@@ -2191,6 +2218,7 @@ export default function Home() {
               project={selectedQuestCoralProject}
               updates={selectedQuestCoralUpdates}
               feedbackReplies={selectedQuestCoralFeedbackReplies}
+              redTeamReviewReplies={selectedQuestCoralRedTeamReviewReplies}
               activityLoaded={questCoralDashboard.updatesLoaded}
               coverage={selectedQuestCoralCoverage}
               contacts={contacts}
