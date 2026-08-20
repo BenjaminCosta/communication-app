@@ -55,6 +55,8 @@ export interface OutlookFormSubmitPayload {
   submittedByRole: OutlookFormSubmitterRole
   byeByeDprJobId: string | null
   jobName: string
+  /** ISO date, the Monday the 3-week window should start. Server re-snaps to a Monday regardless of what's sent. */
+  windowStart: string
   tasks: OutlookFormTaskDraft[]
   generalNotes: string
   /** Honeypot — real supers never fill this in. */

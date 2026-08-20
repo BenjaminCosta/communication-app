@@ -15,6 +15,7 @@ import {
   nextOutlookFormStep,
   outlookFormWeekBuckets,
   previousOutlookFormStep,
+  snapToMondayIso,
   type OutlookFormNoteTagId,
   type OutlookFormStepId,
 } from "@/lib/outlook-form-submissions/wizard-core"
@@ -62,9 +63,15 @@ export function useOutlookFormWizard() {
     return list.filter((job) => job.name.toLowerCase().includes(query) || job.address?.toLowerCase().includes(query))
   }, [jobs, jobSearch])
 
-  // Step 3 — tasks. The window is fixed at mount (today's Monday), matching
-  // the same OUTLOOK_DAY_COUNT=21 convention the real Outlook editor uses.
-  const [window] = useState(() => outlookWindow(mondayForDate(new Date())))
+  // Step 3 — tasks. Defaults to this week's Monday but the super can move it
+  // (e.g. starting next week) — snapToMondayIso keeps it aligned to a Monday
+  // either way, matching every other windowStart convention in the app.
+  const [windowStart, setWindowStartRaw] = useState(() => mondayForDate(new Date()))
+  const window = useMemo(() => outlookWindow(windowStart), [windowStart])
+  const setWindowStart = useCallback((pickedIso: string) => {
+    if (!pickedIso) return
+    setWindowStartRaw(snapToMondayIso(pickedIso))
+  }, [])
   const weekBuckets = useMemo(() => outlookFormWeekBuckets(window.start), [window.start])
   const [tasks, setTasks] = useState<OutlookTask[]>([])
   const [editingTask, setEditingTask] = useState<{ task: OutlookTask; isNew: boolean } | null>(null)
@@ -82,8 +89,13 @@ export function useOutlookFormWizard() {
     setTasks((current) => (current.some((entry) => entry.id === task.id) ? current.map((entry) => (entry.id === task.id ? task : entry)) : [...current, task]))
     setEditingTask(null)
   }, [])
+  // Closing the editor is the removal's only visible feedback (the delete
+  // itself is instant, local state — no network round trip to spinner over):
+  // without this the sheet used to just sit there unchanged, reading as "did
+  // that do anything?" rather than a completed action.
   const removeTask = useCallback((taskId: string) => {
     setTasks((current) => current.filter((entry) => entry.id !== taskId))
+    setEditingTask(null)
   }, [])
 
   // Step 4 — notes
@@ -123,6 +135,7 @@ export function useOutlookFormWizard() {
       submittedByRole,
       byeByeDprJobId: jobSelection && jobSelection !== "other" ? jobSelection : null,
       jobName,
+      windowStart,
       tasks: tasks
         .filter((task) => task.title.trim())
         .map((task) => ({
@@ -144,7 +157,7 @@ export function useOutlookFormWizard() {
         setSubmitError(err instanceof OutlookFormClientError ? err.message : "Unable to submit this form.")
       })
       .finally(() => setIsSubmitting(false))
-  }, [isSubmitting, submittedByName, submittedByPhone, submittedByCompany, submittedByRole, jobSelection, jobName, tasks, noteTags, notesText, honeypot])
+  }, [isSubmitting, submittedByName, submittedByPhone, submittedByCompany, submittedByRole, jobSelection, jobName, windowStart, tasks, noteTags, notesText, honeypot])
 
   /** "Submit another outlook" — keeps the super's own identity, resets the job/tasks/notes. */
   const resetForAnother = useCallback(() => {
@@ -188,6 +201,8 @@ export function useOutlookFormWizard() {
     jobName,
 
     window,
+    windowStart,
+    setWindowStart,
     weekBuckets,
     tasks,
     editingTask,

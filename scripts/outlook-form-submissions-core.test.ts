@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { outlookFormSubmitSchema } from "../lib/outlook-form-submissions/schema"
 import { nextRateLimitState } from "../lib/outlook-form-submissions/rate-limit"
-import { toOutlookFormSubmissionForTests } from "../lib/outlook-form-submissions/store"
+import { resolveWindowAnchorForTests, toOutlookFormSubmissionForTests } from "../lib/outlook-form-submissions/store"
 
 test("outlookFormSubmitSchema accepts a minimal valid submission and defaults optional fields", () => {
   const parsed = outlookFormSubmitSchema.safeParse({
@@ -17,6 +17,26 @@ test("outlookFormSubmitSchema accepts a minimal valid submission and defaults op
   assert.equal(parsed.data.website, "")
   assert.equal(parsed.data.submittedByPhone, "")
   assert.equal(parsed.data.submittedByRole, "site_super")
+})
+
+test("outlookFormSubmitSchema accepts a valid windowStart and rejects a malformed one", () => {
+  const valid = outlookFormSubmitSchema.safeParse({ submittedByName: "John", jobName: "Appaloosa", windowStart: "2026-08-24" })
+  assert.equal(valid.success, true)
+  const invalid = outlookFormSubmitSchema.safeParse({ submittedByName: "John", jobName: "Appaloosa", windowStart: "08/24/2026" })
+  assert.equal(invalid.success, false)
+})
+
+test("resolveWindowAnchorForTests uses the given windowStart when it's a valid ISO date", () => {
+  const anchor = resolveWindowAnchorForTests("2026-08-24", Date.now())
+  assert.equal(anchor.getUTCFullYear(), 2026)
+  assert.equal(anchor.getUTCMonth(), 7) // 0-indexed: August
+  assert.equal(anchor.getUTCDate(), 24)
+})
+
+test("resolveWindowAnchorForTests falls back to now when windowStart is missing or malformed", () => {
+  const now = Date.now()
+  assert.equal(resolveWindowAnchorForTests(undefined, now).getTime(), now)
+  assert.equal(resolveWindowAnchorForTests("not-a-date", now).getTime(), now)
 })
 
 test("outlookFormSubmitSchema rejects an unrecognized submitter role", () => {

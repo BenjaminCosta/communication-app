@@ -8,6 +8,7 @@ import {
   outlookFormInitials,
   outlookFormWeekBuckets,
   previousOutlookFormStep,
+  snapToMondayIso,
   tradeIconKey,
   weekIndexForDate,
 } from "../lib/outlook-form-submissions/wizard-core"
@@ -71,6 +72,22 @@ test("composeGeneralNotes joins selected flags with free-text notes, or returns 
   assert.equal(composeGeneralNotes(["Delivery", "Weather"], ""), "Flags: Delivery, Weather")
   assert.equal(composeGeneralNotes(["Delay"], "Crane access needed."), "Flags: Delay\n\nCrane access needed.")
   assert.equal(composeGeneralNotes([], ""), "")
+})
+
+test("snapToMondayIso normalizes any picked date to that week's Monday", () => {
+  // 2026-08-17 is itself a Monday — stays put.
+  assert.equal(snapToMondayIso("2026-08-17"), "2026-08-17")
+  // 2026-08-20 is a Thursday in the same week.
+  assert.equal(snapToMondayIso("2026-08-20"), "2026-08-17")
+  // 2026-08-23 is a Sunday — belongs to the week that started 2026-08-17.
+  assert.equal(snapToMondayIso("2026-08-23"), "2026-08-17")
+  // 2026-08-24 is the next Monday.
+  assert.equal(snapToMondayIso("2026-08-24"), "2026-08-24")
+})
+
+test("snapToMondayIso returns the input unchanged for a malformed date", () => {
+  assert.equal(snapToMondayIso("not-a-date"), "not-a-date")
+  assert.equal(snapToMondayIso(""), "")
 })
 
 test("outlookFormInitials mirrors lib/store.ts's deriveInitials convention", () => {

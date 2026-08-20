@@ -1,6 +1,6 @@
 "use client"
 
-import { Info, MoreVertical, Plus } from "lucide-react"
+import { CalendarDays, Info, MoreVertical, Plus } from "lucide-react"
 import { addIsoDays, formatOutlookDate, type OutlookTask } from "@/lib/outlook-core"
 import { OutlookFormStepLayout } from "@/components/outlook-form/step-layout"
 import { weekIndexForDate, type OutlookFormWeekBucket } from "@/lib/outlook-form-submissions/wizard-core"
@@ -15,6 +15,23 @@ export function TasksStep({ wizard }: { wizard: OutlookFormWizard }) {
   return (
     <>
       <OutlookFormStepLayout primary={{ label: "Continue", onClick: wizard.goNext }}>
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[var(--of-border)] bg-[var(--of-surface)] p-3.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CalendarDays className="h-4 w-4 shrink-0 text-[var(--of-text-muted)]" strokeWidth={2} />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-[var(--of-text-muted)]">Outlook starts</p>
+              <p className="truncate text-sm font-semibold text-[var(--of-text)]">{formatOutlookDate(wizard.window.start, { month: "long", day: "numeric" })}</p>
+            </div>
+          </div>
+          <input
+            type="date"
+            value={wizard.windowStart}
+            onChange={(event) => wizard.setWindowStart(event.target.value)}
+            aria-label="Outlook starts"
+            className="shrink-0 rounded-lg border border-[var(--of-border)] bg-[var(--of-surface)] px-2.5 py-1.5 text-sm text-[var(--of-text)] outline-none focus:border-[var(--of-blue)]"
+          />
+        </div>
+
         <div className="mb-5 flex items-start gap-2 rounded-xl bg-[var(--of-blue-soft)] p-3.5">
           <Info className="h-4 w-4 shrink-0 text-[var(--of-blue-strong)]" strokeWidth={2} />
           <p className="text-[0.8125rem] leading-snug text-[var(--of-blue-strong)]">Add the main work planned for each week.</p>

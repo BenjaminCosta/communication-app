@@ -1,6 +1,6 @@
 import type { Firestore, Query } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { createOutlookTask, mondayForDate, outlookWindow, type OutlookTask } from "@/lib/outlook-core"
+import { createOutlookTask, isIsoDate, mondayForDate, outlookWindow, type OutlookTask } from "@/lib/outlook-core"
 import type { OutlookFormSubmitInput, OutlookFormTaskInput } from "./schema"
 import {
   MAX_OUTLOOK_FORM_TASKS,
@@ -42,6 +42,17 @@ function asString(value: unknown): string {
 function asSubmitterRole(value: unknown): OutlookFormSubmitterRole {
   return value === "pm" || value === "other" ? value : "site_super"
 }
+
+/** Which Monday to anchor the window on — the client's pick if it's a real ISO date, else "this week." Always re-snapped to a Monday here regardless of what the client sent, never trusted as the exact boundary. */
+function resolveWindowAnchor(windowStart: string | undefined, now: number): Date {
+  if (windowStart && isIsoDate(windowStart)) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(windowStart)
+    if (match) return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12))
+  }
+  return new Date(now)
+}
+
+export const resolveWindowAnchorForTests = resolveWindowAnchor
 
 function buildTask(input: OutlookFormTaskInput, sortOrder: number): OutlookTask {
   return createOutlookTask({
@@ -136,7 +147,7 @@ export async function createOutlookFormSubmission(input: OutlookFormSubmitInput)
     jobName: input.jobName,
     byeByeDprJobId,
     jobContextId,
-    window: outlookWindow(mondayForDate(new Date(now))),
+    window: outlookWindow(mondayForDate(resolveWindowAnchor(input.windowStart, now))),
     tasks,
     generalNotes: input.generalNotes ?? "",
     submittedAtMs: now,

@@ -6,7 +6,7 @@
  * so the navigation/bucketing logic is unit-testable without a browser.
  */
 
-import { addIsoDays } from "@/lib/outlook-core"
+import { addIsoDays, mondayForDate } from "@/lib/outlook-core"
 
 export type OutlookFormStepId = "identify" | "job" | "tasks" | "notes" | "review" | "submitted"
 
@@ -50,6 +50,14 @@ export function canContinueFromIdentify(name: string): boolean {
 
 export function canContinueFromJob(jobName: string): boolean {
   return jobName.trim().length > 0
+}
+
+/** Snaps any picked ISO date to the Monday of its calendar week — every windowStart elsewhere in the app (the authenticated Outlook editor's Firestore doc id) is a Monday, so a freely-picked date here is normalized the same way rather than letting the window start mid-week. Noon UTC avoids the date shifting a day from a timezone/DST edge case. Returns the input unchanged if it isn't a valid ISO date. */
+export function snapToMondayIso(pickedIso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(pickedIso)
+  if (!match) return pickedIso
+  const noonUtc = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12))
+  return mondayForDate(noonUtc)
 }
 
 /** Local copy of lib/store.ts's deriveInitials() — the public form deliberately never imports lib/store.ts (an authenticated-app module), so this tiny pure helper is duplicated rather than shared. */

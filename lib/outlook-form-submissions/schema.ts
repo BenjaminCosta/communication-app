@@ -23,6 +23,9 @@ export const outlookFormSubmitSchema = z.object({
   submittedByRole: z.enum(["site_super", "pm", "other"]).optional().default("site_super"),
   byeByeDprJobId: z.string().trim().max(200).nullable().optional(),
   jobName: z.string().trim().min(1).max(160),
+  // Always re-snapped to a Monday server-side (see store.ts) — this is just
+  // which week the super picked, never trusted as the exact window boundary.
+  windowStart: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   tasks: z.array(outlookFormTaskInputSchema).max(MAX_OUTLOOK_FORM_TASKS).optional().default([]),
   generalNotes: z.string().trim().max(2000).optional().default(""),
   // Honeypot — a real super never fills this in. Checked by the route, not here.
