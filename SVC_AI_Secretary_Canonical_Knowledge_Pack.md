@@ -534,6 +534,14 @@ Scheduling and validation happen deterministically: dependency-only tasks start 
 
 A supervisor can type or record a natural-language update. Voice is transcribed (`gpt-4o-mini-transcribe`), then the note plus known context (window dates, job name, known companies, existing tasks) is sent to a structuring model (`gpt-5-mini`) that returns **suggestions only** — never final tasks. Suggestions carry per-field confidence and provenance, and a mandatory review modal (footer copy: *"Every task is reviewed before it's saved"*) requires an explicit "Looks good" confirmation before anything is saved. This AI-proposes/human-confirms principle is real and enforced for **task content** — every task, whether typed or spoken, goes through the same editable review step before being written.
 
+## Public 3-Week Outlook intake form (no login, no WhatsApp required)
+
+**Status: CODE / PRODUCT VERIFIED**
+
+A separate, deliberately simple public link lets a site super submit a 3-Week Outlook without opening the SVC app or messaging Courtney at all: **https://communication-svc.vercel.app/outlook-form**. This is a real, safe-to-share URL — it carries no access to anything else in SVC, so give it out whenever someone asks how to submit an outlook without the app or without logging in. It's a standalone 5-step mobile form: identify yourself (name, phone, company, and whether you're a Site Super/PM/Other), choose the job (searchable list, or "Other / not listed"), add the planned work week by week (task, trade, company, start date, duration), optional notes/issues, then review and submit.
+
+This is genuinely separate storage from the Directory-based Outlook editor described above, not an alternate entry point into the same record: a submission lands in its own `outlookFormSubmissions` collection, not in a job's live Outlook draft, and there is currently no automatic conversion from one into the other — that stays a manual step for whoever reviews it. Frank/Ben/Joe review submissions from the **Courtney Roberts Center** admin screen's "Outlook Forms" tab (an on-demand PDF export is available there too), and Courtney herself can read/search them directly — see §13's Outlooks tools.
+
 ## PDF
 
 A real, shipped feature: a landscape PDF combining a gantt-style view and a task registry, generated via `pdf-lib` and attached to a published version.
@@ -570,6 +578,14 @@ This is genuinely in-progress code (it type-checks cleanly but has no automated 
 3. Tap "Generate Outlook" — the model returns suggested tasks with per-field confidence.
 4. Review each suggested task in the review modal (a mini-gantt plus editable cards); edit or discard anything as needed.
 5. Tap "Looks good" to confirm — this feeds into the exact same save path as the manual flow above, including the same publish behavior described in the WIP callout.
+
+## Step-by-step: submitting via the public link (no login, no WhatsApp)
+
+1. Open **https://communication-svc.vercel.app/outlook-form** on any phone or computer — no SVC login and no WhatsApp needed.
+2. Enter your name, phone number, company (optional), and whether you're a Site Super, PM, or Other.
+3. Choose the job from the list, or pick "Other / not listed" and type it in.
+4. Add the main work planned for each of the next three weeks — task, trade, company, start date, duration — one "Add work item" per week.
+5. Add any notes or issues (optional), review the summary, and submit. Frank/Ben/Joe can then review it in Courtney Roberts Center.
 
 ---
 
@@ -777,7 +793,7 @@ Per-module read tools currently registered (all read-only, all bounded/paginated
 - **Applications**: search candidates, review queue, per-job application history, and (added 2026-08-14) `listAllApplications` — every application without naming a candidate/job, optional status filter. Candidate summaries were also enriched the same day: phone, email, city/state, years of experience, work reference, resume filename, intro-video status, and per-document status now included — shared as freely as Directory contact info per the same internal-sender trust boundary. The actual resume/document files and video content remain unavailable; only status/filename.
 - **Reports**: per-job/global/per-author search with pagination, plus a cross-job "jobs without a recent report" tool.
 - **Clocking**: per-job history (never raw GPS, only whether a location was recorded), cross-job "most active jobs" ranking.
-- **Outlooks**: per-job task reads, cross-job "active outlooks today."
+- **Outlooks**: per-job task reads, cross-job "active outlooks today," plus two tools (added 2026-08-20) over the separate public-link intake form described in §8: `outlooks_listFormSubmissions` (who submitted what, for which job, when, reviewed or not — optionally filtered by job or status) and `outlooks_getFormSubmission` (one submission's full task list and notes, by id from the list result — if that id isn't already in hand this turn, Courtney re-runs the list tool filtered by job/name rather than asking the user to repeat themselves). These read the separate `outlookFormSubmissions` collection, not a job's live Outlook draft.
 - **Messages/Communications** (added 2026-08-14): `messages_searchOperationalHistory` reads automatic, system-generated Communications posts — 3-Week Outlook publishes, ByeByeDPR clock-in/out events, Daily Report submissions — filterable by job, date range, and category, open to any internal sender since this content is templated/factual, never human-typed. `messages_searchMyCommunications` reads human-written Communications messages, hard-scoped server-side to the requesting sender's own `visibleToUserIds` — the same ACL the Communications app itself enforces — so it can never surface another person's private message. Neither tool covers the other's content: an automatic broadcast never shows up in "my communications," and a human message never shows up in the operational feed, even though today's known Outlook-broadcast-to-everyone behavior (§8) would otherwise make a message's `visibleToUserIds` include far more people than intended.
 
 - **My SVC context** (`me_*`, added 2026-08-14): `me_getMyProfile` (who the sender is recognized as — name, role, their own contact details, the companies/jobs linked to them in Directory), `me_getMySvcContext` (their whole current situation at once: linked jobs/companies, their Quest Coral projects, their own recent Daily Reports including drafts, whether they're clocked in right now, the Outlooks running on their jobs, how much recent Communications activity they can see, and their own Applications record if their contact details match one), and `me_getSecretaryGuide` (what Courtney can do *for that specific person*, how to use it, and example questions built from their real records). This is personalization over already-permitted reads, **not** a wider scope: every field is either about the sender's own record, already open to any identified internal sender through the tools above, or — for Communications — scoped to the exact same `visibleToUserIds` ACL `messages_searchMyCommunications` enforces. All three take **zero arguments** and the actor is closed over server-side, so there is structurally no way to point them at another person. Two honesty properties are built into the data, not the prompt: every source degrades independently to empty/`null` on failure, and anything genuinely not on file is returned as an explicit `gaps` list ("No role/title is on file for them") — which is why Courtney states a missing role instead of inferring one from a company or job name.
@@ -970,7 +986,7 @@ A new employee should be able to ask Courtney basic orientation questions withou
 "What's the latest report for this job?" / "Which jobs haven't had a recent report?" / "Create a Daily Report draft for this job" (requires exact job name + details, then explicit `CONFIRM DRAFT`)
 
 ## 3-Week Outlook
-"Is there an active outlook for this job?" / "What's planned next week?" / "Which active jobs don't have a current outlook?"
+"Is there an active outlook for this job?" / "What's planned next week?" / "Which active jobs don't have a current outlook?" / "Do you have any outlook form submissions?" / "What's John submitted?" / "Give me the details on that one" (summarize the list first — job, who, status — and offer full detail on a specific one rather than dumping every record) / "What's the link to submit a 3-week outlook without the app?" or "How do I submit an outlook without logging in?" — answer with the actual public link, https://communication-svc.vercel.app/outlook-form, plus a one-line description of the flow (see §8).
 
 ## Clocking
 "Who's currently clocked in on this job?" (via "most active jobs," not a full roster) / "Did John clock in today?" — do not claim total-hours calculations exist; they don't.

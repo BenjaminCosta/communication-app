@@ -342,7 +342,7 @@ export function createOutlooksTools(
     name: "outlooks_listFormSubmissions",
     module: "outlooks",
     description:
-      "Lists 3-Week Outlook form submissions from site supers — the public-link intake form, distinct from the authenticated outlook editor. Returns job, who submitted, when, and review status (new/reviewed). Optionally filter by job name or status. Answers 'show me the latest outlook forms' and 'what has John submitted'.",
+      "Lists 3-Week Outlook form submissions from site supers — the public-link intake form, distinct from the authenticated outlook editor. Returns job, who submitted, when, and review status (new/reviewed), each with a submissionId. Optionally filter by job name or status. Answers 'show me the latest outlook forms' and 'what has John submitted'. Call this again (filtered by jobName) whenever you need a specific submission's id for outlooks_getFormSubmission and don't already have it from earlier in this same turn — e.g. the user asked for one by job/job name in a message that didn't itself list them. Cheap, bounded, never worth asking the user to repeat instead.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -378,7 +378,7 @@ export function createOutlooksTools(
     name: "outlooks_getFormSubmission",
     module: "outlooks",
     description:
-      "Reads one 3-Week Outlook form submission in full — job, submitter, tasks (title/trade/company/dates/duration/status), and general notes/issues. Use `submissionId` from outlooks_listFormSubmissions.",
+      "Reads one 3-Week Outlook form submission in full — job, submitter, tasks (title/trade/company/dates/duration/status), and general notes/issues. Requires `submissionId` — a raw record id, not a name, and it does NOT persist across separate messages, only within tool results already returned this turn. If the user asks for a specific submission's detail (by job or person) and you don't already have its id from this turn, call outlooks_listFormSubmissions first (filtered by that job/name) to get it, then call this — do not ask the user to pick from a list again just because the id isn't already in hand.",
     parameters: {
       type: "object",
       additionalProperties: false,
