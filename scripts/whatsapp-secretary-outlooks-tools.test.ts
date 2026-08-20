@@ -26,6 +26,12 @@ function createFixtureProvider(overrides: Partial<OutlooksToolsProvider> = {}): 
       if (jobId === "warehouse") return { windowStart: "2026-06-01", windowEnd: "2026-06-21", taskCount: 2 }
       return null
     },
+    async listFormSubmissions() {
+      return []
+    },
+    async getFormSubmission() {
+      return null
+    },
     ...overrides,
   }
 }
@@ -40,8 +46,87 @@ const activeJobs: FanOutJob[] = [
 test("Outlooks tools are namespaced", () => {
   const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, ["outlooks_get"])
+  assert.deepEqual(names, ["outlooks_get", "outlooks_listFormSubmissions", "outlooks_getFormSubmission"])
   assert.ok(tools.every((tool) => tool.module === "outlooks"))
+})
+
+test("outlooks_listFormSubmissions returns submissions from the provider, spending budget", async () => {
+  const tools = createOutlooksTools({
+    provider: createFixtureProvider({
+      async listFormSubmissions(filter) {
+        assert.equal(filter.jobName, "Appaloosa")
+        assert.equal(filter.status, "new")
+        return [
+          { id: "sub-1", jobName: "Appaloosa", submittedByName: "John Smith", status: "new", submittedAtMs: 1000, taskCount: 2 },
+        ]
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const tool = tools.find((t) => t.name === "outlooks_listFormSubmissions")
+  assert.ok(tool)
+
+  const result = await tool.run({ jobName: "Appaloosa", status: "new" }, budget())
+  assert.equal(result.empty, undefined)
+  const data = result.data as { submissions: Array<{ id: string }> }
+  assert.equal(data.submissions.length, 1)
+  assert.equal(data.submissions[0]?.id, "sub-1")
+})
+
+test("outlooks_listFormSubmissions reports empty rather than guessing", async () => {
+  const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
+  const tool = tools.find((t) => t.name === "outlooks_listFormSubmissions")
+  assert.ok(tool)
+  const result = await tool.run({}, budget())
+  assert.equal(result.empty, true)
+})
+
+test("outlooks_getFormSubmission returns full detail and truncates tasks to budget", async () => {
+  const tools = createOutlooksTools({
+    provider: createFixtureProvider({
+      async getFormSubmission(submissionId) {
+        if (submissionId !== "sub-1") return null
+        return {
+          id: "sub-1",
+          jobName: "Appaloosa",
+          submittedByName: "John Smith",
+          submittedByRole: "site_super",
+          status: "new",
+          submittedAtMs: 1000,
+          windowStart: "2026-08-03",
+          windowEnd: "2026-08-23",
+          tasks: Array.from({ length: 3 }, (_, i) => ({
+            title: `Task ${i + 1}`,
+            trade: "Carpentry",
+            companyName: "74 Construction",
+            startDate: "2026-08-03",
+            durationDays: 1,
+            endDate: null,
+            status: "not_started",
+            completionPercent: 0,
+          })),
+          generalNotes: "Weather delay expected Thursday.",
+        }
+      },
+    }),
+    directoryProvider: createDirectoryFixtureProvider(),
+  })
+  const tool = tools.find((t) => t.name === "outlooks_getFormSubmission")
+  assert.ok(tool)
+
+  const result = await tool.run({ submissionId: "sub-1" }, { maxRecordsPerTool: 2, maxNotesPerTool: 0, maxNoteChars: 0, remainingRecords: 2 })
+  const data = result.data as { submission: { tasks: unknown[] } }
+  assert.equal(data.submission.tasks.length, 2)
+  assert.equal(result.truncated, true)
+  assert.equal(result.totalMatched, 3)
+})
+
+test("outlooks_getFormSubmission reports not-found without guessing", async () => {
+  const tools = createOutlooksTools({ provider: createFixtureProvider(), directoryProvider: createDirectoryFixtureProvider() })
+  const tool = tools.find((t) => t.name === "outlooks_getFormSubmission")
+  assert.ok(tool)
+  const result = await tool.run({ submissionId: "missing" }, budget())
+  assert.equal(result.empty, true)
 })
 
 test("outlooks_get resolves the job via Directory and returns a real deep link", async () => {

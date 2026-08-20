@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/firebase"
 import type { CourtneyRobertsCenterConversationSummary, CourtneyRobertsCenterMessage } from "./types"
+import type { OutlookFormSubmission } from "@/lib/outlook-form-submissions/types"
 
 /**
  * Browser-side callers for the Courtney Roberts Center read API. Same shape
@@ -166,4 +167,41 @@ export async function resumeCourtneyRobertsCenterAi(conversationId: string): Pro
     headers: { Authorization: await authHeader() },
   })
   if (!response.ok) await readError(response, "Unable to resume AI for this conversation.")
+}
+
+export type OutlookFormSubmissionsPage = {
+  submissions: OutlookFormSubmission[]
+  nextCursor?: string
+}
+
+/** 3-Week Outlook form submissions — the "Outlook Forms" tab inside Courtney Roberts Center. */
+export async function fetchOutlookFormSubmissions(input?: { limit?: number; cursor?: string }): Promise<OutlookFormSubmissionsPage> {
+  return getJson(`/api/courtney-roberts-center/outlook-forms${toQuery(input)}`, "Unable to load outlook form submissions.")
+}
+
+export async function fetchOutlookFormSubmission(submissionId: string): Promise<OutlookFormSubmission> {
+  const { submission } = await getJson<{ submission: OutlookFormSubmission }>(
+    `/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}`,
+    "Unable to load this submission.",
+  )
+  return submission
+}
+
+export async function markOutlookFormSubmissionReviewed(submissionId: string): Promise<OutlookFormSubmission> {
+  const response = await fetch(`/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}/review`, {
+    method: "POST",
+    headers: { Authorization: await authHeader() },
+  })
+  if (!response.ok) await readError(response, "Unable to mark this submission reviewed.")
+  const { submission } = (await response.json()) as { submission: OutlookFormSubmission }
+  return submission
+}
+
+/** Generates the submission's PDF on demand. Must be fetched with an Authorization header, not a plain `<a href>` navigation. */
+export async function fetchOutlookFormSubmissionPdf(submissionId: string): Promise<Blob> {
+  const response = await fetch(`/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}/pdf`, {
+    headers: { Authorization: await authHeader() },
+  })
+  if (!response.ok) await readError(response, "Unable to generate this PDF.")
+  return response.blob()
 }

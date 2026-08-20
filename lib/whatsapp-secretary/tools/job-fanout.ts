@@ -34,6 +34,8 @@ export interface FanOutJob {
   id: string
   name: string
   directoryContextId: string | null
+  /** jobs/{id}.address, when on file. Optional/undefined for callers that never asked — only the outlook-form job picker reads this today. */
+  address?: string | null
 }
 
 function asString(value: unknown): string {
@@ -50,6 +52,7 @@ export async function listActiveJobsForFanOut(): Promise<FanOutJob[]> {
       id: doc.id,
       name: asString(data.name),
       directoryContextId: asString(data.directoryContextId) || null,
+      address: asString(data.address) || null,
     }
   })
 }

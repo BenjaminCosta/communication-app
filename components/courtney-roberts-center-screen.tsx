@@ -1,16 +1,23 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, MessageCircleOff, Lock, Pause, UserRound } from "lucide-react"
+import { Search, MessageCircleOff, ClipboardList, Lock, Pause, UserRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { formatDateInAppZone, formatTimeInAppZone, isSameDayInAppZone } from "@/lib/datetime"
 import { ModuleSwitcher, type SvcModule } from "@/components/module-switcher"
-import { fetchCourtneyRobertsCenterConversations, CourtneyRobertsCenterClientError } from "@/lib/courtney-roberts-center/client"
+import {
+  fetchCourtneyRobertsCenterConversations,
+  fetchOutlookFormSubmissions,
+  CourtneyRobertsCenterClientError,
+} from "@/lib/courtney-roberts-center/client"
 import type { CourtneyRobertsCenterConversationSummary } from "@/lib/courtney-roberts-center/types"
+import type { OutlookFormSubmission, OutlookFormSubmissionStatus } from "@/lib/outlook-form-submissions/types"
+import { OutlookFormSubmissionRow } from "@/components/courtney-roberts-center/outlook-form-submission-row"
 
 interface CourtneyRobertsCenterScreenProps {
   onSelectConversation: (conversationId: string) => void
+  onSelectFormSubmission: (submissionId: string) => void
   onManageAccess: () => void
   onSwitchToStream: () => void
   onSwitchToDirectory: () => void
@@ -20,12 +27,25 @@ interface CourtneyRobertsCenterScreenProps {
   className?: string
 }
 
+type ViewKey = "whatsapp" | "forms"
 type FilterKey = "all" | "internal" | "public"
+type FormFilterKey = "all" | "new" | "reviewed"
+
+const VIEWS: { key: ViewKey; label: string }[] = [
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "forms", label: "Outlook Forms" },
+]
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "internal", label: "Internal" },
   { key: "public", label: "Public" },
+]
+
+const FORM_FILTERS: { key: FormFilterKey; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "new", label: "New" },
+  { key: "reviewed", label: "Reviewed" },
 ]
 
 // Admin tool, small conversation count expected — one page covers the real
@@ -46,6 +66,7 @@ function formatTimestamp(ms: number): string {
 
 export function CourtneyRobertsCenterScreen({
   onSelectConversation,
+  onSelectFormSubmission,
   onManageAccess,
   onSwitchToStream,
   onSwitchToDirectory,
@@ -54,11 +75,20 @@ export function CourtneyRobertsCenterScreen({
   onSwitchToByeByeDpr,
   className,
 }: CourtneyRobertsCenterScreenProps) {
+  const [view, setView] = useState<ViewKey>("whatsapp")
+
   const [conversations, setConversations] = useState<CourtneyRobertsCenterConversationSummary[] | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterKey>("all")
   const [query, setQuery] = useState("")
+
+  // 3-Week Outlook form submissions, reviewed from this same admin surface
+  // instead of a separate module. Loaded lazily on first switch to this tab.
+  const [formSubmissions, setFormSubmissions] = useState<OutlookFormSubmission[] | null>(null)
+  const [formsErrorStatus, setFormsErrorStatus] = useState<number | null>(null)
+  const [formsErrorMessage, setFormsErrorMessage] = useState<string | null>(null)
+  const [formFilter, setFormFilter] = useState<FormFilterKey>("all")
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +110,24 @@ export function CourtneyRobertsCenterScreen({
     }
   }, [])
 
+  useEffect(() => {
+    if (view !== "forms" || formSubmissions !== null) return
+    let cancelled = false
+    fetchOutlookFormSubmissions({ limit: LIST_PAGE_SIZE })
+      .then((page) => {
+        if (!cancelled) setFormSubmissions(page.submissions)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setFormSubmissions([])
+        setFormsErrorStatus(err instanceof CourtneyRobertsCenterClientError ? err.status : null)
+        setFormsErrorMessage(err instanceof CourtneyRobertsCenterClientError ? err.message : "Unable to load outlook form submissions.")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [view, formSubmissions])
+
   const filtered = useMemo(() => {
     const list = conversations ?? []
     const byFilter = filter === "all" ? list : list.filter((c) => c.identityStatus === filter)
@@ -88,8 +136,17 @@ export function CourtneyRobertsCenterScreen({
     return byFilter.filter((c) => c.displayName.toLowerCase().includes(q) || c.phoneNumber.includes(q))
   }, [conversations, filter, query])
 
-  const isLoading = conversations === null
-  const isDenied = errorStatus === 401 || errorStatus === 403
+  const filteredForms = useMemo(() => {
+    const list = formSubmissions ?? []
+    if (formFilter === "all") return list
+    const status: OutlookFormSubmissionStatus = formFilter === "reviewed" ? "reviewed" : "new"
+    return list.filter((submission) => submission.status === status)
+  }, [formSubmissions, formFilter])
+
+  const isWhatsappView = view === "whatsapp"
+  const isLoading = isWhatsappView ? conversations === null : formSubmissions === null
+  const isDenied = isWhatsappView ? errorStatus === 401 || errorStatus === 403 : formsErrorStatus === 401 || formsErrorStatus === 403
+  const loadErrorMessage = isWhatsappView ? errorMessage : formsErrorMessage
 
   return (
     <div className={cn("flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
@@ -117,7 +174,25 @@ export function CourtneyRobertsCenterScreen({
         </div>
       </div>
 
-      {!isDenied && (
+      <div className="shrink-0 max-w-2xl mx-auto w-full px-4 md:px-6 pt-3 flex items-center gap-2">
+        {VIEWS.map(({ key, label }) => {
+          const active = view === key
+          return (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all duration-150 active:scale-95",
+                active ? "glass-pill-crc-active" : "glass-pill text-muted-foreground",
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+
+      {!isDenied && isWhatsappView && (
         <div className="shrink-0 max-w-2xl mx-auto w-full px-4 md:px-6 pt-3 pb-2 flex flex-col gap-3">
           <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3.5 py-2.5">
             <Search className="w-4 h-4 text-muted-foreground/60 shrink-0" />
@@ -148,6 +223,26 @@ export function CourtneyRobertsCenterScreen({
         </div>
       )}
 
+      {!isDenied && !isWhatsappView && (
+        <div className="shrink-0 max-w-2xl mx-auto w-full px-4 md:px-6 pt-3 pb-2 flex items-center gap-2">
+          {FORM_FILTERS.map(({ key, label }) => {
+            const active = formFilter === key
+            return (
+              <button
+                key={key}
+                onClick={() => setFormFilter(key)}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all duration-150 active:scale-95",
+                  active ? "glass-pill-crc-active" : "glass-pill text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         <div className="max-w-2xl mx-auto w-full">
@@ -155,30 +250,48 @@ export function CourtneyRobertsCenterScreen({
             <EmptyState
               icon={<Lock className="w-5 h-5" />}
               title="Not approved"
-              description={errorMessage ?? "You are not approved to view Courtney Roberts Center."}
+              description={loadErrorMessage ?? "You are not approved to view Courtney Roberts Center."}
             />
           ) : isLoading ? (
             <ListSkeleton />
-          ) : errorMessage ? (
-            <EmptyState icon={<MessageCircleOff className="w-5 h-5" />} title="Can't load conversations" description={errorMessage} />
-          ) : filtered.length === 0 ? (
+          ) : loadErrorMessage ? (
             <EmptyState
-              icon={<MessageCircleOff className="w-5 h-5" />}
-              title={conversations && conversations.length > 0 ? "No matches" : "No conversations yet"}
+              icon={isWhatsappView ? <MessageCircleOff className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+              title={isWhatsappView ? "Can't load conversations" : "Can't load submissions"}
+              description={loadErrorMessage}
+            />
+          ) : isWhatsappView ? (
+            filtered.length === 0 ? (
+              <EmptyState
+                icon={<MessageCircleOff className="w-5 h-5" />}
+                title={conversations && conversations.length > 0 ? "No matches" : "No conversations yet"}
+                description={
+                  conversations && conversations.length > 0
+                    ? "Try a different search or filter."
+                    : "WhatsApp conversations with Courtney will show up here."
+                }
+              />
+            ) : (
+              <div className="flex flex-col divide-y divide-white/8">
+                {filtered.map((conversation) => (
+                  <ConversationRow key={conversation.id} conversation={conversation} onSelect={() => onSelectConversation(conversation.id)} />
+                ))}
+              </div>
+            )
+          ) : filteredForms.length === 0 ? (
+            <EmptyState
+              icon={<ClipboardList className="w-5 h-5" />}
+              title={formSubmissions && formSubmissions.length > 0 ? "No matches" : "No submissions yet"}
               description={
-                conversations && conversations.length > 0
-                  ? "Try a different search or filter."
-                  : "WhatsApp conversations with Courtney will show up here."
+                formSubmissions && formSubmissions.length > 0
+                  ? "Try a different filter."
+                  : "3-Week Outlook forms submitted by supers will show up here."
               }
             />
           ) : (
             <div className="flex flex-col divide-y divide-white/8">
-              {filtered.map((conversation) => (
-                <ConversationRow
-                  key={conversation.id}
-                  conversation={conversation}
-                  onSelect={() => onSelectConversation(conversation.id)}
-                />
+              {filteredForms.map((submission) => (
+                <OutlookFormSubmissionRow key={submission.id} submission={submission} onSelect={() => onSelectFormSubmission(submission.id)} />
               ))}
             </div>
           )}

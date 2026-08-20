@@ -1656,3 +1656,110 @@ body[data-svc-launch-module="quest-coral"] .launch-loading-quest-coral { display
   .byebye-dpr-primary-button:active:not(:disabled),
   .byebye-dpr-clockout-button:active:not(:disabled) { transform: none; }
 }
+
+/* ── Public 3-Week Outlook intake form ────────────────────────────────────
+   Fourth light module, same mechanism as .applications-scope above — this
+   form is reached by an unauthenticated public link (app/outlook-form), so it
+   gets its own scope rather than borrowing Applications' so the two never
+   drift. Clean, crisp blue-on-white wizard, matching the reference mockup. */
+.outlook-form-scope {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #1D4ED8;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --accent: #F1F5F9;
+  --accent-foreground: #0F172A;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #2563EB;
+  --destructive: #F97373;
+  --destructive-foreground: #FFFFFF;
+
+  /* Identity */
+  --of-surface: #FFFFFF;
+  --of-surface-2: #F1F5F9;
+  --of-blue: #2563EB;
+  --of-blue-strong: #1D4ED8;
+  --of-blue-soft: #DBEAFE;
+  --of-text: #0F172A;
+  --of-text-muted: #64748B;
+  --of-border: #E2E8F0;
+
+  /* Semantic states — same hex values as the other light modules. */
+  --of-complete: #22C55E;
+  --of-complete-soft: #DCFCE7;
+  --of-pending: #F59E0B;
+  --of-pending-soft: #FEF3C7;
+  --of-missing: #F97373;
+  --of-missing-soft: #FEE7E7;
+
+  color: var(--of-text);
+  background-color: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+}
+
+.outlook-form-topbar {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--of-border);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.outlook-form-card {
+  background: var(--of-surface);
+  border: 1px solid var(--of-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.045);
+}
+
+.outlook-form-card-flat {
+  background: var(--of-surface);
+  border: 1px solid var(--of-border);
+}
+
+.outlook-form-primary-button {
+  background: linear-gradient(180deg, var(--of-blue), var(--of-blue-strong));
+  box-shadow: 0 1px 2px rgba(29, 78, 216, 0.24), 0 8px 20px rgba(37, 99, 235, 0.22);
+}
+.outlook-form-primary-button:active:not(:disabled) { transform: scale(0.985); }
+.outlook-form-primary-button:disabled {
+  background: #CBD8E6;
+  box-shadow: none;
+}
+
+.outlook-form-tap {
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.outlook-form-tap:active { transform: scale(0.99); }
+
+@keyframes outlook-form-step-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.outlook-form-step-enter {
+  animation: outlook-form-step-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes outlook-form-scale-in {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.outlook-form-scale-in {
+  animation: outlook-form-scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outlook-form-step-enter,
+  .outlook-form-scale-in { animation: none; }
+  .outlook-form-tap:active,
+  .outlook-form-primary-button:active:not(:disabled) { transform: none; }
+}

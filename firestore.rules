@@ -272,6 +272,13 @@ service cloud.firestore {
     match /outlookAiUsage/{userHash} {
       allow read, write: if false;
     }
+
+    // Blunt hour-window throttle for the public, unauthenticated 3-Week
+    // Outlook intake form (app/api/outlook-form/submit). Server/Admin SDK
+    // only — the public form never touches a client Firestore SDK at all.
+    match /outlookFormRateLimit/{ipHash} {
+      allow read, write: if false;
+    }
     // ── Applications ───────────────────────────────────────────────────────
     // Operational mode: keep the hiring flow unblocked. Any Firebase-authenticated
     // session may work with Applications records; server endpoints still own

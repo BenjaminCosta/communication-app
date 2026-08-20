@@ -8,6 +8,11 @@ import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
+import {
+  getOutlookFormSubmission as getOutlookFormSubmissionRecord,
+  listOutlookFormSubmissions as listOutlookFormSubmissionsRecords,
+} from "@/lib/outlook-form-submissions/store"
+import type { OutlookFormSubmissionStatus } from "@/lib/outlook-form-submissions/types"
 
 /**
  * 3-Week Outlook tools for the WhatsApp Secretary orchestrator.
@@ -71,9 +76,34 @@ function toModelActiveOutlook({ deepLink: _deepLink, ...outlook }: ActiveOutlook
   return outlook
 }
 
+export interface OutlookFormSubmissionListSummary {
+  id: string
+  jobName: string
+  submittedByName: string
+  status: OutlookFormSubmissionStatus
+  submittedAtMs: number
+  taskCount: number
+}
+
+export interface OutlookFormSubmissionDetail {
+  id: string
+  jobName: string
+  submittedByName: string
+  submittedByRole: string
+  status: OutlookFormSubmissionStatus
+  submittedAtMs: number
+  windowStart: string
+  windowEnd: string
+  tasks: OutlookTaskSummary[]
+  generalNotes: string
+}
+
 export interface OutlooksToolsProvider {
   getOutlookForJob(jobId: string, windowStart?: string): Promise<{ windowStart: string; windowEnd: string; tasks: OutlookTaskSummary[] } | null>
   getMostRecentOutlookWindow(jobId: string): Promise<{ windowStart: string; windowEnd: string; taskCount: number } | null>
+  /** 3-Week Outlook FORM submissions — supers' public-link intake, distinct from the authenticated editor's own outlooks above. */
+  listFormSubmissions(filter: { jobName?: string; status?: OutlookFormSubmissionStatus; limit: number }): Promise<OutlookFormSubmissionListSummary[]>
+  getFormSubmission(submissionId: string): Promise<OutlookFormSubmissionDetail | null>
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -139,6 +169,46 @@ function createServerOutlooksToolsProvider(): OutlooksToolsProvider {
         windowStart: asString(data.windowStart) || doc.id,
         windowEnd: asString(data.windowEnd),
         taskCount: tasks.length,
+      }
+    },
+    async listFormSubmissions(filter) {
+      const { submissions } = await listOutlookFormSubmissionsRecords({
+        limit: filter.limit,
+        jobName: filter.jobName,
+        status: filter.status,
+      })
+      return submissions.map((submission) => ({
+        id: submission.id,
+        jobName: submission.jobName,
+        submittedByName: submission.submittedByName,
+        status: submission.status,
+        submittedAtMs: submission.submittedAtMs,
+        taskCount: submission.tasks.length,
+      }))
+    },
+    async getFormSubmission(submissionId) {
+      const submission = await getOutlookFormSubmissionRecord(submissionId)
+      if (!submission) return null
+      return {
+        id: submission.id,
+        jobName: submission.jobName,
+        submittedByName: submission.submittedByName,
+        submittedByRole: submission.submittedByRole,
+        status: submission.status,
+        submittedAtMs: submission.submittedAtMs,
+        windowStart: submission.window.start,
+        windowEnd: submission.window.end,
+        tasks: submission.tasks.map((task) => ({
+          title: task.title,
+          trade: task.trade,
+          companyName: task.companyName,
+          startDate: task.startDate,
+          durationDays: task.durationDays,
+          endDate: task.endDate,
+          status: task.status,
+          completionPercent: task.completionPercent,
+        })),
+        generalNotes: submission.generalNotes,
       }
     },
   }
@@ -268,5 +338,71 @@ export function createOutlooksTools(
     },
   }
 
-  return [get]
+  const listFormSubmissions: SecretaryTool<{ jobName?: string; status?: OutlookFormSubmissionStatus; limit?: number }> = {
+    name: "outlooks_listFormSubmissions",
+    module: "outlooks",
+    description:
+      "Lists 3-Week Outlook form submissions from site supers — the public-link intake form, distinct from the authenticated outlook editor. Returns job, who submitted, when, and review status (new/reviewed). Optionally filter by job name or status. Answers 'show me the latest outlook forms' and 'what has John submitted'.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: [],
+      properties: {
+        jobName: { type: "string", description: "Filter to submissions for a job whose name contains this text." },
+        status: { type: "string", enum: ["new", "reviewed"], description: "Filter by review status." },
+        limit: { type: "number", description: "Max submissions to return (1-20)." },
+      },
+    },
+    schema: z.object({
+      jobName: z.string().max(160).optional(),
+      status: z.enum(["new", "reviewed"]).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const limit = Math.max(1, Math.min(args.limit ?? 10, 20, budget.maxRecordsPerTool, budget.remainingRecords))
+      if (limit <= 0) return { summary: "The retrieval budget for this question is used up.", empty: true }
+
+      const submissions = await provider.listFormSubmissions({ jobName: args.jobName, status: args.status, limit })
+      budget.remainingRecords -= submissions.length
+      if (submissions.length === 0) {
+        return { summary: "No 3-Week Outlook form submissions matched.", empty: true }
+      }
+      return {
+        summary: `${submissions.length} 3-Week Outlook form submission(s) found.`,
+        data: { submissions },
+      }
+    },
+  }
+
+  const getFormSubmission: SecretaryTool<{ submissionId: string }> = {
+    name: "outlooks_getFormSubmission",
+    module: "outlooks",
+    description:
+      "Reads one 3-Week Outlook form submission in full — job, submitter, tasks (title/trade/company/dates/duration/status), and general notes/issues. Use `submissionId` from outlooks_listFormSubmissions.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["submissionId"],
+      properties: {
+        submissionId: { type: "string", description: "The submission id, from an earlier outlooks_listFormSubmissions result." },
+      },
+    },
+    schema: z.object({ submissionId: z.string().min(1).max(200) }),
+    async run(args, budget): Promise<SecretaryToolResult> {
+      const submission = await provider.getFormSubmission(args.submissionId)
+      if (!submission) return { summary: `No form submission found for "${args.submissionId}".`, empty: true }
+
+      const allowed = Math.max(0, Math.min(MAX_TASKS_RETURNED, budget.maxRecordsPerTool, budget.remainingRecords))
+      const tasks = submission.tasks.slice(0, allowed)
+      budget.remainingRecords -= tasks.length
+
+      return {
+        summary: `3-Week Outlook form submission for "${submission.jobName}" by ${submission.submittedByName}, ${submission.tasks.length} task(s).`,
+        data: { submission: { ...submission, tasks } },
+        ...(submission.tasks.length > tasks.length ? { truncated: true, totalMatched: submission.tasks.length } : {}),
+      }
+    },
+  }
+
+  return [get, listFormSubmissions, getFormSubmission]
 }

@@ -78,6 +78,7 @@ const ByeByeDprScreen = dynamic(() => import("@/components/bye-bye-dpr/byebye-dp
 const CourtneyRobertsCenterScreen = dynamic(() => import("@/components/courtney-roberts-center-screen").then((m) => ({ default: m.CourtneyRobertsCenterScreen })), { ssr: false })
 const CourtneyRobertsCenterThreadScreen = dynamic(() => import("@/components/courtney-roberts-center-thread-screen").then((m) => ({ default: m.CourtneyRobertsCenterThreadScreen })), { ssr: false })
 const CourtneyRobertsCenterAccessScreen = dynamic(() => import("@/components/courtney-roberts-center-access-screen").then((m) => ({ default: m.CourtneyRobertsCenterAccessScreen })), { ssr: false })
+const CourtneyRobertsCenterFormDetailScreen = dynamic(() => import("@/components/courtney-roberts-center-form-detail-screen").then((m) => ({ default: m.CourtneyRobertsCenterFormDetailScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -139,6 +140,7 @@ type Screen =
   | "courtney-roberts-center"
   | "courtney-roberts-center-thread"
   | "courtney-roberts-center-access"
+  | "courtney-roberts-center-form-detail"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -171,6 +173,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "courtney-roberts-center": 4,
   "courtney-roberts-center-thread": 5,
   "courtney-roberts-center-access": 5,
+  "courtney-roberts-center-form-detail": 5,
 }
 
 // Remembers which module the user was last in,
@@ -341,6 +344,7 @@ export default function Home() {
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null)
   const [directoryDetailView, setDirectoryDetailView] = useState<DirectoryDeepLinkView>("profile")
   const [selectedCourtneyRobertsCenterConversationId, setSelectedCourtneyRobertsCenterConversationId] = useState<string | null>(null)
+  const [selectedOutlookFormSubmissionId, setSelectedOutlookFormSubmissionId] = useState<string | null>(null)
   // ── Applications (mock data for now — see features/applications) ───────
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [applyToken, setApplyToken] = useState<string | null>(null)
@@ -1593,6 +1597,10 @@ export default function Home() {
     navigateTo("courtney-roberts-center-thread")
   }, [navigateTo])
   const goToCourtneyRobertsCenterAccess = useCallback(() => navigateTo("courtney-roberts-center-access"), [navigateTo])
+  const goToCourtneyRobertsCenterFormDetail = useCallback((submissionId: string) => {
+    setSelectedOutlookFormSubmissionId(submissionId)
+    navigateTo("courtney-roberts-center-form-detail")
+  }, [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -1970,6 +1978,7 @@ export default function Home() {
         <CourtneyRobertsCenterScreen
           className={entranceClass}
           onSelectConversation={goToCourtneyRobertsCenterThread}
+          onSelectFormSubmission={goToCourtneyRobertsCenterFormDetail}
           onManageAccess={goToCourtneyRobertsCenterAccess}
           onSwitchToStream={goToStream}
           onSwitchToDirectory={goToDirectoryFromStream}
@@ -1990,6 +1999,14 @@ export default function Home() {
       {!showScreenSkeleton && activeScreen === "courtney-roberts-center-access" && (
         <CourtneyRobertsCenterAccessScreen
           className={entranceClass}
+          onBack={() => navigateTo("courtney-roberts-center")}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-form-detail" && selectedOutlookFormSubmissionId && (
+        <CourtneyRobertsCenterFormDetailScreen
+          className={entranceClass}
+          submissionId={selectedOutlookFormSubmissionId}
           onBack={() => navigateTo("courtney-roberts-center")}
         />
       )}
