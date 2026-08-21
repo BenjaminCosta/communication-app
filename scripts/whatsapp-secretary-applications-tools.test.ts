@@ -203,6 +203,10 @@ test("applications_search surfaces the candidate's contact and document/video de
     { label: "Photo ID", status: "verified", required: true },
     { label: "Certification", status: "missing", required: true },
   ])
+  assert.equal(result.responseFormat?.kind, "detail-card")
+  assert.equal(result.responseFormat?.title, "Jane Rivera")
+  assert.ok(result.responseFormat?.kind === "detail-card" && result.responseFormat.fields.some((field) => field.label === "Status" && field.value === "Submitted"))
+  assert.ok(result.responseFormat?.kind === "detail-card" && !result.responseFormat.fields.some((field) => /phone|email/i.test(field.label)))
 })
 
 // --- applications_search (2026-08-14): "what applications are

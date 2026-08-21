@@ -57,6 +57,9 @@ test("clocking_getClockHistoryForJob resolves the job then lists history, never 
   assert.equal(data.history?.[0]?.hadClockInLocation, true)
   assert.ok(!("clockInLocation" in (data.history?.[0] ?? {})))
   assert.ok(sharedBudget.remainingRecords < 24)
+  assert.equal(result.responseFormat?.kind, "timeline")
+  assert.equal(result.responseFormat?.title, "Clock activity — North Ridge")
+  assert.match(result.responseFormat?.kind === "timeline" ? result.responseFormat.items[0] ?? "" : "", /Alan Turner.*8h/)
 })
 
 test("clocking_getClockHistoryForJob reports ambiguity across matching jobs without guessing", async () => {

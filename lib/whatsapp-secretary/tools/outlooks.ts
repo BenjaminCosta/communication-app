@@ -7,6 +7,7 @@ import { todayIsoInAppZone } from "@/lib/datetime"
 import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { detailCard } from "@/lib/whatsapp-secretary/response-format"
 import { listActiveJobsForFanOut, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 import {
   getOutlookFormSubmission as getOutlookFormSubmissionRecord,
@@ -76,6 +77,23 @@ function toModelActiveOutlook({ deepLink: _deepLink, ...outlook }: ActiveOutlook
   return outlook
 }
 
+function outlookTaskItem(task: OutlookTaskSummary): string {
+  const schedule = task.startDate && task.endDate ? `${task.startDate} to ${task.endDate}` : task.startDate || task.endDate || ""
+  const progress = task.completionPercent > 0 ? `${task.completionPercent}% complete` : task.status
+  return [task.title, task.trade, task.companyName, schedule, progress].filter(Boolean).join(" — ")
+}
+
+function outlookDetailFormat(jobName: string, outlook: OutlookSummary) {
+  return detailCard({
+    title: `3-Week Outlook — ${jobName}`,
+    fields: [
+      { label: "Window", value: `${outlook.windowStart} to ${outlook.windowEnd}` },
+      { label: "Tasks", value: `${outlook.taskCount}` },
+    ],
+    sections: [outlook.tasks.length > 0 ? { label: "Scheduled work", items: outlook.tasks.map(outlookTaskItem) } : null],
+  })
+}
+
 export interface OutlookFormSubmissionListSummary {
   id: string
   jobName: string
@@ -96,6 +114,22 @@ export interface OutlookFormSubmissionDetail {
   windowEnd: string
   tasks: OutlookTaskSummary[]
   generalNotes: string
+}
+
+function formSubmissionDetailFormat(submission: OutlookFormSubmissionDetail, totalTaskCount = submission.tasks.length) {
+  return detailCard({
+    title: `3-Week Outlook submission — ${submission.jobName}`,
+    fields: [
+      { label: "Submitted by", value: [submission.submittedByName, submission.submittedByRole].filter(Boolean).join(" · ") },
+      { label: "Status", value: submission.status },
+      { label: "Window", value: `${submission.windowStart} to ${submission.windowEnd}` },
+      { label: "Tasks", value: totalTaskCount === submission.tasks.length ? `${totalTaskCount}` : `${totalTaskCount} (showing ${submission.tasks.length})` },
+    ],
+    sections: [
+      submission.tasks.length > 0 ? { label: "Planned tasks", items: submission.tasks.map(outlookTaskItem) } : null,
+      submission.generalNotes ? { label: "Notes", items: [submission.generalNotes] } : null,
+    ],
+  })
 }
 
 export interface OutlooksToolsProvider {
@@ -301,6 +335,7 @@ export function createOutlooksTools(
         return {
           summary: `3-Week Outlook for "${jobName}" (${outlook.windowStart} to ${outlook.windowEnd}), ${outlook.tasks.length} task(s).`,
           data: { outlook: toModelOutlook(summary) },
+          responseFormat: outlookDetailFormat(jobName, summary),
           ...(outlook.tasks.length > tasks.length ? { truncated: true, totalMatched: outlook.tasks.length } : {}),
           presentation: { deepLink: summary.deepLink },
         }
@@ -399,6 +434,7 @@ export function createOutlooksTools(
       return {
         summary: `3-Week Outlook form submission for "${submission.jobName}" by ${submission.submittedByName}, ${submission.tasks.length} task(s).`,
         data: { submission: { ...submission, tasks } },
+        responseFormat: formSubmissionDetailFormat({ ...submission, tasks }, submission.tasks.length),
         ...(submission.tasks.length > tasks.length ? { truncated: true, totalMatched: submission.tasks.length } : {}),
       }
     },

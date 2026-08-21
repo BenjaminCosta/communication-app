@@ -77,6 +77,9 @@ test("directory_getEntity returns a Smart Profile with relationships and explici
   assert.equal(data.profile?.record.name, "John DeMarco")
   assert.deepEqual(data.profile?.relationships, { showing: 2, total: 2, hasMore: false })
   assert.ok(data.profile?.dataGaps.includes("no description or operational context on file"))
+  assert.equal(result.responseFormat?.kind, "detail-card")
+  assert.equal(result.responseFormat?.title, "John DeMarco")
+  assert.ok(result.responseFormat?.kind === "detail-card" && result.responseFormat.sections?.some((section) => section.label.startsWith("Related records")))
 })
 
 test("directory_getEntity exposes an honest relationship continuation cursor", async () => {

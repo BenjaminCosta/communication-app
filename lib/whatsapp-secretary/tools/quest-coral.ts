@@ -4,7 +4,9 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { tokenize } from "@/lib/directory-core"
 import {
   PROJECT_STATUS_ORDER,
+  PROJECT_STATUS_META,
   UPDATE_TYPE_ORDER,
+  UPDATE_TYPE_META,
   clampProgress,
   type ProjectPerson,
   type ProjectStatus,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/quest-coral-core"
 import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, entityArgSchema, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { detailCard } from "@/lib/whatsapp-secretary/response-format"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
 /**
@@ -106,6 +109,30 @@ function toModelProject({ id: _id, ...project }: QuestCoralProjectSummary): Omit
 
 function toModelUpdate({ projectId: _projectId, ...update }: QuestCoralUpdateSummary): Omit<QuestCoralUpdateSummary, "projectId"> {
   return update
+}
+
+function projectDetailFormat(project: QuestCoralProjectSummary, updates: QuestCoralUpdateSummary[]) {
+  const people = project.peopleNames.filter(Boolean)
+  const updateItems = updates.slice(0, 2).map((update) => {
+    const prefix = update.isBlocker ? "Blocker" : UPDATE_TYPE_META[update.type].label
+    const author = update.authorName ? ` — ${update.authorName}` : ""
+    return `${prefix}: ${update.body}${author}`
+  })
+  return detailCard({
+    title: project.name,
+    fields: [
+      { label: "Status", value: `${PROJECT_STATUS_META[project.status].label} · ${project.progress}%` },
+      project.ownerName ? { label: "Owner", value: project.ownerName } : null,
+      people.length > 0 ? { label: "Team", value: people.slice(0, 4).join(", ") } : null,
+      project.nextStep ? { label: "Next step", value: project.nextStep } : null,
+      project.nextStepDue ? { label: "Due", value: project.nextStepDue } : null,
+      project.updatedAt ? { label: "Updated", value: project.updatedAt } : null,
+    ],
+    sections: [
+      project.description ? { label: "Overview", items: [project.description] } : null,
+      updateItems.length > 0 ? { label: "Latest updates", items: updateItems } : null,
+    ],
+  })
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -480,6 +507,7 @@ export function createQuestCoralTools(
           ...(projectContext ? { projectContext } : {}),
           ...(include.has("updates") ? { updates: feed.updates.map(toModelUpdate) } : {}),
         },
+        responseFormat: projectDetailFormat(project, feed.updates),
         ...(feed.nextCursor ? { nextCursor: feed.nextCursor, truncated: true } : {}),
         presentation: { projectId: project.id },
       }

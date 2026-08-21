@@ -15,6 +15,7 @@ import {
   toModelEntity,
   type EntityResolver,
 } from "@/lib/whatsapp-secretary/entity-resolver"
+import { detailCard } from "@/lib/whatsapp-secretary/response-format"
 
 /**
  * Directory adapter — the full "Ask SVC Directory" tool stack (nothing
@@ -220,6 +221,38 @@ function smartProfileGaps(record: DirectoryAskRecord): string[] {
   if (!record.location) gaps.push("no location on file")
   if (!record.description) gaps.push("no description or operational context on file")
   return gaps
+}
+
+function directoryProfileFormat(input: {
+  record: DirectoryAskRecord
+  related: DirectoryAskRecord[]
+  relatedTotal?: number
+  hasMoreRelationships: boolean
+  dataGaps: string[]
+}) {
+  const relationItems = input.related
+    .slice(0, input.hasMoreRelationships ? 3 : 4)
+    .map((record) => `${record.name}${record.relation ? ` — ${record.relation}` : ""}`)
+  if (input.hasMoreRelationships && typeof input.relatedTotal === "number" && input.relatedTotal > input.related.length) {
+    relationItems.push(`${input.relatedTotal - input.related.length} more related record${input.relatedTotal - input.related.length === 1 ? "" : "s"} available on request`)
+  }
+  return detailCard({
+    title: input.record.name,
+    fields: [
+      input.record.role ? { label: "Role", value: input.record.role } : null,
+      input.record.companyName ? { label: "Company", value: input.record.companyName } : null,
+      input.record.location ? { label: "Location", value: input.record.location } : null,
+      input.record.status ? { label: "Status", value: input.record.status } : null,
+      input.record.updatedAt ? { label: "Updated", value: input.record.updatedAt } : null,
+    ],
+    sections: [
+      input.record.description ? { label: "Context", items: [input.record.description] } : null,
+      relationItems.length > 0
+        ? { label: typeof input.relatedTotal === "number" ? `Related records (${input.relatedTotal})` : "Related records", items: relationItems }
+        : null,
+      input.dataGaps.length > 0 ? { label: "Data gaps", items: input.dataGaps } : null,
+    ],
+  })
 }
 
 /**
@@ -565,6 +598,7 @@ export function createDirectoryTools(
       const related = relationships?.records ?? []
       const relatedTotal = relationships?.counts?.linkedRecords ?? details?.counts?.linkedRecords
       const hasMoreRelationships = Boolean(relationships?.nextCursor)
+      const dataGaps = primary ? smartProfileGaps(primary) : []
 
       return {
         summary: details?.summary ?? `Details for ${entity.name}.`,
@@ -587,11 +621,22 @@ export function createDirectoryTools(
                     ...(typeof relatedTotal === "number" ? { total: relatedTotal } : {}),
                     hasMore: hasMoreRelationships,
                   },
-                  dataGaps: smartProfileGaps(primary),
+                  dataGaps,
                 },
               }
             : {}),
         },
+        ...(primary
+          ? {
+              responseFormat: directoryProfileFormat({
+                record: primary,
+                related,
+                ...(typeof relatedTotal === "number" ? { relatedTotal } : {}),
+                hasMoreRelationships,
+                dataGaps,
+              }),
+            }
+          : {}),
       }
     },
   }

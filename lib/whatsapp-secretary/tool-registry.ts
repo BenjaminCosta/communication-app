@@ -2,6 +2,7 @@ import type { z } from "zod"
 import type { OpenAiToolSpec } from "@/lib/ai/openai/client"
 import type { WhatsAppAccessPolicy } from "@/lib/whatsapp-access-policy"
 import type { EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import type { SecretaryResponseFormat } from "@/lib/whatsapp-secretary/response-format"
 import type { WhatsAppSenderIdentity } from "@/lib/whatsapp-svc-identity"
 
 /**
@@ -41,6 +42,13 @@ export interface SecretaryToolResult {
   /** Short natural-language framing of what the tool found. */
   summary: string
   data?: unknown
+  /**
+   * Model-facing, compact response contract for one structured detail or an
+   * ordered activity feed. Unlike `presentation`, this is deliberately sent
+   * to the model with the result, so it can make its final WhatsApp response
+   * consistent without being given internal ids, URLs or attachment targets.
+   */
+  responseFormat?: SecretaryResponseFormat
   /**
    * Server-only response-presentation metadata. It is intentionally omitted
    * from tool JSON sent to OpenAI, so identifiers/URLs needed for a native

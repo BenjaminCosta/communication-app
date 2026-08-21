@@ -129,3 +129,16 @@ test("with no prior turn the prompt carries no continuity block at all", () => {
   assert.doesNotMatch(prompt, /Records already resolved earlier/)
   assert.doesNotMatch(prompt, /Already retrieved earlier/)
 })
+
+test("the global response-format contract is part of every Secretary prompt", () => {
+  const prompt = buildWhatsAppSecretarySystemPrompt({
+    senderIdentity: null,
+    companyKnowledge: [],
+    accessLevel: "public",
+  })
+
+  assert.match(prompt, /responseFormat.*presentation contract/)
+  assert.match(prompt, /detail-card/)
+  assert.match(prompt, /timeline/)
+  assert.match(prompt, /\*Status:\* Ready for review/)
+})

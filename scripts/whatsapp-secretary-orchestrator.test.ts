@@ -23,7 +23,12 @@ function fakeTool(name: string, module: SecretaryModule): SecretaryTool<{ query:
     parameters: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string" } } },
     schema: z.object({ query: z.string() }),
     async run(args) {
-      return { summary: `${name} ran`, data: { echo: args.query } }
+      return {
+        summary: `${name} ran`,
+        data: { echo: args.query },
+        responseFormat: { kind: "detail-card", title: "North Ridge", fields: [{ label: "Status", value: "On track" }] },
+        presentation: { internalId: "never-model-visible" },
+      }
     },
   }
 }
@@ -137,8 +142,10 @@ test("dispatches a simulated tool round to the correct fake tool and returns val
   const runConversation = async (_config: unknown, input: FakeRunConversationInput) => {
     capture.input = input
     const outputs = await input.onToolCalls([{ id: "call-1", name: "directory_fakeSearch", arguments: JSON.stringify({ query: "North Ridge" }) }])
-    const parsed = JSON.parse(outputs[0]!.content) as { data?: { echo?: string } }
+    const parsed = JSON.parse(outputs[0]!.content) as { data?: { echo?: string }; responseFormat?: { kind?: string; title?: string }; presentation?: unknown }
     assert.equal(parsed.data?.echo, "North Ridge")
+    assert.deepEqual(parsed.responseFormat, { kind: "detail-card", title: "North Ridge", fields: [{ label: "Status", value: "On track" }] })
+    assert.equal(parsed.presentation, undefined, "server-only presentation metadata must never reach the model")
     return { result: { answer: "done" }, toolRounds: 1, toolNames: ["directory_fakeSearch"] }
   }
 

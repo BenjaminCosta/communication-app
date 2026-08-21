@@ -131,6 +131,9 @@ test("messages_searchOperationalHistory resolves a job name via Directory and re
   const data = result.data as { posts: OperationalMessageSummary[] }
   assert.equal(data.posts[0]?.category, "outlook")
   assert.match(result.summary, /Appaloosa/)
+  assert.equal(result.responseFormat?.kind, "timeline")
+  assert.equal(result.responseFormat?.title, "Operational history — Appaloosa")
+  assert.match(result.responseFormat?.kind === "timeline" ? result.responseFormat.items[0] ?? "" : "", /3-Week Outlook.*Appaloosa/)
 })
 
 test("messages_searchOperationalHistory is available with no actorUserId — it is not actor-scoped", async () => {

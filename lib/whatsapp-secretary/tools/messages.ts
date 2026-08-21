@@ -7,6 +7,7 @@ import { BYE_BYE_DPR_TIME_TRACKING_PROJECT_ID } from "@/lib/bye-bye-dpr-tags"
 import { AUTOMATIC_MESSAGE_SOURCE_MODULES, isAutomaticMessageSourceModule, projectTagId, type MessageType } from "@/lib/store"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { timeline } from "@/lib/whatsapp-secretary/response-format"
 
 /**
  * Communications (Messages) read layer for the WhatsApp Secretary.
@@ -176,6 +177,16 @@ function toModelOperationalMessage({ imageUrl, fileUrl, fileName: _fileName, ...
 
 function toModelHumanMessage({ imageUrl, fileUrl, fileName: _fileName, ...message }: HumanMessageSummary): RecordValue {
   return { ...message, hasAttachment: Boolean(imageUrl || fileUrl) }
+}
+
+function operationalPostItem(post: OperationalMessageSummary): string {
+  const category = post.category === "daily-report" ? "Daily Report" : post.category === "clocking" ? "Clocking" : post.category === "outlook" ? "3-Week Outlook" : "Application"
+  return [category, post.jobName, post.text, post.createdAt].filter((part): part is string => Boolean(part)).join(" — ")
+}
+
+function humanMessageItem(message: HumanMessageSummary): string {
+  const type = message.type === "none" ? "Message" : `${message.type.slice(0, 1).toLocaleUpperCase()}${message.type.slice(1)}`
+  return [message.authorName, type, message.jobName, message.text, message.createdAt].filter((part): part is string => Boolean(part)).join(" — ")
 }
 
 type MessagesAttachment = { kind: "image" | "document"; url: string; filename?: string; caption: string }
@@ -449,6 +460,11 @@ export function createMessagesTools(
       return {
         summary: `${posts.length} automatic Communications post(s)${resolvedJobName ? ` for "${resolvedJobName}"` : ""}, newest first.`,
         data: { posts: posts.map(toModelOperationalMessage) },
+        responseFormat: timeline({
+          title: resolvedJobName ? `Operational history — ${resolvedJobName}` : "Operational history",
+          fields: [{ label: "Posts", value: `${posts.length} newest first` }],
+          items: posts.map(operationalPostItem),
+        }),
         ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
       }
     },
@@ -521,6 +537,11 @@ export function createMessagesTools(
       return {
         summary: `${messages.length} Communications message(s) visible to this sender${resolvedJobName ? ` for "${resolvedJobName}"` : ""}, newest first.`,
         data: { messages: messages.map(toModelHumanMessage) },
+        responseFormat: timeline({
+          title: resolvedJobName ? `Communications — ${resolvedJobName}` : "Your Communications",
+          fields: [{ label: "Messages", value: `${messages.length} newest first` }],
+          items: messages.map(humanMessageItem),
+        }),
         ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
       }
     },

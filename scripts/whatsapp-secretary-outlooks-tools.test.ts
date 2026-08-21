@@ -119,6 +119,10 @@ test("outlooks_getFormSubmission returns full detail and truncates tasks to budg
   assert.equal(data.submission.tasks.length, 2)
   assert.equal(result.truncated, true)
   assert.equal(result.totalMatched, 3)
+  assert.equal(result.responseFormat?.kind, "detail-card")
+  assert.equal(result.responseFormat?.title, "3-Week Outlook submission — Appaloosa")
+  assert.ok(result.responseFormat?.kind === "detail-card" && result.responseFormat.sections?.some((section) => section.label === "Planned tasks"))
+  assert.ok(result.responseFormat?.kind === "detail-card" && result.responseFormat.fields.some((field) => field.label === "Tasks" && field.value === "3 (showing 2)"))
 })
 
 test("outlooks_getFormSubmission reports not-found without guessing", async () => {
@@ -138,6 +142,8 @@ test("outlooks_get resolves the job via Directory and returns a real deep link",
   const data = result.data as { outlook?: Omit<OutlookSummary, "deepLink"> }
   assert.equal(data.outlook?.tasks[0]?.title, "Framing")
   assert.equal("deepLink" in (data.outlook ?? {}), false)
+  assert.equal(result.responseFormat?.kind, "detail-card")
+  assert.equal(result.responseFormat?.title, "3-Week Outlook — Appaloosa")
   const presentation = result.presentation as { deepLink?: string } | undefined
   assert.match(presentation?.deepLink ?? "", /\?directory=job__appaloosa&view=outlook$/)
 })

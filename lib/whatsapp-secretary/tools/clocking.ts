@@ -5,6 +5,7 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { findWhatsAppReportJobsByNameCandidates, type WhatsAppReportJob } from "@/lib/whatsapp-reports"
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { timeline } from "@/lib/whatsapp-secretary/response-format"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { listActiveJobsForFanOut, resolveJobByNameViaDirectory, type FanOutJob } from "@/lib/whatsapp-secretary/tools/job-fanout"
 
@@ -88,6 +89,22 @@ function toIso(value: unknown): string | null {
   }
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString()
   return typeof value === "string" && value ? value : null
+}
+
+function durationLabel(minutes: number | null): string | null {
+  if (minutes === null || minutes < 0) return null
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  if (hours === 0) return `${remainder}m`
+  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`
+}
+
+function clockHistoryItem(entry: ClockHistoryEntry): string {
+  const timing = [entry.clockInAt ? `in ${entry.clockInAt}` : null, entry.clockOutAt ? `out ${entry.clockOutAt}` : null]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ")
+  const duration = durationLabel(entry.durationMinutes)
+  return [entry.userName, entry.status === "active" ? "Clocked in" : "Clocked out", timing, duration].filter((part): part is string => Boolean(part)).join(" — ")
 }
 
 async function getAdminDb(): Promise<Firestore> {
@@ -207,7 +224,18 @@ export function createClockingTools(
       const history = await provider.getClockHistoryForJob(jobs[0].id, { since: args.since, until: args.until, limit })
       budget.remainingRecords -= history.length
       if (history.length === 0) return { summary: `No clock history was retrieved for "${jobs[0].name}" in that range.`, empty: true }
-      return { summary: `${history.length} clock record(s) for "${jobs[0].name}", newest first.`, data: { history } }
+      return {
+        summary: `${history.length} clock record(s) for "${jobs[0].name}", newest first.`,
+        data: { history },
+        responseFormat: timeline({
+          title: `Clock activity — ${jobs[0].name}`,
+          fields: [
+            { label: "Records", value: `${history.length} newest first` },
+            args.since || args.until ? { label: "Period", value: [args.since, args.until].filter(Boolean).join(" to ") } : null,
+          ],
+          items: history.map(clockHistoryItem),
+        }),
+      }
     },
   }
 
@@ -254,6 +282,16 @@ export function createClockingTools(
       return {
         summary: `${ranked.length} job(s) ranked by clock activity, most active first (out of ${jobs.length} job(s) checked).`,
         data: { jobs: ranked },
+        responseFormat: timeline({
+          title: "Most active jobs",
+          fields: [{ label: "Checked", value: `${jobs.length} jobs` }],
+          items: ranked.map((job) => {
+            const activity = `${job.activeWorkerCount} clocked in now`
+            return [job.jobName, activity, job.mostRecentClockInAt ? `latest clock-in ${job.mostRecentClockInAt}` : null]
+              .filter((part): part is string => Boolean(part))
+              .join(" — ")
+          }),
+        }),
       }
     },
   }

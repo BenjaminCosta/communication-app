@@ -79,6 +79,9 @@ test("questCoral_getProject returns project details for an exact name match", as
   const data = result.data as { project?: QuestCoralProjectSummary; projectContext?: string | null }
   assert.equal(data.project?.name, "Customer Onboarding Redesign")
   assert.match(data.projectContext ?? "", /Purpose/)
+  assert.equal(result.responseFormat?.kind, "detail-card")
+  assert.equal(result.responseFormat?.title, "Customer Onboarding Redesign")
+  assert.ok(result.responseFormat?.kind === "detail-card" && result.responseFormat.fields.some((field) => field.label === "Status" && /On track/.test(field.value)))
 })
 
 test("questCoral_getProject reports ambiguity instead of guessing", async () => {

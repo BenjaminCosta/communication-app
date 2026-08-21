@@ -6,6 +6,7 @@ import { APPLICATION_STATUS_META, APPLICATION_STATUS_ORDER, type ApplicationStat
 import { tokenize } from "@/lib/directory-core"
 import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
+import { detailCard } from "@/lib/whatsapp-secretary/response-format"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
@@ -96,6 +97,51 @@ function toModelApplication({ id: _id, ...application }: ApplicationSummary): Om
 function singleApplicationPresentation(applications: ApplicationSummary[]): { applicationId: string } | undefined {
   const applicationId = applications.length === 1 ? applications[0]?.id : undefined
   return applicationId ? { applicationId } : undefined
+}
+
+function titleCaseStatus(value: string): string {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toLocaleUpperCase()}${part.slice(1)}`)
+    .join(" ")
+}
+
+/**
+ * A candidate's contact data stays available in `data` for a question that
+ * asks for it, but is not part of the default card. That keeps an ordinary
+ * "tell me about Jane" response decision-ready and not needlessly personal.
+ */
+function applicationDetailFormat(application: ApplicationSummary) {
+  const requiredDocuments = application.documents.filter((document) => document.required)
+  const missingDocuments = requiredDocuments.filter((document) => document.status === "missing")
+  const readyDocuments = requiredDocuments.filter((document) => document.status === "uploaded" || document.status === "verified")
+  const documentState = requiredDocuments.length > 0
+    ? missingDocuments.length > 0
+      ? `${missingDocuments.length} required document${missingDocuments.length === 1 ? "" : "s"} missing`
+      : `${readyDocuments.length}/${requiredDocuments.length} required documents received`
+    : "No required documents listed"
+  const intakeItems = [
+    application.resumeFileName ? "Resume uploaded" : "No resume on file",
+    application.videoState ? `Intro video: ${titleCaseStatus(application.videoState)}` : null,
+    documentState,
+  ].filter((item): item is string => Boolean(item))
+
+  return detailCard({
+    title: application.candidateName,
+    fields: [
+      { label: "Status", value: APPLICATION_STATUS_META[application.status].label },
+      application.trade ? { label: "Trade", value: application.trade } : null,
+      application.jobName ? { label: "Job", value: application.jobName } : null,
+      application.companyName ? { label: "Company", value: application.companyName } : null,
+      application.jobLocation || application.cityState ? { label: "Location", value: application.jobLocation || application.cityState || "" } : null,
+      application.yearsExperience ? { label: "Experience", value: `${application.yearsExperience} year${application.yearsExperience === "1" ? "" : "s"}` } : null,
+    ],
+    sections: [
+      application.pendingRequest ? { label: "Next step", items: [application.pendingRequest] } : null,
+      intakeItems.length > 0 ? { label: "Application materials", items: intakeItems } : null,
+    ],
+  })
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -424,6 +470,7 @@ export function createApplicationsTools(
       return {
         summary: `${page.length} application(s)${jobLabel ? ` for "${jobLabel}"` : ""}${args.query ? " matched" : ""}.`,
         data: { applications: page.map(toModelApplication) },
+        ...(page.length === 1 ? { responseFormat: applicationDetailFormat(page[0]!) } : {}),
         ...(matches.length > page.length ? { truncated: true, totalMatched: matches.length } : {}),
         presentation: singleApplicationPresentation(page),
       }
