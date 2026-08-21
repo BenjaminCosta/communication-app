@@ -66,6 +66,9 @@ import {
 
 const MAX_KEYWORD_TOKENS = 30
 const KEYWORD_OVERFETCH_LIMIT = 30
+/** A profile should be rich enough to answer "who is X?" without consuming
+ * the whole cross-module record budget on one large team. */
+const SMART_PROFILE_RELATION_LIMIT = 8
 
 type RecordValue = Record<string, unknown>
 
@@ -205,6 +208,18 @@ function createServerKeywordSearchProvider(): DirectoryKeywordSearchProvider {
     })
     return rerankKeywordMatches(scored, tokens.length, options.limit)
   }
+}
+
+/** Missing fields are facts, not invitations for the model to fill gaps from a
+ * similarly named record or a relationship label. Keep this deliberately small
+ * and stable so WhatsApp answers remain useful rather than diagnostic dumps. */
+function smartProfileGaps(record: DirectoryAskRecord): string[] {
+  const gaps: string[] = []
+  if (record.type === "person" && !record.role) gaps.push("no role on file")
+  if ((record.type === "person" || record.type === "job") && !record.companyName) gaps.push("no company on file")
+  if (!record.location) gaps.push("no location on file")
+  if (!record.description) gaps.push("no description or operational context on file")
+  return gaps
 }
 
 /**
@@ -474,11 +489,18 @@ export function createDirectoryTools(
     },
   }
 
-  const getEntity: SecretaryTool<{ ref?: string; name?: string; type?: DirectorySearchType; include?: Array<"relationships" | "notes"> }> = {
+  const getEntity: SecretaryTool<{
+    ref?: string
+    name?: string
+    type?: DirectorySearchType
+    include?: Array<"relationships" | "notes">
+    relationshipCursor?: string
+    relationshipLimit?: number
+  }> = {
     name: "directory_getEntity",
     module: "directory",
     description:
-      "Get everything the Directory holds about one person, company or job: its full record (including phone/email for a person), and optionally the records related to it and the free-text notes mentioning it. Pass `ref` from an earlier result when you have one, otherwise `name`. Use `include: [\"relationships\"]` for \"who works with X\" / \"what jobs is X on\" — the correct relationship view is chosen automatically from the record's real type.",
+      "Get a Smart Directory Profile for one person, company or job: the full record (including phone/email for a person), data gaps, and a first page of its key related records. This is the required follow-up for questions such as \"who is X?\", \"tell me more\", \"what jobs is X on?\" or \"who works with X?\". Pass `ref` from an earlier result when you have one, otherwise `name`. If `nextCursor` is returned and the user wants more relationships, pass it back as `relationshipCursor`. Notes remain opt-in with `include: [\"notes\"]`.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -489,8 +511,10 @@ export function createDirectoryTools(
         include: {
           type: "array",
           items: { type: "string", enum: ["relationships", "notes"] },
-          description: "Extra sections to fetch alongside the record itself.",
+          description: "`relationships` is accepted for backward compatibility (the Smart Profile always includes them); use `notes` to opt into free-text notes.",
         },
+        relationshipCursor: { type: "string", description: "Opaque cursor from this tool's earlier relationship page. Omit for the first profile page." },
+        relationshipLimit: { type: "number", description: "Related records to show in this profile (1-15; defaults to 8)." },
       },
     },
     schema: z.object({
@@ -498,6 +522,8 @@ export function createDirectoryTools(
       name: z.string().min(1).max(200).optional(),
       type: z.enum(["person", "company", "job"]).optional(),
       include: z.array(z.enum(["relationships", "notes"])).max(2).optional(),
+      relationshipCursor: z.string().min(1).max(300).optional(),
+      relationshipLimit: z.number().int().min(1).max(15).optional(),
     }),
     async run(args, budget): Promise<SecretaryToolResult> {
       if (!resolver) return { summary: "Entity resolution is unavailable.", empty: true }
@@ -528,22 +554,43 @@ export function createDirectoryTools(
 
       const include = new Set(args.include ?? [])
       const entityType = (entity.kind === "company" || entity.kind === "job" ? entity.kind : "person") as DirectorySearchType
+      const relationshipLimit = args.relationshipLimit ?? SMART_PROFILE_RELATION_LIMIT
       const [details, relationships, notes] = await Promise.all([
-        runUnderlying("getEntityDetails", { directoryId }, budget),
-        include.has("relationships") ? runUnderlying(RELATIONSHIP_TOOL_FOR[entityType], { directoryId }, budget) : Promise.resolve(null),
+        runUnderlying("getEntityDetails", { directoryId, relationLimit: relationshipLimit }, budget),
+        runUnderlying(RELATIONSHIP_TOOL_FOR[entityType], { directoryId, cursor: args.relationshipCursor, limit: relationshipLimit }, budget),
         include.has("notes") ? runUnderlying("searchRelevantNotes", { query: entity.name, entityIds: [directoryId] }, budget) : Promise.resolve(null),
       ])
+
+      const primary = details?.records?.[0]
+      const related = relationships?.records ?? []
+      const relatedTotal = relationships?.counts?.linkedRecords ?? details?.counts?.linkedRecords
+      const hasMoreRelationships = Boolean(relationships?.nextCursor)
 
       return {
         summary: details?.summary ?? `Details for ${entity.name}.`,
         empty: !details || details.empty,
+        ...(relationships?.truncated || details?.truncated ? { truncated: true } : {}),
+        ...(relationships?.nextCursor ? { nextCursor: relationships.nextCursor } : {}),
         data: {
           entity: toModelEntity(entity),
           ...(details?.records ? { records: details.records } : {}),
           ...(details?.counts ? { counts: details.counts } : {}),
-          ...(relationships?.records ? { related: relationships.records } : {}),
+          ...(related.length > 0 ? { related } : {}),
           ...(relationships?.counts ? { relatedCounts: relationships.counts } : {}),
           ...(notes?.notes ? { notes: notes.notes } : {}),
+          ...(primary
+            ? {
+                profile: {
+                  record: primary,
+                  relationships: {
+                    showing: related.length,
+                    ...(typeof relatedTotal === "number" ? { total: relatedTotal } : {}),
+                    hasMore: hasMoreRelationships,
+                  },
+                  dataGaps: smartProfileGaps(primary),
+                },
+              }
+            : {}),
         },
       }
     },

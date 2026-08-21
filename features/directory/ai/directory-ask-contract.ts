@@ -34,6 +34,8 @@ export const directoryAskRecordSchema = z.object({
   subtitle: z.string().max(300).nullish(),
   description: z.string().max(DIRECTORY_AI_LIMITS.maxRecordChars).nullish(),
   status: z.string().max(80).nullish(),
+  /** Source record freshness, when the Directory has it. */
+  updatedAt: z.string().max(40).nullish(),
   /** How this record relates to the primary entity, e.g. "Works at 74 Construction". */
   relation: z.string().max(160).nullish(),
 })

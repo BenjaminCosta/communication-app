@@ -183,7 +183,7 @@ export function createFixtureProvider(): DirectoryDataProvider {
     },
     async getRelations(directoryId: string) {
       const edges = edgesFor(directoryId)
-      return { relations: directoryRelationsFromEdges(edges), edges }
+      return { relations: directoryRelationsFromEdges(edges), edges, hasMore: false, nextCursor: null, total: edges.length }
     },
     async getNotes(entityIds: string[], limit: number) {
       if (entityIds.length === 0) return FIXTURE_NOTES.slice(0, limit)

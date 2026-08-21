@@ -7,6 +7,7 @@ import {
   type DirectoryRelations,
   type RelationEntityRef,
 } from "@/lib/directory-relations-core"
+import type { DirectoryRelationsOptions, DirectoryRelationsPage } from "@/features/directory/ai/server/tools/types"
 
 /**
  * Server-side, read-only Directory access for the Ask tools.
@@ -28,7 +29,7 @@ export const MAX_CANDIDATES = 30
 const RELATION_CACHE_TTL_MS = 60_000
 const RELATION_CACHE_MAX = 200
 
-const relationCache = new Map<string, { relations: DirectoryRelations; edges: RelationEntityRef[]; atMs: number }>()
+const relationCache = new Map<string, { page: DirectoryRelationsPage; atMs: number }>()
 
 async function getDb() {
   const { getFirestore } = await import("firebase-admin/firestore")
@@ -211,35 +212,76 @@ export function intersectRecords(sets: DirectoryIndexRecord[][], keep: number): 
   return filtered.slice(0, keep)
 }
 
-/** Relationship edges around one entity, deduped and bucketed. Cached briefly. */
+/**
+ * One bounded, stable page of relationship edges around an entity.
+ *
+ * The old version silently stopped at 60 edges. That was especially harmful to
+ * Courtney: a result with 60 edges looked exactly like a complete result, so
+ * she could wrongly say a person or job had no other relationships. Asking for
+ * one extra document gives us an honest `hasMore` signal; an aggregate count is
+ * only read when a page continues (or is itself a continuation), so ordinary
+ * small first-page profiles stay one bounded query.
+ */
 export async function getRelations(
   directoryId: string,
-): Promise<{ relations: DirectoryRelations; edges: RelationEntityRef[] }> {
-  const cached = relationCache.get(directoryId)
+  options: DirectoryRelationsOptions = {},
+): Promise<DirectoryRelationsPage> {
+  const pageLimit = Math.max(1, Math.min(options.limit ?? RELATION_LIMIT, RELATION_LIMIT))
+  const cursor = options.cursor?.trim() || null
+  const cacheKey = `${directoryId}\u0000${cursor ?? ""}\u0000${pageLimit}`
+  const cached = relationCache.get(cacheKey)
   if (cached && Date.now() - cached.atMs < RELATION_CACHE_TTL_MS) {
-    return { relations: cached.relations, edges: cached.edges }
+    return cached.page
   }
 
   const db = await getDb()
-  let edges: RelationEntityRef[] = []
+  let page: DirectoryRelationsPage = {
+    relations: directoryRelationsFromEdges([]),
+    edges: [],
+    hasMore: false,
+    nextCursor: null,
+    total: 0,
+  }
   try {
-    const snapshot = await db
+    const { FieldPath } = await import("firebase-admin/firestore")
+    const baseQuery = db
       .collection("directoryRelations")
       .where("entityIds", "array-contains", directoryId)
       .where("active", "==", true)
-      .limit(RELATION_LIMIT)
-      .get()
-    edges = snapshot.docs
+    let pageQuery = baseQuery.orderBy(FieldPath.documentId())
+    if (cursor) pageQuery = pageQuery.startAfter(cursor)
+    const snapshot = await pageQuery.limit(pageLimit + 1).get()
+    const pageDocs = snapshot.docs.slice(0, pageLimit)
+    const hasMore = snapshot.docs.length > pageDocs.length
+    const edges = pageDocs
       .map((entry) => otherEndpoint(directoryId, entry.data() as Record<string, unknown>))
       .filter((edge): edge is RelationEntityRef => edge !== null)
+    let total: number | null = pageDocs.length
+    // A later page still needs the total for an honest “showing X of Y”
+    // summary, even when it happens to be the final page.
+    if (hasMore || cursor) {
+      try {
+        total = (await baseQuery.count().get()).data().count
+      } catch {
+        // The page is still trustworthy even if the optional aggregate fails.
+        total = null
+      }
+    }
+    page = {
+      relations: directoryRelationsFromEdges(edges),
+      edges,
+      hasMore,
+      nextCursor: hasMore ? pageDocs.at(-1)?.id ?? null : null,
+      total,
+    }
   } catch {
-    edges = []
+    // Best effort only: callers receive a truthful empty page instead of an
+    // exception or a fabricated relationship.
   }
 
-  const result = { relations: directoryRelationsFromEdges(edges), edges }
   if (relationCache.size >= RELATION_CACHE_MAX) relationCache.clear()
-  relationCache.set(directoryId, { ...result, atMs: Date.now() })
-  return result
+  relationCache.set(cacheKey, { page, atMs: Date.now() })
+  return page
 }
 
 export interface DirectoryNoteRecord {

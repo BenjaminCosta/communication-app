@@ -6,6 +6,7 @@ import { fixtureResolver, directoryRecord } from "./secretary-test-resolver"
 import type { SecretaryToolBudget } from "../lib/whatsapp-secretary/tool-registry"
 import type { DirectoryDataProvider } from "../features/directory/ai/server/tools/types"
 import type { DirectoryIndexRecord } from "../lib/ai/server/directory-data"
+import { directoryRelationsFromEdges } from "../lib/directory-relations-core"
 
 function budget(): SecretaryToolBudget {
   return { maxRecordsPerTool: 12, maxNotesPerTool: 5, maxNoteChars: 400, remainingRecords: 24 }
@@ -50,7 +51,7 @@ test("directory_search returns a compact, bounded record set", async () => {
   assert.ok(data.records?.some((record) => record.name === "74 Construction"))
 })
 
-test("directory_getEntity resolves one entity and its relationship counts", async () => {
+test("directory_getEntity returns a Smart Profile with relationships and explicit data gaps by default", async () => {
   const tools = createDirectoryTools({
     provider: createFixtureProvider(),
     resolver: fixtureResolver({ people: [directoryRecord({ name: "John DeMarco", type: "person", sourceCollection: "contacts", sourceId: "contact-jdemarco", id: "person__jdemarco" })] }),
@@ -60,9 +61,62 @@ test("directory_getEntity resolves one entity and its relationship counts", asyn
   assert.ok(getEntityDetails)
 
   const result = await getEntityDetails.run({ name: "John DeMarco", type: "person" }, budget())
-  const data = result.data as { records?: Array<{ name: string }>; counts?: Record<string, number> }
+  const data = result.data as {
+    records?: Array<{ name: string }>
+    counts?: Record<string, number>
+    related?: Array<{ name: string }>
+    profile?: {
+      record: { name: string }
+      relationships: { showing: number; total?: number; hasMore: boolean }
+      dataGaps: string[]
+    }
+  }
   assert.ok(data.records?.some((record) => record.name === "John DeMarco"))
   assert.ok(typeof data.counts?.linkedCompanies === "number")
+  assert.deepEqual(data.related?.map((record) => record.name).sort(), ["74 Construction", "Appaloosa"])
+  assert.equal(data.profile?.record.name, "John DeMarco")
+  assert.deepEqual(data.profile?.relationships, { showing: 2, total: 2, hasMore: false })
+  assert.ok(data.profile?.dataGaps.includes("no description or operational context on file"))
+})
+
+test("directory_getEntity exposes an honest relationship continuation cursor", async () => {
+  const base = createFixtureProvider()
+  const relationCalls: Array<{ cursor?: string | null; limit?: number }> = []
+  const provider: DirectoryDataProvider = {
+    ...base,
+    async getRelations(directoryId, options = {}) {
+      relationCalls.push(options)
+      const page = await base.getRelations(directoryId, options)
+      const edges = page.edges.slice(0, 1)
+      return {
+        relations: directoryRelationsFromEdges(edges),
+        edges,
+        hasMore: true,
+        nextCursor: "relation-page-2",
+        total: 2,
+      }
+    },
+  }
+  const tools = createDirectoryTools({
+    provider,
+    resolver: fixtureResolver({ people: [directoryRecord({ name: "John DeMarco", type: "person", sourceCollection: "contacts", sourceId: "contact-jdemarco", id: "person__jdemarco" })] }),
+    contactDetailsProvider: async () => new Map(),
+  })
+  const getEntityDetails = tools.find((tool) => tool.name === "directory_getEntity")
+  assert.ok(getEntityDetails)
+
+  const result = await getEntityDetails.run(
+    { name: "John DeMarco", type: "person", relationshipCursor: "relation-page-1", relationshipLimit: 1 },
+    budget(),
+  )
+  const data = result.data as {
+    profile?: { relationships: { showing: number; total?: number; hasMore: boolean } }
+  }
+
+  assert.equal(result.truncated, true)
+  assert.equal(result.nextCursor, "relation-page-2")
+  assert.deepEqual(data.profile?.relationships, { showing: 1, total: 2, hasMore: true })
+  assert.ok(relationCalls.some((call) => call.cursor === "relation-page-1" && call.limit === 1))
 })
 
 test("the shared budget is decremented across a tool call", async () => {

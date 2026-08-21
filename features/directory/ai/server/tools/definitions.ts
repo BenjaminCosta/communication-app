@@ -48,6 +48,7 @@ export function buildAskRecordFromIndex(record: DirectoryIndexRecord, relation?:
     subtitle: record.subtitle || undefined,
     description: aiText || record.description || undefined,
     status,
+    updatedAt: record.sourceUpdatedAtMs ? new Date(record.sourceUpdatedAtMs).toISOString() : undefined,
     relation: relation || undefined,
   }
 }
@@ -131,28 +132,39 @@ const searchPeople = searchTool("searchPeople", "person", "people")
 const searchCompanies = searchTool("searchCompanies", "company", "companies")
 const searchJobs = searchTool("searchJobs", "job", "jobs")
 
-const getEntityDetails: DirectoryTool<{ directoryId: string }> = {
+const getEntityDetails: DirectoryTool<{ directoryId: string; relationLimit?: number }> = {
   name: "getEntityDetails",
   description: "Get the full compact record for one Directory entity by its id, plus a count of how many people/companies/jobs it is linked to.",
   parameters: {
     type: "object",
     additionalProperties: false,
     required: ["directoryId"],
-    properties: { directoryId: { type: "string", description: "Composite Directory id, e.g. company__abc." } },
+    properties: {
+      directoryId: { type: "string", description: "Composite Directory id, e.g. company__abc." },
+      relationLimit: { type: "number", description: "Relationship preview size used only to calculate an honest summary (1-15)." },
+    },
   },
-  schema: z.object({ directoryId: idSchema }),
+  schema: z.object({ directoryId: idSchema, relationLimit: limitSchema }),
   async run(args, provider, budget) {
     const doc = await provider.getEntity(args.directoryId)
     if (!doc) return emptyResult(`No Directory record exists with id ${args.directoryId}.`)
-    const { relations } = await provider.getRelations(args.directoryId)
+    const relationPage = await provider.getRelations(args.directoryId, { limit: args.relationLimit })
+    const { relations } = relationPage
+    const counts: Record<string, number> = {
+      linkedRecords: relationPage.total ?? relationPage.edges.length,
+    }
+    // Category counts are only correct when the retrieved page is complete.
+    // Omitting them is safer than presenting a 15-row preview as the full team.
+    if (!relationPage.hasMore) {
+      counts.linkedPeople = relations.people.length
+      counts.linkedCompanies = relations.companies.length
+      counts.linkedJobs = relations.jobs.length
+    }
     return {
       summary: sentence(`Details for ${doc.name}`),
       records: takeRecords([doc], budget),
-      counts: {
-        linkedPeople: relations.people.length,
-        linkedCompanies: relations.companies.length,
-        linkedJobs: relations.jobs.length,
-      },
+      counts,
+      ...(relationPage.hasMore ? { truncated: true, nextCursor: relationPage.nextCursor ?? undefined } : {}),
     }
   },
 }
@@ -163,20 +175,25 @@ function relationshipTool(
   name: string,
   label: string,
   pick: (relations: Awaited<ReturnType<DirectoryDataProvider["getRelations"]>>["relations"]) => Array<{ refs: RelationEntityRef[]; kind: string }>,
-): DirectoryTool<{ directoryId: string }> {
+): DirectoryTool<{ directoryId: string; cursor?: string; limit?: number }> {
   return {
     name,
     description: `List the Directory records related to a ${label}, with the relationship label for each.`,
     parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["directoryId"],
-      properties: { directoryId: { type: "string", description: `Composite Directory id of the ${label}.` } },
+    type: "object",
+    additionalProperties: false,
+    required: ["directoryId"],
+      properties: {
+        directoryId: { type: "string", description: `Composite Directory id of the ${label}.` },
+        cursor: { type: "string", description: "Opaque cursor returned by a previous relationship lookup. Omit for the first page." },
+        limit: { type: "number", description: "Relationship records to return (1-15)." },
+      },
     },
-    schema: z.object({ directoryId: idSchema }),
+    schema: z.object({ directoryId: idSchema, cursor: z.string().min(1).max(300).optional(), limit: limitSchema }),
     async run(args, provider, budget) {
       const entity = await provider.getEntity(args.directoryId)
-      const { relations } = await provider.getRelations(args.directoryId)
+      const relationPage = await provider.getRelations(args.directoryId, { cursor: args.cursor, limit: args.limit })
+      const { relations } = relationPage
       const groups = pick(relations)
       const records: DirectoryAskRecord[] = []
       const counts: Record<string, number> = {}
@@ -184,10 +201,19 @@ function relationshipTool(
         counts[group.kind] = group.refs.length
         records.push(...refsToRecords(group.refs, budget, (ref) => ref.role ?? group.kind))
       }
+      counts.linkedRecords = relationPage.total ?? relationPage.edges.length
       if (records.length === 0) {
-        return emptyResult(sentence(`${entity?.name ?? args.directoryId} has no linked records in the Directory`))
+        if (relationPage.total === 0) return emptyResult(sentence(`${entity?.name ?? args.directoryId} has no linked records in the Directory`))
+        return { summary: sentence(`Linked records for ${entity?.name ?? args.directoryId} are outside this relationship view`), counts, truncated: true }
       }
-      return { summary: sentence(`Records linked to ${entity?.name ?? args.directoryId}`), records, counts }
+      const budgetClipped = records.length < relationPage.edges.length
+      return {
+        summary: sentence(`Records linked to ${entity?.name ?? args.directoryId}`),
+        records,
+        counts,
+        ...(relationPage.hasMore || budgetClipped ? { truncated: true } : {}),
+        ...(relationPage.hasMore && relationPage.nextCursor ? { nextCursor: relationPage.nextCursor } : {}),
+      }
     },
   }
 }

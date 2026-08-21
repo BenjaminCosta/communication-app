@@ -24,6 +24,23 @@ export interface DirectoryNoteRecord {
   createdAtMs: number | null
 }
 
+/** A bounded, stable page of an entity's validated Directory relationships. */
+export interface DirectoryRelationsPage {
+  relations: DirectoryRelations
+  edges: RelationEntityRef[]
+  /** True when more relationships exist after this page. */
+  hasMore: boolean
+  /** Opaque relation-document cursor for the next page, when one exists. */
+  nextCursor: string | null
+  /** Exact number of active relationships when available cheaply; otherwise null. */
+  total: number | null
+}
+
+export interface DirectoryRelationsOptions {
+  cursor?: string | null
+  limit?: number
+}
+
 /**
  * Bounded, read-only data access. Per the Firestore audit there is deliberately
  * NO "search everything" method: names resolve through bounded `normalizedName`
@@ -33,7 +50,7 @@ export interface DirectoryNoteRecord {
 export interface DirectoryDataProvider {
   findByName(name: string, options: { type?: DirectoryType; limit?: number }): Promise<DirectoryIndexRecord[]>
   getEntity(directoryId: string): Promise<DirectoryIndexRecord | null>
-  getRelations(directoryId: string): Promise<{ relations: DirectoryRelations; edges: RelationEntityRef[] }>
+  getRelations(directoryId: string, options?: DirectoryRelationsOptions): Promise<DirectoryRelationsPage>
   getNotes(entityIds: string[], limit: number): Promise<DirectoryNoteRecord[]>
   /** Derived `askContext` relation arrays; one array filter per query. */
   findByRelationField?(
@@ -72,6 +89,10 @@ export interface DirectoryToolResult {
   notes?: CompactNote[]
   paths?: PathHop[][]
   counts?: Record<string, number>
+  /** True when this is only a page or the record budget clipped it. */
+  truncated?: boolean
+  /** Cursor for the next relationship page, when the tool supports it. */
+  nextCursor?: string
   /** Set when the tool genuinely found nothing, so the model can say so. */
   empty?: boolean
 }
