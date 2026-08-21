@@ -337,7 +337,7 @@ export function createOutlooksTools(
           data: { outlook: toModelOutlook(summary) },
           responseFormat: outlookDetailFormat(jobName, summary),
           ...(outlook.tasks.length > tasks.length ? { truncated: true, totalMatched: outlook.tasks.length } : {}),
-          presentation: { deepLink: summary.deepLink },
+          presentation: { cta: { buttonText: "Open Outlook", url: summary.deepLink } },
         }
       }
 

@@ -62,7 +62,12 @@ test("uses a direct Project CTA from an already retrieved project id", () => {
         result: {
           summary: "Details for the project.",
           data: { project: { name: "Customer Onboarding Redesign" } },
-          presentation: { projectId: "proj-onboarding" },
+          presentation: {
+            cta: {
+              buttonText: "Open Project",
+              url: "https://communication-svc.vercel.app/?questCoral=proj-onboarding",
+            },
+          },
         },
       },
     ],
@@ -87,7 +92,16 @@ test("prioritizes a resolved project CTA over a supporting Directory lookup", ()
       },
       {
         name: "questCoral_getProject",
-        result: { summary: "1 update.", data: { updates: [] }, presentation: { projectId: "proj-onboarding" } },
+        result: {
+          summary: "1 update.",
+          data: { updates: [] },
+          presentation: {
+            cta: {
+              buttonText: "Open Project",
+              url: "https://communication-svc.vercel.app/?questCoral=proj-onboarding",
+            },
+          },
+        },
       },
     ],
   })
@@ -101,6 +115,81 @@ test("offers the correct module CTA for a supported continuation request", () =>
     answer: "Application approval is only available in SVC.",
     question: "Approve this application.",
     executions: [],
+  })
+
+  assert.equal(reply.presentation?.kind, "cta_url")
+  assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.buttonText : "", "Open Applications")
+  assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.url : "", "https://communication-svc.vercel.app/?module=applications")
+})
+
+test("uses a job-scoped Communications CTA from trusted tool presentation", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Two recent posts were found.",
+    question: "What happened at Appaloosa?",
+    executions: [
+      {
+        name: "messages_searchOperationalHistory",
+        result: {
+          summary: "2 posts for Appaloosa.",
+          data: { posts: [] },
+          presentation: {
+            cta: {
+              buttonText: "Open Job Messages",
+              url: "https://communication-svc.vercel.app/?communications=appaloosa",
+            },
+          },
+        },
+      },
+    ],
+  })
+
+  assert.equal(reply.presentation?.kind, "cta_url")
+  assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.buttonText : "", "Open Job Messages")
+  assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.url : "", "https://communication-svc.vercel.app/?communications=appaloosa")
+})
+
+test("uses the Applications review queue CTA when Courtney retrieved that queue", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "Three candidates are ready for review.",
+    question: "What is in the review queue?",
+    executions: [
+      {
+        name: "applications_getReviewQueue",
+        result: {
+          summary: "Applications review queue.",
+          data: {},
+          presentation: {
+            cta: {
+              buttonText: "Open Review Queue",
+              url: "https://communication-svc.vercel.app/?module=applications&applicationStatus=ready_for_review",
+            },
+          },
+        },
+      },
+    ],
+  })
+
+  assert.equal(reply.presentation?.kind, "cta_url")
+  assert.equal(reply.presentation?.kind === "cta_url" ? reply.presentation.buttonText : "", "Open Review Queue")
+  assert.equal(
+    reply.presentation?.kind === "cta_url" ? reply.presentation.url : "",
+    "https://communication-svc.vercel.app/?module=applications&applicationStatus=ready_for_review",
+  )
+})
+
+test("opens the Applications module instead of choosing a detail from a broad result", () => {
+  const reply = createWhatsAppSecretaryPresentation({
+    answer: "There are five matching applications.",
+    question: "Show me the applications for North Ridge.",
+    executions: [
+      {
+        name: "applications_search",
+        result: {
+          summary: "5 applications for North Ridge.",
+          data: { applications: [{ candidateName: "A" }, { candidateName: "B" }] },
+        },
+      },
+    ],
   })
 
   assert.equal(reply.presentation?.kind, "cta_url")

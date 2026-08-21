@@ -17,6 +17,7 @@ import {
 import { allowedPageSize, type SecretaryTool, type SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, entityArgSchema, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { detailCard } from "@/lib/whatsapp-secretary/response-format"
+import { buildQuestCoralProjectDeepLink } from "@/lib/whatsapp-secretary/guidance"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
 
 /**
@@ -428,7 +429,9 @@ export function createQuestCoralTools(
         summary: `${page.length} Quest Coral project(s)${args.query ? " matched" : ", newest-updated first"}.`,
         data: { projects: page.map(toModelProject), ...(refs.length > 0 ? { refs } : {}) },
         ...(matches.length > page.length ? { truncated: true, totalMatched: matches.length } : {}),
-        ...(page.length === 1 ? { presentation: { projectId: page[0].id } } : {}),
+        ...(page.length === 1
+          ? { presentation: { cta: { buttonText: "Open Project", url: buildQuestCoralProjectDeepLink(page[0]!.id) } } }
+          : {}),
       }
     },
   }
@@ -509,7 +512,7 @@ export function createQuestCoralTools(
         },
         responseFormat: projectDetailFormat(project, feed.updates),
         ...(feed.nextCursor ? { nextCursor: feed.nextCursor, truncated: true } : {}),
-        presentation: { projectId: project.id },
+        presentation: { cta: { buttonText: "Open Project", url: buildQuestCoralProjectDeepLink(project.id) } },
       }
     },
   }

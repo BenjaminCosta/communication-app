@@ -1,9 +1,12 @@
 import {
   buildApplicationDeepLink,
+  buildApplicationsQueueDeepLink,
   buildDirectoryProfileDeepLink,
+  getAppBaseUrl,
   buildModuleDeepLink,
   buildQuestCoralProjectDeepLink,
 } from "@/lib/whatsapp-secretary/guidance"
+import type { SecretaryDeepLinkCta } from "@/lib/whatsapp-secretary/guidance"
 import type { SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 
 const MAX_LIST_ROWS = 10
@@ -203,7 +206,40 @@ function candidateSetFromExecutions(executions: WhatsAppSecretaryToolExecution[]
   return null
 }
 
-function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): { buttonText: string; url: string } | null {
+type Cta = SecretaryDeepLinkCta
+
+/**
+ * Tool presentation never reaches the model, but it is still validated here
+ * before becoming a clickable WhatsApp URL. This keeps one centralized app
+ * destination registry even if another server tool is added later.
+ */
+function explicitCtaFromPresentation(presentation: RecordValue | null): Cta | null {
+  const cta = asRecord(presentation?.cta)
+  const buttonText = asString(cta?.buttonText)
+  const url = asString(cta?.url)
+  if (!buttonText || buttonText.length > 20 || !url) return null
+
+  try {
+    const appUrl = new URL(getAppBaseUrl())
+    const destination = new URL(url)
+    if (destination.origin !== appUrl.origin) return null
+  } catch {
+    return null
+  }
+  return { buttonText, url }
+}
+
+function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): Cta | null {
+  // A tool that resolved an exact, authorized target is always the primary
+  // next step. The last tool call is the most specific one when Courtney made
+  // a supporting lookup first and drilled into a detail second.
+  for (const execution of [...executions].reverse()) {
+    const cta = explicitCtaFromPresentation(asRecord(execution.result.presentation))
+    if (cta) return cta
+  }
+
+  // Compatibility with tool results stored before the centralized `cta`
+  // contract. These can be deleted once no older responses remain in flight.
   let applicationCta: { buttonText: string; url: string } | null = null
   let directoryCta: { buttonText: string; url: string } | null = null
 
@@ -223,7 +259,9 @@ function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): 
     }
 
     if (data && (execution.name === "directory_search" || execution.name === "directory_getEntity")) {
-      const [record] = namedCandidates(data.records, () => undefined)
+      const records = Array.isArray(data.records) ? data.records : []
+      if (records.length !== 1) continue
+      const [record] = namedCandidates(records, () => undefined)
       const recordData = Array.isArray(data.records) ? asRecord(data.records[0]) : null
       const id = asString(recordData?.id)
       if (record && id) directoryCta = { buttonText: "Open Directory", url: buildDirectoryProfileDeepLink(id) }
@@ -234,7 +272,32 @@ function directCtaFromExecutions(executions: WhatsAppSecretaryToolExecution[]): 
       if (id) applicationCta = { buttonText: "Open Application", url: buildApplicationDeepLink(id) }
     }
   }
-  return applicationCta ?? directoryCta
+  if (applicationCta ?? directoryCta) return applicationCta ?? directoryCta
+
+  // Broader, non-entity results open the real module rather than a made-up
+  // detail route. These remain below exact object CTAs on purpose.
+  if (executions.some((execution) => execution.name.startsWith("messages_"))) {
+    return { buttonText: "Open Communications", url: buildModuleDeepLink("communications") }
+  }
+  if (executions.some((execution) => execution.name.startsWith("clocking_") || execution.name.startsWith("reports_"))) {
+    return { buttonText: "Open ByeByeDPR", url: buildModuleDeepLink("bye-bye-dpr") }
+  }
+  if (executions.some((execution) => execution.name === "questCoral_listRecentActivity")) {
+    return { buttonText: "Open Projects", url: buildModuleDeepLink("quest-coral") }
+  }
+  if (executions.some((execution) => execution.name === "applications_getReviewQueue")) {
+    return { buttonText: "Open Review Queue", url: buildApplicationsQueueDeepLink("ready_for_review") }
+  }
+  if (executions.some((execution) => execution.name.startsWith("outlooks_") || execution.name.startsWith("directory_"))) {
+    return { buttonText: "Open Directory", url: buildModuleDeepLink("directory") }
+  }
+  if (executions.some((execution) => execution.name.startsWith("applications_"))) {
+    return { buttonText: "Open Applications", url: buildModuleDeepLink("applications") }
+  }
+  if (executions.some((execution) => execution.name.startsWith("questCoral_"))) {
+    return { buttonText: "Open Projects", url: buildModuleDeepLink("quest-coral") }
+  }
+  return null
 }
 
 const MAX_ATTACHMENTS = 3
@@ -284,6 +347,9 @@ function continuationCta(question: string): { buttonText: string; url: string } 
     return { buttonText: "Open Applications", url: buildModuleDeepLink("applications") }
   }
   if (/\b(?:submit|finalize|finish)\b[\s\S]{0,60}\b(?:daily )?report\b/i.test(question)) {
+    return { buttonText: "Open ByeByeDPR", url: buildModuleDeepLink("bye-bye-dpr") }
+  }
+  if (/\b(?:clock|time[ -]?(?:in|out)|timesheet)\b/i.test(question)) {
     return { buttonText: "Open ByeByeDPR", url: buildModuleDeepLink("bye-bye-dpr") }
   }
   if (/\b(?:create|edit|update|manage)\b[\s\S]{0,60}\b(?:project|quest coral)\b/i.test(question)) {

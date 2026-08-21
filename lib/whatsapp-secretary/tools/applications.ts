@@ -9,6 +9,7 @@ import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretar
 import { detailCard } from "@/lib/whatsapp-secretary/response-format"
 import { createServerDirectoryProviderWithKeywordFallback } from "@/lib/whatsapp-secretary/tools/directory"
 import { rerankByTokenScore, scoreNameAgainstTokens, type ScoredMatch } from "@/lib/whatsapp-secretary/tools/keyword-match"
+import { buildApplicationDeepLink, buildApplicationsQueueDeepLink } from "@/lib/whatsapp-secretary/guidance"
 
 /**
  * Applications tools for the WhatsApp Secretary orchestrator.
@@ -94,9 +95,9 @@ function toModelApplication({ id: _id, ...application }: ApplicationSummary): Om
   return application
 }
 
-function singleApplicationPresentation(applications: ApplicationSummary[]): { applicationId: string } | undefined {
+function singleApplicationPresentation(applications: ApplicationSummary[]): { cta: { buttonText: string; url: string } } | undefined {
   const applicationId = applications.length === 1 ? applications[0]?.id : undefined
-  return applicationId ? { applicationId } : undefined
+  return applicationId ? { cta: { buttonText: "Open Application", url: buildApplicationDeepLink(applicationId) } } : undefined
 }
 
 function titleCaseStatus(value: string): string {
@@ -501,6 +502,7 @@ export function createApplicationsTools(
           readyForReview: { ...queue.ready_for_review, recent: queue.ready_for_review.recent.map(toModelApplication) },
           needsInformation: { ...queue.needs_information, recent: queue.needs_information.recent.map(toModelApplication) },
         },
+        presentation: { cta: { buttonText: "Open Review Queue", url: buildApplicationsQueueDeepLink("ready_for_review") } },
       }
     },
   }

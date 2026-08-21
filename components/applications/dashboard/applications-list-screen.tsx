@@ -7,7 +7,7 @@
  * out, matching Communications and Directory.
  */
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronDown, ExternalLink, Link2, Search, Share2, SlidersHorizontal, UserPlus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ModuleSwitcher } from "@/components/module-switcher"
@@ -73,6 +73,8 @@ function StatTile({ value, label, tone }: { value: number; label: string; tone: 
 interface ApplicationsListScreenProps {
   dashboard: ApplicationsDashboard
   className?: string
+  /** Applied once when Courtney opens a specific Applications review queue. */
+  initialStatusFilter?: ApplicationStatus
   onOpenApplication: (id: string) => void
   onSwitchToStream: () => void
   onSwitchToDirectory: () => void
@@ -85,6 +87,7 @@ interface ApplicationsListScreenProps {
 export function ApplicationsListScreen({
   dashboard,
   className,
+  initialStatusFilter,
   onOpenApplication,
   onSwitchToStream,
   onSwitchToDirectory,
@@ -94,10 +97,17 @@ export function ApplicationsListScreen({
   onPreviewCandidateFlow,
 }: ApplicationsListScreenProps) {
   const { visibleApplications, counts, filters, setFilters, sort, setSort, jobs, trades } = dashboard
+  const appliedDeepLinkStatusRef = useRef<ApplicationStatus | null>(null)
   const shareLink = useShareLink(dashboard.reviewer)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [openFilter, setOpenFilter] = useState<FilterKey | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    if (!initialStatusFilter || appliedDeepLinkStatusRef.current === initialStatusFilter) return
+    appliedDeepLinkStatusRef.current = initialStatusFilter
+    setFilters({ ...emptyFilters(), status: initialStatusFilter })
+  }, [initialStatusFilter, setFilters])
 
   const setFilter = (patch: Partial<ApplicationFilters>) => setFilters({ ...filters, ...patch })
   const hasFilters = filters.status !== "all" || filters.jobId !== "all" || filters.trade !== "all" || !!filters.query.trim()

@@ -16,6 +16,7 @@ import {
   type EntityResolver,
 } from "@/lib/whatsapp-secretary/entity-resolver"
 import { detailCard } from "@/lib/whatsapp-secretary/response-format"
+import { buildDirectoryProfileDeepLink } from "@/lib/whatsapp-secretary/guidance"
 
 /**
  * Directory adapter — the full "Ask SVC Directory" tool stack (nothing
@@ -637,6 +638,7 @@ export function createDirectoryTools(
               }),
             }
           : {}),
+        presentation: { cta: { buttonText: "Open Profile", url: buildDirectoryProfileDeepLink(directoryId) } },
       }
     },
   }

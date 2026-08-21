@@ -6,12 +6,23 @@
  * every link the Secretary offers is real.
  *
  * `app/page.tsx` resolves a small allowlist of authenticated query deep links:
- * Directory profiles/Outlooks, Quest Coral projects, Application records, and
- * top-level modules. These helpers only emit that allowlist, so the model
- * never invents a route or controls the target identifier.
+ * Directory profiles/Outlooks, Quest Coral projects, Application records and
+ * queues, job-scoped Communications, and top-level modules. These helpers
+ * only emit that allowlist, so the model never invents a route or controls a
+ * target identifier.
  */
 
+import type { ApplicationStatus } from "@/lib/applications-core"
+
 const DEFAULT_APP_BASE_URL = "https://communication-svc.vercel.app"
+
+export type SvcModuleDeepLink = "communications" | "directory" | "applications" | "quest-coral" | "bye-bye-dpr"
+
+/** Server-only input for the one native WhatsApp CTA a reply may contain. */
+export type SecretaryDeepLinkCta = {
+  buttonText: string
+  url: string
+}
 
 export function getAppBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "") || DEFAULT_APP_BASE_URL
@@ -28,7 +39,7 @@ export function buildDirectoryProfileDeepLink(directoryId: string): string {
 }
 
 /** Opens a real top-level SVC module after the normal authenticated app boot. */
-export function buildModuleDeepLink(module: "directory" | "applications" | "quest-coral" | "bye-bye-dpr"): string {
+export function buildModuleDeepLink(module: SvcModuleDeepLink): string {
   return `${getAppBaseUrl()}/?module=${encodeURIComponent(module)}`
 }
 
@@ -40,6 +51,18 @@ export function buildQuestCoralProjectDeepLink(projectId: string): string {
 /** Opens one internal Applications record after the dashboard's normal data load. */
 export function buildApplicationDeepLink(applicationId: string): string {
   return `${getAppBaseUrl()}/?application=${encodeURIComponent(applicationId)}`
+}
+
+/** Opens the Applications queue, optionally narrowed to one real status filter. */
+export function buildApplicationsQueueDeepLink(status?: ApplicationStatus): string {
+  const params = new URLSearchParams({ module: "applications" })
+  if (status) params.set("applicationStatus", status)
+  return `${getAppBaseUrl()}/?${params.toString()}`
+}
+
+/** Opens Communications filtered to one Directory job/context. */
+export function buildCommunicationsContextDeepLink(contextId: string): string {
+  return `${getAppBaseUrl()}/?communications=${encodeURIComponent(contextId)}`
 }
 
 export interface NotYetSupportedAction {

@@ -8,6 +8,7 @@ import { AUTOMATIC_MESSAGE_SOURCE_MODULES, isAutomaticMessageSourceModule, proje
 import type { SecretaryTool, SecretaryToolResult } from "@/lib/whatsapp-secretary/tool-registry"
 import { describeUnresolved, type EntityResolver } from "@/lib/whatsapp-secretary/entity-resolver"
 import { timeline } from "@/lib/whatsapp-secretary/response-format"
+import { buildCommunicationsContextDeepLink } from "@/lib/whatsapp-secretary/guidance"
 
 /**
  * Communications (Messages) read layer for the WhatsApp Secretary.
@@ -465,7 +466,14 @@ export function createMessagesTools(
           fields: [{ label: "Posts", value: `${posts.length} newest first` }],
           items: posts.map(operationalPostItem),
         }),
-        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+        ...(contextId || attachments.length > 0
+          ? {
+              presentation: {
+                ...(contextId ? { cta: { buttonText: "Open Job Messages", url: buildCommunicationsContextDeepLink(contextId) } } : {}),
+                ...(attachments.length > 0 ? { attachments } : {}),
+              },
+            }
+          : {}),
       }
     },
   }
@@ -542,7 +550,14 @@ export function createMessagesTools(
           fields: [{ label: "Messages", value: `${messages.length} newest first` }],
           items: messages.map(humanMessageItem),
         }),
-        ...(attachments.length > 0 ? { presentation: { attachments } } : {}),
+        ...(contextId || attachments.length > 0
+          ? {
+              presentation: {
+                ...(contextId ? { cta: { buttonText: "Open Job Messages", url: buildCommunicationsContextDeepLink(contextId) } } : {}),
+                ...(attachments.length > 0 ? { attachments } : {}),
+              },
+            }
+          : {}),
       }
     },
   }

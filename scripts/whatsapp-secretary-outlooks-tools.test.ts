@@ -144,8 +144,9 @@ test("outlooks_get resolves the job via Directory and returns a real deep link",
   assert.equal("deepLink" in (data.outlook ?? {}), false)
   assert.equal(result.responseFormat?.kind, "detail-card")
   assert.equal(result.responseFormat?.title, "3-Week Outlook — Appaloosa")
-  const presentation = result.presentation as { deepLink?: string } | undefined
-  assert.match(presentation?.deepLink ?? "", /\?directory=job__appaloosa&view=outlook$/)
+  const presentation = result.presentation as { cta?: { buttonText?: string; url?: string } } | undefined
+  assert.equal(presentation?.cta?.buttonText, "Open Outlook")
+  assert.match(presentation?.cta?.url ?? "", /\?directory=job__appaloosa&view=outlook$/)
 })
 
 test("outlooks_get reports not-found when the job has no outlook yet", async () => {

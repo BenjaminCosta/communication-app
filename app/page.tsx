@@ -45,6 +45,7 @@ import { StreamScreen } from "@/components/stream-screen"
 import { ComposeScreen } from "@/components/compose-screen"
 import { LoginScreen } from "@/components/login-screen"
 import { useApplicationsDashboard } from "@/features/applications/use-applications-dashboard"
+import { APPLICATION_STATUS_ORDER, type ApplicationStatus } from "@/lib/applications-core"
 import { useQuestCoralDashboard } from "@/features/quest-coral/use-quest-coral-dashboard"
 import { useByeByeDprDashboard } from "@/features/bye-bye-dpr/use-bye-bye-dpr-dashboard"
 import { publishQuestCoralFeedbackReply } from "@/features/quest-coral/quest-coral-feedback-client"
@@ -183,9 +184,11 @@ type SvcModuleName = "communications" | "directory" | "applications" | "quest-co
 type DirectoryDeepLinkView = "profile" | "outlook"
 type SvcDeepLink =
   | { kind: "directory"; directoryId: string; view: DirectoryDeepLinkView }
-  | { kind: "module"; module: Exclude<SvcModuleName, "communications"> }
+  | { kind: "module"; module: SvcModuleName }
   | { kind: "application"; applicationId: string }
   | { kind: "quest-coral"; projectId: string }
+  | { kind: "applications-queue"; status: ApplicationStatus }
+  | { kind: "communications"; contextId: string }
 
 /** Secure candidate link: ?apply=<token>. Works before sign-in. */
 function getApplyDeepLink(): string | null {
@@ -221,8 +224,15 @@ function getSvcDeepLink(): SvcDeepLink | null {
   const projectId = params.get("questCoral")?.trim()
   if (projectId && projectId.length <= 200) return { kind: "quest-coral", projectId }
 
+  const contextId = params.get("communications")?.trim()
+  if (contextId && contextId.length <= 200) return { kind: "communications", contextId }
+
   const module = params.get("module")?.trim()
-  if (module === "directory" || module === "applications" || module === "quest-coral" || module === "bye-bye-dpr") {
+  const applicationStatus = params.get("applicationStatus")?.trim()
+  if (module === "applications" && applicationStatus && APPLICATION_STATUS_ORDER.includes(applicationStatus as ApplicationStatus)) {
+    return { kind: "applications-queue", status: applicationStatus as ApplicationStatus }
+  }
+  if (module === "communications" || module === "directory" || module === "applications" || module === "quest-coral" || module === "bye-bye-dpr") {
     return { kind: "module", module }
   }
   return null
@@ -397,6 +407,7 @@ export default function Home() {
   const [selectedTagFilter, setSelectedTagFilter] = useState<string[]>([])
   const [selectedDateFilter, setSelectedDateFilter] = useState<string[]>([])
   const [selectedContextFilter, setSelectedContextFilter] = useState<string[]>([])
+  const [applicationDeepLinkStatus, setApplicationDeepLinkStatus] = useState<ApplicationStatus | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const nextColorIndex = useRef(0)
   const [composeMode, setComposeMode] = useState<"fullscreen" | "sheet">("fullscreen")
@@ -513,8 +524,19 @@ export default function Home() {
           } else if (deepLink?.kind === "quest-coral") {
             setSelectedQuestCoralProjectId(deepLink.projectId)
             navigateTo("quest-coral-detail")
+          } else if (deepLink?.kind === "communications") {
+            // The link only seeds ordinary Stream filters. It does not bypass
+            // the app's message visibility rules, which still run on load.
+            setSelectedPeopleFilter([])
+            setSelectedTagFilter([])
+            setSelectedDateFilter([])
+            setSelectedContextFilter([deepLink.contextId])
+            navigateTo("stream")
+          } else if (deepLink?.kind === "applications-queue") {
+            setApplicationDeepLinkStatus(deepLink.status)
+            navigateTo("applications")
           } else if (deepLink?.kind === "module") {
-            navigateTo(deepLink.module)
+            navigateTo(deepLink.module === "communications" ? "stream" : deepLink.module)
           } else {
             // Default is Compose (Communications), unless the user last worked
             // in Directory, Applications or Quest Coral.
@@ -2179,6 +2201,7 @@ export default function Home() {
           <ApplicationsListScreen
             className={activeScreen === "applications" ? `${entranceClass} h-full w-full` : "hidden"}
             dashboard={applicationsDashboard}
+            initialStatusFilter={applicationDeepLinkStatus ?? undefined}
             onOpenApplication={goToApplicationDetail}
             onSwitchToStream={goToStream}
             onSwitchToDirectory={goToDirectoryFromStream}
