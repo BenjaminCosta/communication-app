@@ -3,6 +3,7 @@
 import { ClipboardList } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDateInAppZone, formatTimeInAppZone, isSameDayInAppZone } from "@/lib/datetime"
+import { formatOutlookRange } from "@/lib/outlook-core"
 import type { OutlookFormSubmission } from "@/lib/outlook-form-submissions/types"
 
 function formatTimestamp(ms: number): string {
@@ -26,15 +27,17 @@ export function OutlookFormSubmissionRow({ submission, onSelect }: { submission:
       </div>
       <div className="flex-1 min-w-0">
         <span className="text-sm font-semibold truncate block">{submission.jobName}</span>
-        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{submission.submittedByName}</p>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+          {submission.submittedByName} · {submission.tasks.length} task{submission.tasks.length === 1 ? "" : "s"} · {formatOutlookRange(submission.window)}
+        </p>
         <div className="flex items-center gap-1.5 mt-1.5">
           <span
             className={cn(
               "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border",
               submission.status === "converted"
-                ? "border-violet-500/40 text-violet-400 bg-violet-500/10"
+                ? "border-emerald-500/60 text-white bg-emerald-500"
                 : submission.status === "reviewed"
-                  ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                  ? "border-sky-500/40 text-sky-400 bg-sky-500/10"
                   : "border-amber-500/40 text-amber-400 bg-amber-500/10",
             )}
           >

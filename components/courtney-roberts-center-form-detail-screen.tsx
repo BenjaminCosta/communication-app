@@ -115,9 +115,9 @@ export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, on
                   className={cn(
                     "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium border",
                     submission.status === "converted"
-                      ? "border-violet-500/40 text-violet-400 bg-violet-500/10"
+                      ? "border-emerald-500/60 text-white bg-emerald-500"
                       : submission.status === "reviewed"
-                        ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                        ? "border-sky-500/40 text-sky-400 bg-sky-500/10"
                         : "border-amber-500/40 text-amber-400 bg-amber-500/10",
                   )}
                 >
@@ -189,39 +189,40 @@ export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, on
 
               {submission.status === "converted" ? (
                 <div className="flex flex-col gap-2 pb-2">
-                  <div className="rounded-xl border border-violet-500/30 bg-violet-500/[0.06] p-3.5">
-                    <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-3.5">
+                    <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5" /> This submission became a real Outlook
                     </p>
                   </div>
                   <button
                     onClick={onReviewAndGenerate}
-                    className="flex items-center justify-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/15 text-violet-200 px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-3 text-sm font-semibold active:scale-95 transition-all duration-150"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" /> View Outlook
+                    <ExternalLink className="w-4 h-4" /> View Outlook
                   </button>
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 pb-2">
                   <button
                     onClick={onReviewAndGenerate}
-                    className="flex items-center justify-center gap-1.5 rounded-full bg-violet-500 text-white px-4 py-3 text-sm font-semibold active:scale-95 transition-all duration-150"
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-3 text-sm font-semibold active:scale-95 transition-all duration-150"
                   >
-                    <Sparkles className="w-4 h-4" /> Review & Generate Outlook
+                    <Sparkles className="w-4 h-4" /> Review Outlook
                   </button>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-4 pt-1">
                     <button
                       onClick={handleExportPdf}
                       disabled={isExporting}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
+                      className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 disabled:opacity-40 active:opacity-60 transition-opacity duration-150"
                     >
                       {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-                      Generate PDF
+                      Raw PDF
                     </button>
+                    <span className="text-white/15">·</span>
                     <button
                       onClick={handleMarkReviewed}
                       disabled={isMarking || submission.status === "reviewed"}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
+                      className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 disabled:opacity-40 active:opacity-60 transition-opacity duration-150"
                     >
                       {isMarking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                       {submission.status === "reviewed" ? "Reviewed" : "Mark reviewed"}

@@ -1,17 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ArrowLeft, ExternalLink, FileDown, Loader2, Lock, Sparkles } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Building2, ExternalLink, FileDown, Loader2, Lock, Plus, Sparkles, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDateTimeInAppZone } from "@/lib/datetime"
 import { auth } from "@/lib/firebase"
 import { directoryId, parseDirectoryId } from "@/lib/directory-core"
 import { loadDirectoryProfileViewModel } from "@/lib/directory-profile-loader"
-import { formatOutlookDate, scheduleOutlookTasks, type OutlookIssue, type OutlookTask } from "@/lib/outlook-core"
+import { addIsoDays, createOutlookTask, formatOutlookDate, scheduleOutlookTasks, type OutlookIssue, type OutlookTask } from "@/lib/outlook-core"
 import { getJobOutlookDraft, getJobOutlookVersion, type JobOutlookVersion } from "@/lib/job-outlooks"
 import { generateRealOutlook } from "@/features/outlooks/generate-real-outlook"
 import { buildOutlookDeepLink } from "@/lib/whatsapp-secretary/guidance"
-import { OutlookAdvancedView } from "@/components/directory/outlooks/outlook-advanced-view"
 import { OutlookFormJobResolver } from "@/components/courtney-roberts-center/outlook-form-job-resolver"
 import {
   CourtneyRobertsCenterClientError,
@@ -35,6 +34,22 @@ interface CourtneyRobertsCenterFormGenerateScreenProps {
   className?: string
 }
 
+const WEEK_LABELS = ["Week 1", "Week 2", "Week 3"] as const
+
+function daysBetweenIso(a: string, b: string): number {
+  const [ay, am, ad] = a.split("-").map(Number)
+  const [by, bm, bd] = b.split("-").map(Number)
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000)
+}
+
+/** Which week card (0-2) a task belongs to, or null if it has no usable start date yet. */
+function weekBucket(task: OutlookTask, windowStart: string): number | null {
+  if (!task.startDate) return null
+  const days = daysBetweenIso(windowStart, task.startDate)
+  if (!Number.isFinite(days)) return null
+  return Math.min(2, Math.max(0, Math.floor(days / 7)))
+}
+
 export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companies, onBack, className }: CourtneyRobertsCenterFormGenerateScreenProps) {
   const [submission, setSubmission] = useState<OutlookFormSubmission | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
@@ -44,17 +59,25 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   const [resolvedJob, setResolvedJob] = useState<ResolvedJob | null>(null)
   const [resolvingJob, setResolvingJob] = useState(false)
   const [showJobResolver, setShowJobResolver] = useState(false)
-  const [existingDraftRevision, setExistingDraftRevision] = useState<number | null>(null)
+  const [draftCollisionRevision, setDraftCollisionRevision] = useState<number | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [commsWarning, setCommsWarning] = useState<string | null>(null)
+  // Set as soon as generateRealOutlook() succeeds, cleared once the submission's
+  // own bookkeeping (convertOutlookFormSubmission) also succeeds. If bookkeeping
+  // fails after a successful generate (a dropped connection, a transient 500),
+  // this survives so a retry re-links the ALREADY-created version instead of
+  // publishing a second, orphaned one.
+  const [createdVersion, setCreatedVersion] = useState<JobOutlookVersion | null>(null)
 
   // Set once converted (either just now, or re-resolved on reopen below) — the
   // real version's PDF link. Firestore stays the source of truth; never cached
   // on the submission itself.
   const [realVersion, setRealVersion] = useState<JobOutlookVersion | null>(null)
   const [reopenLoading, setReopenLoading] = useState(false)
+  const [reopenError, setReopenError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -94,12 +117,14 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   }, [submission])
 
   // Collision guard — surfaced as a persistent warning, not a blocking dialog.
+  // handleGenerate() re-checks this fresh right before publishing (this cached
+  // value is for display only, so a stale read here can't weaken the guard).
   useEffect(() => {
     if (!resolvedJob || !submission) return
     let cancelled = false
     getJobOutlookDraft(resolvedJob.sourceId, submission.window.start)
       .then((draft) => {
-        if (!cancelled) setExistingDraftRevision(draft && draft.revision > 0 ? draft.revision : null)
+        if (!cancelled) setDraftCollisionRevision(draft && draft.revision > 0 ? draft.revision : null)
       })
       .catch(() => {})
     return () => {
@@ -111,18 +136,69 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   useEffect(() => {
     if (!submission || submission.status !== "converted") return
     if (!submission.convertedJobContextId || !submission.convertedWindowStart || !submission.convertedVersionId) return
+    // Already have it — e.g. we just generated it ourselves this session. Skip the
+    // redundant re-fetch so the success view doesn't flash "Loading PDF…" for no reason.
+    if (realVersion?.id === submission.convertedVersionId) return
+    let cancelled = false
     setReopenLoading(true)
+    setReopenError(null)
     getJobOutlookVersion(submission.convertedJobContextId, submission.convertedWindowStart, submission.convertedVersionId)
-      .then(setRealVersion)
-      .finally(() => setReopenLoading(false))
+      .then((version) => {
+        if (!cancelled) setRealVersion(version)
+      })
+      .catch(() => {
+        if (!cancelled) setReopenError("Couldn't load the PDF link. The Outlook itself is still available in Directory.")
+      })
+      .finally(() => {
+        if (!cancelled) setReopenLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [submission])
 
   const scheduled = useMemo(() => (submission ? scheduleOutlookTasks(tasks, submission.window) : null), [tasks, submission])
-  const blockingIssues = useMemo(() => (scheduled ? scheduled.issues.filter((issue) => issue.kind !== "warning") : []), [scheduled])
+  const issuesByTaskId = useMemo(() => {
+    const map = new Map<string, OutlookIssue[]>()
+    for (const issue of scheduled?.issues ?? []) {
+      if (issue.kind === "warning") continue
+      const list = map.get(issue.taskId) ?? []
+      list.push(issue)
+      map.set(issue.taskId, list)
+    }
+    return map
+  }, [scheduled])
+  const blockingCount = useMemo(() => new Set([...issuesByTaskId.keys()]).size, [issuesByTaskId])
+
+  const weeks = useMemo(() => {
+    if (!submission) return [[], [], []] as OutlookTask[][]
+    const buckets: OutlookTask[][] = [[], [], []]
+    for (const task of tasks) {
+      const bucket = weekBucket(task, submission.window.start)
+      if (bucket !== null) buckets[bucket].push(task)
+    }
+    return buckets
+  }, [tasks, submission])
+  const unscheduled = useMemo(() => tasks.filter((task) => weekBucket(task, submission?.window.start ?? "") === null), [tasks, submission])
 
   const isLoading = !submission && !errorMessage
   const isDenied = errorStatus === 401 || errorStatus === 403
   const isConverted = submission?.status === "converted"
+
+  const updateTask = (id: string, patch: Partial<OutlookTask>) => {
+    setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...patch } : task)))
+  }
+
+  const addTask = (weekIndex: number) => {
+    if (!submission) return
+    const next = createOutlookTask({ sortOrder: tasks.length, startDate: addIsoDays(submission.window.start, weekIndex * 7) })
+    setTasks((current) => [...current, next])
+  }
+
+  const deleteTask = (id: string) => {
+    setTasks((current) => current.filter((task) => task.id !== id))
+    setConfirmDeleteId(null)
+  }
 
   const handleGenerate = async () => {
     if (!submission || !resolvedJob || generating || (scheduled && !scheduled.canPublish)) return
@@ -135,25 +211,33 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
     setGenerateError(null)
     setCommsWarning(null)
     try {
-      const result = await generateRealOutlook({
-        userId: user.uid,
-        jobId: resolvedJob.sourceId,
-        jobDirectoryId: resolvedJob.directoryId,
-        jobName: resolvedJob.name,
-        companyName: resolvedJob.companyName,
-        location: resolvedJob.location,
-        window: submission.window,
-        tasks: scheduled?.tasks ?? tasks,
-        expectedRevision: null,
-      })
+      let version = createdVersion
+      if (!version) {
+        const latestDraft = await getJobOutlookDraft(resolvedJob.sourceId, submission.window.start)
+        const expectedRevision = latestDraft && latestDraft.revision > 0 ? latestDraft.revision : null
+        const result = await generateRealOutlook({
+          userId: user.uid,
+          jobId: resolvedJob.sourceId,
+          jobDirectoryId: resolvedJob.directoryId,
+          jobName: resolvedJob.name,
+          companyName: resolvedJob.companyName,
+          location: resolvedJob.location,
+          window: submission.window,
+          tasks: scheduled?.tasks ?? tasks,
+          expectedRevision,
+        })
+        version = result.version
+        setCreatedVersion(version)
+        if (result.commsError) setCommsWarning(result.commsError)
+      }
       const updated = await convertOutlookFormSubmission(submissionId, {
         jobContextId: resolvedJob.sourceId,
         windowStart: submission.window.start,
-        versionId: result.version.id,
+        versionId: version.id,
       })
       setSubmission(updated)
-      setRealVersion(result.version)
-      if (result.commsError) setCommsWarning(result.commsError)
+      setRealVersion(version)
+      setCreatedVersion(null)
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : "Unable to generate the Outlook.")
     } finally {
@@ -172,8 +256,8 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
             <ArrowLeft className="w-4 h-4 text-muted-foreground" />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-bold tracking-tight truncate">{submission?.jobName ?? "Generate Outlook"}</h1>
-            {submission && <p className="text-[11px] text-muted-foreground/60">{isConverted ? "Converted" : "Review & Generate Outlook"}</p>}
+            <h1 className="text-sm font-bold tracking-tight truncate">{submission?.jobName ?? "Review Outlook"}</h1>
+            {submission && <p className="text-[11px] text-muted-foreground/60">{isConverted ? "Converted" : "Review Outlook"}</p>}
           </div>
         </div>
       </div>
@@ -192,8 +276,8 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
             <EmptyState icon={<AlertTriangle className="w-5 h-5" />} title="Can't load this submission" description={errorMessage} />
           ) : submission && isConverted ? (
             <div className="flex flex-col gap-4">
-              <div className="rounded-xl border border-violet-500/30 bg-violet-500/[0.06] p-4">
-                <p className="text-sm font-semibold text-violet-300 mb-1 flex items-center gap-1.5">
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
+                <p className="text-sm font-semibold text-emerald-300 mb-1 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4" /> Converted to a real Outlook
                 </p>
                 <p className="text-xs text-muted-foreground/70">
@@ -206,13 +290,14 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
                     {submission.convertedAtMs ? ` on ${formatDateTimeInAppZone(new Date(submission.convertedAtMs), { dateStyle: "medium", timeStyle: "short" })}` : ""}
                   </p>
                 )}
+                {reopenError && <p className="text-xs text-amber-300/90 mt-2">{reopenError}</p>}
                 <div className="flex items-center gap-2 mt-3">
                   {submission.convertedJobContextId && (
                     <a
                       href={buildOutlookDeepLink(directoryId("job", submission.convertedJobContextId))}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/15 text-violet-200 px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
+                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" /> View in Directory
+                      <ExternalLink className="w-3.5 h-3.5" /> View Outlook
                     </a>
                   )}
                   {reopenLoading ? (
@@ -234,26 +319,12 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
             </div>
           ) : submission ? (
             <div className="flex flex-col gap-4 pb-4">
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
-                <p className="text-xs font-semibold text-muted-foreground/60 mb-1">Job</p>
-                {resolvingJob ? (
-                  <p className="text-sm text-muted-foreground/60 flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Resolving…
-                  </p>
-                ) : resolvedJob ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold truncate">{resolvedJob.name}</span>
-                    <button
-                      onClick={() => setShowJobResolver((current) => !current)}
-                      className="shrink-0 text-xs font-semibold text-violet-300 active:opacity-60"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground/60">Not linked yet</p>
-                )}
-              </div>
+              <JobCard
+                resolvingJob={resolvingJob}
+                resolvedJob={resolvedJob}
+                showJobResolver={showJobResolver}
+                onToggleResolver={() => setShowJobResolver((current) => !current)}
+              />
 
               {showJobResolver && (
                 <OutlookFormJobResolver
@@ -266,68 +337,266 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
                 />
               )}
 
-              {existingDraftRevision !== null && (
+              {draftCollisionRevision !== null && (
                 <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3.5">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
                   <p className="text-xs text-amber-200/90">
-                    An outlook already exists for this job and week (revision {existingDraftRevision}). Generating will overwrite it.
+                    An outlook already exists for this job and week (revision {draftCollisionRevision}). Generating will overwrite it.
                   </p>
                 </div>
               )}
 
-              {blockingIssues.length > 0 && (
-                <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-3.5">
-                  <p className="text-xs font-semibold text-red-300 mb-1.5">Fix before generating</p>
-                  <ul className="flex flex-col gap-1">
-                    {blockingIssues.map((issue) => (
-                      <IssueRow key={issue.id} issue={issue} tasks={tasks} />
-                    ))}
-                  </ul>
-                </div>
+              {unscheduled.length > 0 && (
+                <WeekSection
+                  label="Unscheduled"
+                  sublabel={`${unscheduled.length} task${unscheduled.length === 1 ? "" : "s"} need a start date`}
+                  tasks={unscheduled}
+                  companies={companies}
+                  issuesByTaskId={issuesByTaskId}
+                  confirmDeleteId={confirmDeleteId}
+                  onUpdate={updateTask}
+                  onDelete={deleteTask}
+                  onRequestDelete={setConfirmDeleteId}
+                />
               )}
 
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground/60 mb-2 px-1">
-                  Week: {formatOutlookDate(submission.window.start, { month: "long", day: "numeric" })} –{" "}
-                  {formatOutlookDate(submission.window.end, { month: "long", day: "numeric", year: "numeric" })}
-                </p>
-                <OutlookAdvancedView
-                  window={submission.window}
-                  drafts={tasks}
+              {weeks.map((weekTasks, index) => (
+                <WeekSection
+                  key={index}
+                  label={WEEK_LABELS[index]}
+                  sublabel={formatOutlookDate(addIsoDays(submission.window.start, index * 7), { month: "short", day: "numeric" }) + " – " + formatOutlookDate(addIsoDays(submission.window.start, index * 7 + 6), { month: "short", day: "numeric" })}
+                  tasks={weekTasks}
                   companies={companies}
-                  saving={false}
-                  dirty={false}
-                  onChange={setTasks}
-                  onSave={() => {}}
-                  onDeleteTask={(id) => setTasks((current) => current.filter((task) => task.id !== id))}
+                  issuesByTaskId={issuesByTaskId}
+                  confirmDeleteId={confirmDeleteId}
+                  onUpdate={updateTask}
+                  onDelete={deleteTask}
+                  onRequestDelete={setConfirmDeleteId}
+                  onAddTask={() => addTask(index)}
                 />
-              </div>
-
-              {generateError && <p className="text-xs text-red-400/90">{generateError}</p>}
-              {commsWarning && <p className="text-xs text-amber-400/90">Outlook created, but posting to Communications failed: {commsWarning}</p>}
-
-              <button
-                onClick={handleGenerate}
-                disabled={!resolvedJob || resolvingJob || generating || Boolean(scheduled && !scheduled.canPublish)}
-                className="flex items-center justify-center gap-1.5 rounded-full bg-violet-500 text-white px-4 py-3 text-sm font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
-              >
-                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {generating ? "Generating…" : "Generate Outlook"}
-              </button>
+              ))}
             </div>
           ) : null}
         </div>
       </div>
+
+      {submission && !isConverted && (
+        <div className="shrink-0 border-t border-white/10 bg-[#060b09]/95 backdrop-blur-sm">
+          <div className="max-w-2xl mx-auto w-full px-4 md:px-6 py-3 safe-area-pb flex flex-col gap-2">
+            {generateError && <p className="text-xs text-red-400/90">{generateError}</p>}
+            {commsWarning && <p className="text-xs text-amber-400/90">Outlook created, but posting to Communications failed: {commsWarning}</p>}
+            {!generateError && blockingCount > 0 && (
+              <p className="text-xs text-red-300/80">
+                Fix {blockingCount} task{blockingCount === 1 ? "" : "s"} before generating.
+              </p>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={!resolvedJob || resolvingJob || generating || Boolean(scheduled && !scheduled.canPublish)}
+              className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-3.5 text-sm font-semibold disabled:opacity-40 active:scale-[0.98] transition-all duration-150"
+            >
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {generating ? (createdVersion ? "Saving…" : "Generating…") : createdVersion ? "Retry saving" : "Generate Outlook"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function IssueRow({ issue, tasks }: { issue: OutlookIssue; tasks: OutlookTask[] }) {
-  const taskTitle = tasks.find((task) => task.id === issue.taskId)?.title || "Untitled task"
+function JobCard({
+  resolvingJob,
+  resolvedJob,
+  showJobResolver,
+  onToggleResolver,
+}: {
+  resolvingJob: boolean
+  resolvedJob: ResolvedJob | null
+  showJobResolver: boolean
+  onToggleResolver: () => void
+}) {
   return (
-    <li className="text-xs text-red-200/80">
-      <span className="font-semibold">{taskTitle}:</span> {issue.message}
-    </li>
+    <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
+      <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+        <Building2 className="w-4 h-4 text-emerald-400" />
+      </div>
+      <div className="flex-1 min-w-0">
+        {resolvingJob ? (
+          <p className="text-sm text-muted-foreground/60 flex items-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Resolving…
+          </p>
+        ) : resolvedJob ? (
+          <>
+            <p className="text-sm font-semibold truncate">{resolvedJob.name}</p>
+            {(resolvedJob.companyName || resolvedJob.location) && (
+              <p className="text-xs text-muted-foreground/60 truncate">{[resolvedJob.companyName, resolvedJob.location].filter(Boolean).join(" · ")}</p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground/60">Not linked yet</p>
+        )}
+      </div>
+      <button onClick={onToggleResolver} className="shrink-0 text-xs font-semibold text-emerald-300 active:opacity-60">
+        {showJobResolver ? "Cancel" : "Change"}
+      </button>
+    </div>
+  )
+}
+
+function WeekSection({
+  label,
+  sublabel,
+  tasks,
+  companies,
+  issuesByTaskId,
+  confirmDeleteId,
+  onUpdate,
+  onDelete,
+  onRequestDelete,
+  onAddTask,
+}: {
+  label: string
+  sublabel: string
+  tasks: OutlookTask[]
+  companies: Array<{ id: string; name: string }>
+  issuesByTaskId: Map<string, OutlookIssue[]>
+  confirmDeleteId: string | null
+  onUpdate: (id: string, patch: Partial<OutlookTask>) => void
+  onDelete: (id: string) => void
+  onRequestDelete: (id: string | null) => void
+  onAddTask?: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between px-1">
+        <p className="text-xs font-semibold text-foreground/80">{label}</p>
+        <p className="text-[10px] text-muted-foreground/50">{sublabel}</p>
+      </div>
+      {tasks.map((task) => (
+        <SimpleTaskCard
+          key={task.id}
+          task={task}
+          companies={companies}
+          issues={issuesByTaskId.get(task.id) ?? []}
+          confirmingDelete={confirmDeleteId === task.id}
+          onUpdate={(patch) => onUpdate(task.id, patch)}
+          onDelete={() => onDelete(task.id)}
+          onRequestDelete={() => onRequestDelete(task.id)}
+          onCancelDelete={() => onRequestDelete(null)}
+        />
+      ))}
+      {onAddTask && (
+        <button
+          onClick={onAddTask}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-emerald-500/25 bg-emerald-500/[0.04] text-emerald-300/90 py-2.5 text-xs font-semibold active:scale-[0.99] transition-all duration-150"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add task
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SimpleTaskCard({
+  task,
+  companies,
+  issues,
+  confirmingDelete,
+  onUpdate,
+  onDelete,
+  onRequestDelete,
+  onCancelDelete,
+}: {
+  task: OutlookTask
+  companies: Array<{ id: string; name: string }>
+  issues: OutlookIssue[]
+  confirmingDelete: boolean
+  onUpdate: (patch: Partial<OutlookTask>) => void
+  onDelete: () => void
+  onRequestDelete: () => void
+  onCancelDelete: () => void
+}) {
+  const [noteOpen, setNoteOpen] = useState(Boolean(task.description))
+  const hasIssue = issues.length > 0
+
+  return (
+    <div className={cn("rounded-xl border bg-white/[0.03] p-3 flex flex-col gap-2", hasIssue ? "border-red-500/35" : "border-white/10")}>
+      <div className="flex items-center gap-2">
+        <input
+          value={task.title}
+          onChange={(event) => onUpdate({ title: event.target.value })}
+          placeholder="Task name"
+          className="outlook-input flex-1"
+        />
+        {confirmingDelete ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onCancelDelete} className="text-[10px] font-semibold text-muted-foreground/70 px-2 py-1.5 active:opacity-60">
+              Cancel
+            </button>
+            <button onClick={onDelete} className="text-[10px] font-semibold text-red-300 bg-red-500/15 border border-red-500/30 rounded-lg px-2 py-1.5 active:opacity-60">
+              Delete
+            </button>
+          </div>
+        ) : (
+          <button onClick={onRequestDelete} className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground/50 active:opacity-60">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          value={task.trade}
+          onChange={(event) => onUpdate({ trade: event.target.value })}
+          placeholder="Trade"
+          className="outlook-input"
+        />
+        <input
+          list="crc-outlook-company-options"
+          value={task.companyName}
+          onChange={(event) => {
+            const match = companies.find((company) => company.name === event.target.value)
+            onUpdate({ companyName: event.target.value, companyContextId: match?.id ?? null })
+          }}
+          placeholder="Company"
+          className="outlook-input"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          type="date"
+          value={task.startDate ?? ""}
+          onChange={(event) => onUpdate({ startDate: event.target.value || null })}
+          className="outlook-input"
+        />
+        <input
+          type="number"
+          min={1}
+          value={task.durationDays}
+          onChange={(event) => onUpdate({ durationDays: Math.max(1, Math.round(Number(event.target.value) || 1)) })}
+          className="outlook-input"
+          aria-label="Duration in days"
+        />
+      </div>
+
+      {noteOpen ? (
+        <textarea
+          value={task.description}
+          onChange={(event) => onUpdate({ description: event.target.value })}
+          placeholder="Notes"
+          rows={2}
+          className="outlook-input resize-none"
+        />
+      ) : (
+        <button onClick={() => setNoteOpen(true)} className="text-left text-[11px] font-medium text-muted-foreground/50 active:opacity-60">
+          + Add note
+        </button>
+      )}
+
+      {hasIssue && <p className="text-[11px] text-red-300/85">{issues[0].message}</p>}
+    </div>
   )
 }
 

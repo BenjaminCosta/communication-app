@@ -29,6 +29,14 @@ export function OutlookFormJobResolver({ initialQuery, onResolved }: OutlookForm
   const [results, setResults] = useState<DirectoryJobSearchResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  // "Create new job" is deliberately a second, separate tap from search — an
+  // accidental duplicate Directory job is hard to undo, so it never sits right
+  // next to real search results where a mis-tap could create one.
+  const [confirmingCreate, setConfirmingCreate] = useState(false)
+
+  useEffect(() => {
+    setConfirmingCreate(false)
+  }, [query])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -111,16 +119,35 @@ export function OutlookFormJobResolver({ initialQuery, onResolved }: OutlookForm
         <p className="text-xs text-muted-foreground/60 mb-2">No matching Directory job found.</p>
       )}
 
-      {query.trim().length >= 2 && (
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 px-3 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-[0.99] transition-all duration-150"
-        >
-          {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-          Create new job: &quot;{query.trim()}&quot;
-        </button>
-      )}
+      {query.trim().length >= 2 &&
+        (confirmingCreate ? (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5">
+            <p className="text-xs text-emerald-200/90 mb-2">Create &quot;{query.trim()}&quot; as a new Directory job?</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setConfirmingCreate(false)}
+                className="flex-1 text-xs font-semibold text-muted-foreground/70 border border-white/10 rounded-lg px-3 py-1.5 active:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={creating}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40 active:scale-[0.99] transition-all duration-150"
+              >
+                {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Create job
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingCreate(true)}
+            className="w-full text-center text-[11px] font-medium text-muted-foreground/50 py-1.5 active:opacity-60"
+          >
+            Can&apos;t find it? Create &quot;{query.trim()}&quot; as a new job
+          </button>
+        ))}
     </div>
   )
 }
