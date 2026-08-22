@@ -80,6 +80,7 @@ const CourtneyRobertsCenterScreen = dynamic(() => import("@/components/courtney-
 const CourtneyRobertsCenterThreadScreen = dynamic(() => import("@/components/courtney-roberts-center-thread-screen").then((m) => ({ default: m.CourtneyRobertsCenterThreadScreen })), { ssr: false })
 const CourtneyRobertsCenterAccessScreen = dynamic(() => import("@/components/courtney-roberts-center-access-screen").then((m) => ({ default: m.CourtneyRobertsCenterAccessScreen })), { ssr: false })
 const CourtneyRobertsCenterFormDetailScreen = dynamic(() => import("@/components/courtney-roberts-center-form-detail-screen").then((m) => ({ default: m.CourtneyRobertsCenterFormDetailScreen })), { ssr: false })
+const CourtneyRobertsCenterFormGenerateScreen = dynamic(() => import("@/components/courtney-roberts-center-form-generate-screen").then((m) => ({ default: m.CourtneyRobertsCenterFormGenerateScreen })), { ssr: false })
 const NotificationPromptBanner = dynamic(() => import("@/components/notification-prompt-banner").then((m) => ({ default: m.NotificationPromptBanner })), { ssr: false })
 import {
   type Message,
@@ -142,6 +143,7 @@ type Screen =
   | "courtney-roberts-center-thread"
   | "courtney-roberts-center-access"
   | "courtney-roberts-center-form-detail"
+  | "courtney-roberts-center-form-generate"
 
 // Depth map — higher = further in the hierarchy
 const SCREEN_DEPTH: Record<Screen, number> = {
@@ -175,6 +177,7 @@ const SCREEN_DEPTH: Record<Screen, number> = {
   "courtney-roberts-center-thread": 5,
   "courtney-roberts-center-access": 5,
   "courtney-roberts-center-form-detail": 5,
+  "courtney-roberts-center-form-generate": 6,
 }
 
 // Remembers which module the user was last in,
@@ -1623,6 +1626,7 @@ export default function Home() {
     setSelectedOutlookFormSubmissionId(submissionId)
     navigateTo("courtney-roberts-center-form-detail")
   }, [navigateTo])
+  const goToCourtneyRobertsCenterFormGenerate = useCallback(() => navigateTo("courtney-roberts-center-form-generate"), [navigateTo])
 
   const projectsReturnRef = useRef<Screen>("profile")
   const goToProjects = useCallback(() => {
@@ -2030,6 +2034,16 @@ export default function Home() {
           className={entranceClass}
           submissionId={selectedOutlookFormSubmissionId}
           onBack={() => navigateTo("courtney-roberts-center")}
+          onReviewAndGenerate={goToCourtneyRobertsCenterFormGenerate}
+        />
+      )}
+
+      {!showScreenSkeleton && activeScreen === "courtney-roberts-center-form-generate" && selectedOutlookFormSubmissionId && (
+        <CourtneyRobertsCenterFormGenerateScreen
+          className={entranceClass}
+          submissionId={selectedOutlookFormSubmissionId}
+          companies={directoryCompanies}
+          onBack={() => navigateTo("courtney-roberts-center-form-detail")}
         />
       )}
 

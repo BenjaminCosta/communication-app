@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, CheckCircle2, ClipboardList, FileDown, Loader2, Lock } from "lucide-react"
+import { ArrowLeft, CheckCircle2, ClipboardList, ExternalLink, FileDown, Loader2, Lock, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDateTimeInAppZone } from "@/lib/datetime"
 import { formatOutlookDate } from "@/lib/outlook-core"
@@ -22,10 +22,11 @@ const SUBMITTER_ROLE_LABEL: Record<OutlookFormSubmitterRole, string> = {
 interface CourtneyRobertsCenterFormDetailScreenProps {
   submissionId: string
   onBack: () => void
+  onReviewAndGenerate: () => void
   className?: string
 }
 
-export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, className }: CourtneyRobertsCenterFormDetailScreenProps) {
+export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, onReviewAndGenerate, className }: CourtneyRobertsCenterFormDetailScreenProps) {
   const [submission, setSubmission] = useState<OutlookFormSubmission | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -113,12 +114,14 @@ export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, cl
                 <span
                   className={cn(
                     "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium border",
-                    submission.status === "reviewed"
-                      ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
-                      : "border-amber-500/40 text-amber-400 bg-amber-500/10",
+                    submission.status === "converted"
+                      ? "border-violet-500/40 text-violet-400 bg-violet-500/10"
+                      : submission.status === "reviewed"
+                        ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                        : "border-amber-500/40 text-amber-400 bg-amber-500/10",
                   )}
                 >
-                  {submission.status === "reviewed" ? "Reviewed" : "New"}
+                  {submission.status === "converted" ? "Converted" : submission.status === "reviewed" ? "Reviewed" : "New"}
                 </span>
                 <span className="text-xs text-muted-foreground/60">
                   Submitted {formatDateTimeInAppZone(new Date(submission.submittedAtMs), { dateStyle: "medium", timeStyle: "short" })}
@@ -184,24 +187,48 @@ export function CourtneyRobertsCenterFormDetailScreen({ submissionId, onBack, cl
 
               {exportError && <p className="text-xs text-red-400/90">{exportError}</p>}
 
-              <div className="flex items-center gap-2 pb-2">
-                <button
-                  onClick={handleExportPdf}
-                  disabled={isExporting}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
-                >
-                  {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-                  Generate PDF
-                </button>
-                <button
-                  onClick={handleMarkReviewed}
-                  disabled={isMarking || submission.status === "reviewed"}
-                  className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
-                >
-                  {isMarking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                  {submission.status === "reviewed" ? "Reviewed" : "Mark reviewed"}
-                </button>
-              </div>
+              {submission.status === "converted" ? (
+                <div className="flex flex-col gap-2 pb-2">
+                  <div className="rounded-xl border border-violet-500/30 bg-violet-500/[0.06] p-3.5">
+                    <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" /> This submission became a real Outlook
+                    </p>
+                  </div>
+                  <button
+                    onClick={onReviewAndGenerate}
+                    className="flex items-center justify-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/15 text-violet-200 px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> View Outlook
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 pb-2">
+                  <button
+                    onClick={onReviewAndGenerate}
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-violet-500 text-white px-4 py-3 text-sm font-semibold active:scale-95 transition-all duration-150"
+                  >
+                    <Sparkles className="w-4 h-4" /> Review & Generate Outlook
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleExportPdf}
+                      disabled={isExporting}
+                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
+                    >
+                      {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                      Generate PDF
+                    </button>
+                    <button
+                      onClick={handleMarkReviewed}
+                      disabled={isMarking || submission.status === "reviewed"}
+                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 px-4 py-2.5 text-xs font-semibold disabled:opacity-40 active:scale-95 transition-all duration-150"
+                    >
+                      {isMarking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      {submission.status === "reviewed" ? "Reviewed" : "Mark reviewed"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
         </div>

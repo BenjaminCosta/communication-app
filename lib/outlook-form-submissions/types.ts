@@ -12,7 +12,7 @@ import type { OutlookTask, OutlookWindow } from "@/lib/outlook-core"
 export const OUTLOOK_FORM_SUBMISSION_SCHEMA_VERSION = 1
 export const MAX_OUTLOOK_FORM_TASKS = 30
 
-export type OutlookFormSubmissionStatus = "new" | "reviewed"
+export type OutlookFormSubmissionStatus = "new" | "reviewed" | "converted"
 export type OutlookFormSubmitterRole = "site_super" | "pm" | "other"
 
 export interface OutlookFormSubmission {
@@ -28,7 +28,12 @@ export interface OutlookFormSubmission {
   jobName: string
   /** jobs/{id} the super picked, or null for "Other / not listed". */
   byeByeDprJobId: string | null
-  /** contexts/{id}, resolved SERVER-SIDE from jobs/{byeByeDprJobId}.directoryContextId — never trusted from the client. */
+  /**
+   * The COMPOSITE Directory id ("job__<contexts id>"), copied verbatim from
+   * jobs/{byeByeDprJobId}.directoryContextId — never trusted from the client.
+   * Despite the name, this is NOT a raw contexts/{id} doc id; unwrap it with
+   * parseDirectoryId(...)?.sourceId before using it as a contexts doc id.
+   */
   jobContextId: string | null
 
   window: OutlookWindow
@@ -40,4 +45,13 @@ export interface OutlookFormSubmission {
   reviewedAtMs: number | null
   reviewedByUid: string | null
   reviewedByName: string | null
+
+  /** Set once this submission became a real Outlook (see features/outlooks/generate-real-outlook.ts). */
+  convertedAtMs: number | null
+  convertedByUid: string | null
+  convertedByName: string | null
+  /** Raw contexts/{id} sourceId actually used — may differ from jobContextId above if the admin resolved/picked a different job during review. */
+  convertedJobContextId: string | null
+  convertedWindowStart: string | null
+  convertedVersionId: string | null
 }

@@ -205,3 +205,44 @@ export async function fetchOutlookFormSubmissionPdf(submissionId: string): Promi
   if (!response.ok) await readError(response, "Unable to generate this PDF.")
   return response.blob()
 }
+
+/**
+ * Records which real Outlook a submission became. Bookkeeping only — call
+ * this AFTER the real contexts/{jobContextId}/outlooks/{windowStart} write
+ * has already succeeded client-side (see features/outlooks/generate-real-outlook.ts).
+ */
+export async function convertOutlookFormSubmission(
+  submissionId: string,
+  target: { jobContextId: string; windowStart: string; versionId: string },
+): Promise<OutlookFormSubmission> {
+  const response = await fetch(`/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}/convert`, {
+    method: "POST",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify(target),
+  })
+  if (!response.ok) await readError(response, "Unable to record this conversion.")
+  const { submission } = (await response.json()) as { submission: OutlookFormSubmission }
+  return submission
+}
+
+export type DirectoryJobSearchResult = { directoryContextId: string; name: string; location: string | null }
+
+/** Bounded name search over Directory job contexts, for resolving an outlook form submission's unlinked job. */
+export async function searchCourtneyRobertsCenterDirectoryJobs(query: string): Promise<DirectoryJobSearchResult[]> {
+  const { results } = await getJson<{ results: DirectoryJobSearchResult[] }>(
+    `/api/courtney-roberts-center/directory-jobs?q=${encodeURIComponent(query)}`,
+    "Unable to search Directory jobs.",
+  )
+  return results
+}
+
+/** Creates a brand-new Directory job context when a search finds nothing. */
+export async function createCourtneyRobertsCenterDirectoryJob(name: string): Promise<{ directoryContextId: string; name: string }> {
+  const response = await fetch("/api/courtney-roberts-center/directory-jobs", {
+    method: "POST",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) await readError(response, "Unable to create this job.")
+  return (await response.json()) as { directoryContextId: string; name: string }
+}

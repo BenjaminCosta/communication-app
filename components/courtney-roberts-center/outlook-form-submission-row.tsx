@@ -31,12 +31,14 @@ export function OutlookFormSubmissionRow({ submission, onSelect }: { submission:
           <span
             className={cn(
               "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border",
-              submission.status === "reviewed"
-                ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
-                : "border-amber-500/40 text-amber-400 bg-amber-500/10",
+              submission.status === "converted"
+                ? "border-violet-500/40 text-violet-400 bg-violet-500/10"
+                : submission.status === "reviewed"
+                  ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                  : "border-amber-500/40 text-amber-400 bg-amber-500/10",
             )}
           >
-            {submission.status === "reviewed" ? "Reviewed" : "New"}
+            {submission.status === "converted" ? "Converted" : submission.status === "reviewed" ? "Reviewed" : "New"}
           </span>
         </div>
       </div>

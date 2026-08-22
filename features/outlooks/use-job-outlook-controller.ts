@@ -3,17 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   OutlookConflictError,
-  attachPdfToOutlookVersion,
-  publishJobOutlook,
   saveJobOutlookDraft,
   subscribeJobOutlook,
   subscribeJobOutlookVersions,
   type JobOutlookDraft,
   type JobOutlookVersion,
 } from "@/lib/job-outlooks"
-import { uploadDirectoryFile } from "@/lib/directory-files"
 import {
-  formatOutlookRange,
   isIsoDate,
   mondayForDate,
   outlookWindow,
@@ -21,7 +17,7 @@ import {
   type OutlookTask,
 } from "@/lib/outlook-core"
 import type { JobProfileViewModel } from "@/lib/directory-view-models"
-import { publishOutlookVersionToComms } from "@/features/outlooks/outlook-comms-client"
+import { generateRealOutlook, outlookPdfErrorMessage } from "@/features/outlooks/generate-real-outlook"
 import { shareOrOpenOutlookPdf } from "@/features/outlooks/pdf/share-outlook-pdf"
 
 interface UseJobOutlookControllerInput {
@@ -34,14 +30,6 @@ function outlookLoadMessage(error: Error): string {
   return code === "permission-denied"
     ? "Outlook access is not enabled for this environment yet."
     : "The outlook could not be loaded."
-}
-
-function outlookPdfErrorMessage(error: unknown): string {
-  const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : ""
-  if (code === "storage/unauthorized") {
-    return "The version was saved, but PDF upload is not enabled in Storage yet. Try again after Storage rules are updated."
-  }
-  return error instanceof Error ? error.message : "The PDF could not be generated."
 }
 
 function tasksMatchVersion(tasks: OutlookTask[], version: JobOutlookVersion | null): version is JobOutlookVersion {
@@ -111,58 +99,29 @@ export function useJobOutlookController({ job, userId }: UseJobOutlookController
   const latestVersion = versions[0] ?? null
 
   const publishPdfAndComms = async (nextTasks: OutlookTask[]): Promise<JobOutlookVersion> => {
-    let publishedVersion: JobOutlookVersion
     if (tasksMatchVersion(nextTasks, latestVersion)) {
-      publishedVersion = latestVersion
-    } else {
-      const published = await publishJobOutlook({
-        userId,
-        jobId: job.sourceId,
-        jobDirectoryId: job.id,
-        window,
-        tasks: nextTasks,
-        expectedRevision: revisionRef.current,
-      })
-      revisionRef.current = published.revision
-      publishedVersion = published.version
-      setTasks(publishedVersion.tasks)
+      return latestVersion
     }
 
-    if (!publishedVersion.pdf) {
-      const [{ generateOutlookPdf }] = await Promise.all([
-        import("@/features/outlooks/pdf/generate-outlook-pdf"),
-      ])
-      const bytes = await generateOutlookPdf({
-        jobName: job.name,
-        companyName: job.companyName,
-        location: job.location,
-        window,
-        versionNumber: publishedVersion.versionNumber,
-        tasks: publishedVersion.tasks,
-      })
-      const safeJob = job.name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "job"
-      const fileName = `${safeJob}-3-week-outlook-${window.start}-v${publishedVersion.versionNumber}.pdf`
-      const file = new File([bytes as BlobPart], fileName, { type: "application/pdf" })
-      const stored = await uploadDirectoryFile(userId, job.id, file, {
-        category: "report",
-        caption: `3-Week Outlook · ${formatOutlookRange(window)} · Version ${publishedVersion.versionNumber}`,
-      })
-      const pdf = {
-        directoryFileId: stored.id,
-        storagePath: stored.storagePath,
-        downloadUrl: stored.downloadUrl,
-        fileName: stored.fileName,
-      }
-      await attachPdfToOutlookVersion(job.sourceId, window.start, publishedVersion.id, pdf)
-      publishedVersion = { ...publishedVersion, pdf }
-    }
-
-    await publishOutlookVersionToComms({
-      jobContextId: job.sourceId,
-      windowStart: window.start,
-      versionId: publishedVersion.id,
+    const result = await generateRealOutlook({
+      userId,
+      jobId: job.sourceId,
+      jobDirectoryId: job.id,
+      jobName: job.name,
+      companyName: job.companyName,
+      location: job.location,
+      window,
+      tasks: nextTasks,
+      expectedRevision: revisionRef.current,
     })
-    return publishedVersion
+    revisionRef.current = result.revision
+    setTasks(result.version.tasks)
+    // Preserves the pre-refactor behavior exactly: a Comms-posting failure
+    // still surfaces as "Changes were saved, but X failed" even though the
+    // Outlook + PDF themselves already exist by this point (the realtime
+    // subscription above already picked up the new published version).
+    if (result.commsError) throw new Error(result.commsError)
+    return result.version
   }
 
   const persist = async (nextTasks: OutlookTask[], message = "Draft saved.") => {
