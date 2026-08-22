@@ -220,6 +220,22 @@ export async function getOutlookFormSubmission(id: string): Promise<OutlookFormS
   return toSubmission(snapshot.id, snapshot.data())
 }
 
+/**
+ * Deletes only the submission's own bookkeeping doc. If it was already
+ * converted, the real Outlook it produced (contexts/{id}/outlooks/...) is
+ * left untouched — that's real Directory data now, independent of the
+ * intake record that originally fed it. Returns false if nothing existed
+ * to delete, so callers can tell "already gone" from "failed".
+ */
+export async function deleteOutlookFormSubmission(id: string): Promise<boolean> {
+  const db = await getAdminDb()
+  const ref = db.collection(OUTLOOK_FORM_SUBMISSIONS_COLLECTION).doc(id)
+  const snapshot = await ref.get()
+  if (!snapshot.exists) return false
+  await ref.delete()
+  return true
+}
+
 export async function markOutlookFormSubmissionReviewed(
   id: string,
   reviewer: { uid: string; name: string },

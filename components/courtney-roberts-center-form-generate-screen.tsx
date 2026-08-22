@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ArrowLeft, Building2, ExternalLink, FileDown, Loader2, Lock, Plus, Sparkles, Trash2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Building2, CalendarDays, CheckCircle2, Eye, FileDown, ListChecks, Loader2, Lock, Plus, Sparkles, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDateTimeInAppZone } from "@/lib/datetime"
 import { auth } from "@/lib/firebase"
@@ -246,18 +246,18 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   }
 
   return (
-    <div className={cn("flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
+    <div className={cn("relative flex-1 min-h-0 flex flex-col courtney-roberts-center-glass-screen", className ?? "animate-fade-in")}>
       <div className="shrink-0 border-b border-white/10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-4 md:px-6 app-topbar flex items-center gap-3">
           <button
             onClick={onBack}
-            className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-95 hover:bg-white/8 transition-all duration-150 shrink-0"
+            className="w-9 h-9 rounded-full bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center active:scale-95 hover:bg-emerald-500/15 transition-all duration-150 shrink-0"
           >
-            <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+            <ArrowLeft className="w-4 h-4 text-emerald-300" />
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-bold tracking-tight truncate">{submission?.jobName ?? "Review Outlook"}</h1>
-            {submission && <p className="text-[11px] text-muted-foreground/60">{isConverted ? "Converted" : "Review Outlook"}</p>}
+            {submission && <p className="text-[11px] text-muted-foreground/60">{submission.submittedByName}</p>}
           </div>
         </div>
       </div>
@@ -276,59 +276,80 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
             <EmptyState icon={<AlertTriangle className="w-5 h-5" />} title="Can't load this submission" description={errorMessage} />
           ) : submission && isConverted ? (
             <div className="flex flex-col gap-4">
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
-                <p className="text-sm font-semibold text-emerald-300 mb-1 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4" /> Converted to a real Outlook
-                </p>
-                <p className="text-xs text-muted-foreground/70">
-                  {submission.jobName} · Week of {formatOutlookDate(submission.convertedWindowStart ?? submission.window.start)}
-                  {realVersion ? ` · Version ${realVersion.versionNumber}` : ""}
-                </p>
-                {submission.convertedByName && (
-                  <p className="text-xs text-muted-foreground/50 mt-1">
-                    By {submission.convertedByName}
-                    {submission.convertedAtMs ? ` on ${formatDateTimeInAppZone(new Date(submission.convertedAtMs), { dateStyle: "medium", timeStyle: "short" })}` : ""}
-                  </p>
-                )}
-                {reopenError && <p className="text-xs text-amber-300/90 mt-2">{reopenError}</p>}
-                <div className="flex items-center gap-2 mt-3">
-                  {submission.convertedJobContextId && (
-                    <a
-                      href={buildOutlookDeepLink(directoryId("job", submission.convertedJobContextId))}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> View Outlook
-                    </a>
-                  )}
-                  {reopenLoading ? (
-                    <span className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold text-muted-foreground/60">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading PDF…
-                    </span>
-                  ) : realVersion?.pdf?.downloadUrl ? (
-                    <a
-                      href={realVersion.pdf.downloadUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold active:scale-95 transition-all duration-150"
-                    >
-                      <FileDown className="w-3.5 h-3.5" /> View PDF
-                    </a>
-                  ) : null}
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-emerald-300">Outlook created</p>
+                  <p className="text-xs text-muted-foreground/70">
+                    {realVersion ? `Version ${realVersion.versionNumber} · ` : ""}Converted successfully
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium border border-emerald-500/60 text-white bg-emerald-500">
+                  Converted
+                </span>
+                {submission.convertedAtMs && (
+                  <span className="text-xs text-muted-foreground/60">
+                    Converted {formatDateTimeInAppZone(new Date(submission.convertedAtMs), { dateStyle: "medium", timeStyle: "short" })}
+                  </span>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
+                <p className="text-xs font-semibold text-muted-foreground/60 mb-2.5">Outlook summary</p>
+                <div className="flex flex-col gap-3">
+                  <SummaryRow icon={<Building2 className="w-4 h-4 text-emerald-400" />} label="Job" value={submission.jobName} />
+                  <SummaryRow
+                    icon={<CalendarDays className="w-4 h-4 text-emerald-400" />}
+                    label="Window"
+                    value={`${formatOutlookDate(submission.convertedWindowStart ?? submission.window.start)} – ${formatOutlookDate(submission.window.end, { month: "short", day: "numeric" })}`}
+                  />
+                  <SummaryRow icon={<ListChecks className="w-4 h-4 text-emerald-400" />} label="Tasks" value={`${submission.tasks.length} tasks`} />
+                </div>
+              </div>
+
+              {reopenError && <p className="text-xs text-amber-300/90">{reopenError}</p>}
+
+              <div className="flex flex-col gap-2">
+                {submission.convertedJobContextId && (
+                  <a
+                    href={buildOutlookDeepLink(directoryId("job", submission.convertedJobContextId))}
+                    className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 text-white px-4 py-3 text-sm font-semibold active:scale-95 transition-all duration-150"
+                  >
+                    <Eye className="w-4 h-4" /> View Outlook
+                  </a>
+                )}
+                {reopenLoading ? (
+                  <span className="flex items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold text-muted-foreground/60">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading PDF…
+                  </span>
+                ) : realVersion?.pdf?.downloadUrl ? (
+                  <a
+                    href={realVersion.pdf.downloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold text-muted-foreground active:scale-95 transition-all duration-150"
+                  >
+                    <FileDown className="w-3.5 h-3.5" /> View PDF
+                  </a>
+                ) : null}
+                <button onClick={onBack} className="flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-emerald-300/90 active:opacity-60">
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back to Outlook Forms
+                </button>
               </div>
             </div>
           ) : submission ? (
             <div className="flex flex-col gap-4 pb-4">
-              <JobCard
-                resolvingJob={resolvingJob}
-                resolvedJob={resolvedJob}
-                showJobResolver={showJobResolver}
-                onToggleResolver={() => setShowJobResolver((current) => !current)}
-              />
+              <JobCard resolvingJob={resolvingJob} resolvedJob={resolvedJob} onChangeJob={() => setShowJobResolver(true)} />
 
               {showJobResolver && (
                 <OutlookFormJobResolver
                   initialQuery={submission.jobName}
+                  onCancel={() => setShowJobResolver(false)}
                   onResolved={(job) => {
                     const sourceId = parseDirectoryId(job.directoryContextId)?.sourceId ?? job.directoryContextId
                     setResolvedJob({ sourceId, directoryId: job.directoryContextId, name: job.name, companyName: null, location: null })
@@ -408,13 +429,11 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
 function JobCard({
   resolvingJob,
   resolvedJob,
-  showJobResolver,
-  onToggleResolver,
+  onChangeJob,
 }: {
   resolvingJob: boolean
   resolvedJob: ResolvedJob | null
-  showJobResolver: boolean
-  onToggleResolver: () => void
+  onChangeJob: () => void
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
@@ -437,8 +456,8 @@ function JobCard({
           <p className="text-sm text-muted-foreground/60">Not linked yet</p>
         )}
       </div>
-      <button onClick={onToggleResolver} className="shrink-0 text-xs font-semibold text-emerald-300 active:opacity-60">
-        {showJobResolver ? "Cancel" : "Change"}
+      <button onClick={onChangeJob} className="shrink-0 text-xs font-semibold text-emerald-300 active:opacity-60">
+        Change
       </button>
     </div>
   )
@@ -596,6 +615,18 @@ function SimpleTaskCard({
       )}
 
       {hasIssue && <p className="text-[11px] text-red-300/85">{issues[0].message}</p>}
+    </div>
+  )
+}
+
+function SummaryRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[11px] text-muted-foreground/60">{label}</p>
+        <p className="text-sm font-semibold truncate">{value}</p>
+      </div>
     </div>
   )
 }

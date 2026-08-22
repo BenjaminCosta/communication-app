@@ -197,6 +197,15 @@ export async function markOutlookFormSubmissionReviewed(submissionId: string): P
   return submission
 }
 
+/** Deletes the submission's own intake record. If it was already converted, the real Outlook it produced is untouched. */
+export async function deleteOutlookFormSubmission(submissionId: string): Promise<void> {
+  const response = await fetch(`/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}`, {
+    method: "DELETE",
+    headers: { Authorization: await authHeader() },
+  })
+  if (!response.ok) await readError(response, "Unable to delete this submission.")
+}
+
 /** Generates the submission's PDF on demand. Must be fetched with an Authorization header, not a plain `<a href>` navigation. */
 export async function fetchOutlookFormSubmissionPdf(submissionId: string): Promise<Blob> {
   const response = await fetch(`/api/courtney-roberts-center/outlook-forms/${encodeURIComponent(submissionId)}/pdf`, {
