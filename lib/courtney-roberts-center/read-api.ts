@@ -147,16 +147,21 @@ export async function getCourtneyRobertsCenterConversationThread(
 ): Promise<GetCourtneyRobertsCenterConversationThreadResult | null> {
   const db = await getAdminDb()
   const conversationRef = db.collection(CRC_CONVERSATIONS_COLLECTION).doc(conversationId)
-  const conversationSnap = await conversationRef.get()
-  const conversation = conversationSnap.exists ? toConversationSummary(conversationSnap.id, conversationSnap.data()) : null
-  if (!conversation) return null
 
   const limit = clampLimit(input?.limit, DEFAULT_MESSAGES_PAGE_SIZE, MAX_MESSAGES_PAGE_SIZE)
   let query: Query = conversationRef.collection(CRC_MESSAGES_SUBCOLLECTION).orderBy("createdAtMs", "asc").limit(limit + 1)
   const cursorMs = input?.cursor ? Number(input.cursor) : NaN
   if (Number.isFinite(cursorMs)) query = query.startAfter(cursorMs)
 
-  const snapshot = await query.get()
+  // The conversation doc and its messages page are independent reads — run
+  // them in parallel rather than gating the messages query on the
+  // conversation read completing first. The rare not-found case pays for one
+  // extra (empty, cheap) subcollection query in exchange for halving thread-
+  // open latency on every real conversation.
+  const [conversationSnap, snapshot] = await Promise.all([conversationRef.get(), query.get()])
+  const conversation = conversationSnap.exists ? toConversationSummary(conversationSnap.id, conversationSnap.data()) : null
+  if (!conversation) return null
+
   const messages = snapshot.docs
     .slice(0, limit)
     .map((doc) => toMessage(doc.id, doc.data()))

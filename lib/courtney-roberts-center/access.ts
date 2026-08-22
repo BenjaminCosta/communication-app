@@ -9,15 +9,25 @@ import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 export const COURTNEY_ROBERTS_CENTER_ACCESS_FIELD = "courtneyRobertsCenterAccess"
 
 /**
- * Looks up whether this uid currently has access, straight from Firestore —
- * the single source of truth both this gate and the manage-access screen
- * read from, so they can never drift out of sync with each other.
+ * Looks up this uid's `/users` doc once, straight from Firestore — the
+ * single source of truth both this gate and the manage-access screen read
+ * from, so they can never drift out of sync with each other. Also returns
+ * `name`, not just the access boolean: every caller of
+ * `requireCourtneyRobertsCenterAdmin` already pays for this read, and the
+ * manual-reply route used to re-fetch the same doc a second time just to get
+ * the admin's display name for attribution.
  */
-export async function hasCourtneyRobertsCenterAccess(uid: string): Promise<boolean> {
+async function loadCourtneyRobertsCenterAccessRecord(uid: string): Promise<{ hasAccess: boolean; name: string }> {
   const { getFirestore } = await import("firebase-admin/firestore")
   const db = getFirestore(await getFirebaseAdminApp())
   const snapshot = await db.collection("users").doc(uid).get()
-  return snapshot.data()?.[COURTNEY_ROBERTS_CENTER_ACCESS_FIELD] === true
+  const data = snapshot.data()
+  const name = typeof data?.name === "string" ? data.name.trim() : ""
+  return { hasAccess: data?.[COURTNEY_ROBERTS_CENTER_ACCESS_FIELD] === true, name }
+}
+
+export async function hasCourtneyRobertsCenterAccess(uid: string): Promise<boolean> {
+  return (await loadCourtneyRobertsCenterAccessRecord(uid)).hasAccess
 }
 
 export class CourtneyRobertsCenterAccessError extends Error {
@@ -36,7 +46,7 @@ function extractBearer(request: Request): string {
   return match[1].trim()
 }
 
-export type CourtneyRobertsCenterAdmin = { uid: string; email: string }
+export type CourtneyRobertsCenterAdmin = { uid: string; email: string; name: string }
 
 /**
  * Verifies the caller's Firebase ID token and checks their access against
@@ -60,10 +70,11 @@ export async function requireCourtneyRobertsCenterAdmin(request: Request): Promi
     throw new CourtneyRobertsCenterAccessError(401, "Your session expired. Please sign in again.")
   }
 
-  if (!(await hasCourtneyRobertsCenterAccess(decoded.uid))) {
+  const { hasAccess, name } = await loadCourtneyRobertsCenterAccessRecord(decoded.uid)
+  if (!hasAccess) {
     throw new CourtneyRobertsCenterAccessError(403, "You are not approved to view Courtney Roberts Center.")
   }
-  return { uid: decoded.uid, email: decoded.email ?? "" }
+  return { uid: decoded.uid, email: decoded.email ?? "", name: name || decoded.email || "" }
 }
 
 export function toCourtneyRobertsCenterAccessErrorResponse(error: unknown): Response {
