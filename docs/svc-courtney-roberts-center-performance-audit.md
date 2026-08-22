@@ -262,6 +262,41 @@ fine"*. Es una decisión documentada, no un descuido — se deja registrado acá
 solo como el techo a vigilar: si el número de usuarios de la app crece un
 orden de magnitud, esta es la primera lectura que necesitará paginación.
 
+### 3.8b La pestaña "Outlook Forms" es una cola simple, no el editor rico de Directory
+
+Vale aclarar el alcance: "Outlook Forms" dentro de CRC (`outlookFormSubmissions`,
+`lib/outlook-form-submissions/`) **no** es el mismo feature que el "3-Week
+Outlook" colaborativo de Directory (`contexts/{jobSourceId}/outlooks/`,
+documentado en `docs/svc-3-week-outlook-handoff.md`) — ese es un editor en
+vivo con listeners, versionado y concurrencia optimista, pensado para
+usuarios internos autenticados editando un job. La pestaña de CRC es mucho
+más simple por diseño:
+
+- Un super/PM llena un formulario público en `/outlook-form` — **sin login**,
+  pensado para que se complete desde el celular en el sitio de obra.
+- El submit crea **un documento nuevo, de una sola vez** en
+  `outlookFormSubmissions` (`createOutlookFormSubmission`) — no hay draft
+  colaborativo, no hay listener en tiempo real, no hay concurrencia que
+  resolver.
+- Un admin de CRC lo revisa después: lista paginada, detalle de solo lectura,
+  botón "Mark reviewed", botón "Generate PDF".
+
+Esta simplicidad es la razón por la que la pestaña ya es rápida: no hereda
+ninguno de los costos del editor rico de Directory (sin listeners, sin
+versiones, sin recalculo de scheduling en el cliente). El único costo real
+es el ya cubierto en §3.5 (el índice automático de `tasks`/`generalNotes`,
+que nadie consulta) y en §3.8 (el PDF se regenera cada vez que se pide).
+
+Un dato de UX a tener en cuenta, no de performance: el formulario público no
+requiere login, así que cualquiera con el link puede enviar un submission.
+Eso es la decisión de producto correcta para que un super lo complete sin
+fricción desde el sitio — pero significa que el volumen de `outlookFormSubmissions`
+no está acotado por "usuarios de la app" como sí lo está `/admins`; si el link
+se comparte ampliamente, esta es la colección de CRC con mayor potencial de
+crecimiento no controlado, y la primera candidata a necesitar paginación real
+en la lista (hoy usa `LIST_PAGE_SIZE = 100` sin scroll infinito, ver
+`courtney-roberts-center-screen.tsx`).
+
 ### 3.8 PDF de Outlook Form: generado on-demand, sin caché
 
 `GET /outlook-forms/:id/pdf` reconstruye el PDF en cada request — el propio
