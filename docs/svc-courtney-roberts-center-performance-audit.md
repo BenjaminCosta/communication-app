@@ -378,7 +378,95 @@ lectura puramente internas.
 - [Cloud Firestore: field-level index exemptions](https://firebase.google.com/docs/firestore/query-data/index-overview#field-overrides)
   — mecanismo concreto para §3.5.
 
-## 8. Conclusión
+## 8. Actualización: "Generate Outlook" — convertir un submission en un Outlook real
+
+> Cambios pusheados directo a `main` (commits `b60d8f2`, `481d587`,
+> `41aaf4b`) fuera de esta rama — no forman parte de los fixes de esta
+> auditoría, se documentan acá porque tocan directamente la sección que este
+> archivo ya cubre. Revisión de solo lectura del diff, sin ejecutar nada.
+
+La pestaña "Outlook Forms" dejó de ser solo una cola de revisión (§3.8b): un
+submission ahora puede **convertirse en un 3-Week Outlook real** de
+Directory — el mismo editor colaborativo documentado en
+`docs/svc-3-week-outlook-handoff.md` — vía una pantalla nueva
+(`courtney-roberts-center-form-generate-screen.tsx`, 642 líneas) donde el
+admin edita las tareas, resuelve el job contra Directory si hace falta
+(`outlook-form-job-resolver.tsx`), y confirma "Generate Outlook".
+
+### Lo bueno: una sola implementación, no dos copias
+
+El hallazgo más importante de este cambio es de diseño, no de bug: la
+secuencia "publicar versión → generar PDF → subirlo a Directory Files →
+postear a Comms" existía antes solo dentro del editor de Directory
+(`use-job-outlook-controller.ts`). Se extrajo a
+`features/outlooks/generate-real-outlook.ts` y **ambos** callers —el editor
+de Directory y esta pantalla nueva de CRC— llaman a la misma función. Antes
+de este cambio, agregar esta feature del modo obvio hubiese significado
+copiar esa secuencia una segunda vez; el refactor evita exactamente el tipo
+de deuda que la auditoría de Firebase general marca como riesgo ("cada
+feature nueva agrega otro camino paralelo en vez de reusar el existente").
+
+### Lecturas en cascada al abrir la pantalla — esperado, no un bug
+
+Abrir "Review Outlook" hace, en cascada (cada paso depende del anterior, no
+son paralelizables entre sí):
+
+1. `fetchOutlookFormSubmission()` — 1 request a la API de CRC.
+2. Si el submission ya tiene `jobContextId`: `loadDirectoryProfileViewModel()`
+   — lectura cliente de Directory (índice + fuente en paralelo, ya
+   optimizado — ver `svc-directory-performance-optimization.md`).
+3. Con el job resuelto: `getJobOutlookDraft()` — un `getDoc` cliente, para el
+   aviso de colisión ("ya existe un outlook para este job/semana").
+
+Tres round-trips en cascada es real, pero cada uno es un point-read barato,
+y es una pantalla que un admin abre para revisar un submission puntual —no
+un camino de alta frecuencia como el webhook de WhatsApp (§3.1). No amerita
+paralelizarlo: el paso 3 necesita el resultado del paso 2, así que no hay
+nada que ganar corriéndolos juntos sin cambiar el orden de dependencia real.
+
+### El botón "Generate Outlook" es lento a propósito — y lo comunica bien
+
+Tocar "Generate Outlook" dispara una cadena larga: re-chequeo de colisión →
+publicar versión (transacción Firestore con concurrencia optimista) →
+generar el PDF en el browser (CPU) → subirlo a Storage (red) → adjuntarlo a
+la versión → grabar la conversión en el submission → postear a
+Communications. Es la misma cadena que el editor de Directory ya hacía, así
+que no es más lenta que antes — solo tiene un caller nuevo. A diferencia del
+hallazgo de ByeByeDPR (§3.1 de `svc-bye-bye-dpr-performance-ux-audit.md`),
+acá el usuario es un admin de oficina haciendo una acción deliberada y poco
+frecuente, no un trabajador de campo esperando "en segundos" — la tolerancia
+a unos segundos de espera es razonable acá, y el botón ya muestra
+"Generating…" / "Saving…" mientras corre.
+
+Lo que sí está bien resuelto, en términos de integridad de datos: si la
+publicación de la versión tiene éxito pero el registro de conversión
+(`convertOutlookFormSubmission`) falla después (red cortada, 500
+transitorio), el estado `createdVersion` sobrevive en memoria y "Retry
+saving" reintenta solo el paso que falló — nunca publica una segunda versión
+huérfana. Mismo criterio de idempotencia que ya usa el resto del módulo
+(mensajes de WhatsApp, respuestas manuales).
+
+### Un campo nuevo con nombre engañoso — no es un problema hoy, pero vale registrarlo
+
+`OutlookFormSubmission.jobContextId` ahora guarda el id **compuesto** de
+Directory (`job__<id>`), no un id crudo de `contexts` como su nombre y su
+comentario original sugerían — el propio diff lo señala explícitamente
+("Despite the name, this is NOT a raw contexts/{id} doc id"). No es un bug:
+cada lugar que lo usa ya lo desenvuelve con `parseDirectoryId(...)?.sourceId`
+correctamente. Se deja anotado acá porque es exactamente el tipo de
+discrepancia nombre/contenido que la auditoría general de Firebase (§9.2)
+señala como fuente de bugs futuros si un caller nuevo asume la forma vieja
+por el nombre del campo en vez de leer el comentario.
+
+### Nada de esto cambia el veredicto de §3.8b
+
+La pestaña sigue sin listeners, sigue paginada, y el nuevo estado
+`"converted"` es solo un tercer valor de un campo que ya se filtraba en
+memoria (mismo patrón, sin query nueva). El riesgo de crecimiento sin techo
+del link público (§3.8b) tampoco cambia — sigue siendo el mismo formulario
+sin login.
+
+## 9. Conclusión
 
 CRC no tiene un problema de arquitectura de lectura — ya sigue el patrón que
 la auditoría general de Firebase recomienda como modelo para el resto de la
