@@ -29,7 +29,7 @@ interface CourtneyRobertsCenterScreenProps {
 
 type ViewKey = "whatsapp" | "forms"
 type FilterKey = "all" | "internal" | "public"
-type FormFilterKey = "all" | "new" | "reviewed"
+type FormFilterKey = "all" | "new" | "reviewed" | "converted"
 
 const VIEWS: { key: ViewKey; label: string }[] = [
   { key: "whatsapp", label: "WhatsApp" },
@@ -46,6 +46,7 @@ const FORM_FILTERS: { key: FormFilterKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "new", label: "New" },
   { key: "reviewed", label: "Reviewed" },
+  { key: "converted", label: "Converted" },
 ]
 
 // Admin tool, small conversation count expected — one page covers the real
@@ -139,7 +140,7 @@ export function CourtneyRobertsCenterScreen({
   const filteredForms = useMemo(() => {
     const list = formSubmissions ?? []
     if (formFilter === "all") return list
-    const status: OutlookFormSubmissionStatus = formFilter === "reviewed" ? "reviewed" : "new"
+    const status: OutlookFormSubmissionStatus = formFilter
     return list.filter((submission) => submission.status === status)
   }, [formSubmissions, formFilter])
 

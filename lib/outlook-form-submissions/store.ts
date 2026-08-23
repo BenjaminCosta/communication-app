@@ -102,7 +102,7 @@ function toSubmission(id: string, data: unknown): OutlookFormSubmission | null {
   return {
     id,
     schemaVersion: typeof record.schemaVersion === "number" ? record.schemaVersion : OUTLOOK_FORM_SUBMISSION_SCHEMA_VERSION,
-    status: record.status === "reviewed" ? "reviewed" : "new",
+    status: record.status === "reviewed" ? "reviewed" : record.status === "converted" ? "converted" : "new",
     submittedByName: asString(record.submittedByName) || "Unknown",
     submittedByPhone: asString(record.submittedByPhone),
     submittedByCompany: asString(record.submittedByCompany),
@@ -117,6 +117,12 @@ function toSubmission(id: string, data: unknown): OutlookFormSubmission | null {
     reviewedAtMs: typeof record.reviewedAtMs === "number" ? record.reviewedAtMs : null,
     reviewedByUid: asString(record.reviewedByUid) || null,
     reviewedByName: asString(record.reviewedByName) || null,
+    convertedAtMs: typeof record.convertedAtMs === "number" ? record.convertedAtMs : null,
+    convertedByUid: asString(record.convertedByUid) || null,
+    convertedByName: asString(record.convertedByName) || null,
+    convertedJobContextId: asString(record.convertedJobContextId) || null,
+    convertedWindowStart: asString(record.convertedWindowStart) || null,
+    convertedVersionId: asString(record.convertedVersionId) || null,
   }
 }
 
@@ -154,6 +160,12 @@ export async function createOutlookFormSubmission(input: OutlookFormSubmitInput)
     reviewedAtMs: null,
     reviewedByUid: null,
     reviewedByName: null,
+    convertedAtMs: null,
+    convertedByUid: null,
+    convertedByName: null,
+    convertedJobContextId: null,
+    convertedWindowStart: null,
+    convertedVersionId: null,
   })
   return { id: ref.id }
 }
@@ -208,6 +220,22 @@ export async function getOutlookFormSubmission(id: string): Promise<OutlookFormS
   return toSubmission(snapshot.id, snapshot.data())
 }
 
+/**
+ * Deletes only the submission's own bookkeeping doc. If it was already
+ * converted, the real Outlook it produced (contexts/{id}/outlooks/...) is
+ * left untouched — that's real Directory data now, independent of the
+ * intake record that originally fed it. Returns false if nothing existed
+ * to delete, so callers can tell "already gone" from "failed".
+ */
+export async function deleteOutlookFormSubmission(id: string): Promise<boolean> {
+  const db = await getAdminDb()
+  const ref = db.collection(OUTLOOK_FORM_SUBMISSIONS_COLLECTION).doc(id)
+  const snapshot = await ref.get()
+  if (!snapshot.exists) return false
+  await ref.delete()
+  return true
+}
+
 export async function markOutlookFormSubmissionReviewed(
   id: string,
   reviewer: { uid: string; name: string },
@@ -219,6 +247,46 @@ export async function markOutlookFormSubmissionReviewed(
 
   const now = Date.now()
   const patch = { status: "reviewed" as const, reviewedAtMs: now, reviewedByUid: reviewer.uid, reviewedByName: reviewer.name }
+  await ref.set(patch, { merge: true })
+  return toSubmission(id, { ...snapshot.data(), ...patch })
+}
+
+/**
+ * Pure — the one real branch this needs is whether to backfill the reviewer
+ * trail. Converting straight from "new" (skipping "Mark reviewed") should
+ * still leave a coherent record of who reviewed it; converting an already-
+ * reviewed submission must not clobber the original reviewer.
+ */
+export function computeConvertedPatch(
+  current: Pick<OutlookFormSubmission, "reviewedAtMs">,
+  converter: { uid: string; name: string },
+  target: { jobContextId: string; windowStart: string; versionId: string },
+  now = Date.now(),
+): Partial<OutlookFormSubmission> {
+  return {
+    status: "converted",
+    convertedAtMs: now,
+    convertedByUid: converter.uid,
+    convertedByName: converter.name,
+    convertedJobContextId: target.jobContextId,
+    convertedWindowStart: target.windowStart,
+    convertedVersionId: target.versionId,
+    ...(current.reviewedAtMs == null ? { reviewedAtMs: now, reviewedByUid: converter.uid, reviewedByName: converter.name } : {}),
+  }
+}
+
+export async function markOutlookFormSubmissionConverted(
+  id: string,
+  converter: { uid: string; name: string },
+  target: { jobContextId: string; windowStart: string; versionId: string },
+): Promise<OutlookFormSubmission | null> {
+  const db = await getAdminDb()
+  const ref = db.collection(OUTLOOK_FORM_SUBMISSIONS_COLLECTION).doc(id)
+  const snapshot = await ref.get()
+  if (!snapshot.exists) return null
+
+  const current = toSubmission(id, snapshot.data())
+  const patch = computeConvertedPatch(current ?? { reviewedAtMs: null }, converter, target)
   await ref.set(patch, { merge: true })
   return toSubmission(id, { ...snapshot.data(), ...patch })
 }

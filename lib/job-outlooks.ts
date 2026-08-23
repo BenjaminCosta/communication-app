@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   limit,
   onSnapshot,
   orderBy,
@@ -129,6 +130,18 @@ function mapVersion(id: string, data: DocumentData): JobOutlookVersion {
       fileName: text(pdf.fileName),
     } : null,
   }
+}
+
+/** One-shot point-read of the draft — used as a collision guard before a non-interactive write (e.g. Courtney Roberts Center generating an Outlook from a reviewed submission), where there's no existing realtime subscription/local revision to check against. */
+export async function getJobOutlookDraft(jobId: string, windowStart: string): Promise<JobOutlookDraft | null> {
+  const snapshot = await getDoc(draftRef(jobId, windowStart))
+  return snapshot.exists() ? mapDraft(snapshot.id, snapshot.data()) : null
+}
+
+/** One-shot point-read of a single version — used to re-resolve a deep link/PDF URL from just the id, without a live subscription (e.g. reopening an already-converted outlook form submission after a fresh page load). */
+export async function getJobOutlookVersion(jobId: string, windowStart: string, versionId: string): Promise<JobOutlookVersion | null> {
+  const snapshot = await getDoc(doc(versionsRef(jobId, windowStart), versionId))
+  return snapshot.exists() ? mapVersion(snapshot.id, snapshot.data()) : null
 }
 
 export function subscribeJobOutlook(

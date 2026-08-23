@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { outlookFormSubmitSchema } from "../lib/outlook-form-submissions/schema"
 import { nextRateLimitState } from "../lib/outlook-form-submissions/rate-limit"
-import { resolveWindowAnchorForTests, toOutlookFormSubmissionForTests } from "../lib/outlook-form-submissions/store"
+import { computeConvertedPatch, resolveWindowAnchorForTests, toOutlookFormSubmissionForTests } from "../lib/outlook-form-submissions/store"
 
 test("outlookFormSubmitSchema accepts a minimal valid submission and defaults optional fields", () => {
   const parsed = outlookFormSubmitSchema.safeParse({
@@ -107,6 +107,16 @@ test("toOutlookFormSubmissionForTests: defaults a malformed/legacy doc rather th
   assert.equal(submission?.submittedByRole, "site_super")
   assert.deepEqual(submission?.tasks, [])
   assert.equal(submission?.reviewedAtMs, null)
+  assert.equal(submission?.convertedAtMs, null)
+  assert.equal(submission?.convertedByUid, null)
+  assert.equal(submission?.convertedJobContextId, null)
+  assert.equal(submission?.convertedWindowStart, null)
+  assert.equal(submission?.convertedVersionId, null)
+})
+
+test("toOutlookFormSubmissionForTests: recognizes a converted status", () => {
+  const submission = toOutlookFormSubmissionForTests("sub-1", { status: "converted" })
+  assert.equal(submission?.status, "converted")
 })
 
 test("toOutlookFormSubmissionForTests: reads a well-formed submission doc, including tasks", () => {
@@ -128,6 +138,12 @@ test("toOutlookFormSubmissionForTests: reads a well-formed submission doc, inclu
     reviewedAtMs: 2000,
     reviewedByUid: "uid-1",
     reviewedByName: "Frank",
+    convertedAtMs: 3000,
+    convertedByUid: "uid-2",
+    convertedByName: "Ben",
+    convertedJobContextId: "ctx-1",
+    convertedWindowStart: "2026-08-03",
+    convertedVersionId: "v0001",
   })
   assert.ok(submission)
   assert.equal(submission?.status, "reviewed")
@@ -135,6 +151,9 @@ test("toOutlookFormSubmissionForTests: reads a well-formed submission doc, inclu
   assert.equal(submission?.submittedByRole, "pm")
   assert.equal(submission?.tasks.length, 1)
   assert.equal(submission?.tasks[0]?.title, "Framing")
+  assert.equal(submission?.convertedAtMs, 3000)
+  assert.equal(submission?.convertedByName, "Ben")
+  assert.equal(submission?.convertedVersionId, "v0001")
   assert.equal(submission?.tasks[0]?.status, "in_progress")
   assert.equal(submission?.reviewedByName, "Frank")
 })
@@ -145,4 +164,37 @@ test("toOutlookFormSubmissionForTests: drops a task with no title rather than ke
   })
   assert.equal(submission?.tasks.length, 1)
   assert.equal(submission?.tasks[0]?.title, "Real task")
+})
+
+test("computeConvertedPatch: converting straight from 'new' backfills the reviewer trail with the converter", () => {
+  const patch = computeConvertedPatch(
+    { reviewedAtMs: null },
+    { uid: "uid-frank", name: "Frank" },
+    { jobContextId: "ctx-1", windowStart: "2026-08-17", versionId: "v0001" },
+    5000,
+  )
+  assert.equal(patch.status, "converted")
+  assert.equal(patch.convertedAtMs, 5000)
+  assert.equal(patch.convertedByUid, "uid-frank")
+  assert.equal(patch.convertedJobContextId, "ctx-1")
+  assert.equal(patch.convertedWindowStart, "2026-08-17")
+  assert.equal(patch.convertedVersionId, "v0001")
+  assert.equal(patch.reviewedAtMs, 5000)
+  assert.equal(patch.reviewedByUid, "uid-frank")
+  assert.equal(patch.reviewedByName, "Frank")
+})
+
+test("computeConvertedPatch: converting an already-reviewed submission never clobbers the original reviewer", () => {
+  const patch = computeConvertedPatch(
+    { reviewedAtMs: 1000 },
+    { uid: "uid-ben", name: "Ben" },
+    { jobContextId: "ctx-1", windowStart: "2026-08-17", versionId: "v0001" },
+    5000,
+  )
+  assert.equal(patch.status, "converted")
+  assert.equal(patch.convertedByUid, "uid-ben")
+  // No reviewer fields in the patch at all — merge() leaves the existing ones untouched.
+  assert.equal("reviewedAtMs" in patch, false)
+  assert.equal("reviewedByUid" in patch, false)
+  assert.equal("reviewedByName" in patch, false)
 })
