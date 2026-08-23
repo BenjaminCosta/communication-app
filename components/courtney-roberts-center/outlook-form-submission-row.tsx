@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { formatDateInAppZone, formatTimeInAppZone, isSameDayInAppZone } from "@/lib/datetime"
@@ -23,7 +23,16 @@ function formatTimestamp(ms: number): string {
   return formatDateInAppZone(date, { month: "short", day: "numeric" })
 }
 
-export function OutlookFormSubmissionRow({ submission, onSelect }: { submission: OutlookFormSubmission; onSelect: () => void }) {
+export function OutlookFormSubmissionRow({
+  submission,
+  isPossibleDuplicate,
+  onSelect,
+}: {
+  submission: OutlookFormSubmission
+  /** Another submission targets the same job (or same typed job name, if unlinked) and the same 3-week window — see the grouping logic in courtney-roberts-center-screen.tsx. */
+  isPossibleDuplicate?: boolean
+  onSelect: () => void
+}) {
   return (
     <button
       onClick={onSelect}
@@ -50,6 +59,12 @@ export function OutlookFormSubmissionRow({ submission, onSelect }: { submission:
           >
             {submission.status === "converted" ? "Converted" : submission.status === "reviewed" ? "Reviewed" : "New"}
           </span>
+          {isPossibleDuplicate && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border border-orange-500/40 text-orange-400 bg-orange-500/10 shrink-0">
+              <Copy className="w-2.5 h-2.5" strokeWidth={2.5} />
+              Possible duplicate
+            </span>
+          )}
         </div>
         <p className="text-[11px] text-muted-foreground/50 mt-1.5">
           {submission.tasks.length} task{submission.tasks.length === 1 ? "" : "s"} · {formatOutlookRange(submission.window)}

@@ -58,6 +58,12 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   const [tasks, setTasks] = useState<OutlookTask[]>([])
   const [resolvedJob, setResolvedJob] = useState<ResolvedJob | null>(null)
   const [resolvingJob, setResolvingJob] = useState(false)
+  // True when the automatic Directory lookup itself failed (network/timeout,
+  // not "no such job") — resolvedJob still gets set from the submission's own
+  // typed name so the screen stays usable, but that name/company/location was
+  // never actually confirmed against Directory. Surfaced explicitly instead of
+  // looking identical to a real match.
+  const [jobResolutionFailed, setJobResolutionFailed] = useState(false)
   const [showJobResolver, setShowJobResolver] = useState(false)
   const [draftCollisionRevision, setDraftCollisionRevision] = useState<number | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -101,19 +107,28 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   }, [submissionId])
 
   // Resolve the job once the submission loads — skipped once already converted.
-  useEffect(() => {
-    if (!submission || submission.status === "converted") return
-    if (!submission.jobContextId) {
+  const resolveJobFromSubmission = (sub: OutlookFormSubmission) => {
+    if (!sub.jobContextId) {
       setShowJobResolver(true)
       return
     }
-    const sourceId = parseDirectoryId(submission.jobContextId)?.sourceId ?? submission.jobContextId
+    const sourceId = parseDirectoryId(sub.jobContextId)?.sourceId ?? sub.jobContextId
     const compositeId = directoryId("job", sourceId)
     setResolvingJob(true)
+    setJobResolutionFailed(false)
     loadDirectoryProfileViewModel(compositeId)
       .then((vm) => setResolvedJob({ sourceId, directoryId: compositeId, name: vm.name, companyName: vm.companyName ?? null, location: vm.location ?? null }))
-      .catch(() => setResolvedJob({ sourceId, directoryId: compositeId, name: submission.jobName, companyName: null, location: null }))
+      .catch(() => {
+        setResolvedJob({ sourceId, directoryId: compositeId, name: sub.jobName, companyName: null, location: null })
+        setJobResolutionFailed(true)
+      })
       .finally(() => setResolvingJob(false))
+  }
+
+  useEffect(() => {
+    if (!submission || submission.status === "converted") return
+    resolveJobFromSubmission(submission)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submission])
 
   // Collision guard — surfaced as a persistent warning, not a blocking dialog.
@@ -345,7 +360,13 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
             </div>
           ) : submission ? (
             <div className="flex flex-col gap-4 pb-4">
-              <JobCard resolvingJob={resolvingJob} resolvedJob={resolvedJob} onChangeJob={() => setShowJobResolver(true)} />
+              <JobCard
+                resolvingJob={resolvingJob}
+                resolvedJob={resolvedJob}
+                resolutionFailed={jobResolutionFailed}
+                onChangeJob={() => setShowJobResolver(true)}
+                onRetry={() => submission && resolveJobFromSubmission(submission)}
+              />
 
               {showJobResolver && (
                 <OutlookFormJobResolver
@@ -435,16 +456,26 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
 function JobCard({
   resolvingJob,
   resolvedJob,
+  resolutionFailed,
   onChangeJob,
+  onRetry,
 }: {
   resolvingJob: boolean
   resolvedJob: ResolvedJob | null
+  /** The automatic Directory lookup failed — resolvedJob is a best-effort fallback built from the submission's own typed name, never confirmed against Directory. */
+  resolutionFailed: boolean
   onChangeJob: () => void
+  onRetry: () => void
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
-      <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
-        <Building2 className="w-4 h-4 text-emerald-400" />
+    <div className={cn("flex items-center gap-3 rounded-xl border p-3.5", resolutionFailed ? "border-amber-500/30 bg-amber-500/[0.05]" : "border-white/10 bg-white/[0.03]")}>
+      <div
+        className={cn(
+          "w-9 h-9 rounded-full border flex items-center justify-center shrink-0",
+          resolutionFailed ? "bg-amber-500/15 border-amber-500/25" : "bg-emerald-500/15 border-emerald-500/25",
+        )}
+      >
+        {resolutionFailed ? <AlertTriangle className="w-4 h-4 text-amber-400" /> : <Building2 className="w-4 h-4 text-emerald-400" />}
       </div>
       <div className="flex-1 min-w-0">
         {resolvingJob ? (
@@ -454,8 +485,17 @@ function JobCard({
         ) : resolvedJob ? (
           <>
             <p className="text-sm font-semibold truncate">{resolvedJob.name}</p>
-            {(resolvedJob.companyName || resolvedJob.location) && (
-              <p className="text-xs text-muted-foreground/60 truncate">{[resolvedJob.companyName, resolvedJob.location].filter(Boolean).join(" · ")}</p>
+            {resolutionFailed ? (
+              <p className="text-xs text-amber-300/90 mt-0.5">
+                Couldn&apos;t verify this against Directory — using the name from the submission.{" "}
+                <button onClick={onRetry} className="underline font-semibold">
+                  Retry
+                </button>
+              </p>
+            ) : (
+              (resolvedJob.companyName || resolvedJob.location) && (
+                <p className="text-xs text-muted-foreground/60 truncate">{[resolvedJob.companyName, resolvedJob.location].filter(Boolean).join(" · ")}</p>
+              )
             )}
           </>
         ) : (
