@@ -466,7 +466,168 @@ memoria (mismo patrón, sin query nueva). El riesgo de crecimiento sin techo
 del link público (§3.8b) tampoco cambia — sigue siendo el mismo formulario
 sin login.
 
-## 9. Conclusión
+## 9. "Generate Outlook" — revisión de correctitud (cabos sueltos)
+
+> Pasada dedicada a buscar bugs y flujos incompletos, no solo performance.
+> Un hallazgo (9.1) se corrigió en esta sesión; el resto queda documentado
+> con su severidad real porque son decisiones de producto o requieren más
+> alcance que un ajuste de una línea.
+
+### 9.1 Datalist de autocompletar compañía nunca se renderizaba — **corregido**
+
+`SimpleTaskCard` (dentro de `courtney-roberts-center-form-generate-screen.tsx`)
+renderiza `<input list="crc-outlook-company-options">` en el campo Company de
+cada tarea, y la prop `companies` se pasa a través de 4 niveles de
+componentes específicamente para alimentar ese autocomplete — pero en
+ningún lugar del archivo existía el `<datalist id="crc-outlook-company-options">`
+correspondiente. El mismo patrón (`<input list="...">` + `<datalist id="...">`
+justo debajo) ya existe en los dos editores de Outlook de Directory
+(`outlook-advanced-view.tsx`, `outlook-advanced-sheet.tsx`) — se confirmó
+comparando ambos. Sin el datalist, escribir en el campo Company nunca
+mostraba sugerencias: ni error en consola, ni diferencia visual con un input
+de texto plano — simplemente el admin no tenía forma de saber qué compañías
+ya existen en Directory al revisar las tareas de un submission. Se agregó el
+`<datalist>` faltante, mismo patrón que los otros dos editores. Verificado
+con `pnpm exec tsc --noEmit` (limpio) y `pnpm exec tsx --test
+scripts/outlook-form-submissions-core.test.ts` (18/18).
+
+### 9.2 Resolver el job a mano deja el PDF sin compañía/ubicación
+
+Hay dos caminos para que `resolvedJob` quede seteado:
+
+- **Automático** (`submission.jobContextId` ya existe): usa
+  `loadDirectoryProfileViewModel()`, que sí trae `companyName`/`location`
+  reales de Directory.
+- **Manual** (el admin busca o crea el job vía `OutlookFormJobResolver`):
+  `onResolved` setea `resolvedJob` con `companyName: null, location: null`
+  siempre — ninguna de las dos ramas (`handleSelectDirectoryResult`
+  equivalente aquí, ni la creación) enriquece esos campos después.
+
+`handleGenerate()` manda exactamente esos valores a `generateRealOutlook()`,
+que los usa en el encabezado del PDF. Resultado: un submission cuyo job se
+resuelve manualmente (típicamente "Other / not listed" en el formulario
+público, el caso menos automatizado y por eso el que más necesita ayuda)
+termina con un PDF sin compañía ni ubicación en el encabezado, aunque el job
+real en Directory sí las tenga. No se corrigió en esta pasada — el fix es
+sencillo (llamar a `loadDirectoryProfileViewModel()` también dentro de
+`onResolved`) pero se dejó documentado en vez de tocado a ciegas, ya que
+implica un round-trip extra en un flujo que hoy responde instantáneo al
+elegir un resultado.
+
+### 9.3 Un fallo de red durante la resolución automática se disfraza de éxito
+
+Si `loadDirectoryProfileViewModel()` falla por cualquier motivo que no sea
+"el doc no existe" (un blip de red, un timeout), el `.catch()` arma un
+`resolvedJob` de todos modos — con `name: submission.jobName` (el texto que
+tipeó el super en el formulario, nunca verificado contra Directory) y
+`companyName`/`location` en `null`. La `JobCard` no distingue este caso del
+de una resolución exitosa: ambos se ven igual, "resuelto". Un admin podría
+tocar "Generate Outlook" creyendo que el job fue confirmado contra Directory
+cuando en realidad nunca se pudo verificar. Práctico: bajo riesgo real
+(Directory casi nunca falla en un point-read), pero es la clase de error que,
+si ocurre, es indistinguible de un caso normal en la UI.
+
+### 9.4 Una recarga de página entre "Outlook creado" y "bookkeeping guardado" puede duplicar la versión
+
+`handleGenerate()` guarda el resultado de `generateRealOutlook()` en el
+estado `createdVersion` — el comentario en el código explica que esto existe
+para que un reintento no publique una segunda versión huérfana. Es cierto,
+pero **solo dentro de la misma instancia del componente**: `createdVersion`
+es `useState`, no algo persistido (ni en el submission, ni en localStorage).
+Si el navegador se recarga o se cierra justo después de que
+`generateRealOutlook()` tuvo éxito pero antes de que
+`convertOutlookFormSubmission()` (el bookkeeping) termine, al reabrir la
+pantalla el submission sigue figurando como no convertido — reintentar desde
+cero vuelve a pasar por el aviso de colisión ("ya existe un outlook, esto lo
+va a sobrescribir") y publica una versión nueva (`v0002`, no un
+overwrite real — cada publish es una versión nueva e inmutable), dejando la
+primera (`v0001`) huérfana: existe en Firestore, tiene PDF, pero ningún
+submission la referencia. No corrompe datos ni bloquea nada — es
+desperdicio silencioso, no un error visible. Ventana de tiempo real pero
+angosta (milisegundos a pocos segundos entre dos writes en el mismo
+request), y de bajo impacto (un doc extra en una subcolección, nunca
+mostrado como "la versión oficial" en ningún lado). Se deja documentado, no
+corregido — resolverlo bien requeriría persistir el resultado intermedio en
+el propio submission antes de intentar el bookkeeping, un cambio de forma de
+datos, no un ajuste de UI.
+
+### 9.5 Borrar un submission ya convertido no avisa que rompe el rastro de auditoría
+
+El flujo de borrado (`handleDelete` en `courtney-roberts-center-form-detail-screen.tsx`)
+usa el mismo diálogo genérico ("Delete this submission? This can't be
+undone.") sin importar el `status` del submission. Borrar uno ya
+`"converted"` es seguro en el sentido de que la data real (el Outlook, su
+PDF, el archivo en Directory) **no se toca** — así lo documenta el propio
+comentario de `deleteOutlookFormSubmission()` — pero sí borra
+`convertedByName`/`convertedAtMs`/`convertedVersionId`, es decir, la única
+prueba de "qué submission produjo este Outlook y quién lo generó". Después
+de borrar, el Outlook en Directory queda igual de funcional, pero
+huérfano de contexto: nadie podría reconstruir después qué formulario en
+papel/WhatsApp lo originó. Sugerencia de bajo costo: un mensaje de
+confirmación distinto cuando `status === "converted"`, explícito sobre qué
+se pierde.
+
+### 9.6 Caso límite teórico: `jobContextId` apuntando a un job de Directory borrado
+
+`publishJobOutlook()` escribe en `contexts/{jobId}/outlooks/{windowStart}`
+sin verificar que `contexts/{jobId}` exista — Firestore no lo exige para una
+subcolección. Si el job de Directory al que apunta un submission fuera
+borrado entre el momento en que se vinculó y el momento en que se genera el
+Outlook, la escritura igual tendría éxito, pero el resultado sería
+inalcanzable desde la UI de Directory (que lista jobs a partir de
+`/contexts`/`/directoryIndex`, ninguno de los cuales existiría ya). Probable
+solo en teoría hoy — no se encontró ningún flujo en el código que borre un
+`/contexts` doc — se deja registrado por completitud, no como una acción
+pendiente real.
+
+### Flujos que SÍ están completos y no necesitan nada más
+
+Para que quede explícito qué se revisó y no encontró problema:
+
+- **Confirmar salir con contenido a medias.** No hay draft que se pierda:
+  el submission original queda intacto (nunca se sobreescribe) hasta que
+  "Generate Outlook" tiene éxito.
+- **Tarea eliminada de la que otras dependían.** `scheduleOutlookTasks()` ya
+  detecta la dependencia inexistente como issue bloqueante — no se puede
+  publicar con una referencia rota, falla visible, no silenciosa.
+- **Cambiar de job a mitad de revisión.** El aviso de colisión se re-consulta
+  automáticamente al cambiar de job (el `useEffect` depende de
+  `resolvedJob`), así que nunca queda un aviso de colisión "pegado" del job
+  anterior.
+- **Reabrir un submission ya convertido.** Re-resuelve la versión real desde
+  sus 3 campos de tracking con un solo `getDoc`, y evita el refetch si ya la
+  tiene en memoria (mismo `id`) — no hay parpadeo de "Loading PDF…"
+  innecesario.
+- **Reintento tras un conflicto de revisión real** (otro admin/editor tocó
+  el draft entre el aviso y la publicación): como `handleGenerate()`
+  re-consulta `getJobOutlookDraft()` fresco en cada intento (no cachea la
+  revisión del primer chequeo), un segundo tap después de un
+  `OutlookConflictError` funciona sin recargar la pantalla.
+
+### Acciones/flujos que faltan — respuesta directa a "qué falta"
+
+- **Deshacer una conversión.** Hoy no existe un botón "unconvert" — la única
+  forma de revertir es borrar el submission (pierde el rastro, §9.5) o ir a
+  editar el Outlook directamente desde Directory. Si conviene agregar un
+  "unconvert" explícito (que solo borre el vínculo, no el Outlook) es una
+  decisión de producto, no algo que falte por descuido.
+- **Detección de duplicados entre submissions.** Dos supers (o el mismo dos
+  veces) pueden mandar formularios para el mismo job y semana sin que CRC lo
+  señale hasta que un admin intenta generar el segundo — ahí sí aparece el
+  aviso de colisión, pero no antes, en la lista.
+- **El aviso de colisión es pasivo, no bloqueante.** "Generating will
+  overwrite it" es un banner que se puede no leer — no exige una
+  confirmación explícita aparte del botón normal de generar. Para una acción
+  que crea una versión nueva sobre un draft con trabajo de otra persona,
+  podría justificarse un confirm dialog en vez de solo un texto de aviso.
+- **Gestión de compañías inexistentes en una tarea.** El datalist recién
+  arreglado (§9.1) solo sugiere; si el admin tipea un nombre que no
+  coincide exactamente con ninguna compañía real, la tarea se guarda sin
+  `companyContextId` sin ningún aviso — mismo comportamiento que el editor
+  de Directory ya tiene, no es una regresión nueva, pero tampoco está
+  resuelto en ningún lado del código.
+
+## 10. Conclusión
 
 CRC no tiene un problema de arquitectura de lectura — ya sigue el patrón que
 la auditoría general de Firebase recomienda como modelo para el resto de la
