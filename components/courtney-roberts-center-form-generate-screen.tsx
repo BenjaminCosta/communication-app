@@ -184,6 +184,7 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
   const isLoading = !submission && !errorMessage
   const isDenied = errorStatus === 401 || errorStatus === 403
   const isConverted = submission?.status === "converted"
+  const companyNames = useMemo(() => companies.map((company) => company.name), [companies])
 
   const updateTask = (id: string, patch: Partial<OutlookTask>) => {
     setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...patch } : task)))
@@ -422,6 +423,11 @@ export function CourtneyRobertsCenterFormGenerateScreen({ submissionId, companie
           </div>
         </div>
       )}
+      <datalist id="crc-outlook-company-options">
+        {companyNames.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </div>
   )
 }
