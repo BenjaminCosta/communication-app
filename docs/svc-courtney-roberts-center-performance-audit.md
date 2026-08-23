@@ -514,18 +514,25 @@ sencillo (llamar a `loadDirectoryProfileViewModel()` también dentro de
 implica un round-trip extra en un flujo que hoy responde instantáneo al
 elegir un resultado.
 
-### 9.3 Un fallo de red durante la resolución automática se disfraza de éxito
+### 9.3 Un fallo de red durante la resolución automática se disfrazaba de éxito — **corregido**
 
-Si `loadDirectoryProfileViewModel()` falla por cualquier motivo que no sea
-"el doc no existe" (un blip de red, un timeout), el `.catch()` arma un
+Si `loadDirectoryProfileViewModel()` fallaba por cualquier motivo que no fuera
+"el doc no existe" (un blip de red, un timeout), el `.catch()` armaba un
 `resolvedJob` de todos modos — con `name: submission.jobName` (el texto que
 tipeó el super en el formulario, nunca verificado contra Directory) y
-`companyName`/`location` en `null`. La `JobCard` no distingue este caso del
-de una resolución exitosa: ambos se ven igual, "resuelto". Un admin podría
-tocar "Generate Outlook" creyendo que el job fue confirmado contra Directory
-cuando en realidad nunca se pudo verificar. Práctico: bajo riesgo real
-(Directory casi nunca falla en un point-read), pero es la clase de error que,
-si ocurre, es indistinguible de un caso normal en la UI.
+`companyName`/`location` en `null`. La `JobCard` no distinguía este caso del
+de una resolución exitosa: ambos se veían igual, "resuelto".
+
+Se agregó un estado `jobResolutionFailed` — la lógica de resolución se
+extrajo a `resolveJobFromSubmission()` (reusable para reintentar) y, en el
+`catch`, marca ese flag además de setear el fallback. `JobCard` ahora
+distingue los dos casos visualmente: ícono y borde ámbar, y un texto
+explícito ("Couldn't verify this against Directory — using the name from the
+submission.") con un botón **Retry** que vuelve a intentar la misma
+resolución sin salir de la pantalla. No se bloqueó "Generate Outlook" en este
+estado — el admin sigue pudiendo usar "Change" para resolver el job a mano si
+el reintento también falla — pero ya no puede pasar desapercibido. Verificado
+con `pnpm exec tsc --noEmit` (limpio).
 
 ### 9.4 Una recarga de página entre "Outlook creado" y "bookkeeping guardado" puede duplicar la versión
 
@@ -567,7 +574,45 @@ papel/WhatsApp lo originó. Sugerencia de bajo costo: un mensaje de
 confirmación distinto cuando `status === "converted"`, explícito sobre qué
 se pierde.
 
-### 9.6 Caso límite teórico: `jobContextId` apuntando a un job de Directory borrado
+### 9.6 Dos admins generando el mismo submission a la vez pueden duplicar el posteo a Comms
+
+Encontrado en una segunda pasada, revisando `publishJobOutlook()` en detalle
+(`lib/job-outlooks.ts`). Cuando **todavía no existe ningún draft** para el
+job/semana (el caso normal de un submission recién revisado — nadie lo tocó
+antes en el editor de Directory), `getJobOutlookDraft()` devuelve `null`, así
+que `handleGenerate()` manda `expectedRevision: null`. La transacción de
+`publishJobOutlook()` solo chequea la revisión cuando `expectedRevision !=
+null` **y** el draft ya existe — con `expectedRevision: null` ese chequeo se
+salta por completo, pase lo que pase.
+
+Si dos admins abren el mismo submission y tocan "Generate Outlook" casi al
+mismo tiempo (poco probable pero posible si dos personas revisan la cola en
+paralelo), ambas transacciones pasan sin conflicto — Firestore las serializa
+igual, pero como ninguna pide protección de revisión, las dos publican una
+versión (`v0001` y `v0002`), y **las dos** llaman a
+`publishOutlookVersionToComms()`, así que el mismo submission produciría
+**dos posts en Communications** en vez de uno. Después, las dos llamadas a
+`convertOutlookFormSubmission()` escriben sobre el mismo submission con
+`{merge:true}` — la que gane la carrera de red queda como el
+`convertedVersionId` "oficial"; la otra versión, con su propio PDF y su
+propio posteo a Comms ya hechos, queda huérfana de todos modos.
+
+Es una condición de carrera real, más seria que 9.4 (esa es un admin +
+una recarga; esta es dos admins genuinamente simultáneos) porque el
+resultado visible **no** es silencioso — dos mensajes casi idénticos en
+Communications, ambos con adjunto PDF válido. No se corrigió en esta
+pasada: la solución correcta (bloquear el submission mientras se está
+generando, o marcar la primera transacción exitosa como autoritativa antes
+de que la segunda pueda avanzar) es un cambio de diseño de datos —
+necesitaría, por ejemplo, un lock optimista sobre el propio submission
+(un campo `generatingAtMs`/`generatingByUid` chequeado server-side en
+`/convert`, o mover la decisión de "quién gana" a una transacción única que
+cubra ambos documentos) — no un ajuste de UI de una función. Bajo riesgo
+de ocurrir en la práctica (requiere dos admins mirando la misma cola al mismo
+segundo), pero el costo si ocurre es visible para todo el equipo, no solo
+para quien lo generó.
+
+### 9.7 Caso límite teórico: `jobContextId` apuntando a un job de Directory borrado
 
 `publishJobOutlook()` escribe en `contexts/{jobId}/outlooks/{windowStart}`
 sin verificar que `contexts/{jobId}` exista — Firestore no lo exige para una
@@ -611,10 +656,17 @@ Para que quede explícito qué se revisó y no encontró problema:
   editar el Outlook directamente desde Directory. Si conviene agregar un
   "unconvert" explícito (que solo borre el vínculo, no el Outlook) es una
   decisión de producto, no algo que falte por descuido.
-- **Detección de duplicados entre submissions.** Dos supers (o el mismo dos
-  veces) pueden mandar formularios para el mismo job y semana sin que CRC lo
-  señale hasta que un admin intenta generar el segundo — ahí sí aparece el
-  aviso de colisión, pero no antes, en la lista.
+- **Detección de duplicados entre submissions — corregido, parcialmente.**
+  La lista de "Outlook Forms" ahora agrupa los submissions cargados por job
+  vinculado (o nombre tipeado, si no hay job vinculado) + semana, y marca
+  cada uno de un grupo con más de un miembro con un badge "Possible
+  duplicate" — visible mientras se navega la cola, no solo al abrir el
+  segundo. Es una señal, no un bloqueo: sigue sin haber nada que impida
+  generar igual, y solo detecta duplicados dentro de la página cargada
+  (hasta 100 submissions, ver `LIST_PAGE_SIZE`) — coherente con que toda la
+  pantalla ya asume ese volumen. El aviso de colisión contra un outlook YA
+  publicado (dentro de la pantalla de generar) sigue existiendo aparte, sin
+  cambios.
 - **El aviso de colisión es pasivo, no bloqueante.** "Generating will
   overwrite it" es un banner que se puede no leer — no exige una
   confirmación explícita aparte del botón normal de generar. Para una acción
