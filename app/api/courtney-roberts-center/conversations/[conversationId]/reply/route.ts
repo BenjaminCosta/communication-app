@@ -1,20 +1,8 @@
 import { requireCourtneyRobertsCenterAdmin, toCourtneyRobertsCenterAccessErrorResponse } from "@/lib/courtney-roberts-center/access"
 import { CourtneyRobertsCenterManualReplyError, sendCourtneyRobertsCenterManualReply } from "@/lib/courtney-roberts-center/manual-reply"
-import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-async function adminDisplayName(uid: string, fallbackEmail: string): Promise<string> {
-  try {
-    const { getFirestore } = await import("firebase-admin/firestore")
-    const snapshot = await getFirestore(await getFirebaseAdminApp()).collection("users").doc(uid).get()
-    const name = snapshot.data()?.name
-    return typeof name === "string" && name.trim() ? name.trim() : fallbackEmail
-  } catch {
-    return fallbackEmail
-  }
-}
 
 /**
  * POST /api/courtney-roberts-center/conversations/{conversationId}/reply
@@ -43,12 +31,11 @@ export async function POST(request: Request, context: { params: Promise<{ conver
   }
 
   try {
-    const sentByName = await adminDisplayName(admin.uid, admin.email)
     const message = await sendCourtneyRobertsCenterManualReply({
       conversationId,
       text: typeof body.text === "string" ? body.text : "",
       clientMessageId: typeof body.clientMessageId === "string" ? body.clientMessageId : "",
-      sentByName,
+      sentByName: admin.name || admin.email,
     })
     return Response.json({ message }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
