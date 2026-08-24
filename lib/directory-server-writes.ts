@@ -292,17 +292,27 @@ export async function deleteDirectoryEntity(dirIdStr: string): Promise<Directory
   // Also confirms the record still exists (throws 404 otherwise).
   const impact = await computeDirectoryDeleteImpact(dirIdStr)
 
+  // Every step below touches a disjoint collection with no data dependency
+  // on any other step, so they run concurrently rather than one at a time —
+  // cuts wall-clock time roughly to the slowest step instead of the sum of
+  // all of them, which matters for staying under a serverless timeout on a
+  // heavily-referenced record.
+  const cleanupSteps: Promise<unknown>[] = [
+    stripFromNotesAndFiles(db, entity.directoryId),
+    deleteRelationsReferencing(db, entity.directoryId),
+  ]
   if (entity.type === "person") {
-    await stripPersonFromContexts(db, entity.sourceId)
+    cleanupSteps.push(stripPersonFromContexts(db, entity.sourceId))
+    cleanupSteps.push(stripPersonFromMessages(db, entity.sourceId))
   }
   if (entity.type === "company") {
-    const docSnap = await docRef.get()
-    const linkKey = companyLinkKeyOf(docSnap.data() ?? {})
-    await stripCompanyReferences(db, entity.sourceId, linkKey.name, linkKey.sourceRecordId)
+    cleanupSteps.push((async () => {
+      const docSnap = await docRef.get()
+      const linkKey = companyLinkKeyOf(docSnap.data() ?? {})
+      await stripCompanyReferences(db, entity.sourceId, linkKey.name, linkKey.sourceRecordId)
+    })())
   }
-  await stripFromNotesAndFiles(db, entity.directoryId)
-  await deleteRelationsReferencing(db, entity.directoryId)
-  if (entity.type === "person") await stripPersonFromMessages(db, entity.sourceId)
+  await Promise.all(cleanupSteps)
 
   if (entity.type === "job") {
     await db.recursiveDelete(docRef)
@@ -544,7 +554,13 @@ export async function mergeDirectoryContacts(survivorContactId: string, duplicat
     if (cleanStr(s.mergedIntoId)) {
       throw new DirectoryServerWriteError("The record to keep was itself already merged into another contact.", 409)
     }
-    if (cleanStr(d.mergedIntoId)) {
+    const dupMergedInto = cleanStr(d.mergedIntoId)
+    // Only a genuine "already merged elsewhere" is a hard stop. If it was
+    // already tombstoned into THIS survivor, a prior attempt at this exact
+    // merge must have failed after the transaction committed but before the
+    // repoint/delete steps below finished — retrying needs to fall through
+    // and resume those steps, not get rejected here forever.
+    if (dupMergedInto && dupMergedInto !== survivorContactId) {
       throw new DirectoryServerWriteError("This record has already been merged.", 409)
     }
 
@@ -576,10 +592,13 @@ export async function mergeDirectoryContacts(survivorContactId: string, duplicat
   const dupDirId = buildDirectoryId("person", duplicateContactId)
   const survivorDirId = buildDirectoryId("person", survivorContactId)
 
-  await repointPersonInContexts(db, duplicateContactId, survivorContactId, survivorName)
-  await repointRelations(db, dupDirId, survivorDirId, survivorName)
-  await repointNotesAndFiles(db, dupDirId, survivorDirId)
-  await repointPersonInMessages(db, duplicateContactId, survivorContactId)
+  // Disjoint collections, no data dependency between them — run concurrently.
+  await Promise.all([
+    repointPersonInContexts(db, duplicateContactId, survivorContactId, survivorName),
+    repointRelations(db, dupDirId, survivorDirId, survivorName),
+    repointNotesAndFiles(db, dupDirId, survivorDirId),
+    repointPersonInMessages(db, duplicateContactId, survivorContactId),
+  ])
 
   await dupRef.delete()
 
@@ -616,7 +635,12 @@ export async function mergeDirectoryCompanies(survivorContextId: string, duplica
     if (cleanStr(s.mergedIntoId)) {
       throw new DirectoryServerWriteError("The record to keep was itself already merged into another company.", 409)
     }
-    if (cleanStr(d.mergedIntoId)) {
+    const dupMergedInto = cleanStr(d.mergedIntoId)
+    // See mergeDirectoryContacts for why this only rejects a genuine
+    // "merged elsewhere" — a prior attempt at this exact merge may have
+    // failed after tombstoning but before the repoint/delete steps finished,
+    // and a retry needs to be able to resume rather than get stuck forever.
+    if (dupMergedInto && dupMergedInto !== survivorContextId) {
       throw new DirectoryServerWriteError("This record has already been merged.", 409)
     }
 
@@ -647,14 +671,17 @@ export async function mergeDirectoryCompanies(survivorContextId: string, duplica
   const dupDirId = buildDirectoryId("company", duplicateContextId)
   const survivorDirId = buildDirectoryId("company", survivorContextId)
 
-  await repointCompanyReferences(
-    db,
-    { contextId: duplicateContextId, name: merged.dupName, sourceRecordId: merged.dupSourceRecordId },
-    survivorContextId,
-    merged.survivorName,
-  )
-  await repointRelations(db, dupDirId, survivorDirId, merged.survivorName)
-  await repointNotesAndFiles(db, dupDirId, survivorDirId)
+  // Disjoint collections, no data dependency between them — run concurrently.
+  await Promise.all([
+    repointCompanyReferences(
+      db,
+      { contextId: duplicateContextId, name: merged.dupName, sourceRecordId: merged.dupSourceRecordId },
+      survivorContextId,
+      merged.survivorName,
+    ),
+    repointRelations(db, dupDirId, survivorDirId, merged.survivorName),
+    repointNotesAndFiles(db, dupDirId, survivorDirId),
+  ])
 
   await dupRef.delete()
 
@@ -690,7 +717,12 @@ export async function mergeDirectoryJobs(survivorContextId: string, duplicateCon
     if (cleanStr(s.mergedIntoId)) {
       throw new DirectoryServerWriteError("The record to keep was itself already merged into another job.", 409)
     }
-    if (cleanStr(d.mergedIntoId)) {
+    const dupMergedInto = cleanStr(d.mergedIntoId)
+    // See mergeDirectoryContacts for why this only rejects a genuine
+    // "merged elsewhere" — a prior attempt at this exact merge may have
+    // failed after tombstoning but before the repoint/delete steps finished,
+    // and a retry needs to be able to resume rather than get stuck forever.
+    if (dupMergedInto && dupMergedInto !== survivorContextId) {
       throw new DirectoryServerWriteError("This record has already been merged.", 409)
     }
 
@@ -731,8 +763,11 @@ export async function mergeDirectoryJobs(survivorContextId: string, duplicateCon
   const dupDirId = buildDirectoryId("job", duplicateContextId)
   const survivorDirId = buildDirectoryId("job", survivorContextId)
 
-  await repointRelations(db, dupDirId, survivorDirId, survivorName)
-  await repointNotesAndFiles(db, dupDirId, survivorDirId)
+  // Disjoint collections, no data dependency between them — run concurrently.
+  await Promise.all([
+    repointRelations(db, dupDirId, survivorDirId, survivorName),
+    repointNotesAndFiles(db, dupDirId, survivorDirId),
+  ])
 
   await db.recursiveDelete(dupRef)
 

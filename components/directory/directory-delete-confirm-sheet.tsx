@@ -29,6 +29,12 @@ function impactLines(vm: DirectoryProfileViewModel, impact: DirectoryDeleteImpac
   if (vm.type === "person" && impact.contexts > 0) {
     lines.push(`Removed from ${impact.contexts} job/company "People involved" list${impact.contexts === 1 ? "" : "s"}`)
   }
+  if (vm.type === "company" && impact.contacts > 0) {
+    lines.push(`Company link cleared on ${impact.contacts} contact${impact.contacts === 1 ? "" : "s"} (their name/details are kept)`)
+  }
+  if (vm.type === "company" && impact.contexts > 0) {
+    lines.push(`Company link cleared on ${impact.contexts} job${impact.contexts === 1 ? "" : "s"}`)
+  }
   if (impact.notes > 0) lines.push(`Untagged from ${impact.notes} note${impact.notes === 1 ? "" : "s"}`)
   if (impact.files > 0) lines.push(`Untagged from ${impact.files} file${impact.files === 1 ? "" : "s"}`)
   if (impact.relations > 0) lines.push(`${impact.relations} relationship link${impact.relations === 1 ? "" : "s"} removed`)

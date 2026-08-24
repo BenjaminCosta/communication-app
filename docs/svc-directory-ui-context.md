@@ -358,7 +358,13 @@ silently failed to save for anyone who didn't own the contact (the legacy
 `delete` stays owner-scoped in the rules — merge/delete never call
 `deleteDoc` from the client; they go through `app/api/directory/{merge,delete}`
 (Admin SDK, bypasses rules) after their own server-side `isAdmin` check via
-`lib/directory-admin-guard.ts::requireDirectoryAdmin()`.
+`lib/directory-admin-guard.ts::requireDirectoryAdmin()`. **`update` requires
+`request.resource.data.ownerUserId == resource.data.ownerUserId`** — an
+open-to-anyone update rule with no field restriction would otherwise let a
+non-owner set `ownerUserId` to their own uid and then pass the owner-scoped
+`delete` rule right above it, silently defeating the whole "delete is
+admin-gated" guarantee. Covered by
+`scripts/test-directory-cleanup-rules.mjs` ("CANNOT reassign ownerUserId").
 
 **Flag for review** (`lib/directory-writes.ts::flagDirectoryEntityForReview`/
 `clearDirectoryReviewFlag`): writes `masterData.needsReview` + `reviewReason`
@@ -405,6 +411,22 @@ All three share `repointRelations()` (rewrites the deterministic
 `rel__{from}__{to}` `/directoryRelations` doc id; a collision with an
 existing survivor-side edge just drops the duplicate's) and
 `repointNotesAndFiles()` (`/directoryNotes`/`/directoryFiles` `entityIds`).
+Their repoint/strip steps run via `Promise.all` (disjoint collections, no
+data dependency between them) rather than sequentially, both here and in
+`deleteDirectoryEntity()`.
+
+**Resumable, not just idempotent-once-started.** Each merge tombstones the
+duplicate (`mergedIntoId`) in the same transaction as the field union, then
+runs the repoint steps as separate calls afterward — if one of those throws
+(a transient Firestore/network error), the duplicate is left tombstoned but
+not yet fully repointed/deleted. The "already merged" guard only hard-rejects
+when `mergedIntoId` points at a *different* survivor than the one requested;
+if it points at the same survivor, the function re-runs the (idempotent)
+union transaction and falls through to retry the repoint/delete steps, so a
+retried request completes the interrupted merge instead of getting
+permanently stuck behind its own tombstone. Covered by
+`scripts/directory-cleanup-server.test.ts` ("resumes and completes after a
+simulated partial failure").
 New: `components/directory/directory-merge-sheet.tsx` (one sheet for all
 three types — picks `PeopleSelector`/`CompanySelector`/`JobsSelector` from
 `directory-edit-sheet.tsx`, now all exported, per `vm.type`, `CompanySelector`

@@ -157,6 +157,44 @@ test("merge: rejects merging a record into itself, and merging an already-merged
   await assert.rejects(() => mergeDirectoryContacts("c", "b"))
 })
 
+test("merge: resumes and completes after a simulated partial failure (tombstoned but not yet repointed/deleted)", async () => {
+  await wipe()
+
+  await db.collection("contacts").doc("survivor").set({ ownerUserId: "u", name: "Kim Lee", emails: [], tags: [] })
+  // Seed the duplicate exactly as a first attempt would have left it after
+  // its transaction committed but before repointPersonInContexts/etc. ran —
+  // i.e. simulating a crash/network failure in that window.
+  await db.collection("contacts").doc("dup").set({
+    ownerUserId: "u", name: "K. Lee", tags: ["from-dup"],
+    mergedIntoId: "survivor", mergedAt: new Date(),
+  })
+  await db.collection("contexts").doc("job-1").set({
+    name: "Job One", directoryType: "job", createdBy: "u",
+    involvedContactIds: ["dup"], involvedPeople: [{ id: "dup", name: "K. Lee" }],
+    fields: [{ label: "People involved", value: "K. Lee" }],
+  })
+
+  // A retry of the SAME merge must resume and finish, not reject as
+  // "already merged" — that was the bug: the hard tombstone check blocked
+  // any retry from ever completing the interrupted repoint/delete work.
+  const result = await mergeDirectoryContacts("survivor", "dup")
+  assert.equal(result.survivorDirectoryId, "person__survivor")
+
+  assert.equal((await db.collection("contacts").doc("dup").get()).exists, false, "the stuck duplicate is finally deleted")
+  const job1 = (await db.collection("contexts").doc("job-1").get()).data()!
+  assert.deepEqual(job1.involvedContactIds, ["survivor"], "the repoint step the first attempt never reached now completes")
+  const survivor = (await db.collection("contacts").doc("survivor").get()).data()!
+  assert.ok((survivor.tags as string[]).includes("from-dup"), "the duplicate's data still gets merged in on the resumed attempt")
+})
+
+test("merge: a duplicate already merged into a DIFFERENT survivor is still rejected", async () => {
+  await wipe()
+  await db.collection("contacts").doc("other-survivor").set({ ownerUserId: "u", name: "Other" })
+  await db.collection("contacts").doc("dup").set({ ownerUserId: "u", name: "Dup", mergedIntoId: "other-survivor" })
+  await db.collection("contacts").doc("new-survivor").set({ ownerUserId: "u", name: "New" })
+  await assert.rejects(() => mergeDirectoryContacts("new-survivor", "dup"))
+})
+
 test("delete: strips person from job membership, notes/files, relations and messages", async () => {
   await wipe()
   await db.collection("contacts").doc("gone").set({ ownerUserId: "owner-1", name: "Gone Person" })

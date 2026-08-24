@@ -36,7 +36,10 @@ async function readError(response: Response, fallback: string): Promise<never> {
 }
 
 export interface DirectoryDeleteImpact {
+  /** Jobs/companies referencing this entity: person → contexts listing them; company → jobs pointing at it. */
   contexts: number
+  /** Company only: contacts whose company link points at it. */
+  contacts: number
   notes: number
   files: number
   messages: number

@@ -4,7 +4,10 @@
  *
  * Exercises the /contacts security rule change made for the Directory
  * cleanup flow: update is now open to any authenticated user (previously
- * owner-only), while delete stays owner-scoped for direct client writes.
+ * owner-only), while delete stays owner-scoped for direct client writes —
+ * and ownerUserId itself must stay fixed across an update, otherwise a
+ * non-owner could reassign ownership to themselves and then pass the
+ * owner-scoped delete rule, defeating it entirely.
  * Admin-gated merge/delete goes through app/api/directory/* (Admin SDK,
  * bypasses these rules entirely), so it is not exercised here.
  *
@@ -80,6 +83,12 @@ async function main() {
 
   await check("signed-out visitors cannot update the contact", () =>
     assertFails(updateDoc(doc(anonymous, "contacts", CONTACT_ID), { role: "Nope" })))
+
+  await check("a non-owner teammate CANNOT reassign ownerUserId to themselves (would defeat the owner-scoped delete rule below)", () =>
+    assertFails(updateDoc(doc(teammate, "contacts", CONTACT_ID), { ownerUserId: "user-teammate" })))
+
+  await check("a non-owner teammate CANNOT change ownerUserId even alongside an otherwise-legal field edit", () =>
+    assertFails(updateDoc(doc(teammate, "contacts", CONTACT_ID), { role: "Sneaky", ownerUserId: "user-teammate" })))
 
   await check("a non-owner teammate still CANNOT delete the contact", () =>
     assertFails(deleteDoc(doc(teammate, "contacts", CONTACT_ID))))
