@@ -144,6 +144,29 @@ export function CourtneyRobertsCenterScreen({
     return list.filter((submission) => submission.status === status)
   }, [formSubmissions, formFilter])
 
+  // Flags submissions that target the same job (or, if unlinked, the same
+  // typed job name) and the same 3-week window as another submission in the
+  // loaded page — so an admin sees the risk while browsing the queue, not
+  // only after opening the second one and hitting the collision warning in
+  // the generate screen. Computed over the full unfiltered list so a
+  // duplicate is still flagged even while viewing e.g. only "New".
+  const duplicateSubmissionIds = useMemo(() => {
+    const groups = new Map<string, string[]>()
+    for (const submission of formSubmissions ?? []) {
+      const key = submission.jobContextId
+        ? `job:${submission.jobContextId}:${submission.window.start}`
+        : `name:${submission.jobName.trim().toLowerCase()}:${submission.window.start}`
+      const ids = groups.get(key)
+      if (ids) ids.push(submission.id)
+      else groups.set(key, [submission.id])
+    }
+    const duplicates = new Set<string>()
+    for (const ids of groups.values()) {
+      if (ids.length > 1) ids.forEach((id) => duplicates.add(id))
+    }
+    return duplicates
+  }, [formSubmissions])
+
   const isWhatsappView = view === "whatsapp"
   const isLoading = isWhatsappView ? conversations === null : formSubmissions === null
   const isDenied = isWhatsappView ? errorStatus === 401 || errorStatus === 403 : formsErrorStatus === 401 || formsErrorStatus === 403
@@ -292,7 +315,12 @@ export function CourtneyRobertsCenterScreen({
           ) : (
             <div className="flex flex-col divide-y divide-white/8">
               {filteredForms.map((submission) => (
-                <OutlookFormSubmissionRow key={submission.id} submission={submission} onSelect={() => onSelectFormSubmission(submission.id)} />
+                <OutlookFormSubmissionRow
+                  key={submission.id}
+                  submission={submission}
+                  isPossibleDuplicate={duplicateSubmissionIds.has(submission.id)}
+                  onSelect={() => onSelectFormSubmission(submission.id)}
+                />
               ))}
             </div>
           )}
