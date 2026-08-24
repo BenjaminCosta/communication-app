@@ -504,7 +504,7 @@ function CompanySelector({
   )
 }
 
-function PeopleSelector({
+export function PeopleSelector({
   people,
   isLoading,
   selectedPeople,
@@ -760,10 +760,10 @@ function ValueListEditor({
   )
 }
 
-const inputClassName = "w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-sm text-foreground/90 placeholder:text-muted-foreground/40 focus:border-white/20 focus:outline-none"
-const textareaClassName = `${inputClassName} resize-none leading-6`
+export const inputClassName = "w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-sm text-foreground/90 placeholder:text-muted-foreground/40 focus:border-white/20 focus:outline-none"
+export const textareaClassName = `${inputClassName} resize-none leading-6`
 
-function FormField({ label, children }: { label: string; children: ReactNode }) {
+export function FormField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">{label}</span>

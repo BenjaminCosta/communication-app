@@ -154,7 +154,9 @@ Use `lib/directory-writes.ts` (all conflict-safe):
 | `setContextType(id, "company"\|"job"\|"other")` | contexts | writes `directoryType`; sync moves the entry + deletes old composite id |
 | `setContextFieldValue(id, label, value)` | contexts | **transaction** (retry-safe on `fields[]`) |
 | `removeContextField(id, label)` | contexts | **transaction** |
-| `mergeContactData(survivorId, duplicateId)` | contacts | transaction; unions data + tombstones dup (see pending: server re-point of messages) |
+| `flagDirectoryEntityForReview(collection, id, {reason, note, flaggedBy})` / `clearDirectoryReviewFlag(collection, id)` | contacts/contexts | **transaction**; writes `masterData.needsReview`/`reviewReason`/`reviewFlaggedBy`/`reviewFlaggedAt` — any signed-in user |
+
+Merge duplicate / Delete (admin-only — `/users/{uid}.isAdmin`) run entirely server-side via `app/api/directory/{merge,delete}` + `lib/directory-server-writes.ts` (Admin SDK), not through the client write helpers above — see §14.
 
 Validation (also exported from `lib/directory-core.ts`): `isLikelyEmail`, `isLikelyPhone`, `isLikelyUrl`, `isInvalidValue`, `cleanValue`. Validate inputs before calling helpers; helpers also throw `DirectoryWriteError` on invalid.
 
@@ -237,7 +239,7 @@ The UI is **isolated, lazy and read-only for entity source data.**
 
 ## 10. Pending before / during the UI
 
-- **`mergeContactsServer` Cloud Function**: re-point message `contactIds` duplicate→survivor and delete the tombstoned dup (client `mergeContactData` only merges contact data — messages need Admin SDK).
+- ~~**`mergeContactsServer` Cloud Function**: re-point message `contactIds` duplicate→survivor and delete the tombstoned dup~~ — **done**, as a Next API route rather than a Cloud Function: `app/api/directory/merge` (see §14).
 - **Favorites / recents**: implemented in `users/{uid}/directoryFavorites` and `users/{uid}/directoryRecents`; security rules restrict both to their owner, `/directoryIndex` remains read-only, and — as of this session — **the rules are deployed to production**. See §13 for a known stale-listener issue and the workaround applied.
 - **Messages↔Directory relations**: `projectMessageRelatedEntityIds()` exists (unused). When showing related messages, **reuse Communications' visibility filter** (same as the current stream/search) — do not expose hidden messages.
 - **Tech debt**: the two `.mjs` scripts still carry ported normalizer copies (runtime app + functions already share `lib/directory-core.ts`).
@@ -326,3 +328,94 @@ Nothing has been committed this session. **Firestore rules are deployed to prod 
 - `pnpm exec tsc --noEmit`, `pnpm build`, `pnpm functions:build` — all clean, run repeatedly after each change (`functions:build` regenerates `functions/src/directory-core.ts` from `lib/directory-core.ts`; confirmed no drift).
 - Firestore rules for `directoryFavorites`/`directoryRecents` verified against the emulator (owner CRUD ok, cross-user denied) *before* deploying to prod.
 - Favorites write path reproduced end-to-end against prod as the real user (see "Known issue" above) — confirmed writes succeed and are readable via one-shot query; the bug was isolated to the live listener.
+
+---
+
+## 14. Cleanup flow — Edit / Flag for review / Merge duplicate / Delete
+
+Added on top of UI v1: a way to handle duplicates and bad records directly in
+the app, from the profile screen's existing quick-actions pill row
+(`ProfileAction`/`QuickActions` in `directory-profile-screen.tsx` — Merge and
+Delete are just new `ProfileActionKind` values, same plumbing as `edit`).
+
+**Permission model.** Edit and Flag for review are open to any signed-in
+user. Merge duplicate and Delete require `/users/{uid}.isAdmin === true` —
+the same flag that already gates the Activity Monitor screen; no new admin
+flag was added. `DirectoryProfileScreen` takes an `isAdmin` prop (threaded
+from `app/page.tsx`'s existing `currentUser?.isAdmin`) and passes
+`{ canModerate: isAdmin }` into `loadDirectoryProfileViewModel()`, which the
+person/company/job view-model builders use to decide whether to include the
+`merge`/`delete` actions at all (they're absent from the view model for a
+non-admin, not just hidden client-side).
+
+**Firestore rule change**: `/contacts` `update` is now open to any
+authenticated user (previously owner-only, matching `/contexts`) — needed
+for Flag for review to work for non-owners, and incidentally fixes a
+pre-existing bug where Directory's Edit sheet showed "Edit" to everyone but
+silently failed to save for anyone who didn't own the contact (the legacy
+`people-screen.tsx` correctly hid its own edit UI behind
+`contact.ownerUserId === currentUserId`; Directory's edit sheet never did).
+`delete` stays owner-scoped in the rules — merge/delete never call
+`deleteDoc` from the client; they go through `app/api/directory/{merge,delete}`
+(Admin SDK, bypasses rules) after their own server-side `isAdmin` check via
+`lib/directory-admin-guard.ts::requireDirectoryAdmin()`.
+
+**Flag for review** (`lib/directory-writes.ts::flagDirectoryEntityForReview`/
+`clearDirectoryReviewFlag`): writes `masterData.needsReview` + `reviewReason`
+(preset — Duplicate / Incorrect info / Inactive / Other — plus an optional
+note, combined into the one existing `reviewReason` string field) +
+`reviewFlaggedBy`/`reviewFlaggedAt`. No new UI surface needed for the flag
+itself — the "Needs review" badge and Admin Details rows already existed
+(previously import-only). New: `components/directory/directory-flag-sheet.tsx`.
+
+**Merge duplicate** (people only — `mergeDirectoryContacts()` in
+`lib/directory-server-writes.ts`, called from `app/api/directory/merge`):
+unions contact fields (emails/phones/urls/tags/companies/roles), tombstones
+the duplicate (`mergedIntoId`), then re-points every reference from the
+duplicate's composite id to the survivor's — job/company
+`involvedContactIds`/`involvedPeople`/"People involved" field,
+`/directoryRelations` edges (by rewriting the deterministic `rel__{from}__{to}`
+doc id; a collision with an existing survivor-side edge just drops the
+duplicate's), `/directoryNotes`/`/directoryFiles` `entityIds`, and
+`messages.contactIds` (paginated, capped at 2,000 messages per merge) —
+before deleting the duplicate contact doc. This is what the old client-only
+`mergeContactData()` (removed) could never finish: it had no way to touch
+`/messages` (client can't write messages it doesn't own) and the
+owner-scoped `/contacts` rule blocked it for most real duplicates anyway.
+New: `components/directory/directory-merge-sheet.tsx` (reuses
+`PeopleSelector` from `directory-edit-sheet.tsx`, now exported, capped to a
+single pick), `lib/directory-cleanup-client.ts` (Bearer-token fetch wrappers,
+same shape as `features/directory/ai/client/directory-ai-client.ts`).
+
+**Delete** (`deleteDirectoryEntity()`/`computeDirectoryDeleteImpact()` in
+`lib/directory-server-writes.ts`, called from `app/api/directory/delete`):
+same reference cleanup as merge minus the "redirect to survivor" step — strips
+the id from job/company membership (person), notes/files `entityIds`, and
+`messages.contactIds` (person); deletes every `/directoryRelations` edge
+touching the id (not just the sync Cloud Function's own `context-sync`-owned
+edges, which is all `syncDirectoryOnContactWrite`/`syncDirectoryOnContextWrite`
+clean up on their own — import-authored edges would otherwise dangle
+forever). Jobs get `db.recursiveDelete(docRef)` instead of a plain delete,
+because `/contexts/{jobId}/outlooks` is a subcollection and Firestore does
+not cascade-delete those. The confirm UI
+(`components/directory/directory-delete-confirm-sheet.tsx`) calls the same
+endpoint with `dryRun: true` first to show real reference counts before the
+admin confirms.
+
+**Known v1 scope trims** (deliberate, to keep this simple — revisit if they
+bite in practice):
+- Merge is people-only; company/job merge isn't implemented (contexts are
+  collaboratively shared, not single-sourced, so "duplicate" is a fuzzier
+  concept there — flag it for a human instead).
+- Deleting a company/job does not null out `masterData.companyContextId` on
+  contacts/jobs that pointed to it — the id-based link goes stale until that
+  record is next edited (self-heals via `resolveCompanyIdForContact` on the
+  next contact write), the free-text name stays intact, and opening the
+  stale link already renders the existing "not found" profile state rather
+  than crashing. This is no worse than the legacy `contexts-screen.tsx`
+  delete path, which does zero reference cleanup at all.
+- No global toast/notification system exists in this module, so a successful
+  delete just navigates back to Directory with no confirmation toast (Flag
+  and Merge do show an inline notice, since those stay on the same screen).
+- No duplicate-suggestion/fuzzy-matching UI — merge is manual search-and-pick
+  via the same typeahead pattern as the existing Company/People selectors.

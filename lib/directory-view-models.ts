@@ -33,6 +33,9 @@ export type ProfileActionKind =
   | "website"
   | "drive"
   | "edit"
+  | "flag"
+  | "merge"
+  | "delete"
 
 export interface ProfileAction {
   kind: ProfileActionKind
@@ -83,6 +86,8 @@ export interface BaseProfileViewModel {
   quality: ProfileQuality
   /** Free-form counts other layers (summaries) can enrich. */
   needsReview: boolean
+  /** Set alongside needsReview — preset reason (+ optional note) from whoever flagged it, or import provenance. Null for "other" (no masterData). */
+  reviewReason: string | null
 }
 
 export interface PersonProfileViewModel extends BaseProfileViewModel {
@@ -262,6 +267,8 @@ export interface ProfileIndexInput {
 export interface BuildProfileOptions {
   /** When true, sensitive fields (Job Rate) render in Overview; otherwise Admin-only. */
   canViewSensitive?: boolean
+  /** When true (admins only), Merge duplicate / Delete actions are included. */
+  canModerate?: boolean
 }
 
 // ── Person ─────────────────────────────────────────────────────────────────
@@ -269,7 +276,7 @@ export interface BuildProfileOptions {
 export function buildPersonProfileViewModel(
   index: ProfileIndexInput,
   source: Loose,
-  _options: BuildProfileOptions = {},
+  options: BuildProfileOptions = {},
 ): PersonProfileViewModel {
   const master = asRecord(source.masterData)
   const safeCompany = companyIsSafe(master)
@@ -336,6 +343,11 @@ export function buildPersonProfileViewModel(
   if (primaryPhone) actions.push({ kind: "call", label: "Call", href: `tel:${primaryPhone.replace(/[^\d+]/g, "")}`, value: primaryPhone })
   if (primaryEmail) actions.push({ kind: "email", label: "Email", href: `mailto:${primaryEmail}`, value: primaryEmail })
   actions.push({ kind: "edit", label: "Edit Contact", inApp: true })
+  actions.push({ kind: "flag", label: "Flag for review", inApp: true })
+  if (options.canModerate) {
+    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete Contact", inApp: true })
+  }
 
   return {
     id: index.id,
@@ -365,6 +377,7 @@ export function buildPersonProfileViewModel(
     adminDetails: personAdminDetails(index, source, master),
     quality: buildQuality(index),
     needsReview: bool(master.needsReview) === true,
+    reviewReason: firstStr(master.reviewReason),
   }
 }
 
@@ -392,7 +405,7 @@ function personAdminDetails(index: ProfileIndexInput, source: Loose, master: Loo
 export function buildCompanyProfileViewModel(
   index: ProfileIndexInput,
   source: Loose,
-  _options: BuildProfileOptions = {},
+  options: BuildProfileOptions = {},
 ): CompanyProfileViewModel {
   const master = asRecord(source.masterData)
   const fields = source.fields
@@ -420,6 +433,8 @@ export function buildCompanyProfileViewModel(
   if (website) actions.push({ kind: "website", label: "Website", href: normalizedUrl(website), value: website })
   if (address) actions.push({ kind: "directions", label: "Directions", href: mapsHref(address), value: address })
   actions.push({ kind: "edit", label: "Edit Company", inApp: true })
+  actions.push({ kind: "flag", label: "Flag for review", inApp: true })
+  if (options.canModerate) actions.push({ kind: "delete", label: "Delete Company", inApp: true })
 
   return {
     id: index.id,
@@ -441,6 +456,7 @@ export function buildCompanyProfileViewModel(
     adminDetails: companyAdminDetails(index, source, master),
     quality: buildQuality(index),
     needsReview: bool(master.needsReview) === true,
+    reviewReason: firstStr(master.reviewReason),
   }
 }
 
@@ -530,6 +546,8 @@ export function buildJobProfileViewModel(
   }
   if (driveFolderUrl) actions.push({ kind: "drive", label: "Open Drive", href: driveFolderUrl, value: driveFolderUrl })
   actions.push({ kind: "edit", label: "Edit Job", inApp: true })
+  actions.push({ kind: "flag", label: "Flag for review", inApp: true })
+  if (options.canModerate) actions.push({ kind: "delete", label: "Delete Job", inApp: true })
 
   return {
     id: index.id,
@@ -565,6 +583,7 @@ export function buildJobProfileViewModel(
     adminDetails: jobAdminDetails(index, source, master, jobRate),
     quality: buildQuality(index),
     needsReview: bool(master.needsReview) === true,
+    reviewReason: firstStr(master.reviewReason),
   }
 }
 
@@ -641,6 +660,7 @@ export function buildOtherProfileViewModel(
     ],
     quality: buildQuality(index),
     needsReview: false,
+    reviewReason: null,
   }
 }
 

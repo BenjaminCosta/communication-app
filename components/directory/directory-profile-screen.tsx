@@ -10,7 +10,9 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  Flag,
   FolderOpen,
+  GitMerge,
   Link2,
   Loader2,
   Mail,
@@ -20,11 +22,15 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Trash2,
 } from "lucide-react"
 import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
 import { DirectoryNotesTab } from "@/components/directory/directory-notes-tab"
 import { DirectoryFilesTab } from "@/components/directory/directory-files-tab"
 import { DirectoryEditSheet } from "@/components/directory/directory-edit-sheet"
+import { DirectoryFlagSheet } from "@/components/directory/directory-flag-sheet"
+import { DirectoryDeleteConfirmSheet } from "@/components/directory/directory-delete-confirm-sheet"
+import { DirectoryMergeSheet } from "@/components/directory/directory-merge-sheet"
 import { ThreeWeekOutlookTab } from "@/components/directory/outlooks/three-week-outlook-tab"
 import { cn } from "@/lib/utils"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
@@ -53,6 +59,8 @@ type ProfileTab = "overview" | "outlook" | "related" | "notes" | "files"
 interface DirectoryProfileScreenProps {
   directoryId: string
   userId: string
+  /** Gates Merge duplicate / Delete — everything else (Edit, Flag) stays open to any signed-in user. */
+  isAdmin?: boolean
   initialView?: "profile" | "outlook"
   onBack: () => void
   onOpenEntity: (directoryId: string) => void
@@ -64,6 +72,7 @@ interface DirectoryProfileScreenProps {
 export function DirectoryProfileScreen({
   directoryId,
   userId,
+  isAdmin = false,
   initialView = "profile",
   onBack,
   onOpenEntity,
@@ -104,6 +113,9 @@ export function DirectoryProfileScreen({
   const [notice, setNotice] = useState("")
   const [showAdmin, setShowAdmin] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showFlag, setShowFlag] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const [showMerge, setShowMerge] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const vmId = vm?.id ?? null
 
@@ -132,7 +144,10 @@ export function DirectoryProfileScreen({
     setFullOutlook(initialView === "outlook")
     setShowAdmin(false)
     setShowEdit(false)
-    loadDirectoryProfileViewModel(directoryId, reloadKey > 0)
+    setShowFlag(false)
+    setShowDelete(false)
+    setShowMerge(false)
+    loadDirectoryProfileViewModel(directoryId, reloadKey > 0, { canModerate: isAdmin })
       .then((built) => {
         if (!active) return
         setVm(built)
@@ -144,7 +159,7 @@ export function DirectoryProfileScreen({
       })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
-  }, [directoryId, initialView, reloadKey, userId])
+  }, [directoryId, initialView, isAdmin, reloadKey, userId])
 
   // Resolve recent activity once the entity is known (best-effort, non-
   // blocking — the About narrative refines as it arrives).
@@ -285,6 +300,9 @@ export function DirectoryProfileScreen({
     if (!vm) return
     if (!action.inApp) return // native <a> handles href
     if (action.kind === "edit") { setShowEdit(true); return }
+    if (action.kind === "flag") { setShowFlag(true); return }
+    if (action.kind === "delete") { setShowDelete(true); return }
+    if (action.kind === "merge") { setShowMerge(true); return }
     setNotice(`${action.label} is coming soon.`)
   }
 
@@ -488,6 +506,41 @@ export function DirectoryProfileScreen({
           }}
         />
       )}
+
+      {showFlag && vm && (
+        <DirectoryFlagSheet
+          vm={vm}
+          userId={userId}
+          onClose={() => setShowFlag(false)}
+          onSaved={() => {
+            setShowFlag(false)
+            setReloadKey((k) => k + 1)
+            setNotice("Changes saved.")
+          }}
+        />
+      )}
+
+      {showDelete && vm && (
+        <DirectoryDeleteConfirmSheet
+          vm={vm}
+          onClose={() => setShowDelete(false)}
+          onDeleted={onBack}
+        />
+      )}
+
+      {showMerge && vm && vm.type === "person" && (
+        <DirectoryMergeSheet
+          vm={vm}
+          userId={userId}
+          people={people}
+          onClose={() => setShowMerge(false)}
+          onMerged={() => {
+            setShowMerge(false)
+            setReloadKey((k) => k + 1)
+            setNotice("Contacts merged.")
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -581,6 +634,9 @@ const ACTION_ICONS: Partial<Record<ProfileAction["kind"], typeof Phone>> = {
   website: ExternalLink,
   drive: FolderOpen,
   edit: Pencil,
+  flag: Flag,
+  merge: GitMerge,
+  delete: Trash2,
 }
 
 function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onAction: (action: ProfileAction) => void }) {

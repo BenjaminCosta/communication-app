@@ -182,12 +182,20 @@ service cloud.firestore {
     }
 
     // ── Imported Contacts ──────────────────────────────────────────────────
-    // Contacts are global-only for now: any authenticated user can read every
-    // contact. Writes stay owner-scoped (only the owner can create/update/delete).
+    // Contacts are global-only: any authenticated user can read every contact.
+    // Update is open to any authenticated user — same posture as /contexts —
+    // so shared Directory edits (and the "flag for review" action) work for
+    // everyone, not just the doc's original importer/owner. Delete stays
+    // owner-scoped for direct client writes (this is what the legacy People
+    // screen's own delete button relies on); Directory's admin-gated merge/
+    // delete flow never calls deleteDoc from the client — it goes through
+    // app/api/directory/{merge,delete} (Admin SDK, bypasses these rules)
+    // after its own server-side isAdmin check.
     match /contacts/{contactId} {
       allow read: if request.auth != null;
-      allow update, delete: if request.auth != null
-                            && request.auth.uid == resource.data.ownerUserId;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.ownerUserId;
       allow create: if request.auth != null
                     && request.auth.uid == request.resource.data.ownerUserId;
     }

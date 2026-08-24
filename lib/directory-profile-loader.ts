@@ -3,6 +3,7 @@ import { parseDirectoryId } from "@/lib/directory"
 import { directoryDb } from "@/lib/firebase"
 import {
   buildProfileViewModel,
+  type BuildProfileOptions,
   type DirectoryProfileViewModel,
   type ProfileIndexInput,
 } from "@/lib/directory-view-models"
@@ -16,9 +17,13 @@ function text(value: unknown): string {
 export function loadDirectoryProfileViewModel(
   directoryId: string,
   force = false,
+  options: BuildProfileOptions = {},
 ): Promise<DirectoryProfileViewModel> {
+  // Keyed on canModerate too: a hover/press prefetch (no options) must not
+  // hand an admin's later load the non-moderate view model it cached first.
+  const cacheKey = `${directoryId}::${options.canModerate ? "mod" : "std"}`
   if (!force) {
-    const existing = inflight.get(directoryId)
+    const existing = inflight.get(cacheKey)
     if (existing) return existing
   }
   const request = (async () => {
@@ -46,12 +51,12 @@ export function loadDirectoryProfileViewModel(
       linkedUserId: text(data.linkedUserId) || null,
       quality: (data.quality && typeof data.quality === "object" ? data.quality : null) as ProfileIndexInput["quality"],
     }
-    return buildProfileViewModel(index, (sourceSnapshot.data() ?? {}) as Record<string, unknown>)
+    return buildProfileViewModel(index, (sourceSnapshot.data() ?? {}) as Record<string, unknown>, options)
   })()
-  inflight.set(directoryId, request)
+  inflight.set(cacheKey, request)
   void request
     .finally(() => {
-      if (inflight.get(directoryId) === request) inflight.delete(directoryId)
+      if (inflight.get(cacheKey) === request) inflight.delete(cacheKey)
     })
     .catch(() => {})
   return request
