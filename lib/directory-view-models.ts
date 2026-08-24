@@ -434,7 +434,10 @@ export function buildCompanyProfileViewModel(
   if (address) actions.push({ kind: "directions", label: "Directions", href: mapsHref(address), value: address })
   actions.push({ kind: "edit", label: "Edit Company", inApp: true })
   actions.push({ kind: "flag", label: "Flag for review", inApp: true })
-  if (options.canModerate) actions.push({ kind: "delete", label: "Delete Company", inApp: true })
+  if (options.canModerate) {
+    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete Company", inApp: true })
+  }
 
   return {
     id: index.id,
@@ -547,7 +550,10 @@ export function buildJobProfileViewModel(
   if (driveFolderUrl) actions.push({ kind: "drive", label: "Open Drive", href: driveFolderUrl, value: driveFolderUrl })
   actions.push({ kind: "edit", label: "Edit Job", inApp: true })
   actions.push({ kind: "flag", label: "Flag for review", inApp: true })
-  if (options.canModerate) actions.push({ kind: "delete", label: "Delete Job", inApp: true })
+  if (options.canModerate) {
+    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete Job", inApp: true })
+  }
 
   return {
     id: index.id,

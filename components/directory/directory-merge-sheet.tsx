@@ -3,74 +3,94 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, GitMerge, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PeopleSelector } from "@/components/directory/directory-edit-sheet"
+import { CompanySelector, JobsSelector, PeopleSelector } from "@/components/directory/directory-edit-sheet"
 import { loadDirectorySearch } from "@/lib/directory-search"
-import { type DirectoryInvolvedPerson } from "@/lib/directory-writes"
-import { type PersonProfileViewModel } from "@/lib/directory-view-models"
+import {
+  type CompanyProfileViewModel,
+  type JobProfileViewModel,
+  type PersonProfileViewModel,
+} from "@/lib/directory-view-models"
 import {
   DirectoryCleanupClientError,
   requestDirectoryMerge,
 } from "@/lib/directory-cleanup-client"
 
+type MergeableViewModel = PersonProfileViewModel | CompanyProfileViewModel | JobProfileViewModel
+
+interface DuplicateCandidate {
+  id: string
+  name: string
+}
+
 interface DirectoryMergeSheetProps {
-  vm: PersonProfileViewModel
+  vm: MergeableViewModel
   userId: string
+  companies: Array<{ id: string; name: string }>
   people: Array<{ id: string; name: string }>
   onClose: () => void
   onMerged: (survivorDirectoryId: string) => void
 }
 
+const NOUN: Record<MergeableViewModel["type"], string> = {
+  person: "contact",
+  company: "company",
+  job: "job",
+}
+
 /**
- * Admin-only. Picks a duplicate contact and merges it into the currently
- * open profile (the survivor). The actual merge — union of contact fields,
- * re-pointing job/company membership, relations, notes/files and message
- * tags, then deleting the duplicate — happens server-side via
- * app/api/directory/merge (see lib/directory-server-writes.ts). People only
- * in V1; this sheet is only ever opened from a person's profile.
+ * Admin-only. Picks a duplicate person/company/job and merges it into the
+ * currently open profile (the survivor). The actual merge — union of fields,
+ * re-pointing every reference (job/company membership or company links,
+ * relations, notes/files, and for people, message tags), then deleting the
+ * duplicate — happens server-side via app/api/directory/merge (see
+ * lib/directory-server-writes.ts). Reuses the same picker component the
+ * profile Edit sheet uses for each type, just capped to a single selection.
  */
-export function DirectoryMergeSheet({ vm, userId, people, onClose, onMerged }: DirectoryMergeSheetProps) {
-  // Same self-loading pattern as DirectoryEditSheet's PeopleSelector: the
-  // profile can open before the app-level Directory catalog is ready, so
-  // this refreshes from the same cached-then-live index rather than relying
-  // on a possibly-empty/stale `people` prop.
+export function DirectoryMergeSheet({ vm, userId, companies, people, onClose, onMerged }: DirectoryMergeSheetProps) {
+  // Same self-loading pattern as DirectoryEditSheet: the profile can open
+  // before the app-level Directory catalog is ready, so this refreshes from
+  // the same cached-then-live index rather than relying on possibly-empty/
+  // stale props (jobs in particular are never passed down as a prop at all).
+  const [availableCompanies, setAvailableCompanies] = useState(companies)
   const [availablePeople, setAvailablePeople] = useState(people)
-  const [isIndexLoading, setIsIndexLoading] = useState(people.length === 0)
+  const [availableJobs, setAvailableJobs] = useState<Array<{ id: string; name: string }>>([])
+  const initialCandidatesReady = vm.type === "person" ? people.length > 0 : vm.type === "company" ? companies.length > 0 : false
+  const [isIndexLoading, setIsIndexLoading] = useState(!initialCandidatesReady)
 
   useEffect(() => {
     let active = true
+    setAvailableCompanies(companies)
     setAvailablePeople(people)
-    setIsIndexLoading(people.length === 0)
-    loadDirectorySearch(userId, {
-      onCache: (index) => {
-        if (!active) return
-        setAvailablePeople(index.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })))
-        setIsIndexLoading(false)
-      },
-    })
-      .then((index) => {
-        if (!active) return
-        setAvailablePeople(index.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })))
-        setIsIndexLoading(false)
-      })
+    const applyIndex = (index: Awaited<ReturnType<typeof loadDirectorySearch>>) => {
+      if (!active) return
+      setAvailableCompanies(index.byType.company.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setAvailablePeople(index.byType.person.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setAvailableJobs(index.byType.job.map((entry) => ({ id: entry.sourceId, name: entry.name })))
+      setIsIndexLoading(false)
+    }
+    loadDirectorySearch(userId, { onCache: applyIndex })
+      .then(applyIndex)
       .catch(() => { if (active) setIsIndexLoading(false) })
     return () => { active = false }
-  }, [people, userId])
+  }, [companies, people, userId])
 
-  const [duplicate, setDuplicate] = useState<DirectoryInvolvedPerson | null>(null)
+  const [duplicate, setDuplicate] = useState<DuplicateCandidate | null>(null)
   const [isMerging, setIsMerging] = useState(false)
   const [error, setError] = useState("")
 
-  const candidates = availablePeople.filter((person) => person.id !== vm.sourceId)
+  const candidatePool = vm.type === "person" ? availablePeople : vm.type === "company" ? availableCompanies : availableJobs
+  const candidates = candidatePool.filter((entry) => entry.id !== vm.sourceId)
+  const noun = NOUN[vm.type]
 
   const merge = async () => {
     if (!duplicate || isMerging) return
     setIsMerging(true)
     setError("")
     try {
-      const result = await requestDirectoryMerge(vm.sourceId, duplicate.id)
+      const result = await requestDirectoryMerge(vm.type, vm.sourceId, duplicate.id)
       onMerged(result.survivorDirectoryId)
     } catch (err) {
-      setError(err instanceof DirectoryCleanupClientError ? err.message : "Could not merge these contacts. Try again.")
+      setError(err instanceof DirectoryCleanupClientError ? err.message : "Could not merge these records. Try again.")
       setIsMerging(false)
     }
   }
@@ -110,18 +130,38 @@ export function DirectoryMergeSheet({ vm, userId, people, onClose, onMerged }: D
           )}
 
           <p className="text-xs leading-5 text-muted-foreground/65">
-            Find the duplicate contact to merge into <span className="font-semibold text-foreground/85">{vm.name}</span>.
-            Emails, phones, tags and links are combined onto {vm.name}; the duplicate is deleted.
+            Find the duplicate {noun} to merge into <span className="font-semibold text-foreground/85">{vm.name}</span>.
+            Their details are combined onto {vm.name}; the duplicate is deleted.
           </p>
 
           <div className="mt-5">
-            <PeopleSelector
-              people={candidates}
-              isLoading={isIndexLoading}
-              selectedPeople={duplicate ? [duplicate] : []}
-              onAdd={(person) => setDuplicate(person)}
-              onRemove={() => setDuplicate(null)}
-            />
+            {vm.type === "person" && (
+              <PeopleSelector
+                people={candidates}
+                isLoading={isIndexLoading}
+                selectedPeople={duplicate ? [duplicate] : []}
+                onAdd={(entry) => setDuplicate(entry)}
+                onRemove={() => setDuplicate(null)}
+              />
+            )}
+            {vm.type === "company" && (
+              <CompanySelector
+                companies={candidates}
+                isLoading={isIndexLoading}
+                value={duplicate?.name ?? ""}
+                selectedId={duplicate?.id ?? null}
+                onChange={(name, id) => setDuplicate(id ? { id, name } : null)}
+              />
+            )}
+            {vm.type === "job" && (
+              <JobsSelector
+                jobs={candidates}
+                isLoading={isIndexLoading}
+                selectedJobs={duplicate ? [duplicate] : []}
+                onAdd={(entry) => setDuplicate(entry)}
+                onRemove={() => setDuplicate(null)}
+              />
+            )}
           </div>
 
           {duplicate && (
@@ -133,8 +173,8 @@ export function DirectoryMergeSheet({ vm, userId, people, onClose, onMerged }: D
                   {duplicate.name} will be merged into {vm.name}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground/70">
-                  Jobs, companies, notes, files and message tags on {duplicate.name} move to {vm.name}. {duplicate.name} is then
-                  deleted. This cannot be undone.
+                  Relationships, notes and files on {duplicate.name} move to {vm.name}. {duplicate.name} is then deleted. This
+                  cannot be undone.
                 </p>
               </div>
             </div>

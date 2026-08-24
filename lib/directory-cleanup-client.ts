@@ -69,11 +69,17 @@ export interface DirectoryMergeResult {
   survivorDirectoryId: string
 }
 
-export async function requestDirectoryMerge(survivorContactId: string, duplicateContactId: string): Promise<DirectoryMergeResult> {
+export type DirectoryMergeEntityType = "person" | "company" | "job"
+
+export async function requestDirectoryMerge(
+  entityType: DirectoryMergeEntityType,
+  survivorId: string,
+  duplicateId: string,
+): Promise<DirectoryMergeResult> {
   const response = await fetch("/api/directory/merge", {
     method: "POST",
     headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
-    body: JSON.stringify({ survivorContactId, duplicateContactId }),
+    body: JSON.stringify({ entityType, survivorId, duplicateId }),
   })
   if (!response.ok) await readError(response, "Could not merge these contacts. Try again.")
   return (await response.json()) as DirectoryMergeResult

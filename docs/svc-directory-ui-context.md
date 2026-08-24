@@ -368,54 +368,79 @@ note, combined into the one existing `reviewReason` string field) +
 itself — the "Needs review" badge and Admin Details rows already existed
 (previously import-only). New: `components/directory/directory-flag-sheet.tsx`.
 
-**Merge duplicate** (people only — `mergeDirectoryContacts()` in
-`lib/directory-server-writes.ts`, called from `app/api/directory/merge`):
-unions contact fields (emails/phones/urls/tags/companies/roles), tombstones
-the duplicate (`mergedIntoId`), then re-points every reference from the
-duplicate's composite id to the survivor's — job/company
-`involvedContactIds`/`involvedPeople`/"People involved" field,
-`/directoryRelations` edges (by rewriting the deterministic `rel__{from}__{to}`
-doc id; a collision with an existing survivor-side edge just drops the
-duplicate's), `/directoryNotes`/`/directoryFiles` `entityIds`, and
-`messages.contactIds` (paginated, capped at 2,000 messages per merge) —
-before deleting the duplicate contact doc. This is what the old client-only
-`mergeContactData()` (removed) could never finish: it had no way to touch
-`/messages` (client can't write messages it doesn't own) and the
-owner-scoped `/contacts` rule blocked it for most real duplicates anyway.
-New: `components/directory/directory-merge-sheet.tsx` (reuses
-`PeopleSelector` from `directory-edit-sheet.tsx`, now exported, capped to a
-single pick), `lib/directory-cleanup-client.ts` (Bearer-token fetch wrappers,
-same shape as `features/directory/ai/client/directory-ai-client.ts`).
+**Merge duplicate** (people, companies AND jobs — `mergeDirectoryEntities(entityType, survivorSourceId, duplicateSourceId)`
+in `lib/directory-server-writes.ts` dispatches to one of three type-specific
+functions, called from `app/api/directory/merge` with `{ entityType, survivorId, duplicateId }`):
+
+- `mergeDirectoryContacts()` — unions contact fields (emails/phones/urls/tags/companies/roles),
+  tombstones the duplicate (`mergedIntoId`), then re-points every reference from the
+  duplicate's composite id to the survivor's — job/company
+  `involvedContactIds`/`involvedPeople`/"People involved" field,
+  `/directoryRelations` edges, `/directoryNotes`/`/directoryFiles` `entityIds`, and
+  `messages.contactIds` (paginated, capped at 2,000 messages per merge) —
+  before deleting the duplicate contact doc. This is what the old client-only
+  `mergeContactData()` (removed) could never finish: it had no way to touch
+  `/messages` (client can't write messages it doesn't own) and the
+  owner-scoped `/contacts` rule blocked it for most real duplicates anyway.
+- `mergeDirectoryCompanies()` — unions `masterData` (survivor's non-empty
+  scalars win, duplicate fills gaps — `fillMissingScalars()`) and `fields[]`
+  (`unionFieldsByLabel()`), folds the duplicate's name into the survivor's
+  `masterData.aliases` (the same idea a company **rename** already uses to
+  keep its old name searchable — see `reRelatePeopleForCompany` in
+  `functions/src/directory/sync.ts`), then re-points every contact/job whose
+  company link pointed at the duplicate. Finding those links reuses that same
+  function's three-source match (`masterData.companyContextId`, `sourceCompanyId`,
+  exact name) via `findEntitiesLinkedToCompany()` — most contacts only match by
+  name, not by an explicit id, so the name-match query is the one that matters
+  most in practice. Re-pointing sets both the id **and** the display name/text
+  field, unlike delete (below), which only clears the id.
+- `mergeDirectoryJobs()` — unions `involvedPeople`/`involvedContactIds`
+  (survivor's entry wins on an id conflict) and `masterData`/`fields[]`
+  (`"People involved"` is excluded from the generic field union and
+  regenerated from the merged people list instead of unioned as raw text),
+  then `db.recursiveDelete()`s the duplicate — `/contexts/{jobId}/outlooks`
+  is a subcollection Firestore won't cascade-delete on its own.
+
+All three share `repointRelations()` (rewrites the deterministic
+`rel__{from}__{to}` `/directoryRelations` doc id; a collision with an
+existing survivor-side edge just drops the duplicate's) and
+`repointNotesAndFiles()` (`/directoryNotes`/`/directoryFiles` `entityIds`).
+New: `components/directory/directory-merge-sheet.tsx` (one sheet for all
+three types — picks `PeopleSelector`/`CompanySelector`/`JobsSelector` from
+`directory-edit-sheet.tsx`, now all exported, per `vm.type`, `CompanySelector`
+and the capped-to-one `PeopleSelector`/`JobsSelector` already being
+single-pick-shaped), `lib/directory-cleanup-client.ts` (Bearer-token fetch
+wrappers, same shape as `features/directory/ai/client/directory-ai-client.ts`).
 
 **Delete** (`deleteDirectoryEntity()`/`computeDirectoryDeleteImpact()` in
-`lib/directory-server-writes.ts`, called from `app/api/directory/delete`):
-same reference cleanup as merge minus the "redirect to survivor" step — strips
-the id from job/company membership (person), notes/files `entityIds`, and
+`lib/directory-server-writes.ts`, called from `app/api/directory/delete`,
+works for all four types): same reference-finding as merge minus the
+"redirect to survivor" step — strips the id from job/company membership
+(person) or nulls `masterData.companyContextId` on contacts/jobs that
+pointed at it (company — via the same `findEntitiesLinkedToCompany()` merge
+uses, but leaving the free-text name/company field alone, unlike merge,
+which also updates the text), notes/files `entityIds`, and
 `messages.contactIds` (person); deletes every `/directoryRelations` edge
 touching the id (not just the sync Cloud Function's own `context-sync`-owned
 edges, which is all `syncDirectoryOnContactWrite`/`syncDirectoryOnContextWrite`
 clean up on their own — import-authored edges would otherwise dangle
 forever). Jobs get `db.recursiveDelete(docRef)` instead of a plain delete,
-because `/contexts/{jobId}/outlooks` is a subcollection and Firestore does
-not cascade-delete those. The confirm UI
+same subcollection reason as job merge. The confirm UI
 (`components/directory/directory-delete-confirm-sheet.tsx`) calls the same
-endpoint with `dryRun: true` first to show real reference counts before the
-admin confirms.
+endpoint with `dryRun: true` first to show real reference counts (including
+the `contacts`/`contexts` counts for a company, added alongside merge) before
+the admin confirms.
 
 **Known v1 scope trims** (deliberate, to keep this simple — revisit if they
 bite in practice):
-- Merge is people-only; company/job merge isn't implemented (contexts are
-  collaboratively shared, not single-sourced, so "duplicate" is a fuzzier
-  concept there — flag it for a human instead).
-- Deleting a company/job does not null out `masterData.companyContextId` on
-  contacts/jobs that pointed to it — the id-based link goes stale until that
-  record is next edited (self-heals via `resolveCompanyIdForContact` on the
-  next contact write), the free-text name stays intact, and opening the
-  stale link already renders the existing "not found" profile state rather
-  than crashing. This is no worse than the legacy `contexts-screen.tsx`
-  delete path, which does zero reference cleanup at all.
 - No global toast/notification system exists in this module, so a successful
   delete just navigates back to Directory with no confirmation toast (Flag
   and Merge do show an inline notice, since those stay on the same screen).
 - No duplicate-suggestion/fuzzy-matching UI — merge is manual search-and-pick
-  via the same typeahead pattern as the existing Company/People selectors.
+  via the same typeahead pattern as the existing Company/People/Jobs selectors.
+- Merging two companies/jobs does not attempt to reconcile conflicting
+  `masterData` beyond "survivor's non-empty value wins, duplicate fills
+  gaps" — there's no field-level diff/review UI before confirming, unlike
+  the person merge picker's preview panel (which only shows *that* a merge
+  will happen, not a field-by-field diff either, so this is consistent, just
+  worth knowing if a company/job merge produces a surprising result).

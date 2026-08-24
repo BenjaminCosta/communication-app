@@ -442,7 +442,7 @@ export function DirectoryEditSheet({ vm, userId, companies, people, onClose, onS
   )
 }
 
-function CompanySelector({
+export function CompanySelector({
   companies,
   isLoading,
   value,
@@ -575,7 +575,7 @@ export function PeopleSelector({
   )
 }
 
-function JobsSelector({
+export function JobsSelector({
   jobs,
   isLoading,
   selectedJobs,

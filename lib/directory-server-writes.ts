@@ -17,7 +17,13 @@
 
 import { FieldValue, type Firestore, type WriteBatch, getFirestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
-import { directoryId as buildDirectoryId, parseDirectoryId, type DirectoryType } from "@/lib/directory-core"
+import {
+  classifyContext,
+  directoryId as buildDirectoryId,
+  parseDirectoryId,
+  type CoreContext,
+  type DirectoryType,
+} from "@/lib/directory-core"
 
 export class DirectoryServerWriteError extends Error {
   readonly status: number
@@ -66,9 +72,59 @@ async function commitInChunks(db: Firestore, ops: Array<(batch: WriteBatch) => v
   }
 }
 
+function cleanStr(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function unionDeduped<T>(a: unknown, b: unknown): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const item of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+    const key = JSON.stringify(item)
+    if (!seen.has(key)) { seen.add(key); out.push(item as T) }
+  }
+  return out
+}
+
+/** Throws unless `data` (a /contexts doc) classifies as `expected` — guards merge/delete against a mistyped id. */
+function assertContextType(id: string, data: Record<string, unknown>, expected: "company" | "job"): void {
+  const actual = classifyContext({ id, ...data } as CoreContext)
+  if (actual !== expected) throw new DirectoryServerWriteError(`This record is not a ${expected}.`, 400)
+}
+
 async function findContextsInvolving(db: Firestore, contactSourceId: string) {
   const snap = await db.collection("contexts").where("involvedContactIds", "array-contains", contactSourceId).get()
   return snap.docs
+}
+
+/**
+ * Every /contacts and /contexts (job) doc whose company link points at this
+ * company. Mirrors functions/src/directory/sync.ts's reRelatePeopleForCompany,
+ * which uses the same three-source match (sourceCompanyId, exact name,
+ * explicit companyContextId) to re-relate people on a company rename — a
+ * company merge is the same operation plus combining the two docs' data.
+ * Jobs only ever link by the explicit id (see normalizeJobContext).
+ */
+async function findEntitiesLinkedToCompany(
+  db: Firestore,
+  companyContextId: string,
+  companyName: string,
+  companySourceRecordId: string | null,
+): Promise<{ contacts: FirebaseFirestore.QueryDocumentSnapshot[]; jobs: FirebaseFirestore.QueryDocumentSnapshot[] }> {
+  const contactQueries = [
+    db.collection("contacts").where("masterData.companyContextId", "==", companyContextId).get(),
+  ]
+  if (companyName) contactQueries.push(db.collection("contacts").where("company", "==", companyName).get())
+  if (companySourceRecordId) {
+    contactQueries.push(db.collection("contacts").where("sourceCompanyId", "==", companySourceRecordId).get())
+  }
+  const [contactSnaps, jobSnap] = await Promise.all([
+    Promise.all(contactQueries),
+    db.collection("contexts").where("masterData.companyContextId", "==", companyContextId).get(),
+  ])
+  const contactMap = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>()
+  for (const snap of contactSnaps) for (const d of snap.docs) contactMap.set(d.id, d)
+  return { contacts: [...contactMap.values()], jobs: jobSnap.docs }
 }
 
 async function findNotesFilesReferencing(db: Firestore, dirId: string) {
@@ -157,10 +213,35 @@ async function stripPersonFromMessages(db: Firestore, contactSourceId: string): 
   return processed
 }
 
+/** Company's own displayName + sourceRecordId, used to find who links to it (see findEntitiesLinkedToCompany). */
+function companyLinkKeyOf(data: Record<string, unknown>): { name: string; sourceRecordId: string | null } {
+  const master = (data.masterData ?? {}) as Record<string, unknown>
+  const name = cleanStr(master.displayName) ?? cleanStr(master.canonicalName) ?? cleanStr(data.name) ?? ""
+  return { name, sourceRecordId: cleanStr(data.sourceRecordId) }
+}
+
+/** Null out the id-based company link on every contact/job that pointed at this company (delete path — text name is left as-is, harmless history; see repointCompanyReferences for the merge equivalent, which also updates the name). */
+async function stripCompanyReferences(
+  db: Firestore,
+  companyContextId: string,
+  companyName: string,
+  companySourceRecordId: string | null,
+): Promise<{ contacts: number; jobs: number }> {
+  const { contacts, jobs } = await findEntitiesLinkedToCompany(db, companyContextId, companyName, companySourceRecordId)
+  await commitInChunks(db, [...contacts, ...jobs].map((d) => (batch: WriteBatch) => batch.update(d.ref, {
+    "masterData.companyContextId": null,
+    updatedAt: FieldValue.serverTimestamp(),
+  })))
+  return { contacts: contacts.length, jobs: jobs.length }
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────
 
 export interface DirectoryDeleteImpact {
+  /** Jobs/companies referencing this entity: person → contexts listing them; company → jobs pointing at it. */
   contexts: number
+  /** Company only: contacts whose company link points at it. */
+  contacts: number
   notes: number
   files: number
   messages: number
@@ -168,18 +249,25 @@ export interface DirectoryDeleteImpact {
   relations: number
 }
 
-/** Read-only preview of what deleting this entity would touch, for the confirm UI. */
+/** Read-only preview of what deleting this entity would touch, for the confirm UI. Also the existence check both this and deleteDirectoryEntity rely on. */
 export async function computeDirectoryDeleteImpact(dirIdStr: string): Promise<DirectoryDeleteImpact> {
   const entity = resolveDirectoryId(dirIdStr)
   const db = await adminDb()
-  const [contextDocs, notesFiles, relationDocs, messages] = await Promise.all([
+  const docRef = db.collection(entity.sourceCollection).doc(entity.sourceId)
+  const docSnap = await docRef.get()
+  if (!docSnap.exists) throw new DirectoryServerWriteError("This record no longer exists.", 404)
+  const linkKey = entity.type === "company" ? companyLinkKeyOf(docSnap.data() ?? {}) : null
+
+  const [contextDocs, companyLinks, notesFiles, relationDocs, messages] = await Promise.all([
     entity.type === "person" ? findContextsInvolving(db, entity.sourceId) : Promise.resolve([]),
+    linkKey ? findEntitiesLinkedToCompany(db, entity.sourceId, linkKey.name, linkKey.sourceRecordId) : Promise.resolve({ contacts: [], jobs: [] }),
     findNotesFilesReferencing(db, entity.directoryId),
     findRelationsReferencing(db, entity.directoryId),
     entity.type === "person" ? countMessagesReferencing(db, entity.sourceId) : Promise.resolve({ count: 0, capped: false }),
   ])
   return {
-    contexts: contextDocs.length,
+    contexts: contextDocs.length + companyLinks.jobs.length,
+    contacts: companyLinks.contacts.length,
     notes: notesFiles.notes.length,
     files: notesFiles.files.length,
     messages: messages.count,
@@ -190,7 +278,8 @@ export async function computeDirectoryDeleteImpact(dirIdStr: string): Promise<Di
 
 /**
  * Delete a person/company/job/other record, cleaning up every reference so
- * nothing dangles: job/company membership arrays, notes/files entityIds,
+ * nothing dangles: job/company membership arrays (person) or company-link
+ * fields on contacts/jobs (company), notes/files entityIds,
  * directoryRelations edges, and (person only) message tags. Jobs additionally
  * get a recursive delete — /contexts/{id}/outlooks is a subcollection, which
  * Firestore does not cascade-delete on its own.
@@ -199,12 +288,18 @@ export async function deleteDirectoryEntity(dirIdStr: string): Promise<Directory
   const entity = resolveDirectoryId(dirIdStr)
   const db = await adminDb()
   const docRef = db.collection(entity.sourceCollection).doc(entity.sourceId)
-  const docSnap = await docRef.get()
-  if (!docSnap.exists) throw new DirectoryServerWriteError("This record no longer exists.", 404)
 
+  // Also confirms the record still exists (throws 404 otherwise).
   const impact = await computeDirectoryDeleteImpact(dirIdStr)
 
-  if (entity.type === "person") await stripPersonFromContexts(db, entity.sourceId)
+  if (entity.type === "person") {
+    await stripPersonFromContexts(db, entity.sourceId)
+  }
+  if (entity.type === "company") {
+    const docSnap = await docRef.get()
+    const linkKey = companyLinkKeyOf(docSnap.data() ?? {})
+    await stripCompanyReferences(db, entity.sourceId, linkKey.name, linkKey.sourceRecordId)
+  }
   await stripFromNotesAndFiles(db, entity.directoryId)
   await deleteRelationsReferencing(db, entity.directoryId)
   if (entity.type === "person") await stripPersonFromMessages(db, entity.sourceId)
@@ -218,14 +313,15 @@ export async function deleteDirectoryEntity(dirIdStr: string): Promise<Directory
   return impact
 }
 
-// ── Merge (people only, V1) ─────────────────────────────────────────────
+// ── Merge ─────────────────────────────────────────────────────────────────
 //
-// Companies/jobs aren't supported here: contexts are collaboratively shared
-// (not single-sourced like an imported contact), and person duplicates are
-// the actual, explicitly-called-out product gap this closes. Every step
-// below re-points a reference from the duplicate to the survivor rather than
-// just deleting it, so relationships survive the merge instead of just
-// avoiding a dangling id.
+// Every step below re-points a reference from the duplicate to the survivor
+// rather than just deleting it, so relationships survive the merge instead
+// of just avoiding a dangling id. People, companies and jobs each get their
+// own merge function (their reference shapes genuinely differ — contacts are
+// single-sourced records, companies are pointed-at by others via a name/id
+// link, jobs hold their own membership array and a subcollection) but share
+// the same helpers below where the work really is identical.
 
 /** Re-point a person's job/company "People involved" membership, deduping if the survivor is already listed. */
 async function repointPersonInContexts(db: Firestore, dupSourceId: string, survivorSourceId: string, survivorName: string): Promise<number> {
@@ -254,14 +350,45 @@ async function repointPersonInContexts(db: Firestore, dupSourceId: string, survi
 }
 
 /**
+ * Re-point every contact/job whose company link pointed at the duplicate
+ * company so it points at the survivor instead — both the id (durable) and
+ * the display name (so old free-text/name-matched links resolve correctly
+ * too). Same lookup as stripCompanyReferences (delete path); this one moves
+ * the link forward instead of nulling it.
+ */
+async function repointCompanyReferences(
+  db: Firestore,
+  dup: { contextId: string; name: string; sourceRecordId: string | null },
+  survivorId: string,
+  survivorName: string,
+): Promise<{ contacts: number; jobs: number }> {
+  const { contacts, jobs } = await findEntitiesLinkedToCompany(db, dup.contextId, dup.name, dup.sourceRecordId)
+  await commitInChunks(db, [
+    ...contacts.map((d) => (batch: WriteBatch) => batch.update(d.ref, {
+      company: survivorName,
+      "masterData.companyContextId": survivorId,
+      "masterData.companyMatchConfidence": 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    })),
+    ...jobs.map((d) => (batch: WriteBatch) => batch.update(d.ref, {
+      "masterData.companyName": survivorName,
+      "masterData.companyContextId": survivorId,
+      updatedAt: FieldValue.serverTimestamp(),
+    })),
+  ])
+  return { contacts: contacts.length, jobs: jobs.length }
+}
+
+/**
  * Re-point /directoryRelations edges from the duplicate's composite id to the
  * survivor's. Relation doc ids are deterministic (`rel__{from}__{to}`): if the
  * survivor already has an edge to that same other endpoint, the duplicate's
  * version is redundant and just dropped; otherwise the edge is moved (create
  * at the new id, delete the old) so its role/confidence/source metadata
- * survives instead of being silently lost.
+ * survives instead of being silently lost. Type-neutral — used for merging
+ * people, companies and jobs alike.
  */
-async function repointPersonRelations(db: Firestore, dupDirId: string, survivorDirId: string, survivorName: string): Promise<number> {
+async function repointRelations(db: Firestore, dupDirId: string, survivorDirId: string, survivorName: string): Promise<number> {
   const relationDocs = await findRelationsReferencing(db, dupDirId)
   await Promise.all(relationDocs.map(async (relDoc) => {
     const data = relDoc.data()
@@ -323,18 +450,63 @@ async function repointPersonInMessages(db: Firestore, dupSourceId: string, survi
   return processed
 }
 
-function unionDeduped<T>(a: unknown, b: unknown): T[] {
+/** Normalize a contexts[].involvedPeople-shaped array: dedupe by id, drop malformed entries, cap at 50 (mirrors lib/directory-writes.ts's normalizedInvolvedPeople — reimplemented here rather than imported since that module pulls in the client Firestore SDK). */
+function normalizeInvolvedPeopleList(value: unknown): Array<{ id: string; name: string }> {
   const seen = new Set<string>()
-  const out: T[] = []
-  for (const item of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
-    const key = JSON.stringify(item)
-    if (!seen.has(key)) { seen.add(key); out.push(item as T) }
+  const out: Array<{ id: string; name: string }> = []
+  for (const raw of Array.isArray(value) ? value : []) {
+    const id = cleanStr((raw as { id?: unknown })?.id)
+    const name = cleanStr((raw as { name?: unknown })?.name)
+    if (!id || !name || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, name })
+    if (out.length === 50) break
   }
   return out
 }
 
-function cleanStr(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null
+/** Shallow-fill scalar masterData fields: the survivor's non-empty values win; the duplicate only fills gaps. Arrays are left alone — callers union those explicitly per field (aliases, involvedPeople, …), since a blind fill isn't the right merge for a list. */
+function fillMissingScalars(survivor: Record<string, unknown>, dup: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...survivor }
+  for (const [key, value] of Object.entries(dup)) {
+    if (Array.isArray(value)) continue
+    const current = merged[key]
+    const currentEmpty = current == null || (typeof current === "string" && current.trim() === "")
+    const valueEmpty = value == null || (typeof value === "string" && value.trim() === "")
+    if (currentEmpty && !valueEmpty) merged[key] = value
+  }
+  return merged
+}
+
+/**
+ * Union two contexts[].fields[] arrays by label: the survivor's value for a
+ * label wins if non-empty, else the duplicate's fills it; labels only the
+ * duplicate has are appended. `excludeLabels` drops labels a caller
+ * regenerates itself (e.g. "People involved", rebuilt from the merged
+ * involvedPeople array rather than unioned as raw text).
+ */
+function unionFieldsByLabel(
+  survivorFields: unknown,
+  dupFields: unknown,
+  excludeLabels: string[] = [],
+): Array<{ label: string; value: string }> {
+  const exclude = new Set(excludeLabels.map((l) => l.toLowerCase()))
+  const asFields = (v: unknown) => (Array.isArray(v) ? (v as Array<{ label?: unknown; value?: unknown }>) : [])
+  const byLabel = new Map<string, { label: string; value: string }>()
+  for (const f of asFields(survivorFields)) {
+    const label = String(f.label ?? "").trim()
+    if (!label || exclude.has(label.toLowerCase())) continue
+    byLabel.set(label.toLowerCase(), { label, value: String(f.value ?? "") })
+  }
+  for (const f of asFields(dupFields)) {
+    const label = String(f.label ?? "").trim()
+    if (!label || exclude.has(label.toLowerCase())) continue
+    const key = label.toLowerCase()
+    const existing = byLabel.get(key)
+    if (!existing) { byLabel.set(key, { label, value: String(f.value ?? "") }); continue }
+    if (!existing.value.trim() && String(f.value ?? "").trim()) existing.value = String(f.value ?? "")
+  }
+  return [...byLabel.values()]
 }
 
 export interface DirectoryMergeResult {
@@ -405,13 +577,179 @@ export async function mergeDirectoryContacts(survivorContactId: string, duplicat
   const survivorDirId = buildDirectoryId("person", survivorContactId)
 
   await repointPersonInContexts(db, duplicateContactId, survivorContactId, survivorName)
-  await repointPersonRelations(db, dupDirId, survivorDirId, survivorName)
+  await repointRelations(db, dupDirId, survivorDirId, survivorName)
   await repointNotesAndFiles(db, dupDirId, survivorDirId)
   await repointPersonInMessages(db, duplicateContactId, survivorContactId)
 
   await dupRef.delete()
 
   return { survivorDirectoryId: survivorDirId }
+}
+
+/**
+ * Merge duplicateContextId into survivorContextId (both companies): unions
+ * masterData/fields, folds the duplicate's name into the survivor's aliases
+ * (same idea as a company rename accumulating its old name — see
+ * functions/src/directory/sync.ts), re-points every contact/job whose
+ * company link pointed at the duplicate, then deletes it.
+ */
+export async function mergeDirectoryCompanies(survivorContextId: string, duplicateContextId: string): Promise<DirectoryMergeResult> {
+  if (!survivorContextId || !duplicateContextId) {
+    throw new DirectoryServerWriteError("Both companies are required.", 400)
+  }
+  if (survivorContextId === duplicateContextId) {
+    throw new DirectoryServerWriteError("Cannot merge a company into itself.", 400)
+  }
+
+  const db = await adminDb()
+  const survivorRef = db.collection("contexts").doc(survivorContextId)
+  const dupRef = db.collection("contexts").doc(duplicateContextId)
+
+  const merged = await db.runTransaction(async (tx) => {
+    const [sSnap, dSnap] = await Promise.all([tx.get(survivorRef), tx.get(dupRef)])
+    if (!sSnap.exists) throw new DirectoryServerWriteError("The record to keep no longer exists.", 404)
+    if (!dSnap.exists) throw new DirectoryServerWriteError("The duplicate record no longer exists.", 404)
+    const s = sSnap.data() ?? {}
+    const d = dSnap.data() ?? {}
+    assertContextType(sSnap.id, s, "company")
+    assertContextType(dSnap.id, d, "company")
+    if (cleanStr(s.mergedIntoId)) {
+      throw new DirectoryServerWriteError("The record to keep was itself already merged into another company.", 409)
+    }
+    if (cleanStr(d.mergedIntoId)) {
+      throw new DirectoryServerWriteError("This record has already been merged.", 409)
+    }
+
+    const sMaster = (s.masterData ?? {}) as Record<string, unknown>
+    const dMaster = (d.masterData ?? {}) as Record<string, unknown>
+    const survivorName = cleanStr(sMaster.displayName) ?? cleanStr(s.name) ?? cleanStr(dMaster.displayName) ?? cleanStr(d.name) ?? "Unknown"
+    const dupName = cleanStr(dMaster.displayName) ?? cleanStr(d.name) ?? ""
+
+    const mergedMaster = fillMissingScalars(sMaster, dMaster)
+    mergedMaster.displayName = survivorName
+    mergedMaster.aliases = unionDeduped<string>(sMaster.aliases, [...(Array.isArray(dMaster.aliases) ? dMaster.aliases : []), dupName].filter(Boolean))
+
+    tx.update(survivorRef, {
+      masterData: mergedMaster,
+      fields: unionFieldsByLabel(s.fields, d.fields),
+      description: cleanStr(s.description) ?? cleanStr(d.description) ?? null,
+      mergedFromIds: FieldValue.arrayUnion(duplicateContextId),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(dupRef, {
+      mergedIntoId: survivorContextId,
+      mergedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    return { survivorName, dupName, dupSourceRecordId: cleanStr(d.sourceRecordId) }
+  })
+
+  const dupDirId = buildDirectoryId("company", duplicateContextId)
+  const survivorDirId = buildDirectoryId("company", survivorContextId)
+
+  await repointCompanyReferences(
+    db,
+    { contextId: duplicateContextId, name: merged.dupName, sourceRecordId: merged.dupSourceRecordId },
+    survivorContextId,
+    merged.survivorName,
+  )
+  await repointRelations(db, dupDirId, survivorDirId, merged.survivorName)
+  await repointNotesAndFiles(db, dupDirId, survivorDirId)
+
+  await dupRef.delete()
+
+  return { survivorDirectoryId: survivorDirId }
+}
+
+/**
+ * Merge duplicateContextId into survivorContextId (both jobs): unions the
+ * involvedPeople/involvedContactIds membership and masterData/fields, then
+ * deletes the duplicate — recursively, since /contexts/{id}/outlooks is a
+ * subcollection Firestore won't cascade-delete on its own.
+ */
+export async function mergeDirectoryJobs(survivorContextId: string, duplicateContextId: string): Promise<DirectoryMergeResult> {
+  if (!survivorContextId || !duplicateContextId) {
+    throw new DirectoryServerWriteError("Both jobs are required.", 400)
+  }
+  if (survivorContextId === duplicateContextId) {
+    throw new DirectoryServerWriteError("Cannot merge a job into itself.", 400)
+  }
+
+  const db = await adminDb()
+  const survivorRef = db.collection("contexts").doc(survivorContextId)
+  const dupRef = db.collection("contexts").doc(duplicateContextId)
+
+  const survivorName = await db.runTransaction(async (tx) => {
+    const [sSnap, dSnap] = await Promise.all([tx.get(survivorRef), tx.get(dupRef)])
+    if (!sSnap.exists) throw new DirectoryServerWriteError("The record to keep no longer exists.", 404)
+    if (!dSnap.exists) throw new DirectoryServerWriteError("The duplicate record no longer exists.", 404)
+    const s = sSnap.data() ?? {}
+    const d = dSnap.data() ?? {}
+    assertContextType(sSnap.id, s, "job")
+    assertContextType(dSnap.id, d, "job")
+    if (cleanStr(s.mergedIntoId)) {
+      throw new DirectoryServerWriteError("The record to keep was itself already merged into another job.", 409)
+    }
+    if (cleanStr(d.mergedIntoId)) {
+      throw new DirectoryServerWriteError("This record has already been merged.", 409)
+    }
+
+    const sMaster = (s.masterData ?? {}) as Record<string, unknown>
+    const dMaster = (d.masterData ?? {}) as Record<string, unknown>
+    const survivorName = cleanStr(sMaster.canonicalName) ?? cleanStr(s.name) ?? cleanStr(dMaster.canonicalName) ?? cleanStr(d.name) ?? "Unknown"
+
+    const sPeople = normalizeInvolvedPeopleList(s.involvedPeople)
+    const dPeople = normalizeInvolvedPeopleList(d.involvedPeople)
+    const mergedPeopleMap = new Map(sPeople.map((p) => [p.id, p] as const))
+    for (const p of dPeople) if (!mergedPeopleMap.has(p.id)) mergedPeopleMap.set(p.id, p)
+    const mergedPeople = [...mergedPeopleMap.values()]
+
+    const mergedMaster = fillMissingScalars(sMaster, dMaster)
+    mergedMaster.canonicalName = survivorName
+
+    const mergedFields = unionFieldsByLabel(s.fields, d.fields, ["People involved"])
+    if (mergedPeople.length > 0) {
+      mergedFields.push({ label: "People involved", value: mergedPeople.map((p) => p.name).join(", ") })
+    }
+
+    tx.update(survivorRef, {
+      masterData: mergedMaster,
+      fields: mergedFields,
+      involvedContactIds: mergedPeople.map((p) => p.id),
+      involvedPeople: mergedPeople,
+      mergedFromIds: FieldValue.arrayUnion(duplicateContextId),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    tx.update(dupRef, {
+      mergedIntoId: survivorContextId,
+      mergedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    return survivorName
+  })
+
+  const dupDirId = buildDirectoryId("job", duplicateContextId)
+  const survivorDirId = buildDirectoryId("job", survivorContextId)
+
+  await repointRelations(db, dupDirId, survivorDirId, survivorName)
+  await repointNotesAndFiles(db, dupDirId, survivorDirId)
+
+  await db.recursiveDelete(dupRef)
+
+  return { survivorDirectoryId: survivorDirId }
+}
+
+export type DirectoryMergeEntityType = "person" | "company" | "job"
+
+/** Dispatches to the right type-specific merge function — the API route's single entry point. */
+export async function mergeDirectoryEntities(
+  entityType: DirectoryMergeEntityType,
+  survivorSourceId: string,
+  duplicateSourceId: string,
+): Promise<DirectoryMergeResult> {
+  if (entityType === "person") return mergeDirectoryContacts(survivorSourceId, duplicateSourceId)
+  if (entityType === "company") return mergeDirectoryCompanies(survivorSourceId, duplicateSourceId)
+  return mergeDirectoryJobs(survivorSourceId, duplicateSourceId)
 }
 
 // Re-exported for API route input validation / response shaping.

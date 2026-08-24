@@ -528,16 +528,17 @@ export function DirectoryProfileScreen({
         />
       )}
 
-      {showMerge && vm && vm.type === "person" && (
+      {showMerge && vm && (vm.type === "person" || vm.type === "company" || vm.type === "job") && (
         <DirectoryMergeSheet
           vm={vm}
           userId={userId}
+          companies={companies}
           people={people}
           onClose={() => setShowMerge(false)}
           onMerged={() => {
             setShowMerge(false)
             setReloadKey((k) => k + 1)
-            setNotice("Contacts merged.")
+            setNotice("Merged.")
           }}
         />
       )}
