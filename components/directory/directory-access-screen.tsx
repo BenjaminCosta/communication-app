@@ -198,9 +198,17 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
           ) : tab === "flagged" ? (
             <>
               <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
-                <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
-                  Records anyone flagged as a duplicate, incorrect, or inactive.
-                </p>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground/60">
+                    Records anyone flagged as a duplicate, incorrect, or inactive.
+                  </p>
+                  {flagged && flagged.length > 0 && (
+                    <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs font-medium text-[var(--directory-title)]">
+                      <Info className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      {flagged.length} open
+                    </span>
+                  )}
+                </div>
                 {flagged && flagged.length > 0 && (
                   <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/[0.09] bg-white/[0.02] px-3">
                     <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" strokeWidth={1.8} />
@@ -212,13 +220,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                     />
                   </div>
                 )}
-                {flagged && flagged.length > 0 && (
-                  <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-[var(--directory-title)]">
-                    <Info className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    {flagged.length} open
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by type">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide" role="group" aria-label="Filter by type">
                   {TYPE_FILTERS.map((option) => {
                     const meta = option.id === "all" ? null : DIRECTORY_ENTITY_META[option.id]
                     const active = typeFilter === option.id
@@ -228,7 +230,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                         type="button"
                         onClick={() => setTypeFilter(option.id)}
                         className={cn(
-                          "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
+                          "shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
                           active && !meta && "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]",
                           !active && "border-white/[0.1] bg-white/[0.03] text-foreground/65",
                         )}
@@ -238,22 +240,22 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                       </button>
                     )
                   })}
+                  {flagged && flagged.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowReasonFilter(true)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
+                        reasonFilter === "all"
+                          ? "border-white/[0.1] bg-white/[0.03] text-foreground/65"
+                          : "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]",
+                      )}
+                    >
+                      <SlidersHorizontal className="h-3 w-3" strokeWidth={2} />
+                      {reasonFilter === "all" ? "Filters" : reasonFilter}
+                    </button>
+                  )}
                 </div>
-                {flagged && flagged.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReasonFilter(true)}
-                    className={cn(
-                      "mt-2 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
-                      reasonFilter === "all"
-                        ? "border-white/[0.1] bg-white/[0.03] text-foreground/65"
-                        : "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]",
-                    )}
-                  >
-                    <SlidersHorizontal className="h-3 w-3" strokeWidth={2} />
-                    {reasonFilter === "all" ? "Filters" : reasonFilter}
-                  </button>
-                )}
               </div>
 
               <div className="px-4 pb-2 pt-4 md:px-6">

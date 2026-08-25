@@ -603,22 +603,26 @@ doc's `masterData`.
   (person initials vs. company/job glyph, tinted per type) already says what
   it is, so a redundant "PERSON"/"COMPANY"/"JOB" pill next to the name was
   cut. The whole row is one button (`onOpenDetail`); there is no per-row
-  "Open" or "Clear flag" anymore (see below). Above the list: a name/reason
-  search box (same visual pattern as "Manage access"'s search, matching
-  `entity.name` and `entity.reviewReason`, client-side over the
-  already-fetched list — same reasoning as the users search, no new query),
-  then filters — **type** (All/People/Companies/Jobs, pill toggles,
-  unchanged) and **reason** — no longer an inline `<select>`, now a small
-  "Filters" pill (label shows the active reason once one is picked) that
-  opens a bottom sheet (`Drawer`) listing "All reasons" + the four presets
+  "Open" or "Clear flag" anymore (see below). Controls above the list are
+  kept to three compact rows, not four: (1) the intro paragraph shares a row
+  with the "N open" count (`Info` icon, tinted, `flex justify-between` —
+  `flagged.length` at a glance without its own dedicated line); (2) a
+  name/reason search box (same visual pattern as "Manage access"'s search,
+  matching `entity.name` and `entity.reviewReason`, client-side over the
+  already-fetched list — no new query); (3) **type** (All/People/Companies/
+  Jobs pill toggles) and **reason** filters share one horizontally-scrolling
+  row (`overflow-x-auto`, same pattern `QuickActions` uses on the profile
+  screen) — the reason filter is a small "Filters" pill (label shows the
+  active reason once picked) appended as the last item in that same row,
+  opening a bottom sheet (`Drawer`) listing "All reasons" + the four presets
   `directory-flag-sheet.tsx` uses, each row a plain tap target with a
-  checkmark on the active one. An "N open" line (`Info` icon, tinted) sits
-  between the search box and the filters — replaces the count badge that
-  used to sit on this tab (see "Two tabs" below) with a plainer
-  always-visible number, closer to an inbox's unread count than a
-  notification badge. Directory's own `DIRECTORY_ENTITY_META` person/
-  company/job colors (same tokens `directory-profile-screen.tsx` uses) still
-  drive the icon tint and the type filter chips' active state — a subtle
+  checkmark on the active one. This replaced an earlier layout where the
+  count and the reason filter each had their own row (four rows total) —
+  tightened after feedback that the controls block was taking too much
+  vertical space before any actual flagged records were visible. Directory's
+  own `DIRECTORY_ENTITY_META` person/company/job colors (same tokens
+  `directory-profile-screen.tsx` uses) still drive the icon tint and the
+  type filter chips' active state — a subtle
   scan aid, not a strong color-coding scheme; "other" falls back to the
   company color the same way the profile screen's avatar does, since
   flagged "other" contexts can't actually occur (see above).
