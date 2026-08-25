@@ -1,14 +1,14 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Flag, Search, ShieldOff, UsersRound } from "lucide-react"
+import { ArrowLeft, Check, ChevronRight, Flag, Info, Search, ShieldOff, SlidersHorizontal, UsersRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { auth } from "@/lib/firebase"
 import { Switch } from "@/components/ui/switch"
-import { inputClassName } from "@/components/directory/directory-edit-sheet"
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer"
+import { DirectoryEntityIcon } from "@/components/directory/directory-entity-icon"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
-import { clearDirectoryReviewFlag, DirectoryWriteError } from "@/lib/directory-writes"
 import {
   fetchDirectoryAccessData,
   invalidateDirectoryAccessCache,
@@ -39,18 +39,6 @@ const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
 // How long the "Access revoked — Undo" toast stays up before it's treated as final.
 const UNDO_WINDOW_MS = 6000
 
-function formatFlaggedAgo(millis: number | null): string | null {
-  if (millis == null) return null
-  const days = Math.floor((Date.now() - millis) / 86_400_000)
-  if (days <= 0) return "today"
-  if (days === 1) return "yesterday"
-  if (days < 30) return `${days} days ago`
-  const months = Math.floor(days / 30)
-  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`
-  const years = Math.floor(months / 12)
-  return `${years} year${years === 1 ? "" : "s"} ago`
-}
-
 /**
  * Delegates Directory admin access (merge/delete + this screen itself) to
  * other users, and surfaces the flagged-for-review moderation queue —
@@ -66,14 +54,17 @@ function formatFlaggedAgo(millis: number | null): string | null {
  * `shrink-0` sibling), so switching tabs is always reachable regardless of
  * scroll position — each tab's own intro/search/filters scroll normally
  * with its list, not pinned.
- * Opening a flagged record just navigates to its profile (onOpenDetail);
- * clearing a flag can also be done right from this list (clearDirectoryReviewFlag
- * is open to any signed-in user, same as flagging itself — this screen only
- * gates the aggregate *view*), without leaving for the full profile. Each
- * flagged row's type badge (and the type filter chips) are tinted with
- * Directory's own person/company/job colors (DIRECTORY_ENTITY_META, same
- * tokens directory-profile-screen.tsx uses) — a subtle visual cue for what
- * you're scanning, not a strong color-coding scheme.
+ * Flagged rows are deliberately minimal — icon, name, type badge, reason —
+ * with the whole row tappable (onOpenDetail) and no inline actions: Open and
+ * Clear flag both used to be per-row buttons, which stopped scaling once
+ * there were more than a handful of rows. Tapping through to the profile is
+ * where Edit/Merge/Delete/Clear flag actually happen now (the profile's own
+ * More sheet and DirectoryFlagSheet, both unchanged — clearing a flag was
+ * already possible there whenever a record is currently flagged). The type
+ * badge (and the type filter chips) are tinted with Directory's own person/
+ * company/job colors (DIRECTORY_ENTITY_META, same tokens
+ * directory-profile-screen.tsx uses) — a subtle visual cue for what you're
+ * scanning, not a strong color-coding scheme.
  */
 export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: DirectoryAccessScreenProps) {
   const [tab, setTab] = useState<AccessTab>("flagged")
@@ -88,8 +79,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
   const [flagged, setFlagged] = useState<DirectoryFlaggedEntity[] | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [reasonFilter, setReasonFilter] = useState<ReasonFilter>("all")
-  const [clearingId, setClearingId] = useState<string | null>(null)
-  const [clearError, setClearError] = useState<{ id: string; message: string } | null>(null)
+  const [showReasonFilter, setShowReasonFilter] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -133,24 +123,6 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
       setUsers((current) => current?.map((entry) => (entry.uid === user.uid ? { ...entry, hasAccess: !next } : entry)) ?? current)
     } finally {
       setPendingUid(null)
-    }
-  }
-
-  const handleClearFlag = async (entity: DirectoryFlaggedEntity) => {
-    if (clearingId) return
-    setClearingId(entity.directoryId)
-    setClearError(null)
-    try {
-      await clearDirectoryReviewFlag(entity.sourceCollection, entity.sourceId)
-      invalidateDirectoryAccessCache()
-      setFlagged((current) => current?.filter((e) => e.directoryId !== entity.directoryId) ?? current)
-    } catch (err) {
-      setClearError({
-        id: entity.directoryId,
-        message: err instanceof DirectoryWriteError ? err.message : "Could not clear the flag. Try again.",
-      })
-    } finally {
-      setClearingId(null)
     }
   }
 
@@ -223,9 +195,15 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
           ) : tab === "flagged" ? (
             <>
               <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
-                <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
+                <p className="mb-2 text-xs leading-relaxed text-muted-foreground/60">
                   Records anyone flagged as a duplicate, incorrect, or inactive.
                 </p>
+                {flagged && flagged.length > 0 && (
+                  <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-[var(--directory-title)]">
+                    <Info className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    {flagged.length} open
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by type">
                   {TYPE_FILTERS.map((option) => {
                     const meta = option.id === "all" ? null : DIRECTORY_ENTITY_META[option.id]
@@ -248,19 +226,19 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                   })}
                 </div>
                 {flagged && flagged.length > 0 && (
-                  <select
-                    value={reasonFilter}
-                    onChange={(event) => setReasonFilter(event.target.value as ReasonFilter)}
-                    className={cn(inputClassName, "mt-2 !py-2 text-xs")}
-                    aria-label="Filter by reason"
+                  <button
+                    type="button"
+                    onClick={() => setShowReasonFilter(true)}
+                    className={cn(
+                      "mt-2 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
+                      reasonFilter === "all"
+                        ? "border-white/[0.1] bg-white/[0.03] text-foreground/65"
+                        : "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]",
+                    )}
                   >
-                    <option value="all">All reasons</option>
-                    {REASON_OPTIONS.map((reason) => (
-                      <option key={reason} value={reason}>
-                        {reason}
-                      </option>
-                    ))}
-                  </select>
+                    <SlidersHorizontal className="h-3 w-3" strokeWidth={2} />
+                    {reasonFilter === "all" ? "Filters" : reasonFilter}
+                  </button>
                 )}
               </div>
 
@@ -276,53 +254,29 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                 ) : (
                   <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
                     {filteredFlagged.map((entity) => {
-                      const flaggedAgo = formatFlaggedAgo(entity.flaggedAt)
                       const typeMeta = DIRECTORY_ENTITY_META[entity.type === "other" ? "company" : entity.type]
                       return (
-                        <div key={entity.directoryId} className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="truncate text-sm font-semibold">{entity.name}</span>
-                                <span
-                                  className="shrink-0 rounded-full border bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                                  style={{ borderColor: typeMeta.border, color: typeMeta.color }}
-                                >
-                                  {entity.type}
-                                </span>
-                              </div>
-                              {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
-                              {(flaggedAgo || entity.flaggedByName) && (
-                                <span className="block truncate text-[10px] text-muted-foreground/40">
-                                  Flagged{flaggedAgo ? ` ${flaggedAgo}` : ""}
-                                  {entity.flaggedByName ? ` by ${entity.flaggedByName}` : ""}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => onOpenDetail(entity.directoryId)}
-                                className="glass-button shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium text-foreground/85 active:scale-[0.97]"
+                        <button
+                          key={entity.directoryId}
+                          type="button"
+                          onClick={() => onOpenDetail(entity.directoryId)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-white/[0.04]"
+                        >
+                          <DirectoryEntityIcon item={{ type: entity.type === "other" ? "company" : entity.type, name: entity.name }} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-semibold">{entity.name}</span>
+                              <span
+                                className="shrink-0 rounded-full border bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                                style={{ borderColor: typeMeta.border, color: typeMeta.color }}
                               >
-                                Open
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleClearFlag(entity)}
-                                disabled={clearingId === entity.directoryId}
-                                className="px-1 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-foreground/80 disabled:opacity-40"
-                              >
-                                {clearingId === entity.directoryId ? "Clearing…" : "Clear flag"}
-                              </button>
+                                {entity.type}
+                              </span>
                             </div>
+                            {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
                           </div>
-                          {clearError?.id === entity.directoryId && (
-                            <p className="mt-1.5 text-[10px] text-orange-300/80" role="alert">
-                              {clearError.message}
-                            </p>
-                          )}
-                        </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" strokeWidth={1.8} />
+                        </button>
                       )
                     })}
                   </div>
@@ -409,6 +363,30 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
           )}
         </div>
       </main>
+
+      <Drawer open={showReasonFilter} onOpenChange={setShowReasonFilter}>
+        <DrawerContent className="glass-panel mx-auto max-w-md rounded-t-3xl border-t border-white/10 pb-6">
+          <DrawerTitle className="px-4 pt-2 text-center text-[15px] font-semibold text-foreground/90">
+            Filter by reason
+          </DrawerTitle>
+          <div className="mt-3 divide-y divide-white/8 border-t border-white/8">
+            {(["all", ...REASON_OPTIONS] as ReasonFilter[]).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setReasonFilter(option)
+                  setShowReasonFilter(false)
+                }}
+                className="flex w-full items-center justify-between px-4 py-3.5 text-left text-sm text-foreground/85"
+              >
+                {option === "all" ? "All reasons" : option}
+                {reasonFilter === option && <Check className="h-4 w-4 text-[var(--directory-title)]" strokeWidth={2} />}
+              </button>
+            ))}
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {revokeToast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-4" role="status">

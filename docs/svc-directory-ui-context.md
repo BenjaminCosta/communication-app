@@ -596,25 +596,41 @@ doc's `masterData`.
   in the existing `lib/directory-admin-client.ts` rather than a new client
   file — all three concerns are consumed by these same two screens and
   share the auth-header helper.
-- UI: a list (name, type badge, reviewReason, "Flagged {relative time} by
-  {name}" when that data exists, "Open" button, and an inline **"Clear
-  flag"** text button) with **type** (All/People/Companies/Jobs, pill
-  toggles) and **reason** (a `<select>` over the same four preset reasons
-  `directory-flag-sheet.tsx` uses) filters above it, so triaging "all the
-  Duplicates" doesn't mean scrolling past companies and jobs in between.
-  "Clear flag" calls `clearDirectoryReviewFlag()` (`lib/directory-writes.ts`)
-  straight from this list — that write has always been open to any
-  signed-in user (same as flagging itself); only the *aggregate view* is
-  admin-gated, so letting an admin resolve a flag without leaving for the
-  full profile doesn't cross any new permission line. Removes the row
-  optimistically on success; a failure shows an inline message under that
-  row rather than a page-level error, and leaves the row in place. The type
-  badge (and the active state of the type filter chips) is tinted with
-  Directory's own `DIRECTORY_ENTITY_META` person/company/job colors — the
-  same tokens `directory-profile-screen.tsx` uses for its own type badges —
-  a subtle scan aid, not a strong color-coding scheme; "other" falls back to
-  the company color the same way the profile screen's avatar does, since
+- UI: an inbox-style list — `DirectoryEntityIcon` (the same person/company/job
+  icon `directory-result-row.tsx` uses for search results), name + tinted
+  type badge, `reviewReason` as a second line, a trailing chevron, and
+  nothing else. The whole row is one button (`onOpenDetail`); there is no
+  per-row "Open" or "Clear flag" anymore (see below). Filters sit above the
+  list: **type** (All/People/Companies/Jobs, pill toggles, unchanged) and
+  **reason** — no longer an inline `<select>`, now a small "Filters" pill
+  (label shows the active reason once one is picked) that opens a bottom
+  sheet (`Drawer`) listing "All reasons" + the four presets
+  `directory-flag-sheet.tsx` uses, each row a plain tap target with a
+  checkmark on the active one. An "N open" line (`Info` icon, tinted) sits
+  between the intro paragraph and the filters — replaces the count badge
+  that used to sit on this tab (see "Two tabs" below) with a plainer
+  always-visible number, closer to an inbox's unread count than a
+  notification badge. The type badge tinting is unchanged: Directory's own
+  `DIRECTORY_ENTITY_META` person/company/job colors, same tokens
+  `directory-profile-screen.tsx` uses for its own type badges — a subtle
+  scan aid, not a strong color-coding scheme; "other" falls back to the
+  company color the same way the profile screen's avatar does, since
   flagged "other" contexts can't actually occur (see above).
+
+**Rows lost their inline actions; the profile gained the job of hosting
+them.** Each row used to carry "Open" + "Clear flag" buttons — fine at a
+handful of flagged records, heavy once there are 50+ (name + type +
+description + two buttons, repeated). Cut down to just enough to identify
+*what* is flagged and *why*; tapping the row is now the only interaction, and
+it does what "Open" used to do. Clearing a flag no longer happens from this
+list at all — it happens on the profile itself, via the existing
+`DirectoryFlagSheet` (opened through the profile's "More" sheet → "Flag for
+review"), which already showed a "Clear flag" link whenever
+`vm.needsReview` was true. No new plumbing: that path already existed
+and was already reachable, just not the one this screen pointed at. Merge/
+Delete/Edit are reachable the same way, one tap further in, which matches
+how an admin actually resolves a flagged record in practice — decide what's
+wrong, then act on it in the record's own context, not from a list row.
 
 **Two tabs, not two stacked sections.** "Flagged for review" and "Manage
 access" started as two `<section>`s on one scrolling page — replaced with the
