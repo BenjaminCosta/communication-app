@@ -524,8 +524,11 @@ the file-level comment there.
   for a legacy-`isAdmin` user does **not** actually revoke their access —
   `isAdmin` still grants it — and the UI needed a way to say so instead of
   the toggle silently looking like it did nothing.
-- `app/api/directory/admins/route.ts` (GET list) and `[uid]/route.ts`
-  (PATCH toggle) — identical shape to the CRC routes.
+- `app/api/directory/admins/[uid]/route.ts` (PATCH toggle) — identical shape
+  to the CRC route. The GET list route this originally shipped alongside was
+  later folded into `app/api/directory/access/route.ts` (see the perf note
+  below) — `listDirectoryAdminAccessUsers()` itself is unchanged, just called
+  from a different route now.
 - `lib/directory-admin-client.ts` — Bearer-token fetch wrappers, same shape
   as `lib/courtney-roberts-center/client.ts`'s access-management subset.
 - `components/directory/directory-access-screen.tsx` — same logic as
@@ -569,10 +572,12 @@ doc's `masterData`.
   SDK), one each against `/contacts` and `/contexts`, returning
   `{directoryId, sourceId, sourceCollection, type, name, reviewReason,
   flaggedByName, flaggedAt}` sorted by name. `flaggedByName` resolves
-  `masterData.reviewFlaggedBy` (a uid) to a display name with one bulk
-  `Promise.all` of `/users/{uid}` reads per *distinct* flagger — not one
-  per flagged record — falling back to `null` for flags set before this was
-  tracked or whose flagger no longer exists. `flaggedAt` is
+  `masterData.reviewFlaggedBy` (a uid) to a display name with one batched
+  `db.getAll(...refs)` covering every *distinct* flagger in a single
+  round trip — not one `.get()` per flagged record, and not even one
+  `.get()` per distinct flagger run in parallel (`Promise.all` of individual
+  gets is still N round-trips; `getAll` is one) — falling back to `null` for
+  flags set before this was tracked or whose flagger no longer exists. `flaggedAt` is
   `reviewFlaggedAt.toMillis()` (epoch millis, JSON-safe over the API route;
   a raw Firestore `Timestamp` isn't). `sourceCollection` is included so the
   UI can call `clearDirectoryReviewFlag()` directly without re-deriving
@@ -585,9 +590,12 @@ doc's `masterData`.
   `requireDirectoryAdmin` as everything else on this screen: flagging
   itself is open to everyone, but the aggregate queue is admin-only, same
   reasoning as gating "Manage access."
-- `fetchDirectoryFlaggedEntities()` added to the existing
-  `lib/directory-admin-client.ts` rather than a new client file — both
-  concerns are consumed by the same screen and share its auth-header helper.
+- `fetchDirectoryFlaggedEntities()` (standalone, for `directory-screen.tsx`'s
+  topbar count) and `fetchDirectoryAccessData()` (combined with the admin
+  roster, for the access screen itself — see the perf note below) both live
+  in the existing `lib/directory-admin-client.ts` rather than a new client
+  file — all three concerns are consumed by these same two screens and
+  share the auth-header helper.
 - UI: a list (name, type badge, reviewReason, "Flagged {relative time} by
   {name}" when that data exists, "Open" button, and an inline **"Clear
   flag"** text button) with **type** (All/People/Companies/Jobs, pill
@@ -642,6 +650,36 @@ X — Undo" toast (`UNDO_WINDOW_MS = 6000`) appears only on revoke; clicking
 Undo just re-invokes the same `setDirectoryAdminAccessUser(uid, true)` call
 as flipping the switch back on would. Granting access gets no such friction
 — there's no equivalent downside to reverse.
+
+**Load performance pass.** A profile of this screen's mount surfaced three
+concrete waterfalls, all fixed together:
+- `GET /api/directory/admins` (list) and `GET /api/directory/flagged` used
+  to be two separate routes, both hit on every screen open. Each independently
+  called `requireDirectoryAdmin()` — verifying the same caller's ID token and
+  re-reading the same `/users/{uid}` doc twice, in parallel, for no benefit,
+  since each `route.ts` is its own serverless function sharing nothing with
+  the other. Folded into one route, `app/api/directory/access/route.ts`,
+  returning `{ users, flagged }` from a single auth check and running
+  `listDirectoryAdminAccessUsers()`/`listFlaggedDirectoryEntities()` in
+  parallel server-side. `GET /api/directory/flagged` still exists standalone
+  for `directory-screen.tsx`'s topbar count, which never needs the admin
+  roster.
+- `resolveFlaggerNames()` (in `lib/directory-review-queue.ts`) switched from
+  `Promise.all` of individual `.doc(uid).get()` calls to one batched
+  `db.getAll(...refs)` — same result, one round trip instead of N (running
+  them in parallel already avoided summing their latencies, but not the
+  per-call overhead of N separate requests).
+- `fetchDirectoryAccessData()` (`lib/directory-admin-client.ts`) caches its
+  result for 30s in a module-level variable. This screen is opened via a
+  topbar icon — closing and reopening it is the common case, and previously
+  re-ran the entire fetch (and its now-single auth check) from scratch every
+  time regardless of how recently it had just loaded. `handleToggle` and
+  `handleClearFlag` both call `invalidateDirectoryAccessCache()` right after
+  their write succeeds, so a reopen immediately after granting/revoking
+  access or clearing a flag never shows pre-mutation data — the 30s TTL only
+  covers "closed and reopened without changing anything," not "another
+  admin changed something elsewhere," which is why it's a short TTL rather
+  than cached indefinitely.
 
 **No Firestore rules change.** `/users/{uid}` write rules stay self-write-only
 and untouched — granting/revoking another user's `directoryAdminAccess`

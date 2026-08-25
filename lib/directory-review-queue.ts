@@ -53,11 +53,13 @@ function flaggedAtMillisOf(data: Record<string, unknown>): number | null {
   return typeof value?.toMillis === "function" ? value.toMillis() : null
 }
 
-/** Bulk-resolves reviewFlaggedBy uids to display names — one doc read per distinct flagger, not per flagged record. */
+/** Bulk-resolves reviewFlaggedBy uids to display names — one batched read for every distinct flagger, not one round-trip per flagged record. */
 async function resolveFlaggerNames(db: Firestore, uids: Array<string | null>): Promise<Map<string, string>> {
   const unique = [...new Set(uids.filter((uid): uid is string => uid != null))]
   if (unique.length === 0) return new Map()
-  const snapshots = await Promise.all(unique.map((uid) => db.collection("users").doc(uid).get()))
+  // getAll() batches every ref into one request — N separate .doc(uid).get()
+  // calls (even run in parallel via Promise.all) are still N round-trips.
+  const snapshots = await db.getAll(...unique.map((uid) => db.collection("users").doc(uid)))
   const names = new Map<string, string>()
   snapshots.forEach((snapshot, index) => {
     const data = snapshot.data()

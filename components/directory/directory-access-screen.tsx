@@ -10,8 +10,8 @@ import { inputClassName } from "@/components/directory/directory-edit-sheet"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
 import { clearDirectoryReviewFlag, DirectoryWriteError } from "@/lib/directory-writes"
 import {
-  fetchDirectoryAdminAccessUsers,
-  fetchDirectoryFlaggedEntities,
+  fetchDirectoryAccessData,
+  invalidateDirectoryAccessCache,
   setDirectoryAdminAccessUser,
   DirectoryAdminClientError,
   type DirectoryAdminAccessUser,
@@ -86,7 +86,6 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
   const [revokeToast, setRevokeToast] = useState<{ user: DirectoryAdminAccessUser } | null>(null)
 
   const [flagged, setFlagged] = useState<DirectoryFlaggedEntity[] | null>(null)
-  const [flaggedErrorMessage, setFlaggedErrorMessage] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [reasonFilter, setReasonFilter] = useState<ReasonFilter>("all")
   const [clearingId, setClearingId] = useState<string | null>(null)
@@ -94,31 +93,18 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
 
   useEffect(() => {
     let cancelled = false
-    fetchDirectoryAdminAccessUsers()
-      .then((list) => {
-        if (!cancelled) setUsers(list)
+    fetchDirectoryAccessData()
+      .then((data) => {
+        if (cancelled) return
+        setUsers(data.users)
+        setFlagged(data.flagged)
       })
       .catch((err: unknown) => {
         if (cancelled) return
         setUsers([])
-        setErrorStatus(err instanceof DirectoryAdminClientError ? err.status : null)
-        setErrorMessage(err instanceof DirectoryAdminClientError ? err.message : "Unable to load users.")
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    fetchDirectoryFlaggedEntities()
-      .then((list) => {
-        if (!cancelled) setFlagged(list)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
         setFlagged([])
-        setFlaggedErrorMessage(err instanceof DirectoryAdminClientError ? err.message : "Unable to load flagged records.")
+        setErrorStatus(err instanceof DirectoryAdminClientError ? err.status : null)
+        setErrorMessage(err instanceof DirectoryAdminClientError ? err.message : "Unable to load Directory access data.")
       })
     return () => {
       cancelled = true
@@ -136,6 +122,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
     setUsers((current) => current?.map((entry) => (entry.uid === user.uid ? { ...entry, hasAccess: next } : entry)) ?? current)
     try {
       const updated = await setDirectoryAdminAccessUser(user.uid, next)
+      invalidateDirectoryAccessCache()
       setUsers((current) => current?.map((entry) => (entry.uid === user.uid ? updated : entry)) ?? current)
       // Revoking is the higher-consequence direction (it can take away someone's
       // ability to merge/delete mid-task) — give it a brief, undoable toast.
@@ -155,6 +142,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
     setClearError(null)
     try {
       await clearDirectoryReviewFlag(entity.sourceCollection, entity.sourceId)
+      invalidateDirectoryAccessCache()
       setFlagged((current) => current?.filter((e) => e.directoryId !== entity.directoryId) ?? current)
     } catch (err) {
       setClearError({
@@ -279,8 +267,8 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
               <div className="px-4 pb-2 pt-4 md:px-6">
                 {flagged === null ? (
                   <ListSkeleton rows={3} />
-                ) : flaggedErrorMessage ? (
-                  <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load flagged records" description={flaggedErrorMessage} />
+                ) : errorMessage && flagged.length === 0 ? (
+                  <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load flagged records" description={errorMessage} />
                 ) : flagged.length === 0 ? (
                   <EmptyState icon={<Flag className="h-5 w-5" />} title="Nothing flagged" description="No records are currently flagged for review." />
                 ) : filteredFlagged.length === 0 ? (

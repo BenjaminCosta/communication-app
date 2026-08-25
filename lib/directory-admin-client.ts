@@ -10,6 +10,12 @@ import { auth } from "@/lib/firebase"
  * request carries the current Firebase ID token; the server re-verifies it
  * and checks `/users/{uid}.directoryAdminAccess`/`isAdmin` itself. Mirrors
  * the relevant subset of `lib/courtney-roberts-center/client.ts`.
+ *
+ * `fetchDirectoryAccessData()` fetches both lists the access screen needs in
+ * one request (GET /api/directory/access) rather than two separate ones —
+ * see that route's comment — and caches the result briefly so reopening the
+ * screen doesn't redo the whole round trip; `invalidateDirectoryAccessCache()`
+ * drops that cache after a mutation.
  */
 
 export class DirectoryAdminClientError extends Error {
@@ -46,12 +52,53 @@ export type DirectoryAdminAccessUser = {
   isLegacyAdmin: boolean
 }
 
-/** Every registered app user and whether they currently have Directory admin access — for the manage-access screen. */
-export async function fetchDirectoryAdminAccessUsers(): Promise<DirectoryAdminAccessUser[]> {
-  const response = await fetch("/api/directory/admins", { headers: { Authorization: await authHeader() } })
-  if (!response.ok) await readError(response, "Unable to load users.")
-  const { users } = (await response.json()) as { users: DirectoryAdminAccessUser[] }
-  return users
+export type DirectoryFlaggedEntity = {
+  directoryId: string
+  sourceId: string
+  sourceCollection: "contacts" | "contexts"
+  type: "person" | "company" | "job" | "other"
+  name: string
+  reviewReason: string | null
+  flaggedByName: string | null
+  flaggedAt: number | null
+}
+
+export type DirectoryAccessData = {
+  users: DirectoryAdminAccessUser[]
+  flagged: DirectoryFlaggedEntity[]
+}
+
+// The access screen's two lists, cached briefly so closing and reopening it
+// (the common case for the topbar icon) doesn't re-verify the token and
+// re-run both queries every time. Short enough that another admin's grant/
+// clear from a different session still shows up within a few seconds;
+// invalidated immediately on any mutation this tab itself makes, so a
+// reopen right after toggling access or clearing a flag never shows
+// pre-mutation data.
+const ACCESS_CACHE_TTL_MS = 30_000
+let accessCache: { data: DirectoryAccessData; expiresAt: number } | null = null
+
+/** Drop the cached { users, flagged } snapshot — call after any mutation so the next fetch is fresh. */
+export function invalidateDirectoryAccessCache(): void {
+  accessCache = null
+}
+
+/**
+ * { users, flagged } together in one request — the admin roster and the
+ * flagged-for-review queue, both fetched via GET /api/directory/access
+ * (one requireDirectoryAdmin check) rather than two separate routes each
+ * re-verifying the same token. Pass `force: true` to bypass the cache (not
+ * currently needed anywhere — mutations invalidate it instead).
+ */
+export async function fetchDirectoryAccessData(options?: { force?: boolean }): Promise<DirectoryAccessData> {
+  if (!options?.force && accessCache && accessCache.expiresAt > Date.now()) {
+    return accessCache.data
+  }
+  const response = await fetch("/api/directory/access", { headers: { Authorization: await authHeader() } })
+  if (!response.ok) await readError(response, "Unable to load Directory access data.")
+  const data = (await response.json()) as DirectoryAccessData
+  accessCache = { data, expiresAt: Date.now() + ACCESS_CACHE_TTL_MS }
+  return data
 }
 
 export async function setDirectoryAdminAccessUser(uid: string, hasAccess: boolean): Promise<DirectoryAdminAccessUser> {
@@ -65,18 +112,7 @@ export async function setDirectoryAdminAccessUser(uid: string, hasAccess: boolea
   return user
 }
 
-export type DirectoryFlaggedEntity = {
-  directoryId: string
-  sourceId: string
-  sourceCollection: "contacts" | "contexts"
-  type: "person" | "company" | "job" | "other"
-  name: string
-  reviewReason: string | null
-  flaggedByName: string | null
-  flaggedAt: number | null
-}
-
-/** Every person/company/job currently flagged for review — the moderation queue shown on the access screen. */
+/** Every person/company/job currently flagged for review — used standalone by directory-screen.tsx's topbar badge count, which doesn't need the admin roster. */
 export async function fetchDirectoryFlaggedEntities(): Promise<DirectoryFlaggedEntity[]> {
   const response = await fetch("/api/directory/flagged", { headers: { Authorization: await authHeader() } })
   if (!response.ok) await readError(response, "Unable to load flagged records.")
