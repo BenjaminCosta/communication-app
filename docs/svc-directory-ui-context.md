@@ -600,15 +600,18 @@ doc's `masterData`.
   icon `directory-result-row.tsx` uses for search results), name + tinted
   type badge, `reviewReason` as a second line, a trailing chevron, and
   nothing else. The whole row is one button (`onOpenDetail`); there is no
-  per-row "Open" or "Clear flag" anymore (see below). Filters sit above the
-  list: **type** (All/People/Companies/Jobs, pill toggles, unchanged) and
-  **reason** — no longer an inline `<select>`, now a small "Filters" pill
-  (label shows the active reason once one is picked) that opens a bottom
-  sheet (`Drawer`) listing "All reasons" + the four presets
+  per-row "Open" or "Clear flag" anymore (see below). Above the list: a
+  name/reason search box (same visual pattern as "Manage access"'s search,
+  matching `entity.name` and `entity.reviewReason`, client-side over the
+  already-fetched list — same reasoning as the users search, no new query),
+  then filters — **type** (All/People/Companies/Jobs, pill toggles,
+  unchanged) and **reason** — no longer an inline `<select>`, now a small
+  "Filters" pill (label shows the active reason once one is picked) that
+  opens a bottom sheet (`Drawer`) listing "All reasons" + the four presets
   `directory-flag-sheet.tsx` uses, each row a plain tap target with a
   checkmark on the active one. An "N open" line (`Info` icon, tinted) sits
-  between the intro paragraph and the filters — replaces the count badge
-  that used to sit on this tab (see "Two tabs" below) with a plainer
+  between the search box and the filters — replaces the count badge that
+  used to sit on this tab (see "Two tabs" below) with a plainer
   always-visible number, closer to an inbox's unread count than a
   notification badge. The type badge tinting is unchanged: Directory's own
   `DIRECTORY_ENTITY_META` person/company/job colors, same tokens
@@ -631,6 +634,12 @@ and was already reachable, just not the one this screen pointed at. Merge/
 Delete/Edit are reachable the same way, one tap further in, which matches
 how an admin actually resolves a flagged record in practice — decide what's
 wrong, then act on it in the record's own context, not from a list row.
+Now that `DirectoryFlagSheet`'s "Clear flag" is the *only* way to clear a
+flag (rather than one of two), it got a two-step confirm: tapping it reveals
+"Clear this flag? [Yes, clear] [Cancel]" instead of firing immediately — the
+single-tap version was fine when it was one button among several on a list
+row read carefully one at a time, less fine as the sole, easy-to-fat-finger
+action on a sheet someone might open just to double-check a reason.
 
 **Two tabs, not two stacked sections.** "Flagged for review" and "Manage
 access" started as two `<section>`s on one scrolling page — replaced with the

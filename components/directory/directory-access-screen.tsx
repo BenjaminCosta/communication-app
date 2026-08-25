@@ -77,6 +77,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
   const [revokeToast, setRevokeToast] = useState<{ user: DirectoryAdminAccessUser } | null>(null)
 
   const [flagged, setFlagged] = useState<DirectoryFlaggedEntity[] | null>(null)
+  const [flaggedQuery, setFlaggedQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [reasonFilter, setReasonFilter] = useState<ReasonFilter>("all")
   const [showReasonFilter, setShowReasonFilter] = useState(false)
@@ -140,12 +141,14 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
 
   const filteredFlagged = useMemo(() => {
     if (!flagged) return []
+    const query = flaggedQuery.trim().toLowerCase()
     return flagged.filter((entity) => {
       if (typeFilter !== "all" && entity.type !== typeFilter) return false
       if (reasonFilter !== "all" && !(entity.reviewReason ?? "").startsWith(reasonFilter)) return false
+      if (query && !entity.name.toLowerCase().includes(query) && !(entity.reviewReason ?? "").toLowerCase().includes(query)) return false
       return true
     })
-  }, [flagged, typeFilter, reasonFilter])
+  }, [flagged, flaggedQuery, typeFilter, reasonFilter])
 
   const tabs: Array<{ id: AccessTab; label: string }> = [
     { id: "flagged", label: "Flagged for review" },
@@ -195,9 +198,20 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
           ) : tab === "flagged" ? (
             <>
               <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
-                <p className="mb-2 text-xs leading-relaxed text-muted-foreground/60">
+                <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
                   Records anyone flagged as a duplicate, incorrect, or inactive.
                 </p>
+                {flagged && flagged.length > 0 && (
+                  <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/[0.09] bg-white/[0.02] px-3">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" strokeWidth={1.8} />
+                    <input
+                      value={flaggedQuery}
+                      onChange={(event) => setFlaggedQuery(event.target.value)}
+                      placeholder="Search by name or reason"
+                      className="w-full bg-transparent py-2.5 text-[13px] text-foreground/90 outline-none placeholder:text-muted-foreground/40"
+                    />
+                  </div>
+                )}
                 {flagged && flagged.length > 0 && (
                   <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-[var(--directory-title)]">
                     <Info className="h-3.5 w-3.5" strokeWidth={1.8} />
@@ -250,7 +264,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                 ) : flagged.length === 0 ? (
                   <EmptyState icon={<Flag className="h-5 w-5" />} title="Nothing flagged" description="No records are currently flagged for review." />
                 ) : filteredFlagged.length === 0 ? (
-                  <EmptyState icon={<Flag className="h-5 w-5" />} title="No matches" description="Nothing flagged matches this filter." />
+                  <EmptyState icon={<Search className="h-5 w-5" />} title="No matches" description="Nothing flagged matches your search or filters." />
                 ) : (
                   <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
                     {filteredFlagged.map((entity) => {

@@ -31,6 +31,7 @@ export function DirectoryFlagSheet({ vm, userId, onClose, onSaved }: DirectoryFl
   const [note, setNote] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
+  const [confirmingClear, setConfirmingClear] = useState(false)
 
   const flag = async () => {
     if (!reason || isSaving) return
@@ -55,6 +56,7 @@ export function DirectoryFlagSheet({ vm, userId, onClose, onSaved }: DirectoryFl
     } catch (err) {
       setError(err instanceof DirectoryWriteError ? err.message : "Could not clear the flag. Try again.")
       setIsSaving(false)
+      setConfirmingClear(false)
     }
   }
 
@@ -98,14 +100,38 @@ export function DirectoryFlagSheet({ vm, userId, onClose, onSaved }: DirectoryFl
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-orange-200/85">Already flagged for review</p>
                 {vm.reviewReason && <p className="mt-0.5 text-xs leading-5 text-muted-foreground/70">{vm.reviewReason}</p>}
-                <button
-                  type="button"
-                  onClick={clear}
-                  disabled={isSaving}
-                  className="mt-2 text-xs font-semibold text-[var(--directory-title)] disabled:opacity-40"
-                >
-                  Clear flag
-                </button>
+                {/* Two-step confirm — this used to be a single tap in the flagged-queue
+                    list too, easy to hit by accident while scanning quickly. */}
+                {confirmingClear ? (
+                  <div className="mt-2 flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground/70">Clear this flag?</span>
+                    <button
+                      type="button"
+                      onClick={clear}
+                      disabled={isSaving}
+                      className="text-xs font-semibold text-red-300/90 disabled:opacity-40"
+                    >
+                      {isSaving ? "Clearing…" : "Yes, clear"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingClear(false)}
+                      disabled={isSaving}
+                      className="text-xs font-medium text-muted-foreground/60 disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingClear(true)}
+                    disabled={isSaving}
+                    className="mt-2 text-xs font-semibold text-[var(--directory-title)] disabled:opacity-40"
+                  >
+                    Clear flag
+                  </button>
+                )}
               </div>
             </div>
           )}
