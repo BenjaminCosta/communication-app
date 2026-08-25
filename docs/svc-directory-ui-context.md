@@ -526,7 +526,41 @@ the file-level comment there.
   `showFavorites`/`DirectoryFavoritesScreen`) rather than a top-level
   `app/page.tsx` `Screen` — unlike CRC, which *is* its own separate module.
   The icon is always visible; the screen itself handles the denied state,
-  exactly like CRC's.
+  exactly like CRC's. Carries a small red count badge (top-right corner)
+  when there are flagged records — `directory-screen.tsx` fetches the count
+  independently on mount (best-effort, fails silently to no badge for
+  non-admins or any other error, since a passive badge has no room for a
+  denied/error state).
+
+**Flagged for review** — a moderation-queue section added to the same
+screen (above "Manage access"), since there was previously nowhere that
+listed flagged records in aggregate: `masterData.needsReview`/`reviewReason`
+(set by `flagDirectoryEntityForReview()`, open to any signed-in user — see
+§14) was only ever visible one profile at a time, via
+`directory-flag-sheet.tsx`. It's also not in the client search index
+(`lib/directory-search.ts`/`directoryIndex`) — it lives only in each source
+doc's `masterData`.
+- `lib/directory-review-queue.ts` (new) — `listFlaggedDirectoryEntities()`:
+  two small `where("masterData.needsReview", "==", true)` queries (Admin
+  SDK), one each against `/contacts` and `/contexts`, returning
+  `{directoryId, sourceId, type, name, reviewReason}` sorted by name.
+  Deliberately does not touch the `directoryIndex`/search-shard projection
+  pipeline — that stays a name/contact-fields projection, not a moderation
+  index, and this query is small enough (ad hoc, no server-side index
+  needed for a single-field equality filter) not to warrant joining it.
+- `app/api/directory/flagged/route.ts` (GET, new) — gated by the same
+  `requireDirectoryAdmin` as everything else on this screen: flagging
+  itself is open to everyone, but the aggregate queue is admin-only, same
+  reasoning as gating "Manage access."
+- `fetchDirectoryFlaggedEntities()` added to the existing
+  `lib/directory-admin-client.ts` rather than a new client file — both
+  concerns are consumed by the same screen and share its auth-header helper.
+- UI: a simple list (name, type badge, reviewReason, "Open" button) — no
+  inline resolve/clear-flag control here. "Open" navigates to the profile
+  (`onOpenDetail`, closing this overlay first, same as the favorites/ask
+  overlays already do) where the existing `directory-flag-sheet.tsx` flow
+  resolves it. An inline resolve-from-the-list action would be a v2, not
+  built here since it wasn't asked for.
 
 **No Firestore rules change.** `/users/{uid}` write rules stay self-write-only
 and untouched — granting/revoking another user's `directoryAdminAccess`
@@ -538,7 +572,11 @@ never writes another user's doc directly for this feature.
 on the doc-shape mapping, particularly `isLegacyAdmin`/`hasAccess`
 independence — same bar as CRC's own
 `toCourtneyRobertsCenterAccessUserForTests` tests, which are similarly the
-only tests that module has). The existing
+only tests that module has). `scripts/directory-review-queue.test.ts`
+(emulator-backed — `pnpm emulator:test-directory-review-queue`) covers
+`listFlaggedDirectoryEntities()` end to end: flagged people/companies/jobs
+found, unflagged records excluded, sort order, and the top-level-`name`
+fallback when `masterData` has none. The existing
 `scripts/test-directory-cleanup-rules.mjs` /
 `scripts/directory-cleanup-server.test.ts` suites were re-run as a
 regression check since `directory-admin-guard.ts` is a shared dependency of

@@ -27,6 +27,7 @@
     "emulator:test-quest-coral-rules": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-quest-coral-rules.mjs",
     "emulator:test-directory-cleanup-rules": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-directory-cleanup-rules.mjs",
     "emulator:test-directory-cleanup-server": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=directory-cleanup-test tsx --test scripts/directory-cleanup-server.test.ts",
+    "emulator:test-directory-review-queue": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=directory-cleanup-test tsx --test scripts/directory-review-queue.test.ts",
     "emulator:test-bye-bye-dpr-rules": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/test-bye-bye-dpr-rules.mjs",
     "emulator:seed-bye-bye-dpr-tags": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/seed-bye-bye-dpr-tags.mjs",
     "seed:quest-coral-context:dry:prod": "EXPECTED_FIREBASE_PROJECT=svc-comms GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node scripts/seed-quest-coral-project-contexts.mjs",

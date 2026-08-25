@@ -3,11 +3,13 @@
 import { auth } from "@/lib/firebase"
 
 /**
- * Browser-side callers for Directory's admin-access delegation routes
- * (list/grant/revoke `directoryAdminAccess`). Every request carries the
- * current Firebase ID token; the server re-verifies it and checks
- * `/users/{uid}.directoryAdminAccess`/`isAdmin` itself. Mirrors the relevant
- * subset of `lib/courtney-roberts-center/client.ts`.
+ * Browser-side callers for Directory's admin-gated routes: access delegation
+ * (list/grant/revoke `directoryAdminAccess`) and the flagged-for-review
+ * moderation queue — both consumed by the same access-management screen, so
+ * they share this one client file rather than being split further. Every
+ * request carries the current Firebase ID token; the server re-verifies it
+ * and checks `/users/{uid}.directoryAdminAccess`/`isAdmin` itself. Mirrors
+ * the relevant subset of `lib/courtney-roberts-center/client.ts`.
  */
 
 export class DirectoryAdminClientError extends Error {
@@ -61,4 +63,20 @@ export async function setDirectoryAdminAccessUser(uid: string, hasAccess: boolea
   if (!response.ok) await readError(response, "Unable to update access.")
   const { user } = (await response.json()) as { user: DirectoryAdminAccessUser }
   return user
+}
+
+export type DirectoryFlaggedEntity = {
+  directoryId: string
+  sourceId: string
+  type: "person" | "company" | "job" | "other"
+  name: string
+  reviewReason: string | null
+}
+
+/** Every person/company/job currently flagged for review — the moderation queue shown on the access screen. */
+export async function fetchDirectoryFlaggedEntities(): Promise<DirectoryFlaggedEntity[]> {
+  const response = await fetch("/api/directory/flagged", { headers: { Authorization: await authHeader() } })
+  if (!response.ok) await readError(response, "Unable to load flagged records.")
+  const { entities } = (await response.json()) as { entities: DirectoryFlaggedEntity[] }
+  return entities
 }
