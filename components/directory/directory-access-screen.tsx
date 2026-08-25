@@ -54,17 +54,17 @@ const UNDO_WINDOW_MS = 6000
  * `shrink-0` sibling), so switching tabs is always reachable regardless of
  * scroll position — each tab's own intro/search/filters scroll normally
  * with its list, not pinned.
- * Flagged rows are deliberately minimal — icon, name, type badge, reason —
- * with the whole row tappable (onOpenDetail) and no inline actions: Open and
- * Clear flag both used to be per-row buttons, which stopped scaling once
- * there were more than a handful of rows. Tapping through to the profile is
- * where Edit/Merge/Delete/Clear flag actually happen now (the profile's own
- * More sheet and DirectoryFlagSheet, both unchanged — clearing a flag was
- * already possible there whenever a record is currently flagged). The type
- * badge (and the type filter chips) are tinted with Directory's own person/
- * company/job colors (DIRECTORY_ENTITY_META, same tokens
- * directory-profile-screen.tsx uses) — a subtle visual cue for what you're
- * scanning, not a strong color-coding scheme.
+ * Flagged rows are deliberately minimal — icon, name, reason — with the
+ * whole row tappable (onOpenDetail) and no inline actions: Open and Clear
+ * flag both used to be per-row buttons, which stopped scaling once there
+ * were more than a handful of rows. Tapping through to the profile is where
+ * Edit/Merge/Delete/Clear flag actually happen now (the profile's own More
+ * sheet and DirectoryFlagSheet, both unchanged — clearing a flag was already
+ * possible there whenever a record is currently flagged). No separate type
+ * badge on the row either — DirectoryEntityIcon's own shape/color already
+ * says person/company/job, so a text badge next to it was redundant; the
+ * type filter chips still use Directory's own DIRECTORY_ENTITY_META colors
+ * (same tokens directory-profile-screen.tsx uses) for their active state.
  */
 export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: DirectoryAccessScreenProps) {
   const [tab, setTab] = useState<AccessTab>("flagged")
@@ -267,32 +267,21 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                   <EmptyState icon={<Search className="h-5 w-5" />} title="No matches" description="Nothing flagged matches your search or filters." />
                 ) : (
                   <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
-                    {filteredFlagged.map((entity) => {
-                      const typeMeta = DIRECTORY_ENTITY_META[entity.type === "other" ? "company" : entity.type]
-                      return (
-                        <button
-                          key={entity.directoryId}
-                          type="button"
-                          onClick={() => onOpenDetail(entity.directoryId)}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-white/[0.04]"
-                        >
-                          <DirectoryEntityIcon item={{ type: entity.type === "other" ? "company" : entity.type, name: entity.name }} size="sm" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate text-sm font-semibold">{entity.name}</span>
-                              <span
-                                className="shrink-0 rounded-full border bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                                style={{ borderColor: typeMeta.border, color: typeMeta.color }}
-                              >
-                                {entity.type}
-                              </span>
-                            </div>
-                            {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
-                          </div>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" strokeWidth={1.8} />
-                        </button>
-                      )
-                    })}
+                    {filteredFlagged.map((entity) => (
+                      <button
+                        key={entity.directoryId}
+                        type="button"
+                        onClick={() => onOpenDetail(entity.directoryId)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-white/[0.04]"
+                      >
+                        <DirectoryEntityIcon item={{ type: entity.type === "other" ? "company" : entity.type, name: entity.name }} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{entity.name}</span>
+                          {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" strokeWidth={1.8} />
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>

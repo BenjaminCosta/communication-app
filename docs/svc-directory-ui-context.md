@@ -597,12 +597,15 @@ doc's `masterData`.
   file — all three concerns are consumed by these same two screens and
   share the auth-header helper.
 - UI: an inbox-style list — `DirectoryEntityIcon` (the same person/company/job
-  icon `directory-result-row.tsx` uses for search results), name + tinted
-  type badge, `reviewReason` as a second line, a trailing chevron, and
-  nothing else. The whole row is one button (`onOpenDetail`); there is no
-  per-row "Open" or "Clear flag" anymore (see below). Above the list: a
-  name/reason search box (same visual pattern as "Manage access"'s search,
-  matching `entity.name` and `entity.reviewReason`, client-side over the
+  icon `directory-result-row.tsx` uses for search results), name,
+  `reviewReason` as a second line, a trailing chevron, and nothing else.
+  No separate text type-badge next to the name — the icon's own shape/color
+  (person initials vs. company/job glyph, tinted per type) already says what
+  it is, so a redundant "PERSON"/"COMPANY"/"JOB" pill next to the name was
+  cut. The whole row is one button (`onOpenDetail`); there is no per-row
+  "Open" or "Clear flag" anymore (see below). Above the list: a name/reason
+  search box (same visual pattern as "Manage access"'s search, matching
+  `entity.name` and `entity.reviewReason`, client-side over the
   already-fetched list — same reasoning as the users search, no new query),
   then filters — **type** (All/People/Companies/Jobs, pill toggles,
   unchanged) and **reason** — no longer an inline `<select>`, now a small
@@ -613,9 +616,9 @@ doc's `masterData`.
   between the search box and the filters — replaces the count badge that
   used to sit on this tab (see "Two tabs" below) with a plainer
   always-visible number, closer to an inbox's unread count than a
-  notification badge. The type badge tinting is unchanged: Directory's own
-  `DIRECTORY_ENTITY_META` person/company/job colors, same tokens
-  `directory-profile-screen.tsx` uses for its own type badges — a subtle
+  notification badge. Directory's own `DIRECTORY_ENTITY_META` person/
+  company/job colors (same tokens `directory-profile-screen.tsx` uses) still
+  drive the icon tint and the type filter chips' active state — a subtle
   scan aid, not a strong color-coding scheme; "other" falls back to the
   company color the same way the profile screen's avatar does, since
   flagged "other" contexts can't actually occur (see above).
