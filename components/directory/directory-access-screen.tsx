@@ -239,7 +239,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                         style={active && meta ? { borderColor: meta.border, background: meta.softBackground, color: meta.color } : undefined}
                       >
                         {option.label}
-                        {flagged !== null && <span className="ml-1 opacity-55">{typeCounts[option.id]}</span>}
+                        {active && flagged !== null && <span className="ml-1 opacity-55">{typeCounts[option.id]}</span>}
                       </button>
                     )
                   })}

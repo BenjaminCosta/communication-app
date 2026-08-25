@@ -618,11 +618,12 @@ doc's `masterData`.
   a first pass had one (its own row, `Info` icon), then tried sharing the
   intro's row; both came out again in favor of a per-chip count instead:
   each type chip (`typeCounts`, computed from the unfiltered `flagged` list
-  regardless of the current type/reason/search filter) shows its own total
-  inline — "All 387", "People 42" — a small, muted number next to the
-  label rather than a separate line anywhere. Only rendered once
-  `flagged !== null`, so a chip doesn't flash "0" while the first fetch is
-  still in flight. Directory's own `DIRECTORY_ENTITY_META` person/company/
+  regardless of the current type/reason/search filter) can show its own
+  total inline — "All 387" — a small, muted number next to the label,
+  only on the currently-*active* chip (`active && flagged !== null`) rather
+  than on all four at once, so the row reads as one number that updates
+  when you switch chips, not four numbers competing for attention.
+  Directory's own `DIRECTORY_ENTITY_META` person/company/
   job colors (same tokens `directory-profile-screen.tsx` uses) still drive
   the icon tint and the type filter chips' active state — a subtle
   scan aid, not a strong color-coding scheme; "other" falls back to the
