@@ -7,6 +7,7 @@ import { deriveInitials } from "@/lib/store"
 import { auth } from "@/lib/firebase"
 import { Switch } from "@/components/ui/switch"
 import { inputClassName } from "@/components/directory/directory-edit-sheet"
+import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
 import { clearDirectoryReviewFlag, DirectoryWriteError } from "@/lib/directory-writes"
 import {
   fetchDirectoryAdminAccessUsers,
@@ -61,13 +62,18 @@ function formatFlaggedAgo(millis: number | null): string | null {
  * as directory-profile-screen.tsx) — they're unrelated lists doing unrelated
  * jobs, and stacking them made the "flagged" queue (the thing most likely to
  * need action) compete for space with a usually-static admin roster below it.
- * Each tab's intro/controls sit in a `sticky` bar inside the scroll area, so
- * search/filters (and the tab row itself, which lives outside `main`
- * entirely) stay reachable without scrolling back up on a long list.
+ * The tab row itself lives outside `main`'s scroll region entirely (a
+ * `shrink-0` sibling), so switching tabs is always reachable regardless of
+ * scroll position — each tab's own intro/search/filters scroll normally
+ * with its list, not pinned.
  * Opening a flagged record just navigates to its profile (onOpenDetail);
  * clearing a flag can also be done right from this list (clearDirectoryReviewFlag
  * is open to any signed-in user, same as flagging itself — this screen only
- * gates the aggregate *view*), without leaving for the full profile.
+ * gates the aggregate *view*), without leaving for the full profile. Each
+ * flagged row's type badge (and the type filter chips) are tinted with
+ * Directory's own person/company/job colors (DIRECTORY_ENTITY_META, same
+ * tokens directory-profile-screen.tsx uses) — a subtle visual cue for what
+ * you're scanning, not a strong color-coding scheme.
  */
 export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: DirectoryAccessScreenProps) {
   const [tab, setTab] = useState<AccessTab>("flagged")
@@ -163,7 +169,6 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
   const isLoading = users === null
   const isDenied = errorStatus === 401 || errorStatus === 403
   const currentUid = auth.currentUser?.uid
-  const flaggedCount = flagged?.length ?? 0
   const accessCount = users?.filter((user) => user.hasAccess || user.isLegacyAdmin).length ?? 0
 
   const filteredUsers = useMemo(() => {
@@ -182,9 +187,9 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
     })
   }, [flagged, typeFilter, reasonFilter])
 
-  const tabs: Array<{ id: AccessTab; label: string; count: number | null }> = [
-    { id: "flagged", label: "Flagged for review", count: flaggedCount > 0 ? flaggedCount : null },
-    { id: "access", label: "Manage access", count: null },
+  const tabs: Array<{ id: AccessTab; label: string }> = [
+    { id: "flagged", label: "Flagged for review" },
+    { id: "access", label: "Manage access" },
   ]
 
   return (
@@ -215,11 +220,6 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
               aria-current={tab === entry.id ? "page" : undefined}
             >
               {entry.label}
-              {entry.count != null && (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/90 px-1 text-[10px] font-bold leading-none text-white">
-                  {entry.count > 99 ? "99+" : entry.count}
-                </span>
-              )}
               {tab === entry.id && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[var(--directory-title)]" />}
             </button>
           ))}
@@ -234,26 +234,30 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
             </div>
           ) : tab === "flagged" ? (
             <>
-              <div className="glass-panel sticky top-0 z-10 border-b px-4 pb-3 pt-4 md:px-6">
+              <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
                 <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
                   Records anyone flagged as a duplicate, incorrect, or inactive.
                 </p>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by type">
-                  {TYPE_FILTERS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => setTypeFilter(option.id)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
-                        typeFilter === option.id
-                          ? "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]"
-                          : "border-white/[0.1] bg-white/[0.03] text-foreground/65",
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                  {TYPE_FILTERS.map((option) => {
+                    const meta = option.id === "all" ? null : DIRECTORY_ENTITY_META[option.id]
+                    const active = typeFilter === option.id
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setTypeFilter(option.id)}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors active:scale-[0.97]",
+                          active && !meta && "border-[var(--directory-title)]/25 bg-[var(--directory-title)]/[0.09] text-[var(--directory-title)]",
+                          !active && "border-white/[0.1] bg-white/[0.03] text-foreground/65",
+                        )}
+                        style={active && meta ? { borderColor: meta.border, background: meta.softBackground, color: meta.color } : undefined}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
                 </div>
                 {flagged && flagged.length > 0 && (
                   <select
@@ -285,13 +289,17 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                   <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
                     {filteredFlagged.map((entity) => {
                       const flaggedAgo = formatFlaggedAgo(entity.flaggedAt)
+                      const typeMeta = DIRECTORY_ENTITY_META[entity.type === "other" ? "company" : entity.type]
                       return (
                         <div key={entity.directoryId} className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
                                 <span className="truncate text-sm font-semibold">{entity.name}</span>
-                                <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                                <span
+                                  className="shrink-0 rounded-full border bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                                  style={{ borderColor: typeMeta.border, color: typeMeta.color }}
+                                >
                                   {entity.type}
                                 </span>
                               </div>
@@ -335,7 +343,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
             </>
           ) : (
             <>
-              <div className="glass-panel sticky top-0 z-10 border-b px-4 pb-3 pt-4 md:px-6">
+              <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
                 <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
                   Anyone with access can merge duplicate records and delete entries in Directory, and grant or revoke
                   access for others here.

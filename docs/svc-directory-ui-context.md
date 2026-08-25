@@ -600,7 +600,13 @@ doc's `masterData`.
   admin-gated, so letting an admin resolve a flag without leaving for the
   full profile doesn't cross any new permission line. Removes the row
   optimistically on success; a failure shows an inline message under that
-  row rather than a page-level error, and leaves the row in place.
+  row rather than a page-level error, and leaves the row in place. The type
+  badge (and the active state of the type filter chips) is tinted with
+  Directory's own `DIRECTORY_ENTITY_META` person/company/job colors — the
+  same tokens `directory-profile-screen.tsx` uses for its own type badges —
+  a subtle scan aid, not a strong color-coding scheme; "other" falls back to
+  the company color the same way the profile screen's avatar does, since
+  flagged "other" contexts can't actually occur (see above).
 
 **Two tabs, not two stacked sections.** "Flagged for review" and "Manage
 access" started as two `<section>`s on one scrolling page — replaced with the
@@ -609,16 +615,16 @@ Overview/Related/Notes/Files, since these are two unrelated lists doing
 unrelated jobs (a moderation queue vs. a mostly-static admin roster), and
 stacking them made the queue — the one actually worth checking regularly —
 compete for space below whatever the admin list happened to be that day.
-"Flagged for review" is the first/default tab; its own tab carries the count
-badge that used to sit on the topbar icon (moved here since it's the more
-specific, discoverable place to see *why* the count is what it is — you land
-straight on the list it's counting rather than a bare number on an icon).
-The tab bar itself is hidden in the denied state (nothing to switch between).
-Each tab's intro text + filter/search controls sit in a `sticky top-0` bar
-*inside* the scroll area (styled with `.glass-panel` so scrolled content
-doesn't show through) — on top of the tab row itself already being outside
-`main`'s scroll region entirely (a `shrink-0` sibling), so neither the
-controls nor the tab switcher ever scroll out of reach on a long list.
+"Flagged for review" is the first/default tab. Neither tab carries a count
+badge — one briefly sat on "Flagged for review" (after moving off the
+topbar icon), but came out again the same way the topbar badge did: it's
+`flagged.length`/`accessCount` already visible one scroll away, not
+information worth a persistent red bubble. The tab bar itself is hidden in
+the denied state (nothing to switch between). Each tab's intro text +
+filter/search controls scroll normally with its list rather than staying
+pinned — only the tab row itself (a `shrink-0` sibling of `main`, outside
+its scroll region entirely) stays fixed, so switching tabs is always
+reachable without hunting for a sticky search bar mid-scroll.
 
 **Manage access: search + a count.** The users list has no pagination
 (`listDirectoryAdminAccessUsers()` reads the whole `/users` collection —
