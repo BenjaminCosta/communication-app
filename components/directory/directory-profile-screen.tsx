@@ -10,19 +10,17 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
-  Flag,
   FolderOpen,
-  GitMerge,
   Link2,
   Loader2,
   Mail,
   MapPin,
+  MoreHorizontal,
   Pencil,
   Phone,
   ShieldCheck,
   Sparkles,
   Star,
-  Trash2,
 } from "lucide-react"
 import { DirectoryRowsSkeleton } from "@/components/directory/directory-states"
 import { DirectoryNotesTab } from "@/components/directory/directory-notes-tab"
@@ -31,6 +29,7 @@ import { DirectoryEditSheet } from "@/components/directory/directory-edit-sheet"
 import { DirectoryFlagSheet } from "@/components/directory/directory-flag-sheet"
 import { DirectoryDeleteConfirmSheet } from "@/components/directory/directory-delete-confirm-sheet"
 import { DirectoryMergeSheet } from "@/components/directory/directory-merge-sheet"
+import { DirectoryManageSheet } from "@/components/directory/directory-manage-sheet"
 import { ThreeWeekOutlookTab } from "@/components/directory/outlooks/three-week-outlook-tab"
 import { cn } from "@/lib/utils"
 import { DIRECTORY_ENTITY_META } from "@/lib/directory-config"
@@ -116,6 +115,7 @@ export function DirectoryProfileScreen({
   const [showFlag, setShowFlag] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
+  const [showManage, setShowManage] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const vmId = vm?.id ?? null
 
@@ -378,7 +378,7 @@ export function DirectoryProfileScreen({
             <>
               <ProfileHeader vm={vm} relations={relations} />
 
-              <QuickActions actions={vm.actions} onAction={handleAction} />
+              <QuickActions actions={vm.actions} onAction={handleAction} onMore={() => setShowManage(true)} />
 
               {isProfileStale && (
                 <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/55" role="status">
@@ -542,6 +542,16 @@ export function DirectoryProfileScreen({
           }}
         />
       )}
+
+      {vm && (
+        <DirectoryManageSheet
+          vm={vm}
+          actions={vm.actions.filter((action) => MANAGEMENT_ACTION_KINDS.has(action.kind))}
+          open={showManage}
+          onOpenChange={setShowManage}
+          onAction={handleAction}
+        />
+      )}
     </div>
   )
 }
@@ -628,6 +638,11 @@ function ProfileAvatar({ vm }: { vm: DirectoryProfileViewModel }) {
 
 // ── Quick actions ────────────────────────────────────────────────────────────
 
+// Flag/Merge/Delete are "database maintenance" actions — they live behind
+// the More sheet (DirectoryManageSheet) instead of the pill row so the row
+// stays short and the destructive ones aren't a stray tap away.
+const MANAGEMENT_ACTION_KINDS = new Set<ProfileAction["kind"]>(["flag", "merge", "delete"])
+
 const ACTION_ICONS: Partial<Record<ProfileAction["kind"], typeof Phone>> = {
   call: Phone,
   email: Mail,
@@ -635,16 +650,25 @@ const ACTION_ICONS: Partial<Record<ProfileAction["kind"], typeof Phone>> = {
   website: ExternalLink,
   drive: FolderOpen,
   edit: Pencil,
-  flag: Flag,
-  merge: GitMerge,
-  delete: Trash2,
 }
 
-function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onAction: (action: ProfileAction) => void }) {
-  if (actions.length === 0) return null
+function QuickActions({
+  actions,
+  onAction,
+  onMore,
+}: {
+  actions: ProfileAction[]
+  onAction: (action: ProfileAction) => void
+  onMore: () => void
+}) {
+  const primaryActions = actions.filter((action) => !MANAGEMENT_ACTION_KINDS.has(action.kind))
+  const hasManagementActions = actions.some((action) => MANAGEMENT_ACTION_KINDS.has(action.kind))
+  if (primaryActions.length === 0 && !hasManagementActions) return null
+  // All quick actions share one neutral style — no highlighted primary.
+  const base = "glass-button flex shrink-0 items-center gap-1.5 rounded-full border border-white/12 px-3.5 py-2 text-xs font-medium text-foreground/85 transition-colors active:scale-[0.97]"
   return (
     <div className="mt-5 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-      {actions.map((action, index) => {
+      {primaryActions.map((action, index) => {
         const Icon = ACTION_ICONS[action.kind]
         const content = (
           <>
@@ -652,8 +676,6 @@ function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onActio
             <span>{action.label}</span>
           </>
         )
-        // All quick actions share one neutral style — no highlighted primary.
-        const base = "glass-button flex shrink-0 items-center gap-1.5 rounded-full border border-white/12 px-3.5 py-2 text-xs font-medium text-foreground/85 transition-colors active:scale-[0.97]"
         if (action.href && !action.inApp) {
           const external = /^https?:/i.test(action.href)
           return (
@@ -674,6 +696,12 @@ function QuickActions({ actions, onAction }: { actions: ProfileAction[]; onActio
           </button>
         )
       })}
+      {hasManagementActions && (
+        <button type="button" onClick={onMore} className={base} aria-label="More actions">
+          <MoreHorizontal className="h-4 w-4" strokeWidth={1.8} />
+          <span>More</span>
+        </button>
+      )}
     </div>
   )
 }

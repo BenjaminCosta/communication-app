@@ -107,7 +107,7 @@ export function DirectoryMergeSheet({ vm, userId, companies, people, onClose, on
         >
           <X className="h-4 w-4 text-white/80" strokeWidth={1.8} />
         </button>
-        <h2 className="text-sm font-semibold text-foreground/90">Merge Duplicate</h2>
+        <h2 className="text-sm font-semibold text-foreground/90">Merge duplicate</h2>
         <button
           type="button"
           onClick={merge}

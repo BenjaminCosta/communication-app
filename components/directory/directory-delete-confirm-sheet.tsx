@@ -17,7 +17,7 @@ interface DirectoryDeleteConfirmSheetProps {
   onDeleted: () => void
 }
 
-const TYPE_LABEL: Record<DirectoryProfileViewModel["type"], string> = {
+export const TYPE_LABEL: Record<DirectoryProfileViewModel["type"], string> = {
   person: "contact",
   company: "company",
   job: "job",

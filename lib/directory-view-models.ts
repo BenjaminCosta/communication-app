@@ -345,8 +345,8 @@ export function buildPersonProfileViewModel(
   actions.push({ kind: "edit", label: "Edit Contact", inApp: true })
   actions.push({ kind: "flag", label: "Flag for review", inApp: true })
   if (options.canModerate) {
-    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
-    actions.push({ kind: "delete", label: "Delete Contact", inApp: true })
+    actions.push({ kind: "merge", label: "Merge duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete contact", inApp: true })
   }
 
   return {
@@ -435,8 +435,8 @@ export function buildCompanyProfileViewModel(
   actions.push({ kind: "edit", label: "Edit Company", inApp: true })
   actions.push({ kind: "flag", label: "Flag for review", inApp: true })
   if (options.canModerate) {
-    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
-    actions.push({ kind: "delete", label: "Delete Company", inApp: true })
+    actions.push({ kind: "merge", label: "Merge duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete company", inApp: true })
   }
 
   return {
@@ -551,8 +551,8 @@ export function buildJobProfileViewModel(
   actions.push({ kind: "edit", label: "Edit Job", inApp: true })
   actions.push({ kind: "flag", label: "Flag for review", inApp: true })
   if (options.canModerate) {
-    actions.push({ kind: "merge", label: "Merge Duplicate", inApp: true })
-    actions.push({ kind: "delete", label: "Delete Job", inApp: true })
+    actions.push({ kind: "merge", label: "Merge duplicate", inApp: true })
+    actions.push({ kind: "delete", label: "Delete job", inApp: true })
   }
 
   return {

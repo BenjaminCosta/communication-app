@@ -334,9 +334,31 @@ Nothing has been committed this session. **Firestore rules are deployed to prod 
 ## 14. Cleanup flow — Edit / Flag for review / Merge duplicate / Delete
 
 Added on top of UI v1: a way to handle duplicates and bad records directly in
-the app, from the profile screen's existing quick-actions pill row
-(`ProfileAction`/`QuickActions` in `directory-profile-screen.tsx` — Merge and
-Delete are just new `ProfileActionKind` values, same plumbing as `edit`).
+the app (`ProfileAction`/`QuickActions` in `directory-profile-screen.tsx` —
+Flag/Merge/Delete are just new `ProfileActionKind` values, same plumbing as
+`edit`).
+
+**Entry points: pill row vs. the More sheet.** Only the frequent, everyday
+actions (Call/Email/Website/Directions/Drive/Edit) render as pills in
+`QuickActions`'s horizontal row. Flag for review, Merge duplicate and Delete
+are "database maintenance" actions — grouped instead behind a single **More**
+pill (`MoreHorizontal` icon) that opens `DirectoryManageSheet`, a bottom sheet
+(`components/ui/drawer.tsx`, styled with Directory's own `.glass-panel`) —
+this replaced an earlier attempt at putting Flag/Merge/Delete directly in the
+pill row, which visibly overflowed the row on mobile once a fourth/fifth
+action was added. `QuickActions` filters `vm.actions` by kind
+(`MANAGEMENT_ACTION_KINDS = {flag, merge, delete}`) into the pill row vs. what
+it hands to the More sheet; the More pill itself only renders when at least
+one management action is present. `DirectoryManageSheet` takes that same
+filtered array as a prop and renders it as-is — it does no permission
+filtering of its own, so a non-admin (whose view model never included
+`merge`/`delete` in the first place, see below) sees only "Flag for review"
+there, and any action added to the view model later shows up automatically
+with no changes to this component. Tapping a row closes the sheet and calls
+the same `handleAction()` used by the pill row, which is unchanged — it opens
+the same `DirectoryFlagSheet`/`DirectoryMergeSheet`/`DirectoryDeleteConfirmSheet`
+this section describes below. Delete is visually destructive (red icon/text)
+and always listed last.
 
 **Permission model.** Edit and Flag for review are open to any signed-in
 user. Merge duplicate and Delete require `/users/{uid}.isAdmin === true` —
