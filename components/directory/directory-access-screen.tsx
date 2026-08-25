@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Check, ChevronRight, Flag, Info, Search, ShieldOff, SlidersHorizontal, UsersRound } from "lucide-react"
+import { ArrowLeft, Check, ChevronRight, Flag, Search, ShieldOff, SlidersHorizontal, UsersRound } from "lucide-react"
 import { cn, getUserAvatarColor } from "@/lib/utils"
 import { deriveInitials } from "@/lib/store"
 import { auth } from "@/lib/firebase"
@@ -150,6 +150,16 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
     })
   }, [flagged, flaggedQuery, typeFilter, reasonFilter])
 
+  // Total count per type, regardless of the current filter/search — shown inside each type chip.
+  const typeCounts = useMemo(() => {
+    const counts: Record<TypeFilter, number> = { all: 0, person: 0, company: 0, job: 0 }
+    for (const entity of flagged ?? []) {
+      counts.all += 1
+      if (entity.type === "person" || entity.type === "company" || entity.type === "job") counts[entity.type] += 1
+    }
+    return counts
+  }, [flagged])
+
   const tabs: Array<{ id: AccessTab; label: string }> = [
     { id: "flagged", label: "Flagged for review" },
     { id: "access", label: "Manage access" },
@@ -198,17 +208,9 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
           ) : tab === "flagged" ? (
             <>
               <div className="glass-panel border-b px-4 pb-3 pt-4 md:px-6">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground/60">
-                    Records anyone flagged as a duplicate, incorrect, or inactive.
-                  </p>
-                  {flagged && flagged.length > 0 && (
-                    <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs font-medium text-[var(--directory-title)]">
-                      <Info className="h-3.5 w-3.5" strokeWidth={1.8} />
-                      {flagged.length} open
-                    </span>
-                  )}
-                </div>
+                <p className="mb-3 text-xs leading-relaxed text-muted-foreground/60">
+                  Records anyone flagged as a duplicate, incorrect, or inactive.
+                </p>
                 {flagged && flagged.length > 0 && (
                   <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/[0.09] bg-white/[0.02] px-3">
                     <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" strokeWidth={1.8} />
@@ -237,6 +239,7 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
                         style={active && meta ? { borderColor: meta.border, background: meta.softBackground, color: meta.color } : undefined}
                       >
                         {option.label}
+                        {flagged !== null && <span className="ml-1 opacity-55">{typeCounts[option.id]}</span>}
                       </button>
                     )
                   })}

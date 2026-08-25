@@ -604,25 +604,27 @@ doc's `masterData`.
   it is, so a redundant "PERSON"/"COMPANY"/"JOB" pill next to the name was
   cut. The whole row is one button (`onOpenDetail`); there is no per-row
   "Open" or "Clear flag" anymore (see below). Controls above the list are
-  kept to three compact rows, not four: (1) the intro paragraph shares a row
-  with the "N open" count (`Info` icon, tinted, `flex justify-between` —
-  `flagged.length` at a glance without its own dedicated line); (2) a
-  name/reason search box (same visual pattern as "Manage access"'s search,
-  matching `entity.name` and `entity.reviewReason`, client-side over the
-  already-fetched list — no new query); (3) **type** (All/People/Companies/
-  Jobs pill toggles) and **reason** filters share one horizontally-scrolling
-  row (`overflow-x-auto`, same pattern `QuickActions` uses on the profile
+  three compact rows: (1) the intro paragraph; (2) a name/reason search box
+  (same visual pattern as "Manage access"'s search, matching `entity.name`
+  and `entity.reviewReason`, client-side over the already-fetched list — no
+  new query); (3) **type** (All/People/Companies/Jobs pill toggles) and
+  **reason** filters sharing one horizontally-scrolling row
+  (`overflow-x-auto`, same pattern `QuickActions` uses on the profile
   screen) — the reason filter is a small "Filters" pill (label shows the
   active reason once picked) appended as the last item in that same row,
   opening a bottom sheet (`Drawer`) listing "All reasons" + the four presets
   `directory-flag-sheet.tsx` uses, each row a plain tap target with a
-  checkmark on the active one. This replaced an earlier layout where the
-  count and the reason filter each had their own row (four rows total) —
-  tightened after feedback that the controls block was taking too much
-  vertical space before any actual flagged records were visible. Directory's
-  own `DIRECTORY_ENTITY_META` person/company/job colors (same tokens
-  `directory-profile-screen.tsx` uses) still drive the icon tint and the
-  type filter chips' active state — a subtle
+  checkmark on the active one. There's no standalone "N open" count line —
+  a first pass had one (its own row, `Info` icon), then tried sharing the
+  intro's row; both came out again in favor of a per-chip count instead:
+  each type chip (`typeCounts`, computed from the unfiltered `flagged` list
+  regardless of the current type/reason/search filter) shows its own total
+  inline — "All 387", "People 42" — a small, muted number next to the
+  label rather than a separate line anywhere. Only rendered once
+  `flagged !== null`, so a chip doesn't flash "0" while the first fetch is
+  still in flight. Directory's own `DIRECTORY_ENTITY_META` person/company/
+  job colors (same tokens `directory-profile-screen.tsx` uses) still drive
+  the icon tint and the type filter chips' active state — a subtle
   scan aid, not a strong color-coding scheme; "other" falls back to the
   company color the same way the profile screen's avatar does, since
   flagged "other" contexts can't actually occur (see above).
