@@ -542,21 +542,23 @@ the file-level comment there.
   table). Adds an "Admin" badge + explanatory note for `isLegacyAdmin` users.
 - Entry point: a `UserRound` icon button in `directory-screen.tsx`'s topbar
   (sibling of the favorites `Star` button, same `glass-button h-9 w-9
-  rounded-full` pattern — both now grouped in a small flex wrapper so
-  `justify-between` still only sees two top-level header children). Opens
-  as a nested absolute overlay (`showAccess` state, same pattern as
+  rounded-full` pattern — both grouped in a small flex wrapper so
+  `justify-between` still only sees two top-level header children). Order is
+  deliberate: favorites (`Star`) first/left, admin access (`UserRound`) last/
+  right — favorites is the more frequently used of the two, admin access sits
+  at the far edge since it's the more "administrative" one. Opens as a nested
+  absolute overlay (`showAccess` state, same pattern as
   `showFavorites`/`DirectoryFavoritesScreen`) rather than a top-level
   `app/page.tsx` `Screen` — unlike CRC, which *is* its own separate module.
   The icon is always visible; the screen itself handles the denied state,
-  exactly like CRC's. Carries a small red count badge (top-right corner)
-  when there are flagged records — `directory-screen.tsx` fetches the count
-  independently on mount (best-effort, fails silently to no badge for
-  non-admins or any other error, since a passive badge has no room for a
-  denied/error state).
+  exactly like CRC's. `directory-screen.tsx` still fetches the flagged count
+  on mount (best-effort, fails silently for non-admins or any other error) —
+  it no longer renders as a badge on this icon (see below), but it's reused
+  to keep the aria-label informative (`"Manage Directory access — N flagged
+  for review"`).
 
-**Flagged for review** — a moderation-queue section added to the same
-screen (above "Manage access"), since there was previously nowhere that
-listed flagged records in aggregate: `masterData.needsReview`/`reviewReason`
+**Flagged for review** — a moderation-queue view on the same screen, since
+there was previously nowhere that listed flagged records in aggregate: `masterData.needsReview`/`reviewReason`
 (set by `flagDirectoryEntityForReview()`, open to any signed-in user — see
 §14) was only ever visible one profile at a time, via
 `directory-flag-sheet.tsx`. It's also not in the client search index
@@ -583,6 +585,19 @@ doc's `masterData`.
   overlays already do) where the existing `directory-flag-sheet.tsx` flow
   resolves it. An inline resolve-from-the-list action would be a v2, not
   built here since it wasn't asked for.
+
+**Two tabs, not two stacked sections.** "Flagged for review" and "Manage
+access" started as two `<section>`s on one scrolling page — replaced with the
+same underline-tab pattern `directory-profile-screen.tsx` uses for
+Overview/Related/Notes/Files, since these are two unrelated lists doing
+unrelated jobs (a moderation queue vs. a mostly-static admin roster), and
+stacking them made the queue — the one actually worth checking regularly —
+compete for space below whatever the admin list happened to be that day.
+"Flagged for review" is the first/default tab; its own tab carries the count
+badge that used to sit on the topbar icon (moved here since it's the more
+specific, discoverable place to see *why* the count is what it is — you land
+straight on the list it's counting rather than a bare number on an icon).
+The tab bar itself is hidden in the denied state (nothing to switch between).
 
 **No Firestore rules change.** `/users/{uid}` write rules stay self-write-only
 and untouched — granting/revoking another user's `directoryAdminAccess`

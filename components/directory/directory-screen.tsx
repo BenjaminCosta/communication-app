@@ -303,27 +303,19 @@ export function DirectoryScreen({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowAccess(true)}
-            className="glass-button relative flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
-            aria-label={flaggedCount > 0 ? `Manage Directory access — ${flaggedCount} flagged for review` : "Manage Directory access"}
-          >
-            <UserRound className="h-4 w-4 text-white" strokeWidth={1.8} />
-            {flaggedCount > 0 && (
-              <span
-                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white"
-                aria-hidden="true"
-              >
-                {flaggedCount > 99 ? "99+" : flaggedCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
             onClick={() => setShowFavorites(true)}
             className="glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
             aria-label="Open Directory favorites"
           >
             <Star className="h-4 w-4 text-white" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAccess(true)}
+            className="glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
+            aria-label={flaggedCount > 0 ? `Manage Directory access — ${flaggedCount} flagged for review` : "Manage Directory access"}
+          >
+            <UserRound className="h-4 w-4 text-white" strokeWidth={1.8} />
           </button>
         </div>
       </header>

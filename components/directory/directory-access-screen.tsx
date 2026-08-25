@@ -21,21 +21,27 @@ interface DirectoryAccessScreenProps {
   className?: string
 }
 
+type AccessTab = "flagged" | "access"
+
 /**
  * Delegates Directory admin access (merge/delete + this screen itself) to
  * other users, and surfaces the flagged-for-review moderation queue —
  * previously nowhere aggregated, only visible one profile at a time via
- * directory-flag-sheet.tsx. Both sections are gated by the same
- * requireDirectoryAdmin check; the access-management logic mirrors
- * CourtneyRobertsCenterAccessScreen exactly (fetch, optimistic toggle with
- * revert-on-failure, self-toggle disabled). Chrome uses Directory's own
- * glass topbar (matches directory-favorites-screen.tsx) rather than CRC's
- * plain button header, since this screen lives inside Directory. Opening a
- * flagged record just navigates to its profile (onOpenDetail) — resolving
- * the flag itself reuses the existing directory-flag-sheet.tsx flow there;
- * no inline clear-flag control here.
+ * directory-flag-sheet.tsx. Both are gated by the same requireDirectoryAdmin
+ * check; the access-management logic mirrors CourtneyRobertsCenterAccessScreen
+ * exactly (fetch, optimistic toggle with revert-on-failure, self-toggle
+ * disabled). The two lists live in separate tabs (same underline-tab pattern
+ * as directory-profile-screen.tsx) rather than stacked sections — they're
+ * unrelated lists doing unrelated jobs, and stacking them made the "flagged"
+ * queue (the thing most likely to need action) compete for space with a
+ * usually-static admin roster below it. Opening a flagged record just
+ * navigates to its profile (onOpenDetail) — resolving the flag itself reuses
+ * the existing directory-flag-sheet.tsx flow there; no inline clear-flag
+ * control here.
  */
 export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: DirectoryAccessScreenProps) {
+  const [tab, setTab] = useState<AccessTab>("flagged")
+
   const [users, setUsers] = useState<DirectoryAdminAccessUser[] | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -94,6 +100,12 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
   const isLoading = users === null
   const isDenied = errorStatus === 401 || errorStatus === 403
   const currentUid = auth.currentUser?.uid
+  const flaggedCount = flagged?.length ?? 0
+
+  const tabs: Array<{ id: AccessTab; label: string; count: number | null }> = [
+    { id: "flagged", label: "Flagged for review", count: flaggedCount > 0 ? flaggedCount : null },
+    { id: "access", label: "Manage access", count: null },
+  ]
 
   return (
     <div className={cn("directory-glass-screen flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden", className)}>
@@ -109,105 +121,127 @@ export function DirectoryAccessScreen({ onBack, onOpenDetail, className }: Direc
         <h1 className="text-base font-semibold tracking-tight text-foreground">Directory Access</h1>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
-        <div className="mx-auto w-full max-w-2xl px-4 pb-12 pt-4 md:px-6">
-          <p className="mb-4 text-xs leading-relaxed text-muted-foreground/60">
-            Anyone with access can merge duplicate records and delete entries in Directory, and grant or revoke access
-            for others here.
-          </p>
+      {!isDenied && (
+        <nav className="flex shrink-0 gap-1 border-b border-white/[0.07] px-4 md:px-6" aria-label="Directory access sections">
+          {tabs.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => setTab(entry.id)}
+              className={cn(
+                "relative flex shrink-0 items-center gap-1.5 px-3 pb-2.5 pt-3 text-[13px] font-medium transition-colors",
+                tab === entry.id ? "text-foreground" : "text-muted-foreground/60 hover:text-foreground/80",
+              )}
+              aria-current={tab === entry.id ? "page" : undefined}
+            >
+              {entry.label}
+              {entry.count != null && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/90 px-1 text-[10px] font-bold leading-none text-white">
+                  {entry.count > 99 ? "99+" : entry.count}
+                </span>
+              )}
+              {tab === entry.id && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[var(--directory-title)]" />}
+            </button>
+          ))}
+        </nav>
+      )}
 
+      <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
+        <div className="mx-auto w-full max-w-2xl px-4 pb-12 pt-5 md:px-6">
           {isDenied ? (
             <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Not approved" description={errorMessage ?? "You are not approved to manage Directory access."} />
+          ) : tab === "flagged" ? (
+            <>
+              <p className="mb-4 text-xs leading-relaxed text-muted-foreground/60">
+                Records anyone flagged as a duplicate, incorrect, or inactive. Open one to review it, fix it, or clear the
+                flag.
+              </p>
+              {flagged === null ? (
+                <ListSkeleton rows={3} />
+              ) : flaggedErrorMessage ? (
+                <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load flagged records" description={flaggedErrorMessage} />
+              ) : flagged.length === 0 ? (
+                <EmptyState icon={<Flag className="h-5 w-5" />} title="Nothing flagged" description="No records are currently flagged for review." />
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
+                  {flagged.map((entity) => (
+                    <div key={entity.directoryId} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-semibold">{entity.name}</span>
+                          <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                            {entity.type}
+                          </span>
+                        </div>
+                        {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDetail(entity.directoryId)}
+                        className="glass-button shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium text-foreground/85 active:scale-[0.97]"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
             <>
-              <section className="mb-8">
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
-                  Flagged for review{flagged && flagged.length > 0 ? ` · ${flagged.length}` : ""}
-                </h2>
-                {flagged === null ? (
-                  <ListSkeleton rows={3} />
-                ) : flaggedErrorMessage ? (
-                  <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load flagged records" description={flaggedErrorMessage} />
-                ) : flagged.length === 0 ? (
-                  <EmptyState icon={<Flag className="h-5 w-5" />} title="Nothing flagged" description="No records are currently flagged for review." />
-                ) : (
-                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
-                    {flagged.map((entity) => (
-                      <div key={entity.directoryId} className="flex items-center gap-3 px-4 py-3">
+              <p className="mb-4 text-xs leading-relaxed text-muted-foreground/60">
+                Anyone with access can merge duplicate records and delete entries in Directory, and grant or revoke
+                access for others here.
+              </p>
+              {isLoading ? (
+                <ListSkeleton />
+              ) : errorMessage ? (
+                <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load users" description={errorMessage} />
+              ) : users.length === 0 ? (
+                <EmptyState icon={<UsersRound className="h-5 w-5" />} title="No users found" description="No registered app users to show." />
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
+                  {users.map((user) => {
+                    const isSelf = user.uid === currentUid
+                    return (
+                      <div key={user.uid} className="flex items-center gap-3 px-4 py-3">
+                        <div
+                          className={cn(
+                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white",
+                            getUserAvatarColor(user.uid),
+                          )}
+                        >
+                          {deriveInitials(user.name)}
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-semibold">{entity.name}</span>
-                            <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
-                              {entity.type}
-                            </span>
-                          </div>
-                          {entity.reviewReason && <span className="block truncate text-xs text-muted-foreground/50">{entity.reviewReason}</span>}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onOpenDetail(entity.directoryId)}
-                          className="glass-button shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium text-foreground/85 active:scale-[0.97]"
-                        >
-                          Open
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section>
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">Manage access</h2>
-                {isLoading ? (
-                  <ListSkeleton />
-                ) : errorMessage ? (
-                  <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Can't load users" description={errorMessage} />
-                ) : users.length === 0 ? (
-                  <EmptyState icon={<UsersRound className="h-5 w-5" />} title="No users found" description="No registered app users to show." />
-                ) : (
-                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-card divide-y divide-white/8">
-                    {users.map((user) => {
-                      const isSelf = user.uid === currentUid
-                      return (
-                        <div key={user.uid} className="flex items-center gap-3 px-4 py-3">
-                          <div
-                            className={cn(
-                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white",
-                              getUserAvatarColor(user.uid),
-                            )}
-                          >
-                            {deriveInitials(user.name)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate text-sm font-semibold">{user.name}</span>
-                              {isSelf && <span className="shrink-0 text-[10px] text-muted-foreground/40">(you)</span>}
-                              {user.isLegacyAdmin && (
-                                <span className="shrink-0 rounded-full border border-primary/25 bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                  Admin
-                                </span>
-                              )}
-                            </div>
-                            {user.email && <span className="block truncate text-xs text-muted-foreground/50">{user.email}</span>}
-                            {user.isLegacyAdmin && !user.hasAccess && (
-                              <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground/45">
-                                Has access via the app-wide Admin flag regardless of this toggle.
+                            <span className="truncate text-sm font-semibold">{user.name}</span>
+                            {isSelf && <span className="shrink-0 text-[10px] text-muted-foreground/40">(you)</span>}
+                            {user.isLegacyAdmin && (
+                              <span className="shrink-0 rounded-full border border-primary/25 bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                Admin
                               </span>
                             )}
                           </div>
-                          <Switch
-                            checked={user.hasAccess}
-                            disabled={pendingUid === user.uid || isSelf}
-                            onCheckedChange={(checked) => handleToggle(user, checked)}
-                            className="shrink-0 data-[state=checked]:bg-emerald-500"
-                            aria-label={`${user.hasAccess ? "Revoke" : "Grant"} Directory admin access for ${user.name}`}
-                          />
+                          {user.email && <span className="block truncate text-xs text-muted-foreground/50">{user.email}</span>}
+                          {user.isLegacyAdmin && !user.hasAccess && (
+                            <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground/45">
+                              Has access via the app-wide Admin flag regardless of this toggle.
+                            </span>
+                          )}
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </section>
+                        <Switch
+                          checked={user.hasAccess}
+                          disabled={pendingUid === user.uid || isSelf}
+                          onCheckedChange={(checked) => handleToggle(user, checked)}
+                          className="shrink-0 data-[state=checked]:bg-emerald-500"
+                          aria-label={`${user.hasAccess ? "Revoke" : "Grant"} Directory admin access for ${user.name}`}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </>
           )}
         </div>
