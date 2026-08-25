@@ -466,3 +466,80 @@ bite in practice):
   the person merge picker's preview panel (which only shows *that* a merge
   will happen, not a field-by-field diff either, so this is consistent, just
   worth knowing if a company/job merge produces a surprising result).
+
+---
+
+## 15. Directory admin access delegation
+
+Self-service delegation of Directory admin (merge/delete + this screen
+itself) to other users, mirroring Courtney Roberts Center's own
+`courtneyRobertsCenterAccess` / `admin-management.ts` pattern exactly —
+same reason: a Firestore-backed flag any current admin can grant/revoke from
+inside the module beats a static env var or a hardcoded list, which drift
+out of sync and need a redeploy to change.
+
+**New field, not a reuse of `isAdmin`.** `lib/directory-admin-guard.ts`
+previously argued `isAdmin` alone was fine for Directory since there was no
+"distinct sensitivity" to justify a second flag — that stopped holding once
+Directory needed its *own* delegation screen: granting "Directory access"
+through the shared `isAdmin` flag would silently also hand out Activity
+Monitor access, a much bigger blast radius than the action implies. New
+dedicated field: `/users/{uid}.directoryAdminAccess`.
+`requireDirectoryAdmin()` now accepts `directoryAdminAccess === true` **OR**
+`isAdmin === true` — unioned in, not replacing it, so every admin who
+already relied on `isAdmin` for merge/delete keeps working with nothing to
+re-grant on day one. New grants should go through the delegation screen;
+`isAdmin` is the legacy path, not the recommended one. Full rationale is in
+the file-level comment there.
+
+**Pieces** (mirroring CRC's file-for-file):
+- `lib/directory-admin-guard.ts` — gate (`hasDirectoryAdminAccess()` +
+  `requireDirectoryAdmin()`), extended rather than replaced.
+- `lib/directory-admin-management.ts` — `listDirectoryAdminAccessUsers()` /
+  `setDirectoryAdminAccess()`, server-side (Admin SDK). New vs. CRC's
+  version: each user also carries `isLegacyAdmin` (`isAdmin === true`),
+  independent of `hasAccess`, because toggling `directoryAdminAccess` off
+  for a legacy-`isAdmin` user does **not** actually revoke their access —
+  `isAdmin` still grants it — and the UI needed a way to say so instead of
+  the toggle silently looking like it did nothing.
+- `app/api/directory/admins/route.ts` (GET list) and `[uid]/route.ts`
+  (PATCH toggle) — identical shape to the CRC routes.
+- `lib/directory-admin-client.ts` — Bearer-token fetch wrappers, same shape
+  as `lib/courtney-roberts-center/client.ts`'s access-management subset.
+- `components/directory/directory-access-screen.tsx` — same logic as
+  `courtney-roberts-center-access-screen.tsx` (fetch, optimistic toggle with
+  revert-on-failure, self-toggle disabled, denied/loading/empty states), but
+  Directory's own glass topbar chrome (`directory-glass-screen` /
+  `glass-panel app-topbar` / `glass-button`, matching
+  `directory-favorites-screen.tsx`) instead of CRC's plain-button header,
+  since this screen lives inside Directory rather than being its own
+  top-level module. The list card itself (`rounded-2xl bg-card border
+  divide-y`) matches CRC's/`admin-screen.tsx`'s settings-list convention —
+  deliberately not Directory's Google-Search-style result-row styling,
+  which is a different genre of list (search results, not a permissions
+  table). Adds an "Admin" badge + explanatory note for `isLegacyAdmin` users.
+- Entry point: a `UserRound` icon button in `directory-screen.tsx`'s topbar
+  (sibling of the favorites `Star` button, same `glass-button h-9 w-9
+  rounded-full` pattern — both now grouped in a small flex wrapper so
+  `justify-between` still only sees two top-level header children). Opens
+  as a nested absolute overlay (`showAccess` state, same pattern as
+  `showFavorites`/`DirectoryFavoritesScreen`) rather than a top-level
+  `app/page.tsx` `Screen` — unlike CRC, which *is* its own separate module.
+  The icon is always visible; the screen itself handles the denied state,
+  exactly like CRC's.
+
+**No Firestore rules change.** `/users/{uid}` write rules stay self-write-only
+and untouched — granting/revoking another user's `directoryAdminAccess`
+happens via Admin SDK from the PATCH route, which bypasses rules entirely,
+exactly like CRC's `setCourtneyRobertsCenterAccess()` always has. A client
+never writes another user's doc directly for this feature.
+
+**Test coverage**: `scripts/directory-admin-access.test.ts` (pure unit tests
+on the doc-shape mapping, particularly `isLegacyAdmin`/`hasAccess`
+independence — same bar as CRC's own
+`toCourtneyRobertsCenterAccessUserForTests` tests, which are similarly the
+only tests that module has). The existing
+`scripts/test-directory-cleanup-rules.mjs` /
+`scripts/directory-cleanup-server.test.ts` suites were re-run as a
+regression check since `directory-admin-guard.ts` is a shared dependency of
+merge/delete — both still fully green.
