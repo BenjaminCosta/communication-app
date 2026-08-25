@@ -13,7 +13,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { getApps, initializeApp } from "firebase-admin/app"
-import { getFirestore } from "firebase-admin/firestore"
+import { getFirestore, Timestamp } from "firebase-admin/firestore"
 import { listFlaggedDirectoryEntities } from "../lib/directory-review-queue"
 
 process.env.GCLOUD_PROJECT ||= "directory-cleanup-test"
@@ -27,7 +27,7 @@ if (!getApps().length) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 
 async function wipe(): Promise<void> {
-  for (const name of ["contacts", "contexts"]) {
+  for (const name of ["contacts", "contexts", "users"]) {
     const snap = await db.collection(name).get()
     const batch = db.batch()
     for (const d of snap.docs) batch.delete(d.ref)
@@ -38,9 +38,16 @@ async function wipe(): Promise<void> {
 test("listFlaggedDirectoryEntities: finds flagged people, companies and jobs; ignores unflagged records", async () => {
   await wipe()
 
+  await db.collection("users").doc("flagger-1").set({ name: "Jane Flagger", email: "jane@example.com" })
+
   await db.collection("contacts").doc("flagged-person").set({
     ownerUserId: "u", name: "Ivy Chen",
-    masterData: { needsReview: true, reviewReason: "Duplicate — looks like Ivy C." },
+    masterData: {
+      needsReview: true,
+      reviewReason: "Duplicate — looks like Ivy C.",
+      reviewFlaggedBy: "flagger-1",
+      reviewFlaggedAt: Timestamp.fromMillis(1_700_000_000_000),
+    },
   })
   await db.collection("contacts").doc("clean-person").set({
     ownerUserId: "u", name: "Not Flagged", masterData: {},
@@ -67,13 +74,19 @@ test("listFlaggedDirectoryEntities: finds flagged people, companies and jobs; ig
   assert.equal(person!.type, "person")
   assert.equal(person!.directoryId, "person__flagged-person")
   assert.equal(person!.sourceId, "flagged-person")
+  assert.equal(person!.sourceCollection, "contacts")
   assert.equal(person!.reviewReason, "Duplicate — looks like Ivy C.")
+  assert.equal(person!.flaggedByName, "Jane Flagger")
+  assert.equal(person!.flaggedAt, 1_700_000_000_000)
 
   const company = byName.get("Acme Corp")
   assert.ok(company)
   assert.equal(company!.type, "company")
   assert.equal(company!.directoryId, "company__flagged-company")
+  assert.equal(company!.sourceCollection, "contexts")
   assert.equal(company!.reviewReason, "Incorrect info")
+  assert.equal(company!.flaggedByName, null, "no reviewFlaggedBy on this record")
+  assert.equal(company!.flaggedAt, null)
 
   const job = byName.get("Riverside Job")
   assert.ok(job)
@@ -83,6 +96,17 @@ test("listFlaggedDirectoryEntities: finds flagged people, companies and jobs; ig
 
   // Sorted by name.
   assert.deepEqual(flagged.map((f) => f.name), [...flagged.map((f) => f.name)].sort((a, b) => a.localeCompare(b)))
+})
+
+test("listFlaggedDirectoryEntities: flaggedByName falls back to null for an unknown or deleted user", async () => {
+  await wipe()
+  await db.collection("contacts").doc("flagged-person").set({
+    ownerUserId: "u", name: "Orphaned Flag",
+    masterData: { needsReview: true, reviewFlaggedBy: "no-such-user", reviewFlaggedAt: Timestamp.fromMillis(1_700_000_000_000) },
+  })
+  const [entry] = await listFlaggedDirectoryEntities()
+  assert.equal(entry.flaggedByName, null)
+  assert.equal(entry.flaggedAt, 1_700_000_000_000)
 })
 
 test("listFlaggedDirectoryEntities: empty when nothing is flagged", async () => {

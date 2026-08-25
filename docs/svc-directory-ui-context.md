@@ -567,11 +567,20 @@ doc's `masterData`.
 - `lib/directory-review-queue.ts` (new) — `listFlaggedDirectoryEntities()`:
   two small `where("masterData.needsReview", "==", true)` queries (Admin
   SDK), one each against `/contacts` and `/contexts`, returning
-  `{directoryId, sourceId, type, name, reviewReason}` sorted by name.
-  Deliberately does not touch the `directoryIndex`/search-shard projection
-  pipeline — that stays a name/contact-fields projection, not a moderation
-  index, and this query is small enough (ad hoc, no server-side index
-  needed for a single-field equality filter) not to warrant joining it.
+  `{directoryId, sourceId, sourceCollection, type, name, reviewReason,
+  flaggedByName, flaggedAt}` sorted by name. `flaggedByName` resolves
+  `masterData.reviewFlaggedBy` (a uid) to a display name with one bulk
+  `Promise.all` of `/users/{uid}` reads per *distinct* flagger — not one
+  per flagged record — falling back to `null` for flags set before this was
+  tracked or whose flagger no longer exists. `flaggedAt` is
+  `reviewFlaggedAt.toMillis()` (epoch millis, JSON-safe over the API route;
+  a raw Firestore `Timestamp` isn't). `sourceCollection` is included so the
+  UI can call `clearDirectoryReviewFlag()` directly without re-deriving
+  `"contacts"`/`"contexts"` from `type`. Deliberately does not touch the
+  `directoryIndex`/search-shard projection pipeline — that stays a
+  name/contact-fields projection, not a moderation index, and this query is
+  small enough (ad hoc, no server-side index needed for a single-field
+  equality filter) not to warrant joining it.
 - `app/api/directory/flagged/route.ts` (GET, new) — gated by the same
   `requireDirectoryAdmin` as everything else on this screen: flagging
   itself is open to everyone, but the aggregate queue is admin-only, same
@@ -579,12 +588,19 @@ doc's `masterData`.
 - `fetchDirectoryFlaggedEntities()` added to the existing
   `lib/directory-admin-client.ts` rather than a new client file — both
   concerns are consumed by the same screen and share its auth-header helper.
-- UI: a simple list (name, type badge, reviewReason, "Open" button) — no
-  inline resolve/clear-flag control here. "Open" navigates to the profile
-  (`onOpenDetail`, closing this overlay first, same as the favorites/ask
-  overlays already do) where the existing `directory-flag-sheet.tsx` flow
-  resolves it. An inline resolve-from-the-list action would be a v2, not
-  built here since it wasn't asked for.
+- UI: a list (name, type badge, reviewReason, "Flagged {relative time} by
+  {name}" when that data exists, "Open" button, and an inline **"Clear
+  flag"** text button) with **type** (All/People/Companies/Jobs, pill
+  toggles) and **reason** (a `<select>` over the same four preset reasons
+  `directory-flag-sheet.tsx` uses) filters above it, so triaging "all the
+  Duplicates" doesn't mean scrolling past companies and jobs in between.
+  "Clear flag" calls `clearDirectoryReviewFlag()` (`lib/directory-writes.ts`)
+  straight from this list — that write has always been open to any
+  signed-in user (same as flagging itself); only the *aggregate view* is
+  admin-gated, so letting an admin resolve a flag without leaving for the
+  full profile doesn't cross any new permission line. Removes the row
+  optimistically on success; a failure shows an inline message under that
+  row rather than a page-level error, and leaves the row in place.
 
 **Two tabs, not two stacked sections.** "Flagged for review" and "Manage
 access" started as two `<section>`s on one scrolling page — replaced with the
@@ -598,6 +614,28 @@ badge that used to sit on the topbar icon (moved here since it's the more
 specific, discoverable place to see *why* the count is what it is — you land
 straight on the list it's counting rather than a bare number on an icon).
 The tab bar itself is hidden in the denied state (nothing to switch between).
+Each tab's intro text + filter/search controls sit in a `sticky top-0` bar
+*inside* the scroll area (styled with `.glass-panel` so scrolled content
+doesn't show through) — on top of the tab row itself already being outside
+`main`'s scroll region entirely (a `shrink-0` sibling), so neither the
+controls nor the tab switcher ever scroll out of reach on a long list.
+
+**Manage access: search + a count.** The users list has no pagination
+(`listDirectoryAdminAccessUsers()` reads the whole `/users` collection —
+fine at today's ~10 users, but not something to keep scanning by eye
+forever) — added a name/email search input above the list, and a
+"N people have Directory admin access" line (counting `hasAccess` **or**
+`isLegacyAdmin`, since a legacy admin has access either way) so there's an
+at-a-glance total instead of counting green switches.
+
+**Revoking access shows an undo toast; granting doesn't.** Both directions
+were, and still are, optimistic and immediate — the toggle always fires the
+write right away, it isn't held pending an undo window. But turning access
+*off* can interrupt someone mid-merge/delete, so a brief "Access revoked for
+X — Undo" toast (`UNDO_WINDOW_MS = 6000`) appears only on revoke; clicking
+Undo just re-invokes the same `setDirectoryAdminAccessUser(uid, true)` call
+as flipping the switch back on would. Granting access gets no such friction
+— there's no equivalent downside to reverse.
 
 **No Firestore rules change.** `/users/{uid}` write rules stay self-write-only
 and untouched — granting/revoking another user's `directoryAdminAccess`
@@ -612,8 +650,10 @@ independence — same bar as CRC's own
 only tests that module has). `scripts/directory-review-queue.test.ts`
 (emulator-backed — `pnpm emulator:test-directory-review-queue`) covers
 `listFlaggedDirectoryEntities()` end to end: flagged people/companies/jobs
-found, unflagged records excluded, sort order, and the top-level-`name`
-fallback when `masterData` has none. The existing
+found, unflagged records excluded, sort order, the top-level-`name`
+fallback when `masterData` has none, `flaggedByName` resolving a real
+`/users/{uid}` doc, and `flaggedByName`/`flaggedAt` both falling back to
+`null` for a `reviewFlaggedBy` uid with no matching user doc. The existing
 `scripts/test-directory-cleanup-rules.mjs` /
 `scripts/directory-cleanup-server.test.ts` suites were re-run as a
 regression check since `directory-admin-guard.ts` is a shared dependency of

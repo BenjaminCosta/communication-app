@@ -1,4 +1,4 @@
-import { getFirestore } from "firebase-admin/firestore"
+import { getFirestore, type Firestore } from "firebase-admin/firestore"
 import { getFirebaseAdminApp } from "@/lib/ai/server/firebase-admin"
 import { classifyContext, directoryId, type CoreContext, type DirectoryType } from "@/lib/directory-core"
 
@@ -18,9 +18,14 @@ import { classifyContext, directoryId, type CoreContext, type DirectoryType } fr
 export interface DirectoryFlaggedEntity {
   directoryId: string
   sourceId: string
+  sourceCollection: "contacts" | "contexts"
   type: DirectoryType
   name: string
   reviewReason: string | null
+  /** Display name of whoever flagged it, resolved from reviewFlaggedBy. Null for older flags set before this was tracked, or if that user no longer exists. */
+  flaggedByName: string | null
+  /** reviewFlaggedAt as epoch millis (JSON-safe) — null for older flags set before this was tracked. */
+  flaggedAt: number | null
 }
 
 function cleanStr(value: unknown): string | null {
@@ -37,6 +42,31 @@ function reviewReasonOf(data: Record<string, unknown>): string | null {
   return cleanStr(master.reviewReason)
 }
 
+function flaggedByUidOf(data: Record<string, unknown>): string | null {
+  const master = (data.masterData ?? {}) as Record<string, unknown>
+  return cleanStr(master.reviewFlaggedBy)
+}
+
+function flaggedAtMillisOf(data: Record<string, unknown>): number | null {
+  const master = (data.masterData ?? {}) as Record<string, unknown>
+  const value = master.reviewFlaggedAt as { toMillis?: () => number } | undefined
+  return typeof value?.toMillis === "function" ? value.toMillis() : null
+}
+
+/** Bulk-resolves reviewFlaggedBy uids to display names — one doc read per distinct flagger, not per flagged record. */
+async function resolveFlaggerNames(db: Firestore, uids: Array<string | null>): Promise<Map<string, string>> {
+  const unique = [...new Set(uids.filter((uid): uid is string => uid != null))]
+  if (unique.length === 0) return new Map()
+  const snapshots = await Promise.all(unique.map((uid) => db.collection("users").doc(uid).get()))
+  const names = new Map<string, string>()
+  snapshots.forEach((snapshot, index) => {
+    const data = snapshot.data()
+    const name = cleanStr(data?.name) ?? cleanStr(data?.email)
+    if (name) names.set(unique[index], name)
+  })
+  return names
+}
+
 /** Every flagged person, company and job, sorted by name. */
 export async function listFlaggedDirectoryEntities(): Promise<DirectoryFlaggedEntity[]> {
   const db = getFirestore(await getFirebaseAdminApp())
@@ -45,26 +75,39 @@ export async function listFlaggedDirectoryEntities(): Promise<DirectoryFlaggedEn
     db.collection("contexts").where("masterData.needsReview", "==", true).get(),
   ])
 
+  const flaggerNames = await resolveFlaggerNames(db, [
+    ...contactsSnap.docs.map((doc) => flaggedByUidOf(doc.data())),
+    ...contextsSnap.docs.map((doc) => flaggedByUidOf(doc.data())),
+  ])
+
   const people: DirectoryFlaggedEntity[] = contactsSnap.docs.map((doc) => {
     const data = doc.data()
+    const flaggedByUid = flaggedByUidOf(data)
     return {
       directoryId: directoryId("person", doc.id),
       sourceId: doc.id,
+      sourceCollection: "contacts",
       type: "person",
       name: nameOf(data),
       reviewReason: reviewReasonOf(data),
+      flaggedByName: flaggedByUid ? flaggerNames.get(flaggedByUid) ?? null : null,
+      flaggedAt: flaggedAtMillisOf(data),
     }
   })
 
   const others: DirectoryFlaggedEntity[] = contextsSnap.docs.map((doc) => {
     const data = doc.data()
     const type = classifyContext({ id: doc.id, ...data } as CoreContext)
+    const flaggedByUid = flaggedByUidOf(data)
     return {
       directoryId: directoryId(type, doc.id),
       sourceId: doc.id,
+      sourceCollection: "contexts",
       type,
       name: nameOf(data),
       reviewReason: reviewReasonOf(data),
+      flaggedByName: flaggedByUid ? flaggerNames.get(flaggedByUid) ?? null : null,
+      flaggedAt: flaggedAtMillisOf(data),
     }
   })
 

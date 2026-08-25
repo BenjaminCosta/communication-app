@@ -68,9 +68,12 @@ export async function setDirectoryAdminAccessUser(uid: string, hasAccess: boolea
 export type DirectoryFlaggedEntity = {
   directoryId: string
   sourceId: string
+  sourceCollection: "contacts" | "contexts"
   type: "person" | "company" | "job" | "other"
   name: string
   reviewReason: string | null
+  flaggedByName: string | null
+  flaggedAt: number | null
 }
 
 /** Every person/company/job currently flagged for review — the moderation queue shown on the access screen. */
