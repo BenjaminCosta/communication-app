@@ -1,8 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { Plus, Star } from "lucide-react"
+import { Plus, Star, UserRound } from "lucide-react"
 import { DirectoryCreateSheet } from "@/components/directory/directory-create-sheet"
+import { DirectoryAccessScreen } from "@/components/directory/directory-access-screen"
 import { DirectoryAskScreen } from "@/components/directory/ask/directory-ask-screen"
 import { DirectoryFavoritesScreen } from "@/components/directory/directory-favorites-screen"
 import { DirectoryHome } from "@/components/directory/directory-home"
@@ -26,6 +27,7 @@ import {
   type DirectorySearchIndex,
 } from "@/lib/directory-search"
 import type { CreatedDirectoryEntity } from "@/lib/directory-writes"
+import { fetchDirectoryFlaggedEntities } from "@/lib/directory-admin-client"
 
 interface DirectoryScreenProps {
   userId: string
@@ -68,6 +70,8 @@ export function DirectoryScreen({
     recentsLoading: isRecentsLoading,
   } = useDirectoryUserState()
   const [showFavorites, setShowFavorites] = useState(false)
+  const [showAccess, setShowAccess] = useState(false)
+  const [flaggedCount, setFlaggedCount] = useState(0)
   const [showAsk, setShowAsk] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [createNotice, setCreateNotice] = useState("")
@@ -77,6 +81,17 @@ export function DirectoryScreen({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const searchIndexRef = useRef(searchIndex)
+
+  // Ambient badge on the access-management icon — best-effort, fails
+  // silently (no badge, not an error) for non-admins or on any other
+  // failure, since this is passive UI with no room for a denied/error state.
+  useEffect(() => {
+    let cancelled = false
+    fetchDirectoryFlaggedEntities()
+      .then((list) => { if (!cancelled) setFlaggedCount(list.length) })
+      .catch(() => { if (!cancelled) setFlaggedCount(0) })
+    return () => { cancelled = true }
+  }, [userId])
 
   useEffect(() => {
     searchIndexRef.current = searchIndex
@@ -243,6 +258,11 @@ export function DirectoryScreen({
     onOpenDetail(directoryId)
   }, [onOpenDetail])
 
+  const openFlaggedEntity = useCallback((directoryId: string) => {
+    setShowAccess(false)
+    onOpenDetail(directoryId)
+  }, [onOpenDetail])
+
   const handleCreated = useCallback((entity: CreatedDirectoryEntity) => {
     setShowCreate(false)
     setScope(entity.type)
@@ -280,14 +300,24 @@ export function DirectoryScreen({
             if (module === "courtney-roberts-center") onCourtneyRobertsCenter?.()
           }}
         />
-        <button
-          type="button"
-          onClick={() => setShowFavorites(true)}
-          className="glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
-          aria-label="Open Directory favorites"
-        >
-          <Star className="h-4 w-4 text-white" strokeWidth={1.8} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFavorites(true)}
+            className="glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
+            aria-label="Open Directory favorites"
+          >
+            <Star className="h-4 w-4 text-white" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAccess(true)}
+            className="glass-button flex h-9 w-9 items-center justify-center rounded-full border transition-transform duration-150 active:scale-[0.96]"
+            aria-label={flaggedCount > 0 ? `Manage Directory access — ${flaggedCount} flagged for review` : "Manage Directory access"}
+          >
+            <UserRound className="h-4 w-4 text-white" strokeWidth={1.8} />
+          </button>
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
@@ -361,7 +391,7 @@ export function DirectoryScreen({
         )}
       </main>
 
-      {!hasSubmitted && !showFavorites && !showAsk && !showCreate && (
+      {!hasSubmitted && !showFavorites && !showAsk && !showCreate && !showAccess && (
         <button
           type="button"
           onClick={() => setShowCreate(true)}
@@ -392,6 +422,11 @@ export function DirectoryScreen({
             onSelect={openItem}
             onRetry={() => setRetryKey((key) => key + 1)}
           />
+        </div>
+      )}
+      {showAccess && (
+        <div className="animate-slide-in-right absolute inset-0 z-20">
+          <DirectoryAccessScreen onBack={() => setShowAccess(false)} onOpenDetail={openFlaggedEntity} />
         </div>
       )}
       {DIRECTORY_AI_ENABLED && showAsk && (

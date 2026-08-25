@@ -602,63 +602,67 @@ export async function removeContextField(contextId: string, label: string): Prom
   })
 }
 
-// ── Duplicate merge (contact data) ──────────────────────────────────────
+// ── Flag for review ──────────────────────────────────────────────────────
+// Available to every signed-in user (unlike merge/delete): flagging a record
+// as needing attention is safe and non-destructive, and is often how a
+// duplicate/bad record gets noticed in the first place. Writes into
+// `masterData` — same "human edits are authoritative" precedence as the rest
+// of the Public Overview fields (see applyDirectoryEdits above) — so a flag
+// set here survives routine master-workbook re-imports. Only person/company/
+// job carry masterData; "other" contexts don't track needsReview today.
 
-/**
- * Merge a duplicate contact INTO a surviving contact WITHOUT losing data.
- * Unions emails/phones/urls/tags/companies/roles and records the duplicate's
- * name + id as aliases on the survivor. The duplicate is NOT deleted here.
- *
- * IMPORTANT — message safety: messages reference contacts via `contactIds`.
- * Re-pointing those from the duplicate to the survivor must run server-side
- * (Admin SDK) because a client can't write messages it doesn't own. This helper
- * therefore only merges CONTACT data; the caller must trigger the server-side
- * message re-point + duplicate deletion (see pending `mergeContactsServer`
- * Cloud Function) so no message/job/relation is orphaned.
- *
- * Returns nothing; throws on missing docs.
- */
-export async function mergeContactData(survivorId: string, duplicateId: string): Promise<void> {
-  if (survivorId === duplicateId) throw new DirectoryWriteError("Cannot merge a contact into itself")
-  const survivorRef = doc(db, "contacts", survivorId)
-  const dupRef = doc(db, "contacts", duplicateId)
+export type DirectoryReviewReason = "Duplicate" | "Incorrect info" | "Inactive" | "Other"
+
+function formatReviewReason(reason: DirectoryReviewReason, note: string | null): string {
+  return note ? `${reason} — ${note}` : reason
+}
+
+/** Mark a person/company/job as needing review, with a preset reason + optional free-text note. */
+export async function flagDirectoryEntityForReview(
+  sourceCollection: "contacts" | "contexts",
+  sourceId: string,
+  input: { reason: DirectoryReviewReason; note?: string; flaggedBy: string },
+): Promise<void> {
+  const ref = doc(db, sourceCollection, sourceId)
+  const note = cleanValue(input.note ?? "")
   await runTransaction(db, async (tx) => {
-    const [sSnap, dSnap] = [await tx.get(survivorRef), await tx.get(dupRef)]
-    if (!sSnap.exists() || !dSnap.exists()) throw new DirectoryWriteError("Both contacts must exist")
-    const s = sSnap.data()
-    const d = dSnap.data()
-    const union = <T>(a: T[] | undefined, b: T[] | undefined): T[] => {
-      const seen = new Set<string>()
-      const out: T[] = []
-      for (const item of [...(a ?? []), ...(b ?? [])]) {
-        const key = JSON.stringify(item)
-        if (!seen.has(key)) { seen.add(key); out.push(item) }
-      }
-      return out
-    }
-    const aliasNames = union<string>(
-      Array.isArray(s.aliasNames) ? s.aliasNames : [],
-      [d.name].filter(Boolean),
-    )
-    tx.update(survivorRef, {
-      emails: union(s.emails, d.emails),
-      phones: union(s.phones, d.phones),
-      urls: union(s.urls, d.urls),
-      tags: union(s.tags, d.tags),
-      companies: union(s.companies, d.companies),
-      roles: union(s.roles, d.roles),
-      company: cleanValue(s.company) ?? cleanValue(d.company) ?? null,
-      role: cleanValue(s.role) ?? cleanValue(d.role) ?? null,
-      aliasNames,
-      mergedFromIds: arrayUnion(duplicateId),
-      updatedAt: serverTimestamp(),
-    })
-    // Tombstone the duplicate so it stops surfacing while the server re-points
-    // its messages; the server function deletes it once messages are moved.
-    tx.update(dupRef, {
-      mergedIntoId: survivorId,
-      mergedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This entity no longer exists.")
+    const data = snap.data()
+    const master: Record<string, unknown> = { ...(data.masterData ?? {}) }
+    master.needsReview = true
+    master.reviewReason = formatReviewReason(input.reason, note)
+    master.reviewFlaggedBy = input.flaggedBy
+    master.reviewFlaggedAt = serverTimestamp()
+    tx.update(ref, { masterData: master, updatedAt: serverTimestamp() })
   })
 }
+
+/** Clear a previously-set review flag (available to any signed-in user, same as flagging). */
+export async function clearDirectoryReviewFlag(
+  sourceCollection: "contacts" | "contexts",
+  sourceId: string,
+): Promise<void> {
+  const ref = doc(db, sourceCollection, sourceId)
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new DirectoryWriteError("This entity no longer exists.")
+    const data = snap.data()
+    const master: Record<string, unknown> = { ...(data.masterData ?? {}) }
+    master.needsReview = false
+    master.reviewReason = null
+    master.reviewFlaggedBy = null
+    master.reviewFlaggedAt = null
+    tx.update(ref, { masterData: master, updatedAt: serverTimestamp() })
+  })
+}
+
+// ── Duplicate merge (contact data) ──────────────────────────────────────
+//
+// Merging is admin-only and runs entirely server-side via Admin SDK — see
+// mergeDirectoryContacts() in lib/directory-server-writes.ts, called from
+// app/api/directory/merge. A client-only version can't safely do this: it
+// can't write /messages it doesn't own to re-point contactIds, and the
+// /contacts update rule wouldn't let a non-owner touch most imported
+// duplicates anyway. Client callers use requestDirectoryMerge() in
+// lib/directory-cleanup-client.ts.

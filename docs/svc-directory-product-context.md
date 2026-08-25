@@ -44,6 +44,8 @@ Search stays fast because it works from information already saved on your device
 - Personal favorites and recents without changing the shared catalog.
 - Profiles with contact information, relationships, quality signals, and quick actions.
 - Editing a person, company, or job's details where allowed, without treating the search catalog as the master record.
+- Flagging any record for review (Duplicate, Incorrect info, Inactive, or Other, plus a note) — open to the whole team.
+- Admin-only cleanup for bad data: merging a duplicate person, company, or job into a survivor (including reassigning a merged person's historical Communications references), and deleting a person, company, or job outright.
 - Collaborative notes and files associated with a profile.
 - Relationships among people, companies, and jobs, including connection paths when sufficient data exists.
 - Collaborative 3-Week Outlook for jobs: quick task entry, calendar/Gantt view, advanced editing, publishing, PDF output, and preparation of an update message.
@@ -74,7 +76,7 @@ Search stays fast because it works from information already saved on your device
 
 **Product open items.**
 
-- Complete duplicate merging, including safe reassignment of historical references in Communications.
+- ~~Complete duplicate merging, including safe reassignment of historical references in Communications.~~ Done for people, companies and jobs: admins can merge a duplicate into a survivor from the profile screen, including message re-pointing in Communications for people — see `docs/svc-directory-ui-context.md` §14.
 - Improve the presentation of related messages without breaking visibility rules.
 - Define how incomplete, ambiguous, or review-pending records are shown and resolved at operational scale.
 - Decide how much the team is willing to spend on AI and voice questions, how usage will be tracked, what languages to support, and how long voice recordings are kept.

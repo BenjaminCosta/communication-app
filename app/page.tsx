@@ -2186,6 +2186,7 @@ export default function Home() {
                 className={entranceClass}
                 directoryId={selectedDirectoryId}
                 userId={firebaseUser.uid}
+                isAdmin={currentUser?.isAdmin === true}
                 initialView={directoryDetailView}
                 onBack={handleDirectoryDetailBack}
                 onOpenEntity={goToDirectoryDetail}
